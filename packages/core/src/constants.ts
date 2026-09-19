@@ -1,0 +1,40 @@
+import { address } from '@solana/kit';
+
+export const SYSTEM_PROGRAM = address('11111111111111111111111111111111');
+export const TOKEN_PROGRAM = address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+export const TOKEN_2022_PROGRAM = address('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+export const ATA_PROGRAM = address('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+export const COMPUTE_BUDGET_PROGRAM = address('ComputeBudget111111111111111111111111111111');
+export const JUPITER_PROGRAM = address('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+
+/** Native SOL is always handled as wrapped SOL (WSOL) inside the protected transaction. */
+export const WSOL_MINT = address('So11111111111111111111111111111111111111112');
+
+export const LEGACY_SIZE_LIMIT = 1232;
+export const V1_SIZE_LIMIT = 4096;
+export const V1_MAX_ACCOUNTS = 64;
+export const MAX_COMPUTE_UNITS = 1_400_000;
+/**
+ * Base fee per signature. A cluster parameter, not a constant of nature: if it ever changes, R4
+ * would understate the fee. The pipeline also cross-checks with the RPC's getFeeForMessage (B-12).
+ */
+export const LAMPORTS_PER_SIGNATURE = 5000n;
+export const TOKEN_ACCOUNT_SIZE = 165;
+export const MINT_SIZE = 82;
+/** Intermediate ATA(E, m) accounts a route may use (D14). Real routes use 0 to 2 (audit B-10). */
+export const MAX_INTERMEDIATE_ACCOUNTS = 4;
+export const BPS_DENOMINATOR = 10_000n;
+
+// Ceilings the verifier enforces whatever the configuration says (audit B-01, B-02). The fee and
+// F_max reach the browser from the deployment; these limits do not, so a compromised backend or a
+// config bug cannot push past them.
+export const MAX_FEE_BPS = 100n; // 1%, the intended fee is 0.5%
+export const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1_000_000n; // 0.001 SOL
+export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
+
+/**
+ * Rent-exempt minimum of a 165-byte token account before the 2026 rent reduction (now 1,488,440).
+ * Only an upper bound for display when the RPC cannot answer: the live value comes from
+ * getMinimumBalanceForRentExemption (audit C-09).
+ */
+export const TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS = 2_039_280n;

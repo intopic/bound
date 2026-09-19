@@ -1,0 +1,14 @@
+{
+  "name": "@bound/jupiter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bound/core": "*",
+    "@bound/solana": "*",
+    "@bound/verifier": "*"
+  }
+}

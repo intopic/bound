@@ -1,0 +1,35 @@
+{
+  "name": "bound",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:fuzz": "vitest run packages/verifier/test/property.test.ts --mode fuzz",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "integration": "node tests/integration/mainnet.ts",
+    "dev": "npm run dev -w @bound/web",
+    "build": "npm run build -w @bound/web",
+    "e2e": "node tests/e2e/smoke.ts",
+    "e2e:devnet": "node tests/e2e/devnet.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "fast-check": "^4.10.1",
+    "playwright-core": "^1.63.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "@solana-program/compute-budget": "^0.18.1",
+    "@solana-program/system": "^0.14.1",
+    "@solana-program/token": "^0.16.1",
+    "@solana/kit": "^8.3.0"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

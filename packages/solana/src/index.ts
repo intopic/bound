@@ -1,0 +1,278 @@
+import {
+  createDefaultRpcTransport,
+  createSolanaRpcFromTransport,
+  fetchAddressesForLookupTables,
+  generateKeyPairSigner,
+  getBase64EncodedWireTransaction,
+  getSignatureFromTransaction,
+  isSolanaError,
+  SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+} from '@solana/kit';
+import type { Address, KeyPairSigner, Rpc, SolanaRpcApi, Transaction } from '@solana/kit';
+import type { AccountState, ChainSnapshot } from '@bound/core';
+
+export type SolanaRpc = Rpc<SolanaRpcApi>;
+
+/**
+ * An RPC client that retries rate-limited requests (HTTP 429) with exponential backoff. Every
+ * method the pipeline uses is safe to repeat: reads, simulations, and re-sends of an already
+ * signed transaction (the same signature can only land once).
+ */
+export function createRetryingRpc(url: string, maxRetries = 5): SolanaRpc {
+  const transport = createDefaultRpcTransport({ url: url as `https://${string}` });
+  const retrying: typeof transport = async config => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await transport(config);
+      } catch (e) {
+        if (attempt >= maxRetries || !/429|Too Many Requests/i.test(String((e as Error)?.message ?? e))) throw e;
+        await new Promise(r => setTimeout(r, 500 * 2 ** attempt));
+      }
+    }
+  };
+  return createSolanaRpcFromTransport(retrying) as unknown as SolanaRpc;
+}
+
+const MAX_ACCOUNTS_PER_CALL = 100;
+
+const decodeBase64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+/** Reads accounts in batches; a missing account maps to null. */
+export async function fetchAccounts(rpc: SolanaRpc, addresses: readonly Address[]): Promise<Map<string, AccountState | null>> {
+  const unique = [...new Set(addresses)];
+  const out = new Map<string, AccountState | null>();
+  for (let i = 0; i < unique.length; i += MAX_ACCOUNTS_PER_CALL) {
+    const batch = unique.slice(i, i + MAX_ACCOUNTS_PER_CALL);
+    const { value } = await rpc.getMultipleAccounts(batch, { encoding: 'base64', commitment: 'confirmed' }).send();
+    value.forEach((acc, j) => {
+      out.set(batch[j], acc ? { owner: acc.owner, lamports: acc.lamports, data: decodeBase64(acc.data[0]) } : null);
+    });
+  }
+  return out;
+}
+
+export class LookupTableMismatchError extends Error {}
+
+/**
+ * Both RPCs must return every entry of a table (second review, question 5). A table one of them
+ * sees shorter is unconfirmed, not trusted: the caller builds again.
+ */
+export function sameLookupTable(a: readonly string[] = [], b: readonly string[] = []): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+/**
+ * Everything the verifier needs, read from the chain. Lookup tables come from the RPC, never from
+ * Jupiter; with a second RPC configured, both must agree on every table.
+ */
+export async function fetchSnapshot(args: {
+  rpc: SolanaRpc;
+  secondaryRpc?: SolanaRpc;
+  addresses: readonly Address[];
+  lookupTableAddresses: readonly Address[];
+}): Promise<ChainSnapshot> {
+  const accounts = await fetchAccounts(args.rpc, args.addresses);
+  let lookupTables: Record<string, readonly Address[]> = {};
+  if (args.lookupTableAddresses.length) {
+    lookupTables = await fetchAddressesForLookupTables([...args.lookupTableAddresses], args.rpc);
+    if (args.secondaryRpc) {
+      const second = await fetchAddressesForLookupTables([...args.lookupTableAddresses], args.secondaryRpc);
+      for (const table of args.lookupTableAddresses) {
+        if (!sameLookupTable(lookupTables[table], second[table])) {
+          throw new LookupTableMismatchError(`lookup table ${table} differs between RPCs`);
+        }
+      }
+    }
+  }
+  return { accounts, lookupTables };
+}
+
+export type MintInfo = { exists: boolean; program: Address | null; decimals: number; freezeAuthority: boolean; mintAuthority: boolean };
+
+/** What a mint account says; `exists: false` for a missing account or one too short to be a mint. */
+export function mintInfoOf(s: AccountState | null | undefined): MintInfo {
+  if (!s || s.data.length < 82) return { exists: false, program: null, decimals: 0, freezeAuthority: false, mintAuthority: false };
+  const view = new DataView(s.data.buffer, s.data.byteOffset, s.data.byteLength);
+  return {
+    exists: true,
+    program: s.owner,
+    decimals: s.data[44],
+    mintAuthority: view.getUint32(0, true) === 1,
+    freezeAuthority: view.getUint32(46, true) === 1,
+  };
+}
+
+export async function fetchMints(rpc: SolanaRpc, mints: readonly Address[]): Promise<Map<string, MintInfo>> {
+  const states = await fetchAccounts(rpc, mints);
+  return new Map(mints.map(m => [m, mintInfoOf(states.get(m))]));
+}
+
+const INFRA = new Set([
+  '11111111111111111111111111111111', 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+  'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+  'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4', 'ComputeBudget111111111111111111111111111111',
+]);
+
+/**
+ * The innermost non-infrastructure program on the call stack when a simulation failed: the DEX to
+ * blame. Returns the failing infrastructure program when none (one of our own instructions failed).
+ */
+export function blameProgram(logs: readonly string[]): string | null {
+  const stack: string[] = [];
+  for (const line of logs) {
+    let m = line.match(/^Program (\w+) invoke \[(\d+)\]/);
+    if (m) { stack.length = Number(m[2]) - 1; stack.push(m[1]); continue; }
+    m = line.match(/^Program (\w+) failed/);
+    if (m) return [...stack].reverse().find(p => !INFRA.has(p)) ?? m[1];
+    if (/^Program \w+ success/.test(line)) stack.pop();
+  }
+  return null;
+}
+
+export const isInfrastructureProgram = (programId: string) => INFRA.has(programId);
+
+function failedInstructionOf(err: unknown): number | null {
+  const ie = (err as { InstructionError?: [number | bigint, unknown] } | null)?.InstructionError;
+  return ie ? Number(ie[0]) : null;
+}
+
+export type Simulation = {
+  ok: boolean;
+  error: string | null;
+  units: number;
+  logs: string[];
+  blame: string | null;
+  /** Index of the instruction that failed, when the error names one. */
+  failedInstruction: number | null;
+};
+
+/** Simulation answers "will it execute?" — never "is it safe?" (plan, section 15). */
+export async function simulate(rpc: SolanaRpc, transaction: Transaction): Promise<Simulation> {
+  const { value } = await rpc
+    .simulateTransaction(getBase64EncodedWireTransaction(transaction), {
+      encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed',
+    })
+    .send();
+  const logs = [...(value.logs ?? [])];
+  return {
+    ok: value.err === null,
+    error: value.err === null ? null : JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
+    units: Number(value.unitsConsumed ?? 0n),
+    logs,
+    blame: value.err === null ? null : blameProgram(logs),
+    failedInstruction: failedInstructionOf(value.err),
+  };
+}
+
+/**
+ * What happened to a sent transaction (audit C-03). Only three outcomes allow saying that no funds
+ * moved: `rejected` (refused before it was broadcast), `expired` (its blockhash expired and the
+ * cluster has no record of it, so it can never execute) and `failed` (it executed and reverted;
+ * only the network fee was paid). `unknown` means exactly that: look it up before trying again.
+ */
+export type SendOutcome = 'confirmed' | 'failed' | 'expired' | 'rejected' | 'unknown';
+export type SendStatus = 'sending' | 'sent' | SendOutcome;
+export type SendResult = { signature: string; status: SendOutcome; error: string | null };
+
+export type SendTiming = { pollMs: number; rebroadcastMs: number; giveUpMs: number; settleTries: number; settleMs: number };
+const TIMING: SendTiming = { pollMs: 1_000, rebroadcastMs: 3_000, giveUpMs: 150_000, settleTries: 5, settleMs: 2_000 };
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const stringify = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? x.toString() : x));
+
+/**
+ * The RPC answered the first send with a refusal, so the transaction was never forwarded: a
+ * JSON-RPC error (preflight simulation failed, blockhash not found, node unhealthy) or an HTTP 4xx
+ * (Bound's proxy: rate limit, kill switch). Network errors and 5xx are ambiguous.
+ */
+export function refusedBeforeBroadcast(e: unknown): boolean {
+  if (!isSolanaError(e)) return false;
+  if (isSolanaError(e, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR)) {
+    const status = (e.context as { statusCode?: number }).statusCode ?? 0;
+    return status >= 400 && status < 500;
+  }
+  return (e.context as { __code: number }).__code < 0; // JSON-RPC server errors are negative codes
+}
+
+/**
+ * Sends, re-broadcasts every few seconds, and settles the outcome. The signature is reported
+ * before the first request, so a caller never loses track of a transaction that may have landed.
+ */
+export async function sendAndConfirm(args: {
+  rpc: SolanaRpc;
+  transaction: Transaction;
+  lastValidBlockHeight: bigint;
+  onStatus?: (status: SendStatus, signature: string) => void;
+  timing?: Partial<SendTiming>;
+}): Promise<SendResult> {
+  const { rpc, transaction, lastValidBlockHeight } = args;
+  const t = { ...TIMING, ...args.timing };
+  const signature = getSignatureFromTransaction(transaction);
+  const wire = getBase64EncodedWireTransaction(transaction);
+  const done = (status: SendOutcome, error: string | null = null): SendResult => {
+    args.onStatus?.(status, signature);
+    return { signature, status, error };
+  };
+  const rebroadcast = () =>
+    void rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
+  const lookup = async (searchTransactionHistory: boolean) =>
+    (await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory }).send()).value[0];
+
+  args.onStatus?.('sending', signature);
+  try {
+    await rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0n }).send();
+    args.onStatus?.('sent', signature);
+  } catch (e) {
+    if (refusedBeforeBroadcast(e)) return done('rejected', String((e as Error)?.message ?? e));
+    // It may have been forwarded before the connection failed: keep watching. The re-broadcasts
+    // send the same bytes, which can land at most once.
+  }
+
+  const started = Date.now();
+  let lastBroadcast = Date.now();
+  while (Date.now() - started < t.giveUpMs) {
+    await sleep(t.pollMs);
+    try {
+      const s = await lookup(false);
+      if (s?.err) return done('failed', stringify(s.err));
+      if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return done('confirmed');
+      const height = await rpc.getBlockHeight({ commitment: 'confirmed' }).send();
+      if (height > lastValidBlockHeight) return settleAfterExpiry();
+    } catch {
+      // A failed read says nothing about the transaction; keep trying until giving up.
+    }
+    if (Date.now() - lastBroadcast >= t.rebroadcastMs) {
+      rebroadcast();
+      lastBroadcast = Date.now();
+    }
+  }
+  return done('unknown', 'the outcome could not be read from the network');
+
+  // The blockhash has expired, so the transaction can no longer be included. Stop re-broadcasting
+  // and read the full status history: seen but only `processed` is not an outcome yet.
+  async function settleAfterExpiry(): Promise<SendResult> {
+    let notFound = 0;
+    for (let i = 0; i < t.settleTries; i++) {
+      try {
+        const s = await lookup(true);
+        if (s?.err) return done('failed', stringify(s.err));
+        if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return done('confirmed');
+        if (!s && ++notFound >= 2) return done('expired');
+      } catch {
+        // keep settling
+      }
+      await sleep(t.settleMs);
+    }
+    return done('unknown', 'seen by the network but not confirmed');
+  }
+}
+
+/**
+ * The temporary authority E: an Ed25519 key generated with WebCrypto as non-extractable, so not
+ * even a bug can export it (D7). One per transaction; the caller drops it after signing.
+ */
+export async function createEphemeral(): Promise<KeyPairSigner> {
+  const signer = await generateKeyPairSigner();
+  if (signer.keyPair.privateKey.extractable) throw new Error('The temporary key must be non-extractable');
+  return signer;
+}
