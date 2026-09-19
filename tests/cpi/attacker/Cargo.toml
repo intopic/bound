@@ -1,0 +1,15 @@
+[package]
+name = "bound-attacker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A deliberately malicious swap program, used only by Bound's CPI test"
+
+[dependencies]
+solana-program = "4"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[profile.release]
+overflow-checks = true

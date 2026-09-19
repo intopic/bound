@@ -10,3 +10,5 @@ tests/e2e/screenshots/
 tests/integration/results/
 spikes/
 spikes/*/results/*.json
+tests/cpi/results/
+tests/cpi/attacker/target/
