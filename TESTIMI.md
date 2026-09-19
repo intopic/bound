@@ -19,6 +19,7 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar a
 | T4 në mainnet: Jupiter → compiler → simulim → verifier, 30 çifte × v0 dhe v1, me fee-n e Bound | 60/60 |
 | T1 në mainnet: 8 sulme me SPL Token dhe System Program realë | 8/8 sillen siç pritet, verifier-i i refuzon të gjitha |
 | T5 në mainnet: minimumi i daljes (nëse swap-i jep më pak, i gjithë transaksioni anulohet) | 3/3 |
+| T6: një program keqdashës i vërtetë në vendin e Jupiter-it, i ekzekutuar në një makinë virtuale Solana | 17/17 |
 | E2E në Edge me wallet testimi: quote, ndërtim, verifikim, R6 ndalon kthimin e panënshkruar, CSP me nonce, ikonat vetëm nga Bound, Jupiter nuk merr adresën e wallet-it, ngjitja e adresës së coin-it | 17/17 |
 
 ## Para se të fillosh

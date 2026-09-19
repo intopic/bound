@@ -170,7 +170,7 @@ Garancia mban nëse komponentët më poshtë janë të saktë dhe të pandryshua
 
 | Komponenti | Supozimi | Mbrojtja sot |
 | --- | --- | --- |
-| Runtime-i i Solana | Një program nuk përdor dot llogari ose privilegje signer-i që nuk iu dhanë (CPI nuk i rrit ato) | Testet T1 me instruksione direkte; testi CPI mungon ende |
+| Runtime-i i Solana | Një program nuk përdor dot llogari ose privilegje signer-i që nuk iu dhanë (CPI nuk i rrit ato) | T1 me instruksione direkte dhe T6 me program keqdashës të vërtetë, 17/17 |
 | SPL Token, Token-2022, ATA, System | Sillen sipas specifikës, përfshirë kontrollin e balancës në self-transfer | Programe të audituara; self-transfer i provuar në gjendjen e mainnet-it |
 | Kodi i Bound në browser | Compiler-i dhe verifier-i janë të saktë dhe të pandryshuar | Verifier i pavarur, teste mutacioni dhe property, CSP me nonce; build i riprodhueshëm mungon ende |
 | Serveri i Bound | Shërben faqen e vërtetë dhe përcjell përgjigjet e RPC-së dhe metadata e tokenëve | Nuk mund të ndryshojë fee-n ose treasury-n; F_max e tij kufizohet nga verifier-i; decimals kontrollohen kundrejt mint-it on-chain |
@@ -226,6 +226,7 @@ Të gjitha testet kalojnë në gjendjen aktuale; i vetmi dështim në mainnet is
 | `tests/integration/mainnet.ts` T4 | Pipeline i plotë mbi gjendjen e mainnet-it, 30 çifte × v0 dhe v1, me fee | 60/60 pas rregullimeve të auditimit të dytë |
 | `tests/integration/mainnet.ts` T1 | 8 sulme me SPL Token dhe System realë në vendin e Jupiter-it | 8/8 siç pritej; verifier-i i refuzon të 8-t |
 | `tests/integration/mainnet.ts` T5 | Minimumi i ngritur ×2 duhet të bjerë pikërisht te kontrolli | 3/3 |
+| `tests/cpi/run.ts` + `tests/cpi/attacker` T6 | Program keqdashës i vërtetë, i ngarkuar në një makinë virtuale Solana, sulmon transaksionin e mbrojtur nga brenda një CPI-je; pas çdo rasti kontrollohet zinxhiri | 17/17 |
 | `tests/integration/self-transfer.ts` | Sjellja e self-transfer në SPL Token | 4/4 |
 | `tests/e2e/smoke.ts` | Browser real (Edge), wallet testimi që kthen tx pa nënshkruar: faqja duhet të ndalë te R6; CSP; ikonat; Jupiter nuk merr adresën e wallet-it; ngjitja e adresës së coin-it | 17/17 |
 | `tests/e2e/devnet.ts` | Nënshkrim → verifikim → E → dërgim në devnet | I bllokuar nga faucet-i publik i devnet |
@@ -238,6 +239,7 @@ npm run typecheck && npm test          # ~10 s, 141 teste
 BOUND_FUZZ_RUNS=20000 npx vitest run packages/verifier/test/property.test.ts   # ~15 min
 npm run test:fuzz                      # 100,000 raste për veti, ~75 min
 npm run integration                    # T4 + T1 + T5 në mainnet, ~20 min
+(cd tests/cpi/attacker && cargo build-sbf) && node tests/cpi/run.ts   # T6; Linux ose macOS, edhe në CI
 node tests/integration/self-transfer.ts
 npm run build && npm run start -w @bound/web
 npm run e2e                            # ~2 min, kundrejt http://localhost:3000
@@ -251,7 +253,7 @@ Kërkojmë një auditim të të gjithë repos, jo vetëm të verifier-it. Lista 
 
 ### A. Siguria on-chain dhe garancia
 
-- [ ] **Sulmet me CPI (prioriteti 1).** Një program keqdashës në vendin e Jupiter-it, me `invoke_signed`: mbyll dhe rikrijo E_in, E_out ose një hop brenda swap-it; financo rikrijimin nga një PDA; ri-hyrje përmes një transfer hook. A mund të mbajë sulmuesi fonde ose qira pa i bërë mbylljet tonë të dështojnë? Ne e kemi arsyetuar, jo testuar: nëse keni toolchain-in e Solana-s, na shkruani këtë test.
+- [x] **Sulmet me CPI (prioriteti 1).** U bë: testi T6 (`tests/cpi/`) ngarkon një program keqdashës të vërtetë në vendin e Jupiter-it dhe e lë të sulmojë nga brenda një CPI-je. 17 raste, të gjitha kaluan. Mbetet për ju: a ka sulm që lista nuk e mbulon — sidomos rikrijimi i një llogarie të mbyllur nga një PDA brenda swap-it, ose ri-hyrja përmes një transfer hook Token-2022?
 - [ ] **Plotësia e R1 duke u mbështetur te R6.** A ka ndonjë aset të W-së që lëviz pa nënshkrimin e W-së dhe që filtri i R1 nuk e kap?
 - [ ] **Kontrolli i minimumit** (`compiler.ts`, `verify.ts`). A mund ta kalojë një route kontrollin duke dhënë më pak se `minOut`? Një transfertë e jashtme në W_out midis përgatitjes dhe ekzekutimit do ta fshihte mungesën; a është e pranueshme?
 - [ ] **`Revoke(W_out)`**: a mjafton, dhe a është në vendin e duhur? W_out është e vetmja llogari e W-së e shkrueshme në swap.
@@ -308,7 +310,7 @@ Kërkojmë një auditim të të gjithë repos, jo vetëm të verifier-it. Lista 
 
 Këto janë pyetjet për të cilat na intereson më shumë një përgjigje e drejtpërdrejtë.
 
-1. A mund të mbajë një program keqdashës, përmes CPI, fonde ose qira pa i bërë mbylljet tonë të dështojnë?
+1. A mund të mbajë një program keqdashës, përmes CPI, fonde ose qira pa i bërë mbylljet tonë të dështojnë? Testi T6 thotë jo për 17 raste; a mungon ndonjë rrugë?
 2. A mund të kalojë kontrolli i minimumit ndonëse route-i jep më pak? A duhet të shqetësohemi për një transfertë të jashtme në W_out që e fsheh mungesën?
 3. A është `Revoke(W_out)` i mjaftueshëm, apo ka rrugë tjetër për të lëvizur tokena nga W_out pa nënshkrimin e W-së?
 4. A është i saktë parsimi ynë i extension-eve Token-2022 për hop-et, dhe a duhen refuzuar extension-e të tjera (p.sh. pausable, default frozen)?
@@ -339,7 +341,7 @@ Një raport në Markdown, në shqip ose anglisht, që fillon me vendimin për al
 3. **Konfirmimi i rregullimeve** B-01 deri B-12: të mbyllura apo jo, dhe çfarë prishën.
 4. **Përgjigjet** për pyetjet e seksionit 11.
 5. **Feedback për dizajnin:** çfarë do të ndryshonit para përdoruesve realë, dhe rrugë më të thjeshta për të njëjtën garanci.
-6. **Testi CPI**, nëse keni toolchain-in: program keqdashës plus testi që e ekzekuton.
+6. **Vlerësimi i testit T6**: a mbulon lista e rasteve çdo sulm që do të provonit ju?
 
 Shpjegimet janë të mirëpritura: ky është edhe mësim për ekipin. Nëse diçka nuk mund ta kontrolloni (p.sh. nuk ekzekutohet një test), shkruajeni qartë, që të dimë çfarë nuk është konfirmuar.
 
@@ -347,7 +349,7 @@ Shpjegimet janë të mirëpritura: ky është edhe mësim për ekipin. Nëse di�
 
 Këto i dimë tashmë; nuk ka nevojë t'i raportoni si gjetje të reja, por jeni të mirëpritur t'i vlerësoni.
 
-- **Testi CPI** me program keqdashës mungon: toolchain-i i Solana-s nuk është i instaluar te ne. Workflow-i `.github/workflows/ci.yml` ekziston, por repo nuk është ende në GitHub, ndaj nuk ka ekzekutuar kurrë.
+- **Testi T6** ekzekutohet mbi litesvm (runtime-i i Agave me programet reale SPL), jo mbi një validator, dhe sulmuesi është programi ynë, jo një DEX i vërtetë. Transfer hook-et e Token-2022 dhe rikrijimi i një llogarie të mbyllur nga një PDA nuk mbulohen ende.
 - **Build i riprodhueshëm dhe SRI** mungojnë për frontend-in.
 - **Rishikimi i varësive** (supply chain) nuk është bërë; do ta porosisim veçmas.
 - **Phantom** deklaron vetëm `legacy, 0`, ndaj përdoruesit marrin sot v0, me lookup tables dhe besim te RPC për to. Sjellja e Phantom-it me `signTransaction` dhe një signer të dytë nuk është provuar ende me fonde reale.
@@ -387,5 +389,5 @@ Gjithashtu: kontrolli i fee-së së rrjetit tani ndalon kur Solana nuk e jep çm
 1. Minimumi i pranuar (`routeFloor`, `acceptedMinOut`, `price-moved`): a ka rrugë ku minimumi i zbatuar del më i ulët se ai që pa klienti, ose ku klienti nënshkruan pa e parë?
 2. Rezultatet e dërgimit: "no funds moved" vetëm për `rejected` (gabim JSON-RPC ose HTTP 4xx te dërgimi i parë) dhe `expired` (blockhash i skaduar, dy kërkime në histori pa rezultat). A qëndrojnë të dyja për çdo ofrues RPC?
 3. Bllokimi i swap-eve paralele mbi localStorage: a mjafton për alpha?
-4. Testi CPI, ende i paprovuar.
+4. Testi T6: a mungon ndonjë sulm në listën e rasteve?
 5. Për mbështetjen e ardhshme të Token-2022 si input/output: cilat extension-e duhen refuzuar?

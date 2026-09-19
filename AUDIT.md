@@ -58,16 +58,16 @@ Found by our own mainnet runs after the fixes (not in the review):
 - Jupiter wraps a transient upstream failure ("Pool has not been updated in a while") in HTTP 400;
   the client now retries it like its other transient errors.
 
+Done since: the **CPI-based malicious program test**, the reviewer's top item (T6, section 0d).
+The repository is on GitHub now and both workflows run on every push.
+
 Not done yet, in priority order:
 
-1. **CPI-based malicious program test** (the reviewer's top item). It needs the Solana toolchain
-   (agave and platform-tools, about 700 MB) or a Linux CI runner. The workflow file
-   `.github/workflows/ci.yml` exists, but the repository is not on GitHub yet, so it has never run.
-2. **Reproducible build and SRI** for the frontend.
-3. **Dependency supply-chain review**, to be commissioned separately.
-4. Exact (not "at least") role checks in `parse.ts`: the reviewer found the current checks not
+1. **Reproducible build and SRI** for the frontend.
+2. **Dependency supply-chain review**, to be commissioned separately.
+3. Exact (not "at least") role checks in `parse.ts`: the reviewer found the current checks not
    abusable, so this is left as an optional strengthening.
-5. `sendTransaction` is still proxied: the public RPC refuses browser origins (HTTP 403), so the
+4. `sendTransaction` is still proxied: the public RPC refuses browser origins (HTTP 403), so the
    browser cannot broadcast directly without a third-party RPC. It is rate-limited separately and
    blocked by the kill switch.
 
@@ -159,6 +159,53 @@ Not adopted as written: a temporary output account for every token (SPL Token ha
 so the delivered amount is unknown when the transaction is built; token outputs go to `W_out` with
 `Revoke` and the minimum check), and a total latency target of 300 ms (the local part is well under
 it; the network steps are the cost).
+
+---
+
+## 0d. T6 — the external program as malicious code
+
+T1 puts attacker *instructions* where Jupiter's would be. It cannot answer the reviewer's first
+question, because a swap program is code: it makes cross-program invocations of its own, with
+account metas of its own choosing. T6 closes that gap.
+
+`tests/cpi/attacker` is a deliberately malicious swap program (Rust, `cargo build-sbf`). Its
+instruction data is a list of inner instructions to attempt — program, account metas, data, and
+whether to sign with its own program-derived key. A meta may name an account by index into what the
+program was given, or by raw address, which lets a case demand an account Bound never handed over.
+
+`tests/cpi/run.ts` deploys it into a real Solana VM (litesvm: the Agave runtime, real SPL Token and
+ATA programs), builds the protected transaction with Bound's own policy builder and compiler,
+verifies it, signs as W and as E, and executes it. After every case the chain is checked against
+Bound's promise: nothing beyond the approved amount moved, no permission survived, both temporary
+accounts are gone, and the wallet's other tokens and SOL are untouched.
+
+17 cases, all passing (`tests/cpi/results/cpi.md`):
+
+- The route takes the approved amount and delivers the minimum: the transaction succeeds, exactly
+  `q` leaves the wallet, the fee is exact, and E_in (and E_out) no longer exist.
+- It delivers nothing, or one unit less than the minimum: the transaction reverts at Bound's
+  minimum-output check (instruction 8, the swap being 7), and the theft is undone with it.
+- It tries to take more than the approved amount: the temporary account does not hold it.
+- It tries to spend the wallet's input account, another of the wallet's tokens, the balance already
+  sitting in W_out, or the wallet's SOL, and to close W_out, reassign its ownership or leave a
+  delegate on it: every one fails inside the runtime with *"an account required by the instruction
+  is missing"*. The accounts were never handed over, so the program cannot name them — and W's
+  signature, which those moves need, is not available to it either.
+- It tries the same while signing with its own program-derived key: a program cannot sign for a
+  wallet.
+- It leaves a delegate on the *temporary* account and then delivers honestly: the swap succeeds and
+  the permission dies with the account, which cleanup closes.
+- It closes the temporary output account to itself (SPL → SOL): allowed by the runtime, since E is
+  the owner, but the minimum check then fails and the transaction reverts.
+- A route that also demands the wallet's input account never reaches the wallet at all: R1 rejects
+  it before signing.
+
+This is also the first time the whole protected transaction has been *executed* rather than
+simulated, with real signatures from W and E, including the wrapped-SOL variant.
+
+Limits of the test: litesvm is the Agave runtime with real SPL programs, but it is not a validator,
+and the attacker is our own program rather than a real DEX. Token-2022 transfer hooks and
+re-creating a closed account from a PDA inside the swap are not covered yet.
 
 ---
 
@@ -333,7 +380,7 @@ the rule the others depend on.
 
 | Component | Assumption |
 | --- | --- |
-| Solana runtime | A program cannot use accounts or signer privileges it was not passed (CPI cannot escalate). |
+| Solana runtime | A program cannot use accounts or signer privileges it was not passed (CPI cannot escalate). Checked in T6 (section 0d). |
 | SPL Token / Token-2022 / ATA / System | Behave as specified, including the balance check on a self-transfer. |
 | Bound frontend code | Compiler, verifier and flow are correct and untampered (supply chain is the largest residual risk). |
 | Bound server | Serves the genuine page. It also supplies the kill switch, the alpha limit, the excluded DEXes and F_max (capped by the verifier), and relays RPC answers and token metadata. It does not supply the fee or the treasury; decimals are checked against the mint on chain (C-01). |
@@ -385,6 +432,7 @@ the rule the others depend on.
 | `tests/integration/mainnet.ts` (T4) | Full pipeline on mainnet state (simulation, public exchange wallet as fee payer, `sigVerify: false`) for 30 pairs × v0 and v1, with the Bound fee charged; checks that the transaction executes and closes every temporary account | After the second review's fixes: 60/60. Earlier runs surfaced the over-64-account route (USDC → HNT) and Jupiter's transient "No matching liquidity" (SOL → RAY); both are handled now |
 | `tests/integration/mainnet.ts` (T1) | 8 attack instructions against the real SPL Token and System programs placed where Jupiter would be | 8/8 behaved as predicted; the verifier rejected all 8 |
 | `tests/integration/mainnet.ts` (T5) | USDC→SOL, SOL→USDC, USDC→BONK: the honest transaction executes; with the floor raised to 2× the quote it fails exactly at the check | 3/3 |
+| `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking the protected transaction from inside a CPI; the chain is checked against Bound's promise after every case | 17/17 (section 0d) |
 | `tests/integration/self-transfer.ts` | The SPL Token self-transfer behaviour behind B-04, on mainnet state | 4/4 |
 | `tests/e2e/smoke.ts` | Real browser (Edge), test wallet via Wallet Standard that returns the tx unsigned: page must stop at R6 without sending; CSP nonce per request; images only from Bound; Jupiter never receives the wallet's address; pasting a token address finds it | 17/17 |
 | `tests/e2e/devnet.ts` | Full sign → verify → E signs → send on devnet with a real signing test wallet | Blocked by the public devnet faucet; ready to rerun |
@@ -394,7 +442,8 @@ more, taking W's other USDC or BONK with E's authority, or taking SOL from E all
 or closing E_out to an attacker succeeds at the instruction, but our closes then fail and the whole
 transaction reverts. Taking SOL from W succeeds *if W is passed to the external program*, which is
 exactly what R1 forbids. With the minimum-output check in place, the attacks that succeed at the
-instruction (A1, A7) now also revert the transaction.
+instruction (A1, A7) now also revert the transaction. T6 (section 0d) repeats this against a real
+malicious program, which reaches the same bound from inside a cross-program invocation.
 
 ### Reproduce
 
@@ -403,6 +452,7 @@ npm install
 npm run typecheck && npm test
 npm run test:fuzz                       # 100,000 cases per property (~75 min)
 npm run integration                     # T4 + T1 + T5 on mainnet (nothing is signed or sent)
+(cd tests/cpi/attacker && cargo build-sbf) && node tests/cpi/run.ts   # T6; Linux or macOS, also in CI
 node tests/integration/self-transfer.ts # the SPL Token behaviour behind B-04
 npm run build && npm run start -w @bound/web
 npm run e2e                             # needs Microsoft Edge
@@ -419,7 +469,8 @@ npm run e2e                             # needs Microsoft Edge
    or HTTP 4xx on the first send) and `expired` (blockhash expired, two history lookups empty). Are
    both inferences sound for every RPC provider?
 3. **The swap lock** (`swapLock.ts`): best effort over localStorage. Enough for alpha?
-4. **CPI attacks**, still analysed and not tested (section 0).
+4. **CPI attacks**: now tested in T6 (section 0d). Does the case list miss an attack you would
+   run, in particular around re-creating a closed account from a PDA or a Token-2022 transfer hook?
 5. **Token-2022**: the hop rule covers only the intermediate accounts Bound creates. For the planned
    Token-2022 support as input and output, which extensions would you require us to refuse?
 6. **Anything in section 0b** that closes a finding only in the case the test covers.
@@ -442,8 +493,9 @@ npm run e2e                             # needs Microsoft Edge
 - For B and C, a transfer into `W_out` from someone else before execution counts toward the minimum
   (section 1). Bound's own swaps into the same token do not overlap.
 - Tokens that trade only on excluded DEXes (D13, e.g. Pump.fun AMM) may find no protected route.
-- Not done yet: the CPI-based malicious program test, a reproducible build with SRI, and a dependency
-  supply-chain review (section 0).
+- T6 runs against litesvm (the Agave runtime with real SPL programs), not a validator, and its
+  attacker is our own program rather than a real DEX.
+- Not done yet: a reproducible build with SRI, and a dependency supply-chain review (section 0).
 
 ---
 

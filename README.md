@@ -44,6 +44,7 @@ bound/
 ├── apps/web/       Next.js dApp, CSP proxy, stateless API routes (/api/rpc, /api/jupiter/*, /api/token-icon, /api/status)
 ├── tests/
 │   ├── integration/mainnet.ts   T4 (30 pairs, v0 + v1), T1 runtime attacks and T5 minimum output, simulated on mainnet
+│   ├── cpi/                     T6: a malicious swap program (Rust) executed against the protected transaction in a real Solana VM
 │   └── e2e/                     browser tests (Microsoft Edge via Playwright)
 └── spikes/         phase 1 prototype and the wallet test pages (mainnet + devnet)
 ```
@@ -70,6 +71,7 @@ npm test                  # unit, mutation (M1–M16), audit regression, proxy a
 npm run test:fuzz         # property tests with 100,000 runs each
 npm run typecheck
 npm run integration       # mainnet simulation: T4 + T1 + T5 (nothing is signed or sent)
+npm run cpi               # T6: build the malicious program and run it (Linux or macOS)
 npm run build             # production build of the dApp
 npm run start -w @bound/web   # serve it on http://localhost:3000
 npm run e2e               # browser smoke test against http://localhost:3000
