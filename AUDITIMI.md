@@ -41,7 +41,7 @@ Debit(W, SOL) ≤ min(F_max, 0.001 SOL) + qiraja e W_out nëse krijohet (+ q kur
 
 **Pse mban: R6 para R1.** Rregulli mbajtës është R6: transaksioni ka saktësisht dy signerë, W dhe E, dhe W paguan. R1 e mban W-në jashtë instruksionit të jashtëm, ndaj nënshkrimi i W-së nuk është kurrë i disponueshëm atje. Gjithçka që kërkon nënshkrimin e W-së për të lëvizur mbetet e paarritshme edhe sikur llogaria t'i jepej: transferta SPL, SOL, stake, mbyllje llogarish, ndryshime autoriteti. Filtri i adresave në R1 duhet të mbulojë vetëm atë që lëviz pa nënshkrimin e W-së: llogari tokenësh me delegate të mëparshëm dhe mint-e me permanent delegate.
 
-**Çfarë nuk garantohet:** lëvizja e çmimit dhe MEV brenda tolerancës 0.5%, vlera e tokenit që blihet (rug pull, freeze authority), approve-t që përdoruesi ka dhënë më parë diku tjetër, faqet phishing që nuk përdorin Bound, dhe tokenët Token-2022 si input ose output.
+**Çfarë nuk garantohet:** lëvizja e çmimit dhe MEV brenda tolerancës 0.5%, vlera e tokenit që blihet (rug pull, freeze authority), approve-t që përdoruesi ka dhënë më parë diku tjetër, faqet phishing që nuk përdorin Bound, dhe tokenët Token-2022 me extensions që i refuzojmë (tarifë transferimi, permanent delegate, ngrirje e parazgjedhur, pausable e të tjera — lista te AUDIT.md, seksioni 0f).
 
 ## 3. Si funksionon një swap
 
@@ -98,7 +98,7 @@ sequenceDiagram
 | R4 | v0: saktësisht një `SetComputeUnitLimit` (≤ 1.4M) dhe një `SetComputeUnitPrice`. v1: asnjë instruksion ComputeBudget; config-u i mesazhit lejon vetëm CU limit, priority fee dhe loaded-accounts data size ≤ 64 MiB. Të dy: `5000 × signerë + priority fee ≤ min(F_max, 0.001 SOL)`; një F_max mbi 0.001 SOL është vetë shkelje. |
 | R5 | ≤ 1232 bajt (v0) ose ≤ 4096 bajt dhe ≤ 64 llogari statike (v1). Kontrolli i minimumit dhe mbylljet vijnë pas swap-it; në A kontrolli vjen para mbylljes së E_out. E_in, E_out dhe çdo llogari e ndërmjetme (≤ 4) mbyllen saktësisht një herë. |
 | R6 | Fee payer është W; bashkësia e signerëve është saktësisht {W, E}. `verifyWalletReturn`: mesazhi i kthyer është identik bajt për bajt, nënshkrimi i W-së verifikohet mbi të dhe E nuk ka nënshkruar ende. |
-| R7 | Mint-et e input-it dhe output-it ekzistojnë dhe janë të programit klasik Token. Një mint Token-2022 i ndërmjetëm duhet të jetë në snapshot, pa transfer hook dhe pa permanent delegate. |
+| R7 | Mint-et e input-it dhe output-it ekzistojnë dhe i përkasin programit klasik Token ose Token-2022. Një mint Token-2022 (input, output ose i ndërmjetëm) lejohet vetëm me extensions që nuk e prekin swap-in: metadata dhe pointer-at e grupit, close authority i mint-it, transferta konfidenciale, dhe një transfer hook me program bosh. Çdo gjë tjetër, përfshirë një extension që verifier-i nuk e njeh, është shkelje. |
 
 Skedarët: `packages/verifier/src/verify.ts` (rregullat), `parse.ts` (dekoderi strikt), `wallet.ts` (R6 mbi kthimin nga wallet-i).
 
@@ -152,7 +152,7 @@ Këto vendime përcaktojnë formën e sistemit. Na thoni nëse ndonjë është e
 | D2 | Pa program on-chain të Bound | Sipërfaqe më e vogël sulmi; as kontrolli i minimumit nuk kërkon program |
 | D3 | Një transaksion atomik, kurrë i ndarë | Me dy transaksione fondet mund të ngeleshin te E |
 | D4 | Wallet-i nënshkruan i pari me `signTransaction`; E e fundit | Bound ka një portë të fundit pasi sheh saktësisht çfarë nënshkroi wallet-i |
-| D5 | Vetëm SPL klasik dhe SOL si input/output | Transfer hook-et e Token-2022 do të ekzekutonin kod të jashtëm brenda transfertës sonë të besuar |
+| D5 | SPL klasik, SOL, dhe Token-2022 me listë të lejuar extensions-ash (AUDIT.md, seksioni 0f) | Një extension ndryshon çfarë bën një transfertë; atë që nuk e kemi lexuar, nuk e lejojmë |
 | D6 | Nga Jupiter merret vetëm instruksioni i swap-it dhe adresat e ALT | Setup dhe cleanup i Jupiter-it kanë E si payer; Bound i ndërton vetë |
 | D7 | E është çelës WebCrypto jo i eksportueshëm, një për transaksion | Nuk eksportohet, por skript në faqe mund ta përdorë për të nënshkruar; kjo s'ka rëndësi sepse llogaritë e E-së janë bosh jashtë transaksionit |
 | D11 | v1 kur wallet-i e deklaron, përndryshe v0 | v1 nuk ka lookup tables, ndaj R1 nuk varet nga përgjigjet e RPC për to; gjendja e llogarive vjen ende nga RPC |

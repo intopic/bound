@@ -42,7 +42,7 @@ R1's address filter then only has to cover what can move **without** W's signatu
 
 - token accounts with a pre-existing delegate: none of W's token accounts reach the external program
   except `W_out`, and `W_out`'s delegate is revoked before the swap;
-- mints with a permanent delegate: input and output must be classic SPL tokens, and the Token-2022
+- mints with a permanent delegate: such a mint is refused outright, and the Token-2022
   mint of an intermediate account that Bound creates may carry neither a permanent delegate nor a
   transfer hook. Tokens used only inside the route's own pools never reach W's accounts; the
   external instruction is untrusted anyway.
@@ -86,7 +86,10 @@ a reproducible build, keep dependencies minimal, and review every dependency upd
   the last two.
 - Price movement and MEV within the 0.5% slippage tolerance: the minimum output is the quoted amount
   minus that tolerance.
-- Token-2022 input and output tokens.
+- Token-2022 tokens whose extensions Bound refuses: a transfer fee, a permanent delegate, accounts
+  frozen by default, pausable, non-transferable, interest-bearing, a scaled UI amount, a required
+  memo, a transfer hook with a real program, or any extension the verifier does not know.
+  Token-2022 tokens without those are supported.
 
 ## The temporary key (D7)
 

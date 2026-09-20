@@ -2,6 +2,7 @@
 
 import { address, isAddress } from '@solana/kit';
 import type { TokenInfo } from '@bound/jupiter';
+import { unsupportedExtension } from '@bound/verifier';
 import { getJupiter, getRpc } from './chain';
 
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -28,13 +29,18 @@ export const POPULAR = [
 ];
 
 /**
- * v0.1 supports classic SPL tokens and SOL only (D5). This reads Jupiter's metadata, so it only
- * decides what the picker shows; the swap itself checks the mint on chain.
+ * Classic SPL and Token-2022 both belong here; whether a particular Token-2022 mint can be
+ * isolated is decided by its extensions, which only the mint account itself shows (`readMint`).
+ * This reads Jupiter's metadata, so it only decides what the picker shows.
  */
-export const isSupported = (t: TokenInfo) => t.tokenProgram === TOKEN_PROGRAM;
+export const isSupported = (t: TokenInfo) => t.tokenProgram === TOKEN_PROGRAM || t.tokenProgram === TOKEN_2022_PROGRAM;
 
-/** What the chain says about a mint. These, not token metadata, convert amounts (audit C-01). */
-export type MintFacts = { decimals: number; program: string };
+/**
+ * What the chain says about a mint. These, not token metadata, convert amounts (audit C-01).
+ * `unsupported` names the extension that makes a protected swap impossible, and comes from the
+ * verifier itself, so the page and the rules cannot disagree.
+ */
+export type MintFacts = { decimals: number; program: string; unsupported: string | null };
 
 const mintFacts = new Map<string, Promise<MintFacts | null>>();
 
@@ -47,7 +53,12 @@ export function readMint(mint: string): Promise<MintFacts | null> {
       const { value } = await getRpc().getAccountInfo(address(mint), { encoding: 'base64', commitment: 'confirmed' }).send();
       if (!value || (value.owner !== TOKEN_PROGRAM && value.owner !== TOKEN_2022_PROGRAM)) return null;
       const data = Uint8Array.from(atob(value.data[0]), c => c.charCodeAt(0));
-      return data.length >= 82 ? { decimals: data[44], program: value.owner } : null;
+      if (data.length < 82) return null;
+      return {
+        decimals: data[44],
+        program: value.owner,
+        unsupported: value.owner === TOKEN_2022_PROGRAM ? unsupportedExtension(data) : null,
+      };
     })();
     facts.catch(() => mintFacts.delete(mint)); // a failed read is retried next time
     mintFacts.set(mint, facts);

@@ -242,6 +242,48 @@ that failed in simulation, the error is `simulation-failed`, not a complaint abo
 
 ---
 
+## 0f. Token-2022
+
+Measured before building (`KERKIMI-FAZA3.md`): 55 of the 100 most traded tokens are Token-2022, and
+so are all 30 of the newest, because Pump.fun mints them that way. Refusing the standard was
+refusing 42% of the volume, and with it most new tokens.
+
+A Token-2022 mint is now accepted when its extensions cannot touch the swap. The rule is an
+allowlist, in `unsupportedExtension` (`packages/verifier/src/verify.ts`), shared by the verifier,
+the pipeline and the page so they cannot disagree:
+
+- **Allowed:** metadata and metadata pointer, group and member pointers, a mint close authority
+  (usable only at zero supply), confidential transfers (our transfers are the ordinary public
+  ones), and a transfer hook whose program id is unset — the largest Token-2022 tokens, PUMP among
+  them, declare the extension and leave the program empty, so no code runs.
+- **Refused:** transfer fee, permanent delegate, accounts frozen by default, pausable,
+  non-transferable, interest-bearing, scaled UI amount, memo required on transfer, and **any
+  extension the list does not name**.
+
+Why those are refused: a permanent delegate or a default-frozen account would let someone else move
+or freeze the temporary account; pausable and non-transferable let a third party stop the swap;
+interest-bearing and scaled UI amount would make Bound show a different number than the wallet; a
+memo requirement would need another instruction on every incoming transfer. The transfer fee is
+refused for now for two measured reasons: an account holding withheld fees cannot be closed
+(`AccountHasWithheldTransferFees`), so cleanup would need `HarvestWithheldTokensToMint`, and Bound's
+extra hop makes the token's own fee apply twice on the input side. Neither is a danger; both are a
+product decision that has not been taken yet.
+
+What changed elsewhere: the policy carries the token program of each mint, read from the chain and
+re-derived by the verifier from the same snapshot (a policy that disagrees with the mint is an R2
+violation); every associated account, transfer, revoke and close uses that program; the pipeline
+asks for both candidate associated accounts in its first round trip, since the address depends on
+the program; and the rent of a new Token-2022 account (170 bytes with the ImmutableOwner extension
+the ATA program adds) is priced separately.
+
+One measurement decided the design: a self-transfer on a mint with a 3% transfer fee was simulated
+on mainnet and moved nothing at all, so Bound's minimum-output check works unchanged on Token-2022.
+
+Checked on mainnet with real tokens (PUMP, CATE, PAID, TIPPED): 12/12 pairs in v0 and v1 built,
+verified and executed in simulation.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
@@ -405,7 +447,7 @@ the rule the others depend on.
 | R4 | v0: exactly one `SetComputeUnitLimit` (≤ 1.4M) and one `SetComputeUnitPrice`. v1: no ComputeBudget instructions; the message config may hold only the CU limit, the priority fee and a loaded-accounts data size ≤ 64 MiB. Both: `5000 × signers + priority fee ≤ min(F_max, 0.001 SOL)`, and a policy F_max above 0.001 SOL is itself a violation. |
 | R5 | ≤ 1232 bytes (v0) or ≤ 4096 bytes and ≤ 64 static accounts (v1). The minimum-output check and the closes run after the swap; in variant A the check runs before E_out is closed. E_in, E_out and every intermediate (at most 4) are closed exactly once. |
 | R6 | Fee payer is W; the signer set is exactly {W, E}. `verifyWalletReturn`: the returned message is byte-identical, W's signature verifies over it, and E has not signed. |
-| R7 | Input and output mints exist and are owned by the classic Token program. A Token-2022 intermediate mint must be in the snapshot and carry no transfer hook and no permanent delegate. |
+| R7 | Input and output mints exist and belong to the classic Token program or to Token-2022. A Token-2022 mint (input, output or intermediate) must carry only allowed extensions: metadata and group pointers, a mint close authority, confidential transfers, and a transfer hook whose program id is unset. Anything else, including an extension the verifier does not know, is a violation. |
 
 ---
 
@@ -430,7 +472,7 @@ the rule the others depend on.
 | D2 | No Bound on-chain program | Smaller attack surface; phase 1 showed it is not needed, and the minimum-output check (B-04) needs none either. |
 | D3 | One atomic transaction, never split | With two transactions, funds could be stranded under E. |
 | D4 | Wallet signs first with `signTransaction`; E signs last | Bound gets a final gate after seeing exactly what the wallet signed. |
-| D5 | Classic SPL + SOL only | Token-2022 transfer hooks would run external code inside our trusted transfer. |
+| D5 | Classic SPL, SOL, and Token-2022 with an extension allowlist (section 0f) | An extension changes what a transfer does; what we have not read, we do not allow. |
 | D6 | From Jupiter only the swap instruction and ALT addresses are used | Jupiter's setup and cleanup instructions have E as payer and are rebuilt by Bound. |
 | D7 | E is a non-extractable WebCrypto key, one per transaction | `createEphemeral` asserts `extractable === false`. Non-extractable prevents export, not use: script in the page could make E sign, which is harmless because E's accounts are empty outside the transaction. |
 | D11 | v1 transactions (live on mainnet since 15 September 2026) when the wallet supports them, else v0 | v1 has no ALTs, so R1 does not depend on RPC lookup-table answers (account state still comes from the RPC). Phantom currently declares only `legacy, 0`. |
@@ -506,8 +548,9 @@ npm run e2e                             # needs Microsoft Edge
 3. **The swap lock** (`swapLock.ts`): best effort over localStorage. Enough for alpha?
 4. **CPI attacks**: now tested in T6 (section 0d). Does the case list miss an attack you would
    run, in particular around re-creating a closed account from a PDA or a Token-2022 transfer hook?
-5. **Token-2022**: the hop rule covers only the intermediate accounts Bound creates. For the planned
-   Token-2022 support as input and output, which extensions would you require us to refuse?
+5. **Token-2022** (section 0f): is the allowlist right? In particular, is it sound to accept a mint
+   that declares a transfer hook whose program id is the zero address, and to refuse a mint with a
+   transfer fee rather than harvesting the withheld amount before the close?
 6. **Anything in section 0b** that closes a finding only in the case the test covers.
 
 ---

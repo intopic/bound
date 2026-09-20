@@ -153,6 +153,12 @@ vendos ti — tokenat me tarifë transferimi.
 
 ## 7. Radha e punës
 
+> **Gjendja më 2026-09-20:** hapi 1 u krye. Token-2022 pranohet me listën e lejuar të pikës 6,
+> politika mban programin e çdo mint-i (i lexuar nga zinxhiri dhe i rikontrolluar nga verifier-i),
+> dhe faqja nuk i bllokon më. Provuar: 12 teste njësie dhe 12/12 çifte reale në mainnet me PUMP,
+> CATE, PAID dhe TIPPED, në v0 dhe v1. Hapat 2-4 mbeten.
+
+
 1. **Token-2022 pa tarifë** (metadata, hook bosh): ndryshimet e tabelës së pikës 5, pa Harvest.
    Kjo hap PUMP-in dhe pothuajse të gjithë tokenat e rinj të Pump.fun që kanë dalë nga kurba.
 2. **Tarifa e transferimit**: Harvest para mbylljes, paralajmërimi, testet.

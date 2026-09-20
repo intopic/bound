@@ -86,17 +86,27 @@ export async function scenario(opts: {
   owner?: KeyPairSigner;
   minOut?: bigint;
   wOutBalance?: bigint;
+  /** Token program of each mint; classic SPL unless a test asks for Token-2022. */
+  inputProgram?: Address;
+  outputProgram?: Address;
+  /** Extension types written into a Token-2022 mint, as [type, payload length] pairs. */
+  inputExtensions?: [number, number][];
+  outputExtensions?: [number, number][];
 } = {}): Promise<Scenario> {
   const W = opts.owner?.address ?? (await randomAddress());
   const E = await generateKeyPairSigner();
   const treasury = opts.fee === false ? null : await randomAddress();
   const input = opts.input ?? USDC;
   const output = opts.output ?? WSOL_MINT;
+  const inputProgram = input === WSOL_MINT ? TOKEN_PROGRAM : opts.inputProgram ?? TOKEN_PROGRAM;
+  const outputProgram = output === WSOL_MINT ? TOKEN_PROGRAM : opts.outputProgram ?? TOKEN_PROGRAM;
   const policy = await buildPolicy({
     intent: { owner: W, inputMint: input, outputMint: output, amountIn: input === WSOL_MINT ? 900_000_000n : 100_000_000n },
     ephemeral: E.address,
     inputDecimals: DECIMALS[input],
     outputDecimals: DECIMALS[output],
+    inputTokenProgram: inputProgram,
+    outputTokenProgram: outputProgram,
     minOut: opts.minOut ?? 1_000_000n,
     config: CONFIG(treasury),
     feeAccountExists: opts.feeAccountExists ?? true,
@@ -133,25 +143,41 @@ export async function scenario(opts: {
 
   const wOther = await ataOf(W, WIF);
   const accounts = new Map<string, AccountState | null>();
-  const mintState = (program: Address, decimals = 0): AccountState => {
-    const data = new Uint8Array(82);
+  const mintState = (program: Address, decimals = 0, extensions: [number, number][] = []): AccountState => {
+    // A Token-2022 mint is padded to the size of a token account, then an account-type byte, then
+    // the extensions: [type u16][length u16][payload].
+    const size = program === TOKEN_2022_PROGRAM
+      ? 166 + extensions.reduce((n, [, length]) => n + 4 + length, 0)
+      : 82;
+    const data = new Uint8Array(size);
     data[44] = decimals; // the verifier reads decimals from the mint (audit C-01)
+    if (program === TOKEN_2022_PROGRAM) {
+      data[165] = 1; // AccountType::Mint
+      const view = new DataView(data.buffer);
+      let at = 166;
+      for (const [type, length] of extensions) {
+        view.setUint16(at, type, true);
+        view.setUint16(at + 2, length, true);
+        at += 4 + length;
+      }
+    }
     return { owner: program, lamports: 1_066_800n, data };
   };
-  accounts.set(input, mintState(TOKEN_PROGRAM, DECIMALS[input]));
-  accounts.set(output, mintState(TOKEN_PROGRAM, DECIMALS[output]));
-  for (const m of hopMints) accounts.set(m, mintState(TOKEN_PROGRAM, DECIMALS[m]));
+  accounts.set(input, mintState(inputProgram, DECIMALS[input], opts.inputExtensions ?? [[18, 64]]));
+  accounts.set(output, mintState(outputProgram, DECIMALS[output], opts.outputExtensions ?? [[18, 64]]));
+  // A hop mint may also be the output mint; the swap's own mints win.
+  for (const m of hopMints) if (!accounts.has(m)) accounts.set(m, mintState(TOKEN_PROGRAM, DECIMALS[m]));
   for (const p of pools) accounts.set(p, { owner: DEX, lamports: 5_000_000n, data: new Uint8Array(300) });
   accounts.set(DEX, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
   accounts.set(TOKEN_PROGRAM, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
   accounts.set(TOKEN_2022_PROGRAM, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
   for (const x of [E.address, a.eIn, a.eOut, ...intermediates.map(i => i.ata)]) if (x) accounts.set(x, null);
-  if (a.wIn) accounts.set(a.wIn, { owner: TOKEN_PROGRAM, lamports: 2_039_280n, data: tokenAccountData(W, input) });
+  if (a.wIn) accounts.set(a.wIn, { owner: inputProgram, lamports: 2_039_280n, data: tokenAccountData(W, input) });
   const wOutBalance = opts.wOutBalance ?? 0n;
   if (a.wOut) {
     const data = tokenAccountData(W, output);
     new DataView(data.buffer).setBigUint64(64, wOutBalance, true);
-    accounts.set(a.wOut, { owner: TOKEN_PROGRAM, lamports: 2_039_280n, data });
+    accounts.set(a.wOut, { owner: outputProgram, lamports: 2_039_280n, data });
   }
   accounts.set(wOther, { owner: TOKEN_PROGRAM, lamports: 2_039_280n, data: tokenAccountData(W, WIF) });
 

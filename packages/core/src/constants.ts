@@ -20,6 +20,11 @@ export const MAX_COMPUTE_UNITS = 1_400_000;
  */
 export const LAMPORTS_PER_SIGNATURE = 5000n;
 export const TOKEN_ACCOUNT_SIZE = 165;
+/**
+ * A Token-2022 associated account: the base account, the account-type byte and an ImmutableOwner
+ * extension header, which the ATA program always adds. Only its rent differs from a classic one.
+ */
+export const TOKEN_2022_ACCOUNT_SIZE = 170;
 export const MINT_SIZE = 82;
 /** Intermediate ATA(E, m) accounts a route may use (D14). Real routes use 0 to 2 (audit B-10). */
 export const MAX_INTERMEDIATE_ACCOUNTS = 4;

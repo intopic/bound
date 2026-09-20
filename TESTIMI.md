@@ -20,6 +20,7 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar a
 | T1 në mainnet: 8 sulme me SPL Token dhe System Program realë | 8/8 sillen siç pritet, verifier-i i refuzon të gjitha |
 | T5 në mainnet: minimumi i daljes (nëse swap-i jep më pak, i gjithë transaksioni anulohet) | 3/3 |
 | T6: një program keqdashës i vërtetë në vendin e Jupiter-it, i ekzekutuar në një makinë virtuale Solana | 17/17 |
+| Token-2022: rregulli i extensions-ave dhe një swap i ndershëm me Token-2022 | 12 teste njësie + 12/12 çifte reale (PUMP, CATE, PAID, TIPPED) në mainnet |
 | T7: shuma në rritje deri në rreth $10M (nuk ka limit shume) | 14/15; refuzohet vetëm një route BONK prej $1M që nuk nxë në një transaksion |
 | E2E në Edge me wallet testimi: quote, ndërtim, verifikim, R6 ndalon kthimin e panënshkruar, CSP me nonce, ikonat vetëm nga Bound, Jupiter nuk merr adresën e wallet-it, ngjitja e adresës së coin-it | 17/17 |
 

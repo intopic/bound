@@ -73,15 +73,19 @@ export function protectedInstructions(
   const pre: Instruction[] = [];
   const post: Instruction[] = [];
 
-  pre.push(getCreateAssociatedTokenIdempotentInstruction({ payer: W, ata: a.eIn, owner: p.ephemeral, mint: p.inputMint }));
+  pre.push(getCreateAssociatedTokenIdempotentInstruction({
+    payer: W, ata: a.eIn, owner: p.ephemeral, mint: p.inputMint, tokenProgram: p.inputTokenProgram,
+  }));
   if (p.variant === 'A') {
     pre.push(getCreateAssociatedTokenIdempotentInstruction({ payer: W, ata: a.eOut!, owner: p.ephemeral, mint: WSOL_MINT }));
   } else {
     pre.push(
-      getCreateAssociatedTokenIdempotentInstruction({ payer: W, ata: a.wOut!, owner: p.owner, mint: p.outputMint }),
+      getCreateAssociatedTokenIdempotentInstruction({
+        payer: W, ata: a.wOut!, owner: p.owner, mint: p.outputMint, tokenProgram: p.outputTokenProgram,
+      }),
       // W_out is the only account of W the swap sees. Revoking any delegate makes "no one else can
       // move it" an on-chain fact instead of a snapshot read (audit B-03).
-      getRevokeInstruction({ source: a.wOut!, owner: W }),
+      getRevokeInstruction({ source: a.wOut!, owner: W }, { programAddress: p.outputTokenProgram }),
     );
   }
   for (const x of intermediates) {
@@ -98,13 +102,13 @@ export function protectedInstructions(
     pre.push(
       getTransferCheckedInstruction({
         source: a.wIn!, mint: p.inputMint, destination: a.eIn, authority: W, amount: p.swapAmount, decimals: p.inputDecimals,
-      }),
+      }, { programAddress: p.inputTokenProgram }),
     );
     if (p.fee > 0n) {
       pre.push(
         getTransferCheckedInstruction({
           source: a.wIn!, mint: p.inputMint, destination: a.feeDestination!, authority: W, amount: p.fee, decimals: p.inputDecimals,
-        }),
+        }, { programAddress: p.inputTokenProgram }),
       );
     }
   }
@@ -120,9 +124,9 @@ export function protectedInstructions(
     post.push(getTransferCheckedInstruction({
       source: a.wOut!, mint: p.outputMint, destination: a.wOut!, authority: W,
       amount: (input.outputBalanceBefore ?? 0n) + p.minOut, decimals: p.outputDecimals,
-    }));
+    }, { programAddress: p.outputTokenProgram }));
   }
-  post.push(getCloseAccountInstruction({ account: a.eIn, destination: p.owner, owner: E }));
+  post.push(getCloseAccountInstruction({ account: a.eIn, destination: p.owner, owner: E }, { programAddress: p.inputTokenProgram }));
   if (p.variant === 'A') post.push(getCloseAccountInstruction({ account: a.eOut!, destination: p.owner, owner: E }));
   for (const x of intermediates) {
     post.push(getCloseAccountInstruction({ account: x.ata, destination: p.owner, owner: E }, { programAddress: x.tokenProgram }));

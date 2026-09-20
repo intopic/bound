@@ -42,6 +42,12 @@ export type Policy = {
   ephemeral: Address;
   inputMint: Address;
   outputMint: Address;
+  /**
+   * Which token program owns each mint: the classic one or Token-2022. Taken from the chain, never
+   * from a token list, and re-derived by the verifier from the same snapshot.
+   */
+  inputTokenProgram: Address;
+  outputTokenProgram: Address;
   inputDecimals: number;
   outputDecimals: number;
   /**

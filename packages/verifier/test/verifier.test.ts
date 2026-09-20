@@ -6,7 +6,7 @@ import {
 } from '@solana-program/token';
 import { getAssignInstruction, getTransferSolInstruction } from '@solana-program/system';
 import { createNoopSigner } from '@solana/kit';
-import { compileProtectedSwap, JUPITER_PROGRAM, TOKEN_2022_PROGRAM, WSOL_MINT } from '@bound/core';
+import { compileProtectedSwap, JUPITER_PROGRAM, protectedInstructions, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
 import type { RuleId, TxVersion } from '@bound/core';
 import { verify } from '../src/index.ts';
 import { BONK, compileRaw, cuIxs, honest, LIFETIME, randomAddress, scenario, USDC } from './fixtures.ts';
@@ -177,10 +177,70 @@ describe('T2: mutation catalogue (plan, section 9)', () => {
     expect(rules(await verify(tx, s.policy, s.snapshot))).toContain('R6');
   });
 
-  it('M16: a Token-2022 input mint → R7', async () => {
+  it('M16: the mint belongs to another token program than the policy says → R2', async () => {
     const s = await scenario();
     (s.snapshot.accounts as Map<string, unknown>).set(USDC, { owner: TOKEN_2022_PROGRAM, lamports: 1n, data: new Uint8Array(82) });
+    expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R2');
+  });
+});
+
+/**
+ * Token-2022 (phase 3). A mint is swappable only with extensions that cannot touch the swap; the
+ * addresses, the transfers and the closes must all use the program the mint really belongs to.
+ */
+describe('Token-2022', () => {
+  const t22 = (extensions: [number, number][]) => scenario({
+    input: USDC, output: BONK, inputProgram: TOKEN_2022_PROGRAM, outputProgram: TOKEN_PROGRAM,
+    inputExtensions: extensions,
+  });
+
+  it('an honest swap of a Token-2022 token with metadata only passes every rule', async () => {
+    const s = await t22([[18, 64], [19, 120]]);
+    const verdict = await verify(await compileHonest(s, 0), s.policy, s.snapshot);
+    expect(verdict.violations).toEqual([]);
+    expect(verdict.ok).toBe(true);
+  });
+
+  it('a declared transfer hook with no program set runs no code, so it is accepted', async () => {
+    const s = await t22([[18, 64], [14, 64]]);
+    expect((await verify(await compileHonest(s, 0), s.policy, s.snapshot)).ok).toBe(true);
+  });
+
+  it('a transfer hook with a real program → R7', async () => {
+    const s = await t22([[14, 64]]);
+    const mint = s.snapshot.accounts.get(USDC)!;
+    mint.data[166 + 4 + 32] = 7; // a non-zero program id
     expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
+  });
+
+  it.each([
+    ['a transfer fee', 1, 108],
+    ['accounts frozen by default', 6, 1],
+    ['a permanent delegate', 12, 32],
+    ['an interest-bearing mint', 10, 52],
+    ['a scaled UI amount', 25, 24],
+    ['a pausable mint', 26, 33],
+    ['an extension nobody has read yet', 250, 8],
+  ])('%s → R7', async (_name, type, length) => {
+    const s = await t22([[18, 64], [type, length]]);
+    expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
+  });
+
+  it('the output side works the same way', async () => {
+    const s = await scenario({
+      input: USDC, output: BONK, outputProgram: TOKEN_2022_PROGRAM, outputExtensions: [[18, 64]],
+    });
+    expect((await verify(await compileHonest(s, 0), s.policy, s.snapshot)).ok).toBe(true);
+  });
+
+  it('a Token-2022 swap compiled with the classic program is refused', async () => {
+    const s = await t22([[18, 64]]);
+    // The policy is honest, but the transaction is built as if the mint were a classic token.
+    const classic = { ...s.policy, inputTokenProgram: TOKEN_PROGRAM };
+    const tx = compileRaw(s.W, [...cuIxs(), ...protectedInstructions({
+      policy: classic, swapInstruction: s.swapIx, intermediates: s.intermediates, outputBalanceBefore: s.wOutBalance,
+    })], 0, s.lookupTables);
+    expect((await verify(tx, s.policy, s.snapshot)).ok).toBe(false);
   });
 });
 

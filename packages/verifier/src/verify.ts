@@ -56,12 +56,36 @@ const hasCloseAuthority = (s: AccountState | null | undefined) =>
   !!s && s.data.length >= TOKEN_ACCOUNT_SIZE && u32At(s.data, 129) === 1;
 
 /**
- * Token-2022 mint extensions that let code or a third party act inside the transaction (audit
- * B-10): a transfer hook runs a program of the mint's choosing, and a permanent delegate can move
- * any holder's balance. Returns the offending extension, or null. The extension area starts after
- * the account-type byte at offset 165 (a mint is padded to the size of a token account first).
+ * Token-2022 mint extensions a protected swap can live with. Everything else is refused, including
+ * any extension this list does not know: an extension changes what a transfer does, and what we
+ * have not read, we do not allow.
+ *
+ * Left out on purpose: transfer fee (an account holding withheld fees cannot be closed, and Bound's
+ * extra hop would pay the fee twice), permanent delegate and default-frozen accounts (someone else
+ * could move or freeze the temporary account), pausable and non-transferable (a third party can
+ * stop the swap), interest-bearing and scaled UI amount (we would show a different number than the
+ * wallet), memo-required (every incoming transfer would need one more instruction).
  */
-function riskyMintExtension(data: Uint8Array): string | null {
+const ALLOWED_MINT_EXTENSIONS = new Set([
+  3, // MintCloseAuthority: usable only at zero supply
+  4, // ConfidentialTransferMint: ordinary public transfers still work
+  14, // TransferHook, but only with no program set - see below
+  18, 19, // MetadataPointer, TokenMetadata
+  20, 21, 22, 23, // Group and member pointers
+]);
+
+const EXTENSION_NAMES: Record<number, string> = {
+  1: 'transfer fee', 6: 'accounts frozen by default', 8: 'memo required on transfer',
+  9: 'non-transferable', 10: 'interest-bearing', 12: 'permanent delegate', 25: 'scaled UI amount',
+  26: 'pausable',
+};
+
+/**
+ * The first extension that makes a Token-2022 mint unusable for a protected swap, or null. The
+ * extension area starts after the account-type byte at offset 165 (a mint is padded to the size of
+ * a token account first).
+ */
+export function unsupportedExtension(data: Uint8Array): string | null {
   if (data.length === MINT_SIZE) return null;
   if (data.length <= TOKEN_ACCOUNT_SIZE || data[TOKEN_ACCOUNT_SIZE] !== 1) return 'malformed extension area';
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -72,11 +96,35 @@ function riskyMintExtension(data: Uint8Array): string | null {
     const value = at + 4;
     if (type === 0) break; // Uninitialized: the rest is padding
     if (value + length > data.length) return 'malformed extension';
-    if (type === 14 && (length < 64 || nonZero(value + 32, value + 64))) return 'transfer hook'; // program_id
-    if (type === 12 && (length < 32 || nonZero(value, value + 32))) return 'permanent delegate';
+    // A declared hook with no program set runs no code at all, which is what the largest
+    // Token-2022 tokens do; a real program is refused.
+    if (type === 14) {
+      if (length < 64 || nonZero(value + 32, value + 64)) return 'transfer hook';
+    } else if (!ALLOWED_MINT_EXTENSIONS.has(type)) {
+      return EXTENSION_NAMES[type] ?? `unknown extension ${type}`;
+    }
     at = value + length;
   }
   return null;
+}
+
+/**
+ * Does this token account require a memo before every incoming transfer (extension 8)? Such an
+ * account would make the swap's own transfer fail, so the pipeline refuses it up front rather than
+ * letting four route repairs discover it. Account extensions sit after the account-type byte, as
+ * on a mint, but with AccountType::Account.
+ */
+export function memoRequired(data: Uint8Array): boolean {
+  if (data.length <= TOKEN_ACCOUNT_SIZE || data[TOKEN_ACCOUNT_SIZE] !== 2) return false;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  for (let at = TOKEN_ACCOUNT_SIZE + 1; at + 4 <= data.length; ) {
+    const type = view.getUint16(at, true);
+    const length = view.getUint16(at + 2, true);
+    if (type === 0) break;
+    if (type === 8) return true;
+    at = at + 4 + length;
+  }
+  return false;
 }
 
 const V1_ALLOWED_CONFIG =
@@ -110,6 +158,20 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   const A = variant === 'A';
   const B = variant === 'B';
 
+  // Which token program owns each mint is a fact of the chain, so it is read from the snapshot and
+  // the policy is only checked against it. Wrapped SOL is always classic.
+  const programOf = (mint: Address): Address | null => {
+    const state = snapshot.accounts.get(mint);
+    if (!state) return null;
+    return state.owner === TOKEN_PROGRAM || state.owner === TOKEN_2022_PROGRAM ? state.owner : null;
+  };
+  const chainInput = programOf(p.inputMint);
+  const chainOutput = programOf(p.outputMint);
+  if (chainInput && chainInput !== p.inputTokenProgram) fail('R2', 'the input token program does not match the mint');
+  if (chainOutput && chainOutput !== p.outputTokenProgram) fail('R2', 'the output token program does not match the mint');
+  const inputProgram = chainInput ?? p.inputTokenProgram;
+  const outputProgram = chainOutput ?? p.outputTokenProgram;
+
   // Re-derive the policy's numbers and accounts instead of trusting them.
   const expectedFee = p.treasury ? (p.amountIn * p.feeBps) / BPS_DENOMINATOR : 0n;
   if (p.fee !== expectedFee || p.swapAmount + p.fee !== p.amountIn || p.swapAmount <= 0n) {
@@ -129,11 +191,11 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     }
   }
   const expected = {
-    eIn: await ata(E, p.inputMint),
+    eIn: await ata(E, p.inputMint, inputProgram),
     eOut: A ? await ata(E, WSOL_MINT) : null,
-    wIn: B ? null : await ata(W, p.inputMint),
-    wOut: A ? null : await ata(W, p.outputMint),
-    feeDestination: p.fee === 0n ? null : B ? p.treasury : await ata(p.treasury!, p.inputMint),
+    wIn: B ? null : await ata(W, p.inputMint, inputProgram),
+    wOut: A ? null : await ata(W, p.outputMint, outputProgram),
+    feeDestination: p.fee === 0n ? null : B ? p.treasury : await ata(p.treasury!, p.inputMint, inputProgram),
   };
   const acc = p.accounts;
   if (
@@ -145,9 +207,9 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   const { eIn, eOut, wIn, wOut, feeDestination } = expected;
   // Minimum-output check (B-04): a self-transfer on the account that receives the output.
   const minOut = A
-    ? { account: eOut, authority: E, mint: WSOL_MINT, decimals: 9, amount: p.minOut } // E_out is fresh (R3)
+    ? { account: eOut, authority: E, mint: WSOL_MINT, decimals: 9, amount: p.minOut, program: TOKEN_PROGRAM } // E_out is fresh (R3)
     : {
-        account: wOut, authority: W, mint: p.outputMint, decimals: p.outputDecimals,
+        account: wOut, authority: W, mint: p.outputMint, decimals: p.outputDecimals, program: outputProgram,
         amount: tokenBalance(snapshot.accounts.get(wOut!)) + p.minOut,
       };
 
@@ -212,18 +274,18 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
         break;
       case 'createAta': {
         if (x.payer !== W) { fail('R2', `instruction ${i}: account creation not paid by the wallet`); break; }
-        const classic = x.tokenProgram === TOKEN_PROGRAM;
-        if (classic && x.owner === E && x.mint === p.inputMint && x.ata === eIn) put('createEIn', i);
-        else if (A && classic && x.owner === E && x.mint === WSOL_MINT && x.ata === eOut) put('createEOut', i);
-        else if (!A && classic && x.owner === W && x.mint === p.outputMint && x.ata === wOut) put('createWOut', i);
+        if (x.tokenProgram === inputProgram && x.owner === E && x.mint === p.inputMint && x.ata === eIn) put('createEIn', i);
+        else if (A && x.tokenProgram === TOKEN_PROGRAM && x.owner === E && x.mint === WSOL_MINT && x.ata === eOut) put('createEOut', i);
+        else if (!A && x.tokenProgram === outputProgram && x.owner === W && x.mint === p.outputMint && x.ata === wOut) put('createWOut', i);
         else if (intermediates.has(x.ata)) { intermediates.get(x.ata)!.created++; put('createIntermediate', i); }
         else fail('R2', `instruction ${i}: unexpected account creation for ${x.owner}`);
         break;
       }
       case 'transferChecked': {
-        const ours = x.source === wIn && x.mint === p.inputMint && x.authority === W && x.decimals === p.inputDecimals;
-        const floor = x.source === minOut.account && x.destination === minOut.account && x.mint === minOut.mint &&
-          x.authority === minOut.authority && x.decimals === minOut.decimals;
+        const ours = x.program === inputProgram && x.source === wIn && x.mint === p.inputMint &&
+          x.authority === W && x.decimals === p.inputDecimals;
+        const floor = x.program === minOut.program && x.source === minOut.account && x.destination === minOut.account &&
+          x.mint === minOut.mint && x.authority === minOut.authority && x.decimals === minOut.decimals;
         if (ours && x.destination === eIn && x.amount === p.swapAmount) put('transferIn', i);
         else if (ours && p.fee > 0n && x.destination === feeDestination && x.amount === p.fee) put('feeTransfer', i);
         else if (floor && x.amount === minOut.amount) put('minOutCheck', i);
@@ -241,13 +303,13 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
         else fail('R2', `instruction ${i}: unexpected SyncNative`);
         break;
       case 'revoke':
-        if (!A && x.source === wOut && x.owner === W) put('revokeWOut', i);
+        if (!A && x.program === outputProgram && x.source === wOut && x.owner === W) put('revokeWOut', i);
         else fail('R2', `instruction ${i}: unexpected Revoke`);
         break;
       case 'close': {
         if (x.destination !== W || x.owner !== E) { fail('R2', `instruction ${i}: account closed to someone other than the wallet`); break; }
         const mid = intermediates.get(x.account);
-        if (x.program === TOKEN_PROGRAM && x.account === eIn) put('closeEIn', i);
+        if (x.program === inputProgram && x.account === eIn) put('closeEIn', i);
         else if (A && x.program === TOKEN_PROGRAM && x.account === eOut) put('closeEOut', i);
         else if (mid && mid.tokenProgram === x.program) { mid.closed++; put('closeIntermediate', i); }
         else fail('R2', `instruction ${i}: unexpected CloseAccount`);
@@ -359,20 +421,24 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (size > limit) fail('R5', `transaction is ${size} bytes, limit ${limit}`);
   if (version === 1 && compiled.staticAccounts.length > V1_MAX_ACCOUNTS) fail('R5', `${compiled.staticAccounts.length} accounts, limit ${V1_MAX_ACCOUNTS}`);
 
-  // R7 for hops (audit B-10): a Token-2022 intermediate mint must be in the snapshot and carry no
-  // transfer hook and no permanent delegate. Classic SPL hops need no check.
+  // R7 for hops (audit B-10): a Token-2022 intermediate mint must be in the snapshot and carry
+  // only extensions a protected swap can live with. Classic SPL hops need no check.
   for (const m of intermediates.values()) {
     if (m.tokenProgram !== TOKEN_2022_PROGRAM) continue;
     const state = snapshot.accounts.get(m.mint);
-    const risky = state && state.owner === TOKEN_2022_PROGRAM ? riskyMintExtension(state.data) : 'missing mint';
+    const risky = state && state.owner === TOKEN_2022_PROGRAM ? unsupportedExtension(state.data) : 'missing mint';
     if (risky) fail('R7', `intermediate mint ${m.mint}: ${risky}`);
   }
 
-  // R7: both mints are classic SPL tokens (WSOL included).
+  // R7: both mints are token mints Bound can isolate - classic SPL (WSOL included), or Token-2022
+  // with none of the extensions that would break the guarantee.
   for (const mint of [p.inputMint, p.outputMint]) {
     const state = snapshot.accounts.get(mint);
-    if (!state) fail('R7', `mint ${mint} not found`);
-    else if (state.owner !== TOKEN_PROGRAM) fail('R7', `mint ${mint} is not a classic SPL token`);
+    if (!state) { fail('R7', `mint ${mint} not found`); continue; }
+    if (state.owner === TOKEN_PROGRAM) continue;
+    if (state.owner !== TOKEN_2022_PROGRAM) { fail('R7', `mint ${mint} is not a token mint`); continue; }
+    const bad = unsupportedExtension(state.data);
+    if (bad) fail('R7', `mint ${mint}: ${bad}`);
   }
 
   return { ok: violations.length === 0, violations };

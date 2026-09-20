@@ -6,12 +6,13 @@ import {
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
-  MAX_COMPUTE_UNITS, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAmountOf,
+  MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
+  TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAmountOf,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, TxVersion, Violation } from '@bound/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
-import { certify, verifyWalletReturn } from '@bound/verifier';
+import { certify, memoRequired, unsupportedExtension, verifyWalletReturn } from '@bound/verifier';
 import type { Certificate } from '@bound/verifier';
 import type { SendResult, SendStatus, SolanaRpc } from '@bound/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
@@ -202,25 +203,42 @@ export async function prepareProtectedSwap(deps: {
 
   // Everything the first decisions need, in one round trip (idea 21): both mints, the treasury's
   // account for the input token and W_out, with the rent for a new W_out asked at the same time.
-  const feeAccount = settings.treasury && req.inputMint !== WSOL_MINT ? await ataOf(settings.treasury, req.inputMint) : null;
-  const wOutAddress = variantOf(req.inputMint, req.outputMint) === 'A' ? null : await ataOf(req.owner, req.outputMint);
-  const [firstReads, newAccountRent] = await Promise.all([
-    fetchAccounts(rpc, [req.inputMint, req.outputMint, ...(feeAccount ? [feeAccount] : []), ...(wOutAddress ? [wOutAddress] : [])]),
-    // From the cluster, since it changed in 2026 (audit C-09). If the RPC cannot answer, the
-    // pre-2026 value is shown, which is an upper bound.
-    wOutAddress
-      ? rpc.getMinimumBalanceForRentExemption(BigInt(TOKEN_ACCOUNT_SIZE)).send().then(BigInt).catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS)
-      : Promise.resolve(0n),
+  // Which token program owns a mint decides its associated-account address, and that is only known
+  // once the mint is read, so both candidates are asked for together.
+  const variant = variantOf(req.inputMint, req.outputMint);
+  const bothPrograms = [TOKEN_PROGRAM, TOKEN_2022_PROGRAM];
+  const feeCandidates = settings.treasury && req.inputMint !== WSOL_MINT
+    ? await Promise.all(bothPrograms.map(tp => ataOf(settings.treasury!, req.inputMint, tp)))
+    : [];
+  const wOutCandidates = variant === 'A' ? [] : await Promise.all(bothPrograms.map(tp => ataOf(req.owner, req.outputMint, tp)));
+  // From the cluster, since it changed in 2026 (audit C-09). If the RPC cannot answer, the
+  // pre-2026 value is shown, which is an upper bound.
+  const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
+    .then(BigInt)
+    .catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS);
+  const [firstReads, classicRent, extendedRent] = await Promise.all([
+    fetchAccounts(rpc, [req.inputMint, req.outputMint, ...feeCandidates, ...wOutCandidates]),
+    wOutCandidates.length ? rentFor(TOKEN_ACCOUNT_SIZE) : Promise.resolve(0n),
+    wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
   ]);
   const mints = new Map([req.inputMint, req.outputMint].map(m => [m, mintInfoOf(firstReads.get(m))]));
 
-  // R7 up front: classic SPL tokens and SOL only (D5).
+  // R7 up front, so a token we cannot isolate is refused before anything is quoted or built.
   for (const m of [req.inputMint, req.outputMint]) {
     const info = mints.get(m)!;
-    if (!info.exists || info.program !== TOKEN_PROGRAM) {
-      throw new BoundError('unsupported-token', `${m} is not a classic SPL token. Token-2022 tokens are not supported yet.`);
+    if (!info.exists || (info.program !== TOKEN_PROGRAM && info.program !== TOKEN_2022_PROGRAM)) {
+      throw new BoundError('unsupported-token', `${m} is not a token Bound can swap.`);
+    }
+    if (info.program === TOKEN_2022_PROGRAM) {
+      const bad = unsupportedExtension(firstReads.get(m)!.data);
+      if (bad) throw new BoundError('unsupported-token', `This token uses ${bad}, which a protected swap cannot isolate.`);
     }
   }
+  const inputTokenProgram = mints.get(req.inputMint)!.program!;
+  const outputTokenProgram = mints.get(req.outputMint)!.program!;
+  const feeAccount = feeCandidates.length ? await ataOf(settings.treasury!, req.inputMint, inputTokenProgram) : null;
+  const wOutAddress = wOutCandidates.length ? await ataOf(req.owner, req.outputMint, outputTokenProgram) : null;
+  const newAccountRent = !wOutAddress ? 0n : outputTokenProgram === TOKEN_PROGRAM ? classicRent : extendedRent;
   // The amount the user typed was converted with `inputDecimals`; if the chain disagrees, the
   // wallet would be asked for a different amount than the one shown (audit C-01).
   for (const [m, shown] of [[req.inputMint, req.inputDecimals], [req.outputMint, req.outputDecimals]] as const) {
@@ -235,6 +253,8 @@ export async function prepareProtectedSwap(deps: {
     ephemeral: E,
     inputDecimals: mints.get(req.inputMint)!.decimals,
     outputDecimals: mints.get(req.outputMint)!.decimals,
+    inputTokenProgram,
+    outputTokenProgram,
     config: settings,
     feeAccountExists,
   });
@@ -250,6 +270,12 @@ export async function prepareProtectedSwap(deps: {
       throw new BoundError(
         'output-account-restricted',
         'Your account for the output token has a close authority set, so Bound will not send the output there.',
+      );
+    }
+    if (state && memoRequired(state.data)) {
+      throw new BoundError(
+        'output-account-restricted',
+        'Your account for the output token requires a memo on every incoming transfer, which a swap cannot provide.',
       );
     }
     // The trusted Revoke also removes a delegate the user set up on purpose: say so (review, B-03).

@@ -17,10 +17,10 @@ export type Parsed =
   | { kind: 'cuLimit'; units: number }
   | { kind: 'cuPrice'; microLamports: bigint }
   | { kind: 'createAta'; payer: Address; ata: Address; owner: Address; mint: Address; tokenProgram: Address }
-  | { kind: 'transferChecked'; source: Address; mint: Address; destination: Address; authority: Address; amount: bigint; decimals: number }
+  | { kind: 'transferChecked'; program: Address; source: Address; mint: Address; destination: Address; authority: Address; amount: bigint; decimals: number }
   | { kind: 'systemTransfer'; from: Address; to: Address; lamports: bigint }
   | { kind: 'syncNative'; account: Address }
-  | { kind: 'revoke'; source: Address; owner: Address }
+  | { kind: 'revoke'; program: Address; source: Address; owner: Address }
   | { kind: 'close'; program: Address; account: Address; destination: Address; owner: Address }
   | { kind: 'external'; program: Address; accounts: readonly Account[] }
   | { kind: 'invalid'; program: Address; reason: string };
@@ -57,13 +57,15 @@ export function parseInstruction(ix: RawInstruction): Parsed {
 
   if (program === TOKEN_PROGRAM || program === TOKEN_2022_PROGRAM) {
     const disc = data[0];
-    if (disc === 12 && data.length === 10 && acc.length === 4 && program === TOKEN_PROGRAM) {
+    // Exactly four accounts. A Token-2022 mint with a transfer hook needs more, and such a mint
+    // is refused anyway (R7), so anything longer is not a transfer we understand.
+    if (disc === 12 && data.length === 10 && acc.length === 4) {
       const [source, mint, destination, authority] = acc;
       if (!isWritableRole(source.role) || !isWritableRole(destination.role) || !isSignerRole(authority.role)) {
         return invalid('TransferChecked with wrong account roles');
       }
       return {
-        kind: 'transferChecked', source: source.address, mint: mint.address, destination: destination.address,
+        kind: 'transferChecked', program, source: source.address, mint: mint.address, destination: destination.address,
         authority: authority.address, amount: view(data).getBigUint64(1, true), decimals: data[9],
       };
     }
@@ -74,10 +76,10 @@ export function parseInstruction(ix: RawInstruction): Parsed {
       }
       return { kind: 'close', program, account: account.address, destination: destination.address, owner: owner.address };
     }
-    if (disc === 5 && data.length === 1 && acc.length === 2 && program === TOKEN_PROGRAM) {
+    if (disc === 5 && data.length === 1 && acc.length === 2) {
       const [source, owner] = acc;
       if (!isWritableRole(source.role) || !isSignerRole(owner.role)) return invalid('Revoke with wrong account roles');
-      return { kind: 'revoke', source: source.address, owner: owner.address };
+      return { kind: 'revoke', program, source: source.address, owner: owner.address };
     }
     if (disc === 17 && data.length === 1 && acc.length === 1 && program === TOKEN_PROGRAM) {
       if (!isWritableRole(acc[0].role)) return invalid('SyncNative on a read-only account');

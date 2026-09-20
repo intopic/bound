@@ -27,12 +27,18 @@ function mint(decimals: number): Account {
   return { owner: TOKEN_PROGRAM, data };
 }
 
-function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: boolean } = {}): Account {
-  const data = new Uint8Array(165);
+function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: boolean; memo?: boolean } = {}): Account {
+  // A Token-2022 account that requires a memo carries extension 8 after the account-type byte.
+  const data = new Uint8Array(opts.memo ? 171 : 165);
   data.set(getAddressEncoder().encode(mintAddress), 0);
   data.set(getAddressEncoder().encode(owner), 32);
   if (opts.delegate) data[72] = 1;
   data[108] = 1; // initialized
+  if (opts.memo) {
+    data[165] = 2; // AccountType::Account
+    new DataView(data.buffer).setUint16(166, 8, true); // MemoTransfer
+    new DataView(data.buffer).setUint16(168, 1, true);
+  }
   return { owner: TOKEN_PROGRAM, data };
 }
 
@@ -98,15 +104,15 @@ function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; fail
   };
 }
 
-async function setup(output: Address, opts: { delegate?: boolean; wOutExists?: boolean } = {}) {
+async function setup(output: Address, opts: { delegate?: boolean; wOutExists?: boolean; memo?: boolean } = {}) {
   const W = (await generateKeyPairSigner()).address;
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
     [DEX, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }],
     [POOL, { owner: DEX, data: new Uint8Array(300) }],
   ]);
-  if (output !== WSOL_MINT && (opts.wOutExists || opts.delegate)) {
-    accounts.set(await ataOf(W, output), tokenAccount(W, output, { delegate: opts.delegate }));
+  if (output !== WSOL_MINT && (opts.wOutExists || opts.delegate || opts.memo)) {
+    accounts.set(await ataOf(W, output), tokenAccount(W, output, { delegate: opts.delegate, memo: opts.memo }));
   }
   return { W, accounts };
 }
@@ -114,7 +120,8 @@ async function setup(output: Address, opts: { delegate?: boolean; wOutExists?: b
 const settings = { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_PROGRAM };
 
 async function prepare(output: Address, opts: {
-  jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean; acceptedMinOut?: bigint;
+  jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean;
+  acceptedMinOut?: bigint; memo?: boolean;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   return prepareProtectedSwap(
@@ -183,6 +190,12 @@ describe('C-02: Bound computes the minimum itself', () => {
       .then(() => null, (e: unknown) => e as BoundError);
     expect(error?.code).toBe('no-route');
     expect(error?.message).toMatch(/does not fit in a single protected transaction/);
+  });
+});
+
+describe('Token-2022 accounts', () => {
+  it('an output account that requires a memo on every transfer is refused before anything is built', async () => {
+    expect(await codeOf(prepare(BONK, { memo: true }))).toBe('output-account-restricted');
   });
 });
 

@@ -1,6 +1,6 @@
 # Bound — Protected Swap (v0.1)
 
-Swap any classic SPL token or SOL on Solana without giving the swap program authority over the
+Swap any SPL or Token-2022 token, or SOL, on Solana without giving the swap program authority over the
 rest of your wallet.
 
 > **What you approve is all the swap can touch.** The external swap program can move at most the
@@ -30,7 +30,7 @@ If anything fails, nothing is signed or the whole transaction reverts. There is 
 | R3 | E and its accounts are fresh |
 | R4 | The network fee paid by W is capped (never above 0.001 SOL) |
 | R5 | One transaction within size limits; every temporary account is closed |
-| R7 | Input and output are classic SPL tokens; intermediate Token-2022 hops may not run transfer hooks or have a permanent delegate |
+| R7 | Input, output and intermediate mints are classic SPL, or Token-2022 carrying only extensions that cannot touch the swap (metadata, groups, close authority, confidential transfers, an unset transfer hook) |
 
 ## Repository
 
@@ -108,7 +108,9 @@ Protected: authority over the wallet and everything in it except the approved am
 minimum output the user accepted (never below the quote minus 0.5% slippage), which Bound checks on
 chain. If the price moves further before signing, Bound asks instead of lowering it.
 Not in scope: price movement and MEV within that tolerance, the value of the token you buy,
-approvals granted elsewhere before, phishing sites that do not use Bound, Token-2022 input and output
+approvals granted elsewhere before, phishing sites that do not use Bound, Token-2022 tokens whose
+extensions Bound refuses (transfer fee, permanent delegate, frozen by default, pausable and the
+rest, listed in AUDIT.md section 0f)
 tokens.
 
 See `SECURITY.md` for the threat model, `AUDIT.md` for the audit brief (with the fixes from the first

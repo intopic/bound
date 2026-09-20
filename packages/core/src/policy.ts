@@ -39,6 +39,9 @@ export async function buildPolicy(args: {
   inputDecimals: number;
   outputDecimals: number;
   config: BoundConfig;
+  /** The token program that owns each mint, as read from the chain. Classic SPL by default. */
+  inputTokenProgram?: Address;
+  outputTokenProgram?: Address;
   /**
    * Whether ATA(treasury, inputMint) already exists on chain. When it does not, the swap is
    * fee-free: Bound never makes the user pay rent for Bound's own account (audit B-09).
@@ -53,6 +56,9 @@ export async function buildPolicy(args: {
   if (ephemeral === intent.owner) throw new PolicyError('The temporary key must differ from the wallet');
 
   const variant = variantOf(intent.inputMint, intent.outputMint);
+  // Wrapped SOL is always a classic token, whatever the caller was told.
+  const inProgram = intent.inputMint === WSOL_MINT ? TOKEN_PROGRAM : args.inputTokenProgram ?? TOKEN_PROGRAM;
+  const outProgram = intent.outputMint === WSOL_MINT ? TOKEN_PROGRAM : args.outputTokenProgram ?? TOKEN_PROGRAM;
   // Variant B pays the fee in SOL to the treasury wallet itself, which needs no token account.
   const treasury = variant === 'B' || args.feeAccountExists ? config.treasury : null;
   const fee = feeFor(intent.amountIn, { feeBps: config.feeBps, treasury });
@@ -60,13 +66,15 @@ export async function buildPolicy(args: {
   if (swapAmount <= 0n) throw new PolicyError('Amount is too small to cover the fee');
 
   const feeDestination =
-    fee === 0n ? null : variant === 'B' ? treasury : await ataOf(treasury!, intent.inputMint);
+    fee === 0n ? null : variant === 'B' ? treasury : await ataOf(treasury!, intent.inputMint, inProgram);
 
   return {
     owner: intent.owner,
     ephemeral,
     inputMint: intent.inputMint,
     outputMint: intent.outputMint,
+    inputTokenProgram: inProgram,
+    outputTokenProgram: outProgram,
     inputDecimals: args.inputDecimals,
     outputDecimals: args.outputDecimals,
     minOut: args.minOut ?? 0n,
@@ -79,10 +87,10 @@ export async function buildPolicy(args: {
     jupiterProgram: config.jupiterProgram,
     variant,
     accounts: {
-      eIn: await ataOf(ephemeral, intent.inputMint),
+      eIn: await ataOf(ephemeral, intent.inputMint, inProgram),
       eOut: variant === 'A' ? await ataOf(ephemeral, WSOL_MINT) : null,
-      wIn: variant === 'B' ? null : await ataOf(intent.owner, intent.inputMint),
-      wOut: variant === 'A' ? null : await ataOf(intent.owner, intent.outputMint),
+      wIn: variant === 'B' ? null : await ataOf(intent.owner, intent.inputMint, inProgram),
+      wOut: variant === 'A' ? null : await ataOf(intent.owner, intent.outputMint, outProgram),
       feeDestination,
     },
   };

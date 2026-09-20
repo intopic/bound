@@ -19,7 +19,7 @@ import {
 } from '@/lib/client/wallets';
 import { formatExact, formatUnits, formatUsd, parseUnits, shortAddress } from '@/lib/client/format';
 import {
-  loadTokens, POPULAR, readMint, SOL_MINT, TOKEN_PROGRAM, tokenWarnings, usablePrice, USDC_MINT,
+  loadTokens, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
 } from '@/lib/client/tokens';
 import type { MintFacts } from '@/lib/client/tokens';
 import { addHistory, isUnsettled, readHistory, STATUS_LABEL, updateHistory } from '@/lib/client/history';
@@ -319,7 +319,8 @@ export function SwapApp() {
     if (tokenIn.id === tokenOut.id) return 'Choose two different tokens';
     if (inFacts === 'missing' || outFacts === 'missing') return 'That address is not a token';
     if (!inFacts || !outFacts) return 'Reading token details…';
-    if (inFacts.program !== TOKEN_PROGRAM || outFacts.program !== TOKEN_PROGRAM) return 'Token-2022 tokens are not supported yet';
+    const refused = inFacts.unsupported ?? outFacts.unsupported;
+    if (refused) return `This token uses ${refused}, which a protected swap cannot isolate`;
     if (!amountIn || amountIn <= 0n) return 'Enter an amount';
     if (amountIn > MAX_U64) return 'Amount is too large';
     if (swapAmount !== null && swapAmount <= 0n) return 'Amount is too small';

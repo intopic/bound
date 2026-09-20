@@ -7,7 +7,7 @@ import {
 } from '@solana-program/token';
 import { getTransferSolInstruction } from '@solana-program/system';
 import {
-  compileProtectedSwap, JUPITER_PROGRAM, protectedInstructions, WSOL_MINT,
+  compileProtectedSwap, JUPITER_PROGRAM, protectedInstructions, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
 } from '@bound/core';
 import type { TxVersion } from '@bound/core';
 import { verify } from '../src/index.ts';
@@ -21,6 +21,14 @@ const RUNS = Number(process.env.BOUND_FUZZ_RUNS ?? ((import.meta as { env?: { MO
 const TIMEOUT = 60_000 + RUNS * 50;
 const PAIRS: [Address, Address][] = [[USDC, WSOL_MINT], [WSOL_MINT, USDC], [USDC, BONK]];
 
+// Token-2022 extension sets a protected swap can live with, and ones it must refuse (section 0f).
+const ALLOWED_EXTENSIONS: [number, number][][] = [
+  [], [[18, 64]], [[18, 64], [19, 120]], [[14, 64]], [[3, 32], [18, 64]], [[4, 97]], [[20, 64], [21, 80]],
+];
+const REFUSED_EXTENSIONS: [number, number][] = [
+  [1, 108], [6, 1], [8, 1], [9, 0], [10, 52], [12, 32], [25, 24], [26, 33], [250, 8],
+];
+
 const shape = fc.record({
   pair: fc.constantFrom(...PAIRS),
   version: fc.constantFrom<TxVersion>(0, 1),
@@ -28,20 +36,55 @@ const shape = fc.record({
   feeAccountExists: fc.boolean(),
   intermediates: fc.integer({ min: 0, max: 2 }),
   poolCount: fc.integer({ min: 1, max: 20 }),
+  token2022: fc.boolean(),
+  extensions: fc.constantFrom(...ALLOWED_EXTENSIONS),
 });
 
-type Shape = { pair: [Address, Address]; version: TxVersion; fee: boolean; feeAccountExists: boolean; intermediates: number; poolCount: number };
+type Shape = {
+  pair: [Address, Address]; version: TxVersion; fee: boolean; feeAccountExists: boolean;
+  intermediates: number; poolCount: number; token2022: boolean; extensions: [number, number][];
+};
 
 const build = (s: Shape) =>
   scenario({
     input: s.pair[0], output: s.pair[1], fee: s.fee, feeAccountExists: s.feeAccountExists,
     intermediates: s.intermediates, poolCount: s.poolCount,
+    // Wrapped SOL stays classic whatever the shape says; the fixture takes care of that.
+    inputProgram: s.token2022 ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM,
+    outputProgram: s.token2022 ? TOKEN_PROGRAM : TOKEN_2022_PROGRAM,
+    inputExtensions: s.extensions,
+    outputExtensions: s.extensions,
   });
 
 const compile = (sc: Scenario, ixs: Instruction[], version: TxVersion, cu = cuIxs()) =>
   compileRaw(sc.W, version === 0 ? [...cu, ...ixs] : ixs, version, version === 0 ? sc.lookupTables : undefined);
 
 describe('T3: property tests', () => {
+  it('a Token-2022 mint with an extension we refuse never passes', async () => {
+    await fc.assert(
+      fc.asyncProperty(shape, fc.constantFrom(...REFUSED_EXTENSIONS), fc.boolean(), async (s, refused, onInput) => {
+        // Wrapped SOL is always classic, so put the refused extension on the side that is a token.
+        const side = s.pair[0] === WSOL_MINT ? false : s.pair[1] === WSOL_MINT ? true : onInput;
+        const sc = await scenario({
+          input: s.pair[0], output: s.pair[1], fee: s.fee, feeAccountExists: s.feeAccountExists,
+          intermediates: s.intermediates, poolCount: s.poolCount,
+          inputProgram: side ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM,
+          outputProgram: side ? TOKEN_PROGRAM : TOKEN_2022_PROGRAM,
+          inputExtensions: side ? [[18, 64], refused] : [[18, 64]],
+          outputExtensions: side ? [[18, 64]] : [[18, 64], refused],
+        });
+        const tx = compileProtectedSwap({
+          policy: sc.policy, swapInstruction: sc.swapIx, intermediates: sc.intermediates, version: s.version,
+          lifetime: LIFETIME, computeUnitLimit: 400_000, microLamportsPerComputeUnit: 50_000n, priorityFeeLamports: 20_000n,
+          lookupTables: s.version === 0 ? sc.lookupTables : undefined, outputBalanceBefore: sc.wOutBalance,
+        }).transaction;
+        const v = await verify(tx, sc.policy, sc.snapshot);
+        expect(v.violations.some(x => x.rule === 'R7')).toBe(true);
+      }),
+      { numRuns: RUNS },
+    );
+  }, TIMEOUT);
+
   it('every honest shape the compiler produces is accepted', async () => {
     await fc.assert(
       fc.asyncProperty(shape, async s => {

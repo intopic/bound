@@ -1,4 +1,4 @@
-export { verify } from './verify.ts';
+export { memoRequired, unsupportedExtension, verify } from './verify.ts';
 export { verifyWalletReturn } from './wallet.ts';
 export { parseInstruction } from './parse.ts';
 export type { Parsed } from './parse.ts';

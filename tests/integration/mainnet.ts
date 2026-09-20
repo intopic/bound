@@ -25,7 +25,7 @@ import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } 
 import { AuthorityType, getCloseAccountInstruction, getSetAuthorityInstruction, getTransferInstruction } from '@solana-program/token';
 import { getTransferSolInstruction } from '@solana-program/system';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ataOf, buildPolicy, JUPITER_PROGRAM, protectedInstructions, tokenAmountOf, WSOL_MINT } from '@bound/core';
+import { ataOf, buildPolicy, JUPITER_PROGRAM, protectedInstructions, TOKEN_PROGRAM, tokenAmountOf, WSOL_MINT } from '@bound/core';
 import { verify } from '@bound/verifier';
 import type { TxVersion } from '@bound/core';
 import { createEphemeral, createRetryingRpc, fetchMints, fetchSnapshot } from '@bound/solana';
@@ -74,6 +74,11 @@ const M = {
   HNT: address('hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux'),
   PENGU: address('2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv'),
   JLP: address('27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4'),
+  // Token-2022, with extensions a protected swap can live with (phase 3).
+  PUMP: address('pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn'),
+  CATE: address('Ai66LHZG9MCzg1WKdawwqduVAXpNDUuV8M3uyq5ppump'),
+  PAID: address('98kfF7rmsg1QDUEoCqNE7g7M1FdrTt92TEp2CLzypump'),
+  TIPPED: address('tipp4C4Jnpft26HC9VXNjUPidojZqxXf8nzKvrKf5BS'),
 };
 type Sym = keyof typeof M;
 
@@ -83,6 +88,7 @@ const PAIRS: [Sym, Sym][] = [
   ['USDC', 'JTO'], ['SOL', 'JTO'], ['USDC', 'PYTH'], ['SOL', 'PYTH'], ['USDC', 'RAY'], ['SOL', 'RAY'],
   ['SOL', 'mSOL'], ['SOL', 'JitoSOL'], ['JitoSOL', 'SOL'], ['USDC', 'ORCA'], ['SOL', 'W'], ['USDC', 'POPCAT'],
   ['SOL', 'POPCAT'], ['USDC', 'TRUMP'], ['SOL', 'RENDER'], ['USDC', 'HNT'], ['SOL', 'PENGU'], ['USDC', 'JLP'],
+  ['SOL', 'PUMP'], ['PUMP', 'SOL'], ['USDC', 'PUMP'], ['SOL', 'CATE'], ['USDC', 'PAID'], ['SOL', 'TIPPED'],
 ];
 
 const log = (...a: unknown[]) => console.log(...a);
@@ -97,8 +103,20 @@ const SIM_CANDIDATES = [
   'is6MTRHEgyFLNTfYcuV4QBWLjrZBfmhVNYR6ccgr8KV',
 ].map(a => address(a));
 
+/** The token program that owns a mint, read once and remembered. */
+const programCache = new Map<string, Address>();
+async function programOf(mint: Address): Promise<Address> {
+  const known = programCache.get(mint);
+  if (known) return known;
+  const info = (await fetchMints(rpc, [mint])).get(mint);
+  const program = info?.program ?? TOKEN_PROGRAM;
+  programCache.set(mint, program);
+  if (info) decimalsCache.set(mint, info.decimals);
+  return program;
+}
+
 const tokenBalance = async (owner: Address, mint: Address) => {
-  const { value } = await rpc.getAccountInfo(await ataOf(owner, mint), { encoding: 'base64' }).send();
+  const { value } = await rpc.getAccountInfo(await ataOf(owner, mint, await programOf(mint)), { encoding: 'base64' }).send();
   return value ? tokenAmountOf(Uint8Array.from(Buffer.from(value.data[0], 'base64'))) : null;
 };
 
@@ -131,7 +149,12 @@ async function pickTreasury(owner: Address, a: Sym): Promise<Address> {
 const decimalsCache = new Map<string, number>();
 async function decimalsOf(a: Sym, b: Sym) {
   const missing = [M[a], M[b]].filter(m => !decimalsCache.has(m));
-  if (missing.length) for (const [m, info] of await fetchMints(rpc, missing)) decimalsCache.set(m, info.decimals);
+  if (missing.length) {
+    for (const [m, info] of await fetchMints(rpc, missing)) {
+      decimalsCache.set(m, info.decimals);
+      if (info.program) programCache.set(m, info.program);
+    }
+  }
   return { inputDecimals: decimalsCache.get(M[a])!, outputDecimals: decimalsCache.get(M[b])! };
 }
 
