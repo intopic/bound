@@ -24,11 +24,15 @@ export type SwapSettings = BoundConfig & {
   slippageBps: number;
   /**
    * How far below the unrestricted route a protected one may sit (D15). Under `askAboveBps` the
-   * swap proceeds; between the two the user is told the difference and decides; above
-   * `badQuoteBps` the quote is treated as broken and refused without asking, because at that
-   * distance the likely cause is a broken or manipulated answer, not the cost of protection.
+   * swap proceeds; above it the user is told the difference and decides, with a stronger warning
+   * past `warnAboveBps`. Bound refuses on its own only past `badQuoteBps`, where the number is no
+   * longer a price but a broken or manipulated answer.
+   *
+   * Bound does not block a trade it merely dislikes: a user who understands the difference and
+   * still wants the guarantee is entitled to it.
    */
   askAboveBps: bigint;
+  warnAboveBps: bigint;
   badQuoteBps: bigint;
   maxRepairAttempts: number;
   /** v0 priority price; v1 uses `priorityFeeLamports`. */
@@ -42,7 +46,8 @@ export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'>
   excludeDexes: ['HumidiFi', 'Pump.fun Amm'],
   slippageBps: 50,
   askAboveBps: 100n,
-  badQuoteBps: 500n,
+  warnAboveBps: 500n,
+  badQuoteBps: 5_000n,
   maxRepairAttempts: 4,
   microLamportsPerComputeUnit: 50_000n,
   priorityFeeLamports: 10_000n,
@@ -482,7 +487,8 @@ export async function prepareProtectedSwap(deps: {
       if (accepted === undefined || chosenGapBps > accepted + 50n) {
         throw new BoundError(
           'costs-more',
-          `The protected route for this swap is ${percent(chosenGapBps)} below the best price on the market: it has to fit in one transaction, and Bound leaves out pools that would leave an account behind.`,
+          `The protected route for this swap is ${percent(chosenGapBps)} below the best price on the market: it has to fit in one transaction, and Bound leaves out pools that would leave an account behind.`
+          + (chosenGapBps > settings.warnAboveBps ? ' At this distance most people should trade a smaller amount instead.' : ''),
           [], null,
           { gapBps: chosenGapBps, outAmount: BigInt(chosen.r.outAmount), baselineOut },
         );
@@ -502,7 +508,7 @@ export async function prepareProtectedSwap(deps: {
       throw sawTooBig
         ? new BoundError('no-route', 'The best route for this amount does not fit in a single protected transaction. Try a smaller amount, or split the swap.')
         : sawBadQuote
-          ? new BoundError('bad-quote', `The best protected route for this amount is ${percent(bestGapBps)} below the best price on the market, which is more than Bound accepts. Try a smaller amount, or again in a moment.`)
+          ? new BoundError('bad-quote', `Every route offered is at least ${percent(bestGapBps)} below the best price on the market. That is not a price, it is a broken answer, so nothing was built. Try again in a moment.`)
           : new BoundError('no-route', 'No route fits in a single protected transaction. Try a different amount or token.');
     }
 

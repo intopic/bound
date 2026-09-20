@@ -84,7 +84,7 @@ function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean; epo
 }
 
 /** Answers like Jupiter for whatever is asked, with the floor and amounts an attacker chooses. */
-function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; failFirst?: number; extraAccounts?: readonly Address[] } = {}): JupiterClient {
+function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; failFirst?: number; extraAccounts?: readonly Address[]; worseByBps?: bigint } = {}): JupiterClient {
   let calls = 0;
   return {
     async build(p: BuildParams): Promise<BuildResponse> {
@@ -97,7 +97,9 @@ function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; fail
         inputMint: p.inputMint,
         outputMint: p.outputMint,
         inAmount: (p.amount * (answer.inAmountFactor ?? 1n)).toString(),
-        outAmount: OUT.toString(),
+        // The baseline is asked for without exclusions and a protected route with them, so this
+        // is how a route that costs more than the open market is simulated.
+        outAmount: (p.excludeDexes?.length ? (OUT * (10_000n - (answer.worseByBps ?? 0n))) / 10_000n : OUT).toString(),
         otherAmountThreshold: (answer.threshold ?? (OUT * 9_950n) / 10_000n).toString(),
         routePlan: [{ percent: 100, swapInfo: { label: 'Whirlpool', ammKey: POOL } }],
         computeBudgetInstructions: [],
@@ -143,7 +145,7 @@ const settings = { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_
 
 async function prepare(output: Address, opts: {
   jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean;
-  acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean;
+  acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
@@ -152,7 +154,7 @@ async function prepare(output: Address, opts: {
     {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: USDC, outputMint: output, amountIn: 1_000_000n,
       inputDecimals: opts.inputDecimals ?? DECIMALS[USDC], outputDecimals: DECIMALS[output], version: 1,
-      acceptedMinOut: opts.acceptedMinOut,
+      acceptedMinOut: opts.acceptedMinOut, acceptedCostBps: opts.acceptedCostBps,
     },
   );
 }
@@ -213,6 +215,28 @@ describe('C-02: Bound computes the minimum itself', () => {
       .then(() => null, (e: unknown) => e as BoundError);
     expect(error?.code).toBe('no-route');
     expect(error?.message).toMatch(/does not fit in a single protected transaction/);
+  });
+});
+
+describe('a protected route that costs more than the open market', () => {
+  it('is put to the user, never refused on their behalf', async () => {
+    const error = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 1_000n }) })
+      .then(() => null, (e: unknown) => e as BoundError);
+    expect(error?.code).toBe('costs-more');
+    expect(Number(error?.costsMore?.gapBps)).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it('is built once the user has accepted that cost', async () => {
+    const prepared = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 1_000n }), acceptedCostBps: 1_000n });
+    expect(prepared.quote.gapBps).toBe(1_000n);
+  });
+
+  it('is still put to the user well past the warning threshold', async () => {
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 3_000n }) }))).toBe('costs-more');
+  });
+
+  it('is refused only when the answer is no longer a price at all', async () => {
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 6_000n }) }))).toBe('bad-quote');
   });
 });
 

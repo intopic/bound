@@ -40,7 +40,7 @@ type Pending = {
 /** A question the page puts to the user mid-swap, with nothing signed yet. */
 type Offer =
   | { kind: 'price'; was: string; now: string }
-  | { kind: 'cost'; gap: string };
+  | { kind: 'cost'; gap: string; severe: boolean };
 type SwapTexts = { paid: string; received: string; exposed: string };
 
 // Quotes are asked for a neutral taker, so Jupiter never sees the user's address before a swap.
@@ -436,7 +436,11 @@ export function SwapApp() {
         // The route that fits costs more than the unrestricted market price: that difference is
         // the price of the protection, so the user decides whether to pay it.
         if (e.code === 'costs-more' && e.costsMore) {
-          const accept = await askAboutOffer({ kind: 'cost', gap: `${(Number(e.costsMore.gapBps) / 100).toFixed(2)}%` });
+          const accept = await askAboutOffer({
+            kind: 'cost',
+            gap: `${(Number(e.costsMore.gapBps) / 100).toFixed(2)}%`,
+            severe: e.costsMore.gapBps > DEFAULT_SETTINGS.warnAboveBps,
+          });
           if (!accept) return null;
           acceptedCost = e.costsMore.gapBps;
           setPhase('checking');
@@ -784,7 +788,9 @@ export function SwapApp() {
               <p>
                 The protected route is <strong>{offer.gap}</strong> below the best price on the market. A protected swap
                 has to fit in one transaction, and Bound leaves out pools that would leave an account behind. A smaller
-                amount often costs less. Nothing has been signed.
+                amount often costs less.
+                {offer.severe && ' At this distance most people should trade a smaller amount instead.'} Nothing has been
+                signed, and the choice is yours.
               </p>
             )}
             <div className="banner-actions">

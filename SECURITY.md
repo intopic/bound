@@ -93,10 +93,13 @@ a reproducible build, keep dependencies minimal, and review every dependency upd
   elsewhere: the fee applies to every transfer, and a protected swap makes one transfer more than
   an unprotected one. The page says so before the swap and again while the wallet is open. That
   money goes to the token, never to Bound.
-- A price that is worse than the open market by up to 5%: a protected route must fit in one
-  transaction and leaves out pools that would leave an account behind. Above 1% the page shows the
-  difference and asks; above 5% Bound refuses, because at that distance the likelier explanation is
-  a broken quote. **This comparison is a courtesy, not a guarantee:** both the protected route and
+- A price that is worse than the open market: a protected route must fit in one transaction and
+  leaves out pools that would leave an account behind. Above 1% the page shows the difference and
+  asks, with a stronger warning past 5%; the swap is never blocked over it, because a person who
+  understands the cost and still wants the guarantee is entitled to it. Bound refuses on its own
+  only past 50%, where the answer is not a price but a broken one. Note that this difference is not
+  price impact: the size of a trade moves the market for the protected and the unprotected route
+  alike, so it cancels out of the comparison. **This comparison is a courtesy, not a guarantee:** both the protected route and
   the unrestricted one it is measured against come from Jupiter, so an aggregator that lowered both
   would pass it unnoticed. What protects the user is the minimum output they accepted, which is
   enforced on chain. A guarantee about the market price would need an independent price source.
