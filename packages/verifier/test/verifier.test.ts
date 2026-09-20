@@ -214,7 +214,6 @@ describe('Token-2022', () => {
   });
 
   it.each([
-    ['a transfer fee', 1, 108],
     ['accounts frozen by default', 6, 1],
     ['a permanent delegate', 12, 32],
     ['an interest-bearing mint', 10, 52],
@@ -231,6 +230,35 @@ describe('Token-2022', () => {
       input: USDC, output: BONK, outputProgram: TOKEN_2022_PROGRAM, outputExtensions: [[18, 64]],
     });
     expect((await verify(await compileHonest(s, 0), s.policy, s.snapshot)).ok).toBe(true);
+  });
+
+  it('a token that taxes its transfers is accepted, with the withheld fees harvested before the close', async () => {
+    const s = await t22([[18, 64], [1, 108]]);
+    expect(s.policy.inputTransferFee).toBe(true);
+    const verdict = await verify(await compileHonest(s, 0), s.policy, s.snapshot);
+    expect(verdict.violations).toEqual([]);
+  });
+
+  it('without the harvest, the temporary account could not be closed → R5', async () => {
+    const s = await t22([[18, 64], [1, 108]]);
+    const ixs = honest(s).filter(ix => !(ix.data?.[0] === 26)); // drop HarvestWithheldTokensToMint
+    const tx = compileRaw(s.W, [...cuIxs(), ...ixs], 0, s.lookupTables);
+    expect(rules(await verify(tx, s.policy, s.snapshot))).toContain('R5');
+  });
+
+  it('harvesting after the close is refused → R5', async () => {
+    const s = await t22([[18, 64], [1, 108]]);
+    const ixs = honest(s);
+    const at = ixs.findIndex(ix => ix.data?.[0] === 26);
+    ixs.splice(at + 2, 0, ...ixs.splice(at, 1)); // move the harvest past the close
+    const tx = compileRaw(s.W, [...cuIxs(), ...ixs], 0, s.lookupTables);
+    expect(rules(await verify(tx, s.policy, s.snapshot))).toContain('R5');
+  });
+
+  it('a policy that hides the transfer fee → R2', async () => {
+    const s = await t22([[18, 64], [1, 108]]);
+    const lying = { ...s.policy, inputTransferFee: false };
+    expect(rules(await verify(await compileHonest(s, 0), lying, s.snapshot))).toContain('R2');
   });
 
   it('a Token-2022 swap compiled with the classic program is refused', async () => {

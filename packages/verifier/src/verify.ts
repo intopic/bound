@@ -85,7 +85,63 @@ const EXTENSION_NAMES: Record<number, string> = {
  * extension area starts after the account-type byte at offset 165 (a mint is padded to the size of
  * a token account first).
  */
-export function unsupportedExtension(data: Uint8Array): string | null {
+/** A mint's transfer fee for the current epoch, or null when it charges none. */
+export type TransferFee = { bps: number; maximum: bigint };
+
+/**
+ * Reads the TransferFeeConfig extension. Its value holds two authorities (32 bytes each), the
+ * withheld amount, and then the older and newer fee, each `{ epoch: u64, maximum: u64, bps: u16 }`.
+ * The newer one applies once its epoch has arrived, exactly as the token program decides it.
+ */
+export function transferFeeOf(data: Uint8Array, epoch: bigint): TransferFee | null {
+  if (data.length <= TOKEN_ACCOUNT_SIZE || data[TOKEN_ACCOUNT_SIZE] !== 1) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  for (let at = TOKEN_ACCOUNT_SIZE + 1; at + 4 <= data.length; ) {
+    const type = view.getUint16(at, true);
+    const length = view.getUint16(at + 2, true);
+    const value = at + 4;
+    if (type === 0) break;
+    if (type === 1) {
+      if (length < 108 || value + 108 > data.length) return null;
+      const read = (from: number) => ({
+        epoch: view.getBigUint64(from, true),
+        maximum: view.getBigUint64(from + 8, true),
+        bps: view.getUint16(from + 16, true),
+      });
+      const older = read(value + 72);
+      const newer = read(value + 90);
+      const active = epoch >= newer.epoch ? newer : older;
+      return active.bps === 0 ? null : { bps: active.bps, maximum: active.maximum };
+    }
+    at = value + length;
+  }
+  return null;
+}
+
+/** What the token program withholds on a transfer of `amount`: rounded up, never above the cap. */
+export function transferFeeOn(amount: bigint, fee: TransferFee): bigint {
+  const raw = (amount * BigInt(fee.bps) + 9_999n) / 10_000n;
+  return raw > fee.maximum ? fee.maximum : raw;
+}
+
+export function hasTransferFee(data: Uint8Array): boolean {
+  if (data.length <= TOKEN_ACCOUNT_SIZE || data[TOKEN_ACCOUNT_SIZE] !== 1) return false;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  for (let at = TOKEN_ACCOUNT_SIZE + 1; at + 4 <= data.length; ) {
+    const type = view.getUint16(at, true);
+    const length = view.getUint16(at + 2, true);
+    if (type === 0) break;
+    if (type === 1) return true;
+    at = at + 4 + length;
+  }
+  return false;
+}
+
+/**
+ * `allowTransferFee` is set for the swap's own mints, whose temporary account is harvested before
+ * it is closed. An intermediate hop is not harvested, so a fee there is still refused.
+ */
+export function unsupportedExtension(data: Uint8Array, options: { allowTransferFee?: boolean } = {}): string | null {
   if (data.length === MINT_SIZE) return null;
   if (data.length <= TOKEN_ACCOUNT_SIZE || data[TOKEN_ACCOUNT_SIZE] !== 1) return 'malformed extension area';
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -100,6 +156,8 @@ export function unsupportedExtension(data: Uint8Array): string | null {
     // Token-2022 tokens do; a real program is refused.
     if (type === 14) {
       if (length < 64 || nonZero(value + 32, value + 64)) return 'transfer hook';
+    } else if (type === 1) {
+      if (!options.allowTransferFee) return 'transfer fee';
     } else if (!ALLOWED_MINT_EXTENSIONS.has(type)) {
       return EXTENSION_NAMES[type] ?? `unknown extension ${type}`;
     }
@@ -134,13 +192,13 @@ const V1_ALLOWED_CONFIG =
 
 type Slot =
   | 'cuLimit' | 'cuPrice' | 'createEIn' | 'createEOut' | 'createWOut' | 'revokeWOut'
-  | 'createIntermediate' | 'transferIn' | 'feeTransfer' | 'sync' | 'minOutCheck' | 'closeEIn' | 'closeEOut'
+  | 'createIntermediate' | 'transferIn' | 'feeTransfer' | 'sync' | 'minOutCheck' | 'harvestEIn' | 'closeEIn' | 'closeEOut'
   | 'closeIntermediate';
 
 const BEFORE_SWAP: Slot[] = [
   'createEIn', 'createEOut', 'createWOut', 'revokeWOut', 'createIntermediate', 'transferIn', 'feeTransfer', 'sync',
 ];
-const AFTER_SWAP: Slot[] = ['minOutCheck', 'closeEIn', 'closeEOut', 'closeIntermediate'];
+const AFTER_SWAP: Slot[] = ['minOutCheck', 'harvestEIn', 'closeEIn', 'closeEOut', 'closeIntermediate'];
 
 /**
  * The 7 rules of the plan (section 6), checked on the exact bytes the wallet will sign.
@@ -171,6 +229,11 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (chainOutput && chainOutput !== p.outputTokenProgram) fail('R2', 'the output token program does not match the mint');
   const inputProgram = chainInput ?? p.inputTokenProgram;
   const outputProgram = chainOutput ?? p.outputTokenProgram;
+  const inputMintState = snapshot.accounts.get(p.inputMint);
+  const inputFee = !!inputMintState && inputProgram === TOKEN_2022_PROGRAM && hasTransferFee(inputMintState.data);
+  if (inputMintState && p.inputTransferFee !== inputFee) {
+    fail('R2', `policy says the input mint ${p.inputTransferFee ? 'charges' : 'does not charge'} a transfer fee, the mint says otherwise`);
+  }
 
   // Re-derive the policy's numbers and accounts instead of trusting them.
   const expectedFee = p.treasury ? (p.amountIn * p.feeBps) / BPS_DENOMINATOR : 0n;
@@ -302,6 +365,13 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
         if (B && x.account === eIn) put('sync', i);
         else fail('R2', `instruction ${i}: unexpected SyncNative`);
         break;
+      case 'harvest':
+        // Only the temporary input account, and only to its own mint: harvesting moves nothing of
+        // the user's, but an unexpected account here would be an instruction we did not intend.
+        if (x.program === inputProgram && x.mint === p.inputMint && x.sources.length === 1 && x.sources[0] === eIn) {
+          put('harvestEIn', i);
+        } else fail('R2', `instruction ${i}: unexpected harvest of withheld fees`);
+        break;
       case 'revoke':
         if (!A && x.program === outputProgram && x.source === wOut && x.owner === W) put('revokeWOut', i);
         else fail('R2', `instruction ${i}: unexpected Revoke`);
@@ -335,6 +405,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     need('revokeWOut', 1);
   }
   need('minOutCheck', 1);
+  need('harvestEIn', p.inputTransferFee ? 1 : 0, 'R5');
   if (B) need('sync', 1);
   need('feeTransfer', p.fee > 0n ? 1 : 0);
   if (version === 0) { need('cuLimit', 1, 'R4'); need('cuPrice', 1, 'R4'); }
@@ -355,6 +426,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (B && first('transferIn') > first('sync')) fail('R2', 'SyncNative runs before the SOL transfer');
   if (!A && first('createWOut') > first('revokeWOut')) fail('R2', 'W_out is revoked before it is created');
   if (A && first('minOutCheck') > first('closeEOut')) fail('R5', 'the minimum-output check runs after E_out is closed');
+  if (p.inputTransferFee && first('harvestEIn') > first('closeEIn')) fail('R5', 'withheld fees are harvested after E_in is closed');
 
   // R1: the external program never receives W or any of W's token accounts except W_out.
   // (Sufficient only together with R6: see the note at the top of this file.)
@@ -437,7 +509,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     if (!state) { fail('R7', `mint ${mint} not found`); continue; }
     if (state.owner === TOKEN_PROGRAM) continue;
     if (state.owner !== TOKEN_2022_PROGRAM) { fail('R7', `mint ${mint} is not a token mint`); continue; }
-    const bad = unsupportedExtension(state.data);
+    const bad = unsupportedExtension(state.data, { allowTransferFee: true });
     if (bad) fail('R7', `mint ${mint}: ${bad}`);
   }
 

@@ -25,8 +25,10 @@ const PAIRS: [Address, Address][] = [[USDC, WSOL_MINT], [WSOL_MINT, USDC], [USDC
 const ALLOWED_EXTENSIONS: [number, number][][] = [
   [], [[18, 64]], [[18, 64], [19, 120]], [[14, 64]], [[3, 32], [18, 64]], [[4, 97]], [[20, 64], [21, 80]],
 ];
+// A transfer fee is not here: the swap's own mints may charge one, because the cleanup harvests
+// the withheld amount before closing the temporary account.
 const REFUSED_EXTENSIONS: [number, number][] = [
-  [1, 108], [6, 1], [8, 1], [9, 0], [10, 52], [12, 32], [25, 24], [26, 33], [250, 8],
+  [6, 1], [8, 1], [9, 0], [10, 52], [12, 32], [25, 24], [26, 33], [250, 8],
 ];
 
 const shape = fc.record({
@@ -37,7 +39,7 @@ const shape = fc.record({
   intermediates: fc.integer({ min: 0, max: 2 }),
   poolCount: fc.integer({ min: 1, max: 20 }),
   token2022: fc.boolean(),
-  extensions: fc.constantFrom(...ALLOWED_EXTENSIONS),
+  extensions: fc.constantFrom(...ALLOWED_EXTENSIONS, [[18, 64], [1, 108]] as [number, number][]),
 });
 
 type Shape = {

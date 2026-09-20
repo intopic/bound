@@ -12,7 +12,7 @@ import {
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, TxVersion, Violation } from '@bound/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
-import { certify, memoRequired, unsupportedExtension, verifyWalletReturn } from '@bound/verifier';
+import { certify, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn } from '@bound/verifier';
 import type { Certificate } from '@bound/verifier';
 import type { SendResult, SendStatus, SolanaRpc } from '@bound/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
@@ -22,7 +22,13 @@ export type SwapSettings = BoundConfig & {
   /** DEXes that charge the taker persistent rent (D13). */
   excludeDexes: readonly string[];
   slippageBps: number;
-  /** Quotes this many bps below the unrestricted route are treated as broken (D15). */
+  /**
+   * How far below the unrestricted route a protected one may sit (D15). Under `askAboveBps` the
+   * swap proceeds; between the two the user is told the difference and decides; above
+   * `badQuoteBps` the quote is treated as broken and refused without asking, because at that
+   * distance the likely cause is a broken or manipulated answer, not the cost of protection.
+   */
+  askAboveBps: bigint;
   badQuoteBps: bigint;
   maxRepairAttempts: number;
   /** v0 priority price; v1 uses `priorityFeeLamports`. */
@@ -35,7 +41,8 @@ export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'>
   maxNetworkFeeLamports: 200_000n,
   excludeDexes: ['HumidiFi', 'Pump.fun Amm'],
   slippageBps: 50,
-  badQuoteBps: 100n,
+  askAboveBps: 100n,
+  badQuoteBps: 500n,
   maxRepairAttempts: 4,
   microLamportsPerComputeUnit: 50_000n,
   priorityFeeLamports: 10_000n,
@@ -62,6 +69,12 @@ export type SwapRequest = {
    * `price-moved` and the new minimum, and the user decides.
    */
   acceptedMinOut?: bigint;
+  /**
+   * How much worse than the unrestricted market price the user has agreed the protected route may
+   * be, in bps. Without it, a route more than `askAboveBps` below the market stops with
+   * `costs-more` and the page asks.
+   */
+  acceptedCostBps?: bigint;
   version: TxVersion;
 };
 
@@ -75,13 +88,22 @@ export type PreparedSwap = {
   size: number;
   computeUnits: number;
   /** `minOut` is enforced by Bound's own check after the swap (audit B-04), not only by Jupiter. */
-  quote: { inAmount: bigint; outAmount: bigint; minOut: bigint; route: string[]; priceImpactPct: number; baselineOut: bigint };
+  quote: {
+    inAmount: bigint; outAmount: bigint; minOut: bigint; route: string[]; priceImpactPct: number; baselineOut: bigint;
+    /** How far below the unrestricted route this one sits, in bps: the cost of the protection. */
+    gapBps: bigint;
+  };
   /** Rent this transaction moves out of W beyond the network fee, to show before signing (audit B-09, C-09). */
   oneTimeCosts: { outputAccountRent: bigint };
   /** The network fee of this exact message, as the cluster prices it (audit B-12). */
   networkFeeLamports: bigint;
   /** Side effects the user should be told about before signing. */
   notices: { removesDelegate: boolean };
+  /**
+   * A tax the input token itself charges on every transfer, and what Bound's extra hop costs
+   * because of it. The money goes to whoever the mint's fee authority is, never to Bound.
+   */
+  tokenTax: { inputBps: number; extraOnInput: bigint } | null;
   /** Temporary ATA(E, m) accounts the route uses; each is created and closed in the transaction. */
   intermediates: IntermediateAta[];
   /** What the verified transaction does, bound to its exact bytes (idea 35). */
@@ -92,21 +114,33 @@ export type PreparedSwap = {
 };
 
 export type BoundErrorCode =
-  | 'unsupported-token' | 'token-data-mismatch' | 'output-account-restricted' | 'no-route' | 'bad-quote' | 'price-moved' | 'simulation-failed'
+  | 'unsupported-token' | 'token-data-mismatch' | 'output-account-restricted' | 'no-route' | 'bad-quote' | 'price-moved'
+  | 'costs-more' | 'simulation-failed'
   | 'verification-failed' | 'wallet-changed-transaction' | 'expired';
 
 /** For `price-moved`: what the market supports now, to show the user before asking again. */
 export type PriceMoved = { newMinOut: bigint; newOutAmount: bigint };
 
+/** For `costs-more`: how far the best protected route sits below the unrestricted one. */
+export type CostsMore = { gapBps: bigint; outAmount: bigint; baselineOut: bigint };
+
 export class BoundError extends Error {
   readonly code: BoundErrorCode;
   readonly violations: Violation[];
   readonly priceMoved: PriceMoved | null;
-  constructor(code: BoundErrorCode, message: string, violations: Violation[] = [], priceMoved: PriceMoved | null = null) {
+  readonly costsMore: CostsMore | null;
+  constructor(
+    code: BoundErrorCode,
+    message: string,
+    violations: Violation[] = [],
+    priceMoved: PriceMoved | null = null,
+    costsMore: CostsMore | null = null,
+  ) {
     super(message);
     this.code = code;
     this.violations = violations;
     this.priceMoved = priceMoved;
+    this.costsMore = costsMore;
   }
 }
 
@@ -216,10 +250,12 @@ export async function prepareProtectedSwap(deps: {
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
     .then(BigInt)
     .catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS);
-  const [firstReads, classicRent, extendedRent] = await Promise.all([
+  const [firstReads, classicRent, extendedRent, epoch] = await Promise.all([
     fetchAccounts(rpc, [req.inputMint, req.outputMint, ...feeCandidates, ...wOutCandidates]),
     wOutCandidates.length ? rentFor(TOKEN_ACCOUNT_SIZE) : Promise.resolve(0n),
     wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
+    // Which of a mint's two fee settings applies depends on the epoch, so the chain is asked.
+    rpc.getEpochInfo({ commitment: 'confirmed' }).send().then(e => BigInt(e.epoch)).catch(() => 0n),
   ]);
   const mints = new Map([req.inputMint, req.outputMint].map(m => [m, mintInfoOf(firstReads.get(m))]));
 
@@ -234,6 +270,9 @@ export async function prepareProtectedSwap(deps: {
       if (bad) throw new BoundError('unsupported-token', `This token uses ${bad}, which a protected swap cannot isolate.`);
     }
   }
+  const inputFee = mints.get(req.inputMint)!.program === TOKEN_2022_PROGRAM
+    ? transferFeeOf(firstReads.get(req.inputMint)!.data, epoch)
+    : null;
   const inputTokenProgram = mints.get(req.inputMint)!.program!;
   const outputTokenProgram = mints.get(req.outputMint)!.program!;
   const feeAccount = feeCandidates.length ? await ataOf(settings.treasury!, req.inputMint, inputTokenProgram) : null;
@@ -255,9 +294,16 @@ export async function prepareProtectedSwap(deps: {
     outputDecimals: mints.get(req.outputMint)!.decimals,
     inputTokenProgram,
     outputTokenProgram,
+    inputTransferFee: !!inputFee,
     config: settings,
     feeAccountExists,
   });
+
+  // The token keeps a cut of every transfer, including ours into the temporary account, so the
+  // route must be quoted for what actually lands there.
+  const taxOnInput = inputFee ? transferFeeOn(policy.swapAmount, inputFee) : 0n;
+  const arriving = policy.swapAmount - taxOnInput;
+  if (arriving <= 0n) throw new BoundError('unsupported-token', 'The token keeps the whole amount as a transfer fee at this size.');
 
   // W_out is the only account of W the swap sees. A delegate is revoked in the transaction, but a
   // close authority cannot be, so such an account is refused up front (audit B-03).
@@ -286,7 +332,7 @@ export async function prepareProtectedSwap(deps: {
   const buildBase = {
     inputMint: req.inputMint,
     outputMint: req.outputMint,
-    amount: policy.swapAmount,
+    amount: arriving,
     taker: E,
     slippageBps: settings.slippageBps,
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
@@ -304,7 +350,7 @@ export async function prepareProtectedSwap(deps: {
   // Jupiter is untrusted: an answer for another pair or another amount is not a quote for this
   // swap (audit C-02).
   const answersThisRequest = (r: BuildResponse) =>
-    r.inputMint === req.inputMint && r.outputMint === req.outputMint && BigInt(r.inAmount) === policy.swapAmount;
+    r.inputMint === req.inputMint && r.outputMint === req.outputMint && BigInt(r.inAmount) === arriving;
   // The unrestricted baseline, the first protected route, the blockhash and the DEX labels do not
   // depend on each other: ask for them at the same time (idea 21).
   // Jupiter sometimes answers "No matching liquidity" for a pair it quotes a second later: retry
@@ -367,6 +413,7 @@ export async function prepareProtectedSwap(deps: {
     const lifetime = await (attempt === 0 ? firstLifetimeTask : latestLifetime(rpc));
 
     let chosen: { r: BuildResponse; intermediates: IntermediateAta[] } | null = null;
+    let chosenGapBps = 0n;
     let sawBadQuote = false;
     // A route priced right but too big for one transaction is the usual outcome for a large
     // amount: Solana allows 64 accounts per transaction, and Bound's own instructions need a
@@ -381,12 +428,27 @@ export async function prepareProtectedSwap(deps: {
       const out = BigInt(r.outAmount);
       const gap = baselineOut > 0n ? ((baselineOut - out) * 10_000n) / baselineOut : 0n;
       if (bestGapBps === null || gap < bestGapBps) bestGapBps = gap;
-      if (out * 10_000n < baselineOut * (10_000n - settings.badQuoteBps)) { sawBadQuote = true; continue; }
+      if (gap > settings.badQuoteBps) { sawBadQuote = true; continue; }
       if (BigInt(r.otherAmountThreshold) <= 0n) continue; // no floor to enforce
       const intermediates = intermediatesFromSetup(r.setupInstructions, policy);
       const c = timed(() => compileIfFits(() => compile(r, lifetime, intermediates, MAX_COMPUTE_UNITS)));
-      if (c && fits(c.size, c.staticAccounts, req.version)) { chosen = { r, intermediates }; break; }
+      if (c && fits(c.size, c.staticAccounts, req.version)) { chosen = { r, intermediates }; chosenGapBps = gap; break; }
       sawTooBig = true;
+    }
+    // The levels run from the widest route to the narrowest, so the first one that fits is the best
+    // price available to a protected swap. When it costs noticeably more than the unrestricted
+    // market, that is the price of the guarantee, and the user decides rather than Bound.
+    if (chosen && chosenGapBps > settings.askAboveBps) {
+      const accepted = req.acceptedCostBps;
+      // A little slack, or a market that drifts by a few bps would ask again and again.
+      if (accepted === undefined || chosenGapBps > accepted + 50n) {
+        throw new BoundError(
+          'costs-more',
+          `The protected route for this swap is ${percent(chosenGapBps)} below the best price on the market: it has to fit in one transaction, and Bound leaves out pools that would leave an account behind.`,
+          [], null,
+          { gapBps: chosenGapBps, outAmount: BigInt(chosen.r.outAmount), baselineOut },
+        );
+      }
     }
     // The best route that fits cannot deliver what the user accepted: ask, never lower it silently.
     if (chosen && BigInt(chosen.r.outAmount) < accepted) throw priceMoved(chosen.r);
@@ -482,6 +544,7 @@ export async function prepareProtectedSwap(deps: {
         timings: { totalMs: Math.round(performance.now() - started), localMs: Math.round(localMs) },
         networkFeeLamports: BigInt(clusterFee),
         notices: { removesDelegate },
+        tokenTax: inputFee ? { inputBps: inputFee.bps, extraOnInput: taxOnInput } : null,
         intermediates: chosen.intermediates,
         policy: chosenPolicy,
         version: req.version,
@@ -496,6 +559,7 @@ export async function prepareProtectedSwap(deps: {
           route,
           priceImpactPct: Number(chosen.r.priceImpactPct ?? 0),
           baselineOut,
+          gapBps: chosenGapBps,
         },
         attempts,
       };

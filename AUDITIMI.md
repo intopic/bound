@@ -98,7 +98,7 @@ sequenceDiagram
 | R4 | v0: saktësisht një `SetComputeUnitLimit` (≤ 1.4M) dhe një `SetComputeUnitPrice`. v1: asnjë instruksion ComputeBudget; config-u i mesazhit lejon vetëm CU limit, priority fee dhe loaded-accounts data size ≤ 64 MiB. Të dy: `5000 × signerë + priority fee ≤ min(F_max, 0.001 SOL)`; një F_max mbi 0.001 SOL është vetë shkelje. |
 | R5 | ≤ 1232 bajt (v0) ose ≤ 4096 bajt dhe ≤ 64 llogari statike (v1). Kontrolli i minimumit dhe mbylljet vijnë pas swap-it; në A kontrolli vjen para mbylljes së E_out. E_in, E_out dhe çdo llogari e ndërmjetme (≤ 4) mbyllen saktësisht një herë. |
 | R6 | Fee payer është W; bashkësia e signerëve është saktësisht {W, E}. `verifyWalletReturn`: mesazhi i kthyer është identik bajt për bajt, nënshkrimi i W-së verifikohet mbi të dhe E nuk ka nënshkruar ende. |
-| R7 | Mint-et e input-it dhe output-it ekzistojnë dhe i përkasin programit klasik Token ose Token-2022. Një mint Token-2022 (input, output ose i ndërmjetëm) lejohet vetëm me extensions që nuk e prekin swap-in: metadata dhe pointer-at e grupit, close authority i mint-it, transferta konfidenciale, dhe një transfer hook me program bosh. Çdo gjë tjetër, përfshirë një extension që verifier-i nuk e njeh, është shkelje. |
+| R7 | Mint-et e input-it dhe output-it ekzistojnë dhe i përkasin programit klasik Token ose Token-2022. Një mint Token-2022 lejohet vetëm me extensions që nuk e prekin swap-in: metadata dhe pointer-at e grupit, close authority i mint-it, transferta konfidenciale, transfer hook me program bosh, dhe — për mint-et e vetë swap-it, llogaria e përkohshme e të cilëve pastrohet para mbylljes — tarifë transferimi. Çdo gjë tjetër, përfshirë një extension që verifier-i nuk e njeh, është shkelje. |
 
 Skedarët: `packages/verifier/src/verify.ts` (rregullat), `parse.ts` (dekoderi strikt), `wallet.ts` (R6 mbi kthimin nga wallet-i).
 
@@ -159,7 +159,7 @@ Këto vendime përcaktojnë formën e sistemit. Na thoni nëse ndonjë është e
 | D12 | Parametri `payer` i Jupiter-it nuk dërgohet kurrë (proxy e refuzon) | Me `payer = W`, W doli brenda instruksionit të swap-it në një route HumidiFi |
 | D13 | Përjashtohen DEX-et që marrin qira të përhershme nga taker-i (HumidiFi, Pump.fun Amm) | Me një E të re për çdo swap, ajo qira (~0.013 SOL) do të humbte çdo herë |
 | D14 | ATA(E, m) të ndërmjetme i krijon Bound dhe i mbyll te W | Disa route (p.sh. Quay) kalojnë fillimisht përmes ATA(E, output) |
-| D15 | Quote-t > 1% më keq se route-i pa kufizime refuzohen; simulimet e dështuara nisin riparimin e route-it | Jupiter një herë ktheu `outAmount = 0` dhe një herë një route 12% më të keq |
+| D15 | Një route i mbrojtur më shumë se 1% nën atë pa kufizime i tregohet klientit dhe vendos ai (`costs-more`); mbi 5% refuzohet si i prishur. Simulimet e dështuara nisin riparimin e route-it | Jupiter një herë ktheu `outAmount = 0` dhe një herë një route 12% më të keq, prandaj një hendek i madh trajtohet si përgjigje e prishur. Një hendek i vogël është çmimi i mbrojtjes, dhe atë e vendos klienti, jo ne |
 | D16 | Pa fee kur treasury nuk ka llogari për tokenin e dhënë | Përdoruesi nuk paguan kurrë qira për llogarinë tonë (B-09) |
 | D17 | Ikonat e tokenëve i merr serveri i Bound | `img-src 'self' data:` dhe IP-ja e përdoruesit nuk u shkon hosteve të krijuesve të tokenëve (B-08) |
 | D18 | Fee dhe treasury fiksohen në build (`NEXT_PUBLIC_BOUND_*`) | Serveri nuk ka kanal të gjallë për t'i ndryshuar (B-01) |

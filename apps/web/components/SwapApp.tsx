@@ -33,10 +33,14 @@ type Quote = { out: bigint; minOut: bigint; route: string[]; at: number };
 /** What the wallet is about to be asked to sign, shown while it is open. */
 type Pending = {
   minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
+  tokenTax: string | null;
   certificate: Certificate; inSymbol: string; outSymbol: string;
 };
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
-type Offer = { was: string; now: string };
+/** A question the page puts to the user mid-swap, with nothing signed yet. */
+type Offer =
+  | { kind: 'price'; was: string; now: string }
+  | { kind: 'cost'; gap: string };
 type SwapTexts = { paid: string; received: string; exposed: string };
 
 // Quotes are asked for a neutral taker, so Jupiter never sees the user's address before a swap.
@@ -61,6 +65,7 @@ function explainError(e: unknown): Notice {
       'no-route': 'No protected route right now',
       'bad-quote': 'Only bad prices were offered',
       'price-moved': 'The price moved',
+      'costs-more': 'Protecting this swap costs more here',
       'simulation-failed': 'The swap would fail',
       'verification-failed': "We couldn't build a protected swap",
       'wallet-changed-transaction': 'Your wallet changed the transaction',
@@ -388,6 +393,7 @@ export function SwapApp() {
     inDecimals: number; outDecimals: number; acceptedMinOut: bigint; version: TxVersion; status: PublicStatus;
   }): Promise<PreparedSwap | null> {
     let accepted = args.acceptedMinOut;
+    let acceptedCost: bigint | undefined;
     for (let round = 0; ; round++) {
       try {
         return await prepareProtectedSwap(
@@ -407,19 +413,33 @@ export function SwapApp() {
           {
             owner: args.owner, ephemeral: args.E, inputMint: address(args.inToken.id), outputMint: address(args.outToken.id),
             amountIn: args.amountIn, inputDecimals: args.inDecimals, outputDecimals: args.outDecimals,
-            acceptedMinOut: accepted, version: args.version,
+            acceptedMinOut: accepted, acceptedCostBps: acceptedCost, version: args.version,
           },
         );
       } catch (e) {
-        if (!(e instanceof BoundError) || e.code !== 'price-moved' || !e.priceMoved || round >= 2) throw e;
-        const symbol = args.outToken.symbol;
-        const accept = await askAboutOffer({
-          was: `${formatExact(accepted, args.outDecimals)} ${symbol}`,
-          now: `${formatExact(e.priceMoved.newMinOut, args.outDecimals)} ${symbol}`,
-        });
-        if (!accept) return null;
-        accepted = e.priceMoved.newMinOut;
-        setPhase('checking');
+        if (!(e instanceof BoundError) || round >= 2) throw e;
+        if (e.code === 'price-moved' && e.priceMoved) {
+          const symbol = args.outToken.symbol;
+          const accept = await askAboutOffer({
+            kind: 'price',
+            was: `${formatExact(accepted, args.outDecimals)} ${symbol}`,
+            now: `${formatExact(e.priceMoved.newMinOut, args.outDecimals)} ${symbol}`,
+          });
+          if (!accept) return null;
+          accepted = e.priceMoved.newMinOut;
+          setPhase('checking');
+          continue;
+        }
+        // The route that fits costs more than the unrestricted market price: that difference is
+        // the price of the protection, so the user decides whether to pay it.
+        if (e.code === 'costs-more' && e.costsMore) {
+          const accept = await askAboutOffer({ kind: 'cost', gap: `${(Number(e.costsMore.gapBps) / 100).toFixed(2)}%` });
+          if (!accept) return null;
+          acceptedCost = e.costsMore.gapBps;
+          setPhase('checking');
+          continue;
+        }
+        throw e;
       }
     }
   }
@@ -460,7 +480,7 @@ export function SwapApp() {
         E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinOut: quote.minOut, version, status,
       });
       if (!prepared) {
-        setNotice({ kind: 'info', title: 'Swap cancelled', body: 'The price moved and you kept the earlier minimum. Nothing was signed.' });
+        setNotice({ kind: 'info', title: 'Swap cancelled', body: 'Nothing was signed and no funds moved.' });
         return;
       }
       texts.received = `${formatUnits(prepared.quote.outAmount, outDecimals)} ${outToken.symbol}`;
@@ -474,6 +494,10 @@ export function SwapApp() {
           : null,
         removesDelegate: prepared.notices.removesDelegate
           ? `It also removes an existing spending permission (delegate) on your ${outToken.symbol} account.`
+          : null,
+        tokenTax: prepared.tokenTax
+          ? `${inToken.symbol} charges ${prepared.tokenTax.inputBps / 100}% on every transfer. Moving your ${inToken.symbol} into the protected account costs `
+            + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Bound.`
           : null,
         certificate: prepared.certificate,
         inSymbol: inToken.symbol,
@@ -549,6 +573,16 @@ export function SwapApp() {
 
   const inWarnings = tokenIn ? tokenWarnings(tokenIn) : [];
   const outWarnings = tokenOut ? tokenWarnings(tokenOut) : [];
+  // A token that taxes its own transfers costs more through Bound, because the protected account
+  // is one extra transfer. Said before the swap, not after it.
+  if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
+    inWarnings.push(
+      `${tokenIn.symbol} charges a tax on every transfer, and a protected swap makes one transfer more than an unprotected one, so you pay it twice. The tax goes to the token, not to Bound.`,
+    );
+  }
+  if (tokenOut && outFacts && outFacts !== 'missing' && outFacts.transferFee) {
+    outWarnings.push(`${tokenOut.symbol} charges a tax on every transfer: you receive less than the market price shows.`);
+  }
   const deepLink = typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '';
   const origin = typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : '';
 
@@ -733,14 +767,24 @@ export function SwapApp() {
         </div>
 
         {phase === 'confirm' && offer && (
-          <div className="banner info" role="alertdialog" aria-label="The price moved">
-            <p className="banner-title">The price moved since you looked</p>
-            <p>
-              Minimum received is now <strong>{offer.now}</strong> (was {offer.was}). Nothing has been signed.
+          <div className="banner info" role="alertdialog" aria-label={offer.kind === 'price' ? 'The price moved' : 'This route costs more'}>
+            <p className="banner-title">
+              {offer.kind === 'price' ? 'The price moved since you looked' : 'Protecting this swap costs more here'}
             </p>
+            {offer.kind === 'price' ? (
+              <p>
+                Minimum received is now <strong>{offer.now}</strong> (was {offer.was}). Nothing has been signed.
+              </p>
+            ) : (
+              <p>
+                The protected route is <strong>{offer.gap}</strong> below the best price on the market. A protected swap
+                has to fit in one transaction, and Bound leaves out pools that would leave an account behind. A smaller
+                amount often costs less. Nothing has been signed.
+              </p>
+            )}
             <div className="banner-actions">
               <button className="primary" onClick={() => decideOffer.current?.(true)}>
-                Continue with the new minimum
+                {offer.kind === 'price' ? 'Continue with the new minimum' : 'Continue anyway'}
               </button>
               <button className="ghost" onClick={() => decideOffer.current?.(false)}>
                 Cancel
@@ -757,6 +801,7 @@ export function SwapApp() {
                 the whole transaction reverts. Network fee: {pending.networkFee}.
                 {pending.oneTimeCost && <> Also: {pending.oneTimeCost}.</>}
                 {pending.removesDelegate && <> {pending.removesDelegate}</>}
+                {pending.tokenTax && <> {pending.tokenTax}</>}
               </p>
             )}
             {pending && <CertificateCard pending={pending} />}

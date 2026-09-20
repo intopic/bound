@@ -205,6 +205,7 @@ describe('B-10: Token-2022 intermediate hops', () => {
   const HOOK = 14;
   const PERMANENT_DELEGATE = 12;
   const METADATA_POINTER = 18;
+  const TRANSFER_FEE = 1;
   /** A Token-2022 mint account with the given TLV extensions (none: the 82-byte base mint). */
   const t22Mint = (...extensions: [number, Uint8Array][]): AccountState => {
     const tlv = extensions.flatMap(([type, v]) => [type & 0xff, type >> 8, v.length & 0xff, v.length >> 8, ...v]);
@@ -240,6 +241,9 @@ describe('B-10: Token-2022 intermediate hops', () => {
     ['a transfer-hook extension with no program is accepted', t22Mint([HOOK, cat(key(9), key(0))]), true],
     ['a mint that runs a transfer hook is rejected', t22Mint([HOOK, cat(key(9), key(5))]), false],
     ['a mint with a permanent delegate is rejected', t22Mint([PERMANENT_DELEGATE, key(3)]), false],
+    // The swap's own mints may charge a transfer fee, because their temporary account is
+    // harvested before it is closed; a hop is not harvested, so a fee there is still refused.
+    ['a hop mint that taxes its transfers is rejected', t22Mint([TRANSFER_FEE, new Uint8Array(108)]), false],
     ['a hop mint missing from the snapshot is rejected', null, false],
   ];
   for (const [name, state, ok] of cases) {

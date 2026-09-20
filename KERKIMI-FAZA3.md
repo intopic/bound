@@ -153,7 +153,10 @@ vendos ti — tokenat me tarifë transferimi.
 
 ## 7. Radha e punës
 
-> **Gjendja më 2026-09-20:** hapi 1 u krye. Token-2022 pranohet me listën e lejuar të pikës 6,
+> **Gjendja më 2026-09-20:** hapat 1 dhe 2 u kryen, plus pragjet e reja të çmimit (nën 1% vazhdon,
+> 1-5% pyetet klienti, mbi 5% refuzohet). Tokenat me tarifë transferimi mbështeten: pastrimi bën
+> `HarvestWithheldTokensToMint` para mbylljes, route-i kuotohet mbi shumën që arrin vërtet, dhe
+> faqja e thotë hapur se tarifa paguhet dy herë dhe shkon te tokeni, jo te Bound. Hapi 1: Token-2022 pranohet me listën e lejuar të pikës 6,
 > politika mban programin e çdo mint-i (i lexuar nga zinxhiri dhe i rikontrolluar nga verifier-i),
 > dhe faqja nuk i bllokon më. Provuar: 12 teste njësie dhe 12/12 çifte reale në mainnet me PUMP,
 > CATE, PAID dhe TIPPED, në v0 dhe v1. Hapat 2-4 mbeten.

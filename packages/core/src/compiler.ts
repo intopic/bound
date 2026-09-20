@@ -21,6 +21,7 @@ import {
   getRevokeInstruction,
   getTransferCheckedInstruction,
 } from '@solana-program/token';
+import { TOKEN_2022_PROGRAM } from './constants.ts';
 import { getTransferSolInstruction } from '@solana-program/system';
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
 import { MAX_LOADED_ACCOUNTS_DATA_SIZE, TOKEN_PROGRAM, WSOL_MINT } from './constants.ts';
@@ -56,6 +57,20 @@ const syncNative = (account: Address): Instruction => ({
   programAddress: TOKEN_PROGRAM,
   accounts: [{ address: account, role: AccountRole.WRITABLE }],
   data: new Uint8Array([17]),
+});
+
+/**
+ * Token-2022 HarvestWithheldTokensToMint: moves the fees withheld in an account to its mint.
+ * Anyone may call it, it moves nothing that belongs to the holder, and without it an account that
+ * has received a transfer-fee token cannot be closed.
+ */
+const harvestWithheld = (mint: Address, account: Address): Instruction => ({
+  programAddress: TOKEN_2022_PROGRAM,
+  accounts: [
+    { address: mint, role: AccountRole.WRITABLE },
+    { address: account, role: AccountRole.WRITABLE },
+  ],
+  data: new Uint8Array([26, 4]),
 });
 
 /**
@@ -126,6 +141,8 @@ export function protectedInstructions(
       amount: (input.outputBalanceBefore ?? 0n) + p.minOut, decimals: p.outputDecimals,
     }, { programAddress: p.outputTokenProgram }));
   }
+  // A fee withheld in E_in would make the close fail, so it goes back to the mint first.
+  if (p.inputTransferFee) post.push(harvestWithheld(p.inputMint, a.eIn));
   post.push(getCloseAccountInstruction({ account: a.eIn, destination: p.owner, owner: E }, { programAddress: p.inputTokenProgram }));
   if (p.variant === 'A') post.push(getCloseAccountInstruction({ account: a.eOut!, destination: p.owner, owner: E }));
   for (const x of intermediates) {

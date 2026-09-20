@@ -22,6 +22,7 @@ export type Parsed =
   | { kind: 'syncNative'; account: Address }
   | { kind: 'revoke'; program: Address; source: Address; owner: Address }
   | { kind: 'close'; program: Address; account: Address; destination: Address; owner: Address }
+  | { kind: 'harvest'; program: Address; mint: Address; sources: readonly Address[] }
   | { kind: 'external'; program: Address; accounts: readonly Account[] }
   | { kind: 'invalid'; program: Address; reason: string };
 
@@ -75,6 +76,13 @@ export function parseInstruction(ix: RawInstruction): Parsed {
         return invalid('CloseAccount with wrong account roles');
       }
       return { kind: 'close', program, account: account.address, destination: destination.address, owner: owner.address };
+    }
+    // TransferFee extension (26), HarvestWithheldTokensToMint (4): permissionless, no amount.
+    // [mint, ...accounts to harvest]. Without it, an account holding withheld fees cannot close.
+    if (disc === 26 && data.length === 2 && data[1] === 4 && program === TOKEN_2022_PROGRAM) {
+      if (acc.length < 2) return invalid('Harvest without accounts');
+      if (acc.some(a => !isWritableRole(a.role))) return invalid('Harvest with a read-only account');
+      return { kind: 'harvest', program, mint: acc[0].address, sources: acc.slice(1).map(a => a.address) };
     }
     if (disc === 5 && data.length === 1 && acc.length === 2) {
       const [source, owner] = acc;

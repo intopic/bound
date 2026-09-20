@@ -107,6 +107,8 @@ export async function scenario(opts: {
     outputDecimals: DECIMALS[output],
     inputTokenProgram: inputProgram,
     outputTokenProgram: outputProgram,
+    // A mint that taxes its transfers needs the withheld amount harvested before the close.
+    inputTransferFee: inputProgram === TOKEN_2022_PROGRAM && (opts.inputExtensions ?? []).some(([type]) => type === 1),
     minOut: opts.minOut ?? 1_000_000n,
     config: CONFIG(treasury),
     feeAccountExists: opts.feeAccountExists ?? true,

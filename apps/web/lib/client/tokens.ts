@@ -2,7 +2,7 @@
 
 import { address, isAddress } from '@solana/kit';
 import type { TokenInfo } from '@bound/jupiter';
-import { unsupportedExtension } from '@bound/verifier';
+import { hasTransferFee, unsupportedExtension } from '@bound/verifier';
 import { getJupiter, getRpc } from './chain';
 
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -40,7 +40,7 @@ export const isSupported = (t: TokenInfo) => t.tokenProgram === TOKEN_PROGRAM ||
  * `unsupported` names the extension that makes a protected swap impossible, and comes from the
  * verifier itself, so the page and the rules cannot disagree.
  */
-export type MintFacts = { decimals: number; program: string; unsupported: string | null };
+export type MintFacts = { decimals: number; program: string; unsupported: string | null; transferFee: boolean };
 
 const mintFacts = new Map<string, Promise<MintFacts | null>>();
 
@@ -57,7 +57,9 @@ export function readMint(mint: string): Promise<MintFacts | null> {
       return {
         decimals: data[44],
         program: value.owner,
-        unsupported: value.owner === TOKEN_2022_PROGRAM ? unsupportedExtension(data) : null,
+        // The swap's own mints may charge a transfer fee; the cleanup harvests it before closing.
+        unsupported: value.owner === TOKEN_2022_PROGRAM ? unsupportedExtension(data, { allowTransferFee: true }) : null,
+        transferFee: value.owner === TOKEN_2022_PROGRAM && hasTransferFee(data),
       };
     })();
     facts.catch(() => mintFacts.delete(mint)); // a failed read is retried next time

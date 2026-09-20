@@ -86,10 +86,17 @@ a reproducible build, keep dependencies minimal, and review every dependency upd
   the last two.
 - Price movement and MEV within the 0.5% slippage tolerance: the minimum output is the quoted amount
   minus that tolerance.
-- Token-2022 tokens whose extensions Bound refuses: a transfer fee, a permanent delegate, accounts
-  frozen by default, pausable, non-transferable, interest-bearing, a scaled UI amount, a required
-  memo, a transfer hook with a real program, or any extension the verifier does not know.
-  Token-2022 tokens without those are supported.
+- Token-2022 tokens whose extensions Bound refuses: a permanent delegate, accounts frozen by
+  default, pausable, non-transferable, interest-bearing, a scaled UI amount, a required memo, a
+  transfer hook with a real program, or any extension the verifier does not know.
+- A token that charges its own transfer fee is supported, and costs more through Bound than
+  elsewhere: the fee applies to every transfer, and a protected swap makes one transfer more than
+  an unprotected one. The page says so before the swap and again while the wallet is open. That
+  money goes to the token, never to Bound.
+- A price that is worse than the open market by up to 5%: a protected route must fit in one
+  transaction and leaves out pools that would leave an account behind. Above 1% the page shows the
+  difference and asks; above 5% Bound refuses, because at that distance the likelier explanation is
+  a broken quote.
 
 ## The temporary key (D7)
 

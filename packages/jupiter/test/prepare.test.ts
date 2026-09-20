@@ -58,6 +58,7 @@ function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean } = 
       return { value: 15_000n };
     }),
     getMinimumBalanceForRentExemption: call(() => 1_488_440n),
+    getEpochInfo: call(() => ({ epoch: 900n })),
   } as unknown as SolanaRpc;
 }
 

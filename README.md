@@ -30,7 +30,7 @@ If anything fails, nothing is signed or the whole transaction reverts. There is 
 | R3 | E and its accounts are fresh |
 | R4 | The network fee paid by W is capped (never above 0.001 SOL) |
 | R5 | One transaction within size limits; every temporary account is closed |
-| R7 | Input, output and intermediate mints are classic SPL, or Token-2022 carrying only extensions that cannot touch the swap (metadata, groups, close authority, confidential transfers, an unset transfer hook) |
+| R7 | Input, output and intermediate mints are classic SPL, or Token-2022 carrying only extensions that cannot touch the swap (metadata, groups, close authority, confidential transfers, an unset transfer hook, and a transfer fee on the swap's own mints) |
 
 ## Repository
 

@@ -42,6 +42,8 @@ export async function buildPolicy(args: {
   /** The token program that owns each mint, as read from the chain. Classic SPL by default. */
   inputTokenProgram?: Address;
   outputTokenProgram?: Address;
+  /** Whether the input mint charges a Token-2022 transfer fee, as read from the chain. */
+  inputTransferFee?: boolean;
   /**
    * Whether ATA(treasury, inputMint) already exists on chain. When it does not, the swap is
    * fee-free: Bound never makes the user pay rent for Bound's own account (audit B-09).
@@ -75,6 +77,7 @@ export async function buildPolicy(args: {
     outputMint: intent.outputMint,
     inputTokenProgram: inProgram,
     outputTokenProgram: outProgram,
+    inputTransferFee: args.inputTransferFee ?? false,
     inputDecimals: args.inputDecimals,
     outputDecimals: args.outputDecimals,
     minOut: args.minOut ?? 0n,

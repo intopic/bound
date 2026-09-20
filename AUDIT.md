@@ -256,18 +256,29 @@ the pipeline and the page so they cannot disagree:
   (usable only at zero supply), confidential transfers (our transfers are the ordinary public
   ones), and a transfer hook whose program id is unset — the largest Token-2022 tokens, PUMP among
   them, declare the extension and leave the program empty, so no code runs.
-- **Refused:** transfer fee, permanent delegate, accounts frozen by default, pausable,
-  non-transferable, interest-bearing, scaled UI amount, memo required on transfer, and **any
-  extension the list does not name**.
+- **Allowed for the swap's own mints:** a transfer fee (see below). A hop mint may not have one,
+  because a hop is not harvested.
+- **Refused:** permanent delegate, accounts frozen by default, pausable, non-transferable,
+  interest-bearing, scaled UI amount, memo required on transfer, and **any extension the list does
+  not name**.
 
 Why those are refused: a permanent delegate or a default-frozen account would let someone else move
 or freeze the temporary account; pausable and non-transferable let a third party stop the swap;
 interest-bearing and scaled UI amount would make Bound show a different number than the wallet; a
-memo requirement would need another instruction on every incoming transfer. The transfer fee is
-refused for now for two measured reasons: an account holding withheld fees cannot be closed
-(`AccountHasWithheldTransferFees`), so cleanup would need `HarvestWithheldTokensToMint`, and Bound's
-extra hop makes the token's own fee apply twice on the input side. Neither is a danger; both are a
-product decision that has not been taken yet.
+memo requirement would need another instruction on every incoming transfer (an *output account*
+that requires one is refused up front by the pipeline, with its own message).
+
+**Transfer fees** are supported, and they cost the user more here than elsewhere, so three things
+had to be true. The cleanup harvests the withheld amount before closing the temporary account
+(`HarvestWithheldTokensToMint`, a permissionless instruction): without it the close fails with
+`AccountHasWithheldTransferFees` and the whole swap reverts. R5 requires exactly one harvest of
+E_in when the input mint charges a fee, before the close, and nothing else may be harvested; the
+policy's own flag is checked against the mint (R2). The route is quoted for the amount that
+actually lands in the temporary account, not the amount that leaves the wallet. And the page says
+what the tax costs: the token charges it on every transfer, a protected swap makes one transfer
+more than an unprotected one, so it applies twice on the input side, and the money goes to the
+token, never to Bound. Bound's minimum-output check is unaffected: a self-transfer on a mint with a
+3% fee was simulated on mainnet and moved nothing at all.
 
 What changed elsewhere: the policy carries the token program of each mint, read from the chain and
 re-derived by the verifier from the same snapshot (a policy that disagrees with the mint is an R2
@@ -447,7 +458,7 @@ the rule the others depend on.
 | R4 | v0: exactly one `SetComputeUnitLimit` (≤ 1.4M) and one `SetComputeUnitPrice`. v1: no ComputeBudget instructions; the message config may hold only the CU limit, the priority fee and a loaded-accounts data size ≤ 64 MiB. Both: `5000 × signers + priority fee ≤ min(F_max, 0.001 SOL)`, and a policy F_max above 0.001 SOL is itself a violation. |
 | R5 | ≤ 1232 bytes (v0) or ≤ 4096 bytes and ≤ 64 static accounts (v1). The minimum-output check and the closes run after the swap; in variant A the check runs before E_out is closed. E_in, E_out and every intermediate (at most 4) are closed exactly once. |
 | R6 | Fee payer is W; the signer set is exactly {W, E}. `verifyWalletReturn`: the returned message is byte-identical, W's signature verifies over it, and E has not signed. |
-| R7 | Input and output mints exist and belong to the classic Token program or to Token-2022. A Token-2022 mint (input, output or intermediate) must carry only allowed extensions: metadata and group pointers, a mint close authority, confidential transfers, and a transfer hook whose program id is unset. Anything else, including an extension the verifier does not know, is a violation. |
+| R7 | Input and output mints exist and belong to the classic Token program or to Token-2022. A Token-2022 mint must carry only allowed extensions: metadata and group pointers, a mint close authority, confidential transfers, a transfer hook whose program id is unset, and — for the swap's own mints, whose temporary account is harvested before it is closed — a transfer fee. Anything else, including an extension the verifier does not know, is a violation. |
 
 ---
 
@@ -479,7 +490,7 @@ the rule the others depend on.
 | D12 | Jupiter's `payer` parameter is never sent (and the proxy rejects it) | With `payer = W`, W appeared inside the swap instruction on a HumidiFi route. |
 | D13 | DEXes charging persistent per-taker rent are excluded (`HumidiFi`, `Pump.fun Amm`) | With a fresh E per swap that rent (~0.013 SOL on HumidiFi) would be lost every time. |
 | D14 | Intermediate ATA(E, m) are created by Bound (payer W) and closed back to W | Some routes (e.g. Quay) output to ATA(E, output) first. |
-| D15 | Quotes > 1% below the unrestricted route are rejected; failed simulations trigger route repair (blame the DEX from logs, exclude, rebuild) | Jupiter once returned `outAmount = 0` and once a route 12% worse. A simulation that fails at Bound's own minimum-output check is requoted without blaming any DEX. |
+| D15 | A protected route more than 1% below the unrestricted one is put to the user (`costs-more`); more than 5% below is refused as broken. Failed simulations trigger route repair (blame the DEX from logs, exclude, rebuild) | Jupiter once returned `outAmount = 0` and once a route 12% worse, so a wide gap is treated as a broken answer. A narrow one is the price of the protection — fewer accounts fit in one transaction, and pools that leave an account behind are excluded — and that is the user's decision, not ours. A simulation that fails at Bound's own minimum-output check is requoted without blaming any DEX. |
 | D16 | No fee when the treasury has no account for the input token | The user never pays rent for Bound's account (B-09). Operations pre-create treasury accounts for the tokens where the fee matters. |
 | D17 | Token icons are fetched by Bound's server | Keeps `img-src 'self' data:` and hides users' IP addresses from hosts chosen by token creators (B-08). |
 | D18 | Fee and treasury are fixed at build time (`NEXT_PUBLIC_BOUND_*`) | The server has no live channel to change them (B-01). |

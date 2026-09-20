@@ -48,6 +48,12 @@ export type Policy = {
    */
   inputTokenProgram: Address;
   outputTokenProgram: Address;
+  /**
+   * Whether the input mint charges a transfer fee. Such a fee is withheld in the receiving
+   * account, and an account with withheld fees cannot be closed, so the cleanup harvests them to
+   * the mint first. Read from the chain and re-derived by the verifier.
+   */
+  inputTransferFee: boolean;
   inputDecimals: number;
   outputDecimals: number;
   /**
