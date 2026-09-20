@@ -37,7 +37,7 @@ export type SwapSettings = BoundConfig & {
 };
 
 export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'> = {
-  feeBps: 50n,
+  feeBps: 30n,
   maxNetworkFeeLamports: 200_000n,
   excludeDexes: ['HumidiFi', 'Pump.fun Amm'],
   slippageBps: 50,

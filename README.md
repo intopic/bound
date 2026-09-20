@@ -12,7 +12,7 @@ rest of your wallet.
 
 1. Bound creates a one-time key **E** in the browser (WebCrypto Ed25519, non-extractable).
 2. In a single transaction, the wallet **W** moves exactly `q − fee` into a temporary account owned
-   by E, pays the Bound fee (0.5%), and only E and that account are given to the one untrusted
+   by E, pays the Bound fee (0.3%), and only E and that account are given to the one untrusted
    instruction (Jupiter's swap). After the swap, Bound checks that at least the minimum output
    arrived, then closes the temporary accounts back to W.
 3. Before the wallet opens, the **verifier** checks the exact bytes against 7 rules (below).
@@ -87,7 +87,7 @@ Fixed at build time (compiled into the page, so the server cannot change them af
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. Pre-create its token accounts for the tokens you charge in: a swap whose input token has no treasury account is fee-free |
-| `NEXT_PUBLIC_BOUND_FEE_BPS` | 50 | 0.5%. The verifier refuses more than 100 (1%) |
+| `NEXT_PUBLIC_BOUND_FEE_BPS` | 30 | 0.3%. The verifier refuses more than 100 (1%) |
 
 Server only (never sent to the browser):
 

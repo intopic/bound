@@ -6,7 +6,7 @@ For every swap Bound builds:
 
 1. The external swap program (Jupiter's route) can move at most `q − f` of the input token, where `q`
    is the amount the user entered and `f` is the Bound fee. The fee is compiled into the page at
-   build time (0.5% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`).
+   build time (0.3% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`).
 2. It never receives the wallet W or any token account of W except the output account `W_out`. Any
    delegate on `W_out` is revoked by a trusted instruction before the swap runs, and a `W_out` with
    a close authority is refused.

@@ -96,8 +96,8 @@ Nëse i ke, përsërit Testin 2 me secilin wallet.
 
 Krijo `apps\web\.env.local` nga `apps\web\.env.example` dhe plotëso:
 
-- `NEXT_PUBLIC_BOUND_TREASURY`: wallet-i që merr fee-n 0.5% (pa të, faqja është në test mode). Ky vlerë futet në faqe gjatë `npm run build`, prandaj pas çdo ndryshimi duhet build i ri. Serveri nuk mund ta ndryshojë më vonë.
-- `NEXT_PUBLIC_BOUND_FEE_BPS`: 50 (0.5%). Verifier-i refuzon çdo gjë mbi 1%.
+- `NEXT_PUBLIC_BOUND_TREASURY`: wallet-i që merr fee-n 0.3% (pa të, faqja është në test mode). Ky vlerë futet në faqe gjatë `npm run build`, prandaj pas çdo ndryshimi duhet build i ri. Serveri nuk mund ta ndryshojë më vonë.
+- `NEXT_PUBLIC_BOUND_FEE_BPS`: 30 (0.3%). Verifier-i refuzon çdo gjë mbi 1%.
 - `RPC_URL`: një RPC me pagesë (Helius, Triton ose QuickNode).
 - `JUPITER_API_KEY`: key falas nga https://developers.jup.ag/portal.
 
