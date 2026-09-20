@@ -148,8 +148,11 @@ against the code. Most of it already held; these parts were adopted.
   records the total and the local part (compile and verify). Over the 60 mainnet cases the local
   part had a median of 130 ms and a maximum of 270 ms; in the browser test, click to wallet took
   under one second (974 ms) with the public RPC and keyless Jupiter.
-- **Quote freshness** (idea 23). The live quote refreshes every 20 s while the page is idle, and a
-  quote older than 45 s cannot be accepted.
+- **Quote freshness** (idea 23). The live quote refreshes every 20 s while the page is visible and
+  an amount is entered, three times, and then waits: the page offers "Refresh price" instead of
+  asking the aggregator forever on behalf of a tab nobody is looking at. A quote older than 45 s
+  cannot be accepted either way. Measured in a browser: one request on typing, three refreshes over
+  the next minute, none after that, and one more when the button is used.
 - **Wording** (ideas 11, 18, 36, 37): "Minimum output … enforced on successful execution",
   "Persistent permissions: none created", a visible swap amount, "any token pair Jupiter can route and
   Bound can safely isolate", and "What you approve is all the swap can touch" (not "the transaction":

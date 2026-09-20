@@ -52,6 +52,12 @@ const OFFER_TIMEOUT_MS = 45_000;
 // (idea 23): the user always accepts a recent price.
 const QUOTE_REFRESH_MS = 20_000;
 const QUOTE_MAX_AGE_MS = 45_000;
+/**
+ * How many times a price refreshes on its own before the page waits to be asked. A tab left open
+ * would otherwise ask for a price every 20 seconds for as long as it stays open, which is the
+ * largest thing Bound would spend its rate limit on and none of it is a swap.
+ */
+const AUTO_REFRESHES = 3;
 /** Token amounts are 64-bit on Solana; beyond this nothing on chain can hold the balance. */
 const MAX_U64 = 2n ** 64n - 1n;
 const solscan = (signature: string) => `https://solscan.io/tx/${signature}`;
@@ -173,6 +179,7 @@ export function SwapApp() {
   const [feeAccountExists, setFeeAccountExists] = useState(true);
   const [outputAccountExists, setOutputAccountExists] = useState(true);
   const [clock, setClock] = useState(0);
+  const [refreshes, setRefreshes] = useState(0);
   const balanceRequest = useRef(0);
   const decideOffer = useRef<((accept: boolean) => void) | null>(null);
 
@@ -273,14 +280,24 @@ export function SwapApp() {
   const price = usablePrice(tokenIn);
   const usdValue = amountIn && price !== null && inDecimals !== null ? (Number(amountIn) / 10 ** inDecimals) * price : null;
 
-  // --- a clock for quote freshness: ticks only while the page is visible and idle
+  // --- a clock for quote freshness: ticks while the page is visible and idle, and only until the
+  // price has refreshed itself a few times. After that the page waits for the user.
   useEffect(() => {
-    if (phase !== 'idle') return;
+    // Nothing to refresh until an amount is entered, so an idle visitor costs nothing at all.
+    if (phase !== 'idle' || refreshes >= AUTO_REFRESHES || !swapAmount) return;
     const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') setClock(c => c + 1);
+      if (document.visibilityState !== 'visible') return;
+      setClock(c => c + 1);
+      setRefreshes(n => n + 1);
     }, QUOTE_REFRESH_MS);
     return () => clearInterval(timer);
-  }, [phase]);
+  }, [phase, refreshes, swapAmount]);
+
+  /** Asked for by the user, so the count starts again. */
+  const refreshNow = () => {
+    setRefreshes(0);
+    setClock(c => c + 1);
+  };
 
   // --- live quote (price only; the protected transaction is built and verified on click)
   useEffect(() => {
@@ -316,8 +333,12 @@ export function SwapApp() {
     };
   }, [tokenIn, tokenOut, swapAmount, status, clock, inFacts]);
 
-  // A change of pair or amount makes the shown quote meaningless at once.
-  useEffect(() => setQuote(null), [tokenIn, tokenOut, swapAmount]);
+  // A change of pair or amount makes the shown quote meaningless at once, and it is the user
+  // acting, so the automatic refreshes start over.
+  useEffect(() => {
+    setQuote(null);
+    setRefreshes(0);
+  }, [tokenIn, tokenOut, swapAmount]);
 
   // --- what blocks the swap button
   const blocker = useMemo((): string | null => {
@@ -344,11 +365,13 @@ export function SwapApp() {
     }
     // The user accepts a minimum they have seen; without a price there is nothing to accept (C-02).
     if (!quote) return quoting ? 'Getting a price…' : 'No price for this pair right now';
-    if (Date.now() - quote.at > QUOTE_MAX_AGE_MS) return 'Refreshing price…';
+    if (Date.now() - quote.at > QUOTE_MAX_AGE_MS) {
+      return refreshes >= AUTO_REFRESHES ? 'Refresh the price to continue' : 'Refreshing price…';
+    }
     return null;
     // `clock` re-evaluates the age of the quote.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock]);
+  }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes]);
 
   // --- connect
   async function connect(w: Wallet) {
@@ -695,6 +718,14 @@ export function SwapApp() {
             {quote && tokenOut && outDecimals !== null
               ? `Minimum output ${formatExact(quote.minOut, outDecimals)} ${tokenOut.symbol} · enforced on successful execution`
               : ' '}
+            {quote && refreshes >= AUTO_REFRESHES && (
+              <>
+                {' · '}
+                <button type="button" className="link" onClick={refreshNow}>
+                  Refresh price
+                </button>
+              </>
+            )}
           </p>
         </div>
 

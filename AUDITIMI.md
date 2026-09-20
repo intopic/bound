@@ -386,7 +386,7 @@ Gjithashtu: kontrolli i fee-së së rrjetit tani ndalon kur Solana nuk e jep çm
 
 **Korrigjime në këtë brief:** qiraja (ishte 0.00203928 SOL), koha e `test:fuzz` (~75 min, jo ~1 orë), CI (workflow-i ekziston, por nuk ka ekzekutuar), formulimi për v1 dhe RPC, shtrirja e rregullit B-10 (vetëm mint-et e llogarive të ndërmjetme që krijon Bound), dhe numrat e testeve.
 
-**Pas auditimit të dytë u morën edhe disa ide nga dokumenti i produktit:** verifier-i është paketë më vete (`packages/verifier`, `@bound/verifier`); pas çdo verifikimi të suksesshëm lëshon një certifikatë (debiti i aprovuar, fee, minimumi, programet, versioni, SHA-256 i mesazhit) që faqja e shfaq ndërsa wallet-i është i hapur; leximet nga RPC dhe Jupiter bëhen paralelisht (në testin në browser, nga klikimi te wallet-i < 1 s); çmimi rifreskohet çdo 20 s; tekstet e UI-së janë më të sakta. Detajet: `AUDIT.md`, seksioni 0c.
+**Pas auditimit të dytë u morën edhe disa ide nga dokumenti i produktit:** verifier-i është paketë më vete (`packages/verifier`, `@bound/verifier`); pas çdo verifikimi të suksesshëm lëshon një certifikatë (debiti i aprovuar, fee, minimumi, programet, versioni, SHA-256 i mesazhit) që faqja e shfaq ndërsa wallet-i është i hapur; leximet nga RPC dhe Jupiter bëhen paralelisht (në testin në browser, nga klikimi te wallet-i < 1 s); çmimi rifreskohet çdo 20 s tri herë dhe pastaj pret butonin "Refresh price"; tekstet e UI-së janë më të sakta. Detajet: `AUDIT.md`, seksioni 0c.
 
 **Për rishikimin e radhës:**
 
