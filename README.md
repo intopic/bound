@@ -44,6 +44,7 @@ bound/
 ├── apps/web/       Next.js dApp, CSP proxy, stateless API routes (/api/rpc, /api/jupiter/*, /api/token-icon, /api/status)
 ├── tests/
 │   ├── integration/mainnet.ts   T4 (30 pairs, v0 + v1), T1 runtime attacks and T5 minimum output, simulated on mainnet
+│   ├── integration/large.ts     T7: growing sizes up to about $10M — there is no cap per swap
 │   ├── cpi/                     T6: a malicious swap program (Rust) executed against the protected transaction in a real Solana VM
 │   └── e2e/                     browser tests (Microsoft Edge via Playwright)
 └── spikes/         phase 1 prototype and the wallet test pages (mainnet + devnet)
@@ -95,7 +96,7 @@ Server only (never sent to the browser):
 | `RPC_URL` | public mainnet RPC | Solana RPC (a paid provider is recommended) |
 | `RPC_URL_SECONDARY` | — | Second RPC to cross-check lookup tables |
 | `JUPITER_API_KEY` | — | Optional; keyless access has lower limits |
-| `BOUND_MAX_USD_PER_SWAP` | 100 | Alpha limit; tokens without a USD price are blocked while it applies |
+| `BOUND_MAX_USD_PER_SWAP` | unset | Optional cap per swap in USD. Unset means no limit, the intended setting: the guarantee does not depend on the amount. While a cap applies, tokens without a USD price are blocked |
 | `BOUND_DISABLED` | 0 | Kill switch: `1` makes the server refuse new swaps |
 | `BOUND_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limit is per instance; add a rule in the hosting firewall too |
 | `BOUND_EXCLUDE_DEXES` | `HumidiFi,Pump.fun Amm` | DEXes that charge the taker persistent rent |

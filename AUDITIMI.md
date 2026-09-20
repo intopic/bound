@@ -221,12 +221,13 @@ Të gjitha testet kalojnë në gjendjen aktuale; i vetmi dështim në mainnet is
 | `packages/verifier/test/architecture.test.ts` | Verifier-i importon vetëm kit, klientin e token-it dhe konstantet e tipet e Bound; core nuk e importon verifier-in; tavanet vijnë nga `constants.ts` | 3/3 |
 | `packages/verifier/test/certificate.test.ts` | Certifikata: debiti i aprovuar, fee, minimumi, nënshkruesit, SHA-256 i mesazhit; nuk lëshohet kurrë për transaksion që dështon | 6/6 |
 | `apps/web/test/server.test.ts` | Proxy-të: çelësi i klientit vetëm nga header-i i konfiguruar, kill switch, listat e lejuara, madhësia në bajte, timeout-et, ikonat me URL-të e vizituara | 22/22 |
-| `packages/jupiter/test/*.test.ts` | Përgjigje të keqformuara të Jupiter-it; route mbi 64 llogari; pipeline-i real me Jupiter armiqësor (C-01, C-02, B-12, C-09); refuzimet e përkohshme të Jupiter-it | 24/24 |
+| `packages/jupiter/test/*.test.ts` | Përgjigje të keqformuara të Jupiter-it; route mbi 64 llogari; pipeline-i real me Jupiter armiqësor (C-01, C-02, B-12, C-09); refuzimet e përkohshme; route i shtrenjtë sa nuk nxë | 26/26 |
 | `packages/solana/test/send.test.ts` | Rezultatet e dërgimit (C-03) dhe përputhja e plotë e lookup tables | 11/11 |
 | `tests/integration/mainnet.ts` T4 | Pipeline i plotë mbi gjendjen e mainnet-it, 30 çifte × v0 dhe v1, me fee | 60/60 pas rregullimeve të auditimit të dytë |
 | `tests/integration/mainnet.ts` T1 | 8 sulme me SPL Token dhe System realë në vendin e Jupiter-it | 8/8 siç pritej; verifier-i i refuzon të 8-t |
 | `tests/integration/mainnet.ts` T5 | Minimumi i ngritur ×2 duhet të bjerë pikërisht te kontrolli | 3/3 |
 | `tests/cpi/run.ts` + `tests/cpi/attacker` T6 | Program keqdashës i vërtetë, i ngarkuar në një makinë virtuale Solana, sulmon transaksionin e mbrojtur nga brenda një CPI-je; pas çdo rasti kontrollohet zinxhiri | 17/17 |
+| `tests/integration/large.ts` T7 | Shuma në rritje deri në rreth $10M mbi gjendjen e mainnet-it: a ndërtohet, verifikohet dhe simulohet ende, dhe sa kushton madhësia | 14/15; i vetmi refuzim është një route BONK prej $1M që nuk nxë në një transaksion |
 | `tests/integration/self-transfer.ts` | Sjellja e self-transfer në SPL Token | 4/4 |
 | `tests/e2e/smoke.ts` | Browser real (Edge), wallet testimi që kthen tx pa nënshkruar: faqja duhet të ndalë te R6; CSP; ikonat; Jupiter nuk merr adresën e wallet-it; ngjitja e adresës së coin-it | 17/17 |
 | `tests/e2e/devnet.ts` | Nënshkrim → verifikim → E → dërgim në devnet | I bllokuar nga faucet-i publik i devnet |
@@ -240,6 +241,7 @@ BOUND_FUZZ_RUNS=20000 npx vitest run packages/verifier/test/property.test.ts   #
 npm run test:fuzz                      # 100,000 raste për veti, ~75 min
 npm run integration                    # T4 + T1 + T5 në mainnet, ~20 min
 (cd tests/cpi/attacker && cargo build-sbf) && node tests/cpi/run.ts   # T6; Linux ose macOS, edhe në CI
+node tests/integration/large.ts         # T7: shuma deri në rreth $10M
 node tests/integration/self-transfer.ts
 npm run build && npm run start -w @bound/web
 npm run e2e                            # ~2 min, kundrejt http://localhost:3000
@@ -354,7 +356,8 @@ Këto i dimë tashmë; nuk ka nevojë t'i raportoni si gjetje të reja, por jeni
 - **Rishikimi i varësive** (supply chain) nuk është bërë; do ta porosisim veçmas.
 - **Phantom** deklaron vetëm `legacy, 0`, ndaj përdoruesit marrin sot v0, me lookup tables dhe besim te RPC për to. Sjellja e Phantom-it me `signTransaction` dhe një signer të dytë nuk është provuar ende me fonde reale.
 - **Treasury** duhet të ketë llogari për çdo token ku merret fee; pa të, swap-i bëhet pa fee.
-- **Limiti $100** zbatohet vetëm në faqe; është limit UX, jo kufi sigurie.
+- **Nuk ka limit shume**: garancia nuk varet nga sasia. `BOUND_MAX_USD_PER_SWAP` mbetet si valvul operacionale, i pavendosur si parazgjedhje.
+- **Shumat e mëdha** kufizohen nga route-i, jo nga ne: Jupiter i ndan nëpër më shumë pool-e, kurse një transaksion v0 mban 64 llogari dhe 1232 bajt. Pipeline-i provon me më pak llogari dhe, nëse prapë nuk nxë, refuzon ta ndërtojë swap-in. Nuk e ndajmë kurrë një swap në disa transaksione.
 - **Testi në devnet** është gati, por i bllokuar nga faucet-i publik.
 - **`sendTransaction`** kalon ende përmes proxy-t sepse RPC publik refuzon origjinat e browser-it (HTTP 403).
 - **`spikes/`** janë prototipe të fazës 1 dhe faqe testimi; nuk janë pjesë e produktit.

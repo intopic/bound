@@ -48,6 +48,8 @@ const OFFER_TIMEOUT_MS = 45_000;
 // (idea 23): the user always accepts a recent price.
 const QUOTE_REFRESH_MS = 20_000;
 const QUOTE_MAX_AGE_MS = 45_000;
+/** Token amounts are 64-bit on Solana; beyond this nothing on chain can hold the balance. */
+const MAX_U64 = 2n ** 64n - 1n;
 const solscan = (signature: string) => `https://solscan.io/tx/${signature}`;
 
 function explainError(e: unknown): Notice {
@@ -74,7 +76,12 @@ function explainError(e: unknown): Notice {
           : "Your wallet's response didn't pass the check";
       return { kind: 'error', title, body: `Bound stopped before adding the last signature${rules}. Nothing was sent and no funds moved.` };
     }
-    return { kind: 'error', title: titles[e.code], body: `${e.message}${rules} No funds moved.` };
+    // A route can be priced perfectly and still not fit: 64 accounts per transaction is Solana's
+    // limit, and a very large swap needs more pools than that.
+    const title = e.code === 'no-route' && e.message.includes('does not fit')
+      ? 'This amount is too large for one protected transaction'
+      : titles[e.code];
+    return { kind: 'error', title, body: `${e.message}${rules} No funds moved.` };
   }
   const message = String((e as Error)?.message ?? e);
   if (/reject|denied|cancel|4001/i.test(message)) return { kind: 'info', title: 'Swap cancelled in your wallet', body: 'No funds moved.' };
@@ -314,14 +321,18 @@ export function SwapApp() {
     if (!inFacts || !outFacts) return 'Reading token details…';
     if (inFacts.program !== TOKEN_PROGRAM || outFacts.program !== TOKEN_PROGRAM) return 'Token-2022 tokens are not supported yet';
     if (!amountIn || amountIn <= 0n) return 'Enter an amount';
+    if (amountIn > MAX_U64) return 'Amount is too large';
     if (swapAmount !== null && swapAmount <= 0n) return 'Amount is too small';
     if (balances && amountIn > balances.tokenIn) return `Insufficient ${tokenIn.symbol}`;
     const solNeeded = SOL_RESERVE_LAMPORTS + (tokenIn.id === SOL_MINT ? amountIn : 0n);
     if (balances && balances.sol < solNeeded) return 'Not enough SOL for network fees';
-    // The alpha cap fails closed: a token without a USD price cannot be checked, so it is blocked (B-05).
+    // Any amount is protected the same way, so there is no cap of our own. When an operator does
+    // configure one it fails closed: a token without a USD price cannot be checked (B-05).
     if (!status) return 'Loading limits…';
-    if (usdValue === null) return `No USD price for ${tokenIn.symbol} yet`;
-    if (usdValue > status.maxUsdPerSwap) return `Alpha limit: ${formatUsd(status.maxUsdPerSwap)} per swap`;
+    if (status.maxUsdPerSwap !== null) {
+      if (usdValue === null) return `No USD price for ${tokenIn.symbol} yet`;
+      if (usdValue > status.maxUsdPerSwap) return `Limit: ${formatUsd(status.maxUsdPerSwap)} per swap`;
+    }
     // The user accepts a minimum they have seen; without a price there is nothing to accept (C-02).
     if (!quote) return quoting ? 'Getting a price…' : 'No price for this pair right now';
     if (Date.now() - quote.at > QUOTE_MAX_AGE_MS) return 'Refreshing price…';
@@ -806,7 +817,10 @@ export function SwapApp() {
       )}
 
       <footer className="foot">
-        <p>Bound never asks for your seed phrase. Alpha: swaps are limited to {status ? formatUsd(status.maxUsdPerSwap) : '$100'}.</p>
+        <p>
+          Bound never asks for your seed phrase.
+          {status?.maxUsdPerSwap != null && ` Swaps are limited to ${formatUsd(status.maxUsdPerSwap)} while we run in alpha.`}
+        </p>
         <p>What you approve is all the swap can touch.</p>
         <p>
           Bound works with any token pair Jupiter can route and Bound can safely isolate. It protects your wallet, not the

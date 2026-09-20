@@ -12,7 +12,9 @@ export function serverConfig() {
     rpcUrl: process.env.RPC_URL || 'https://api.mainnet-beta.solana.com',
     rpcUrlSecondary: process.env.RPC_URL_SECONDARY || null,
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
-    maxUsdPerSwap: Number(process.env.BOUND_MAX_USD_PER_SWAP ?? '100'),
+    // No limit unless one is configured: the protection does not depend on the amount, and a
+    // limit would also block every token that has no USD price.
+    maxUsdPerSwap: process.env.BOUND_MAX_USD_PER_SWAP ? Number(process.env.BOUND_MAX_USD_PER_SWAP) : null,
     disabled: process.env.BOUND_DISABLED === '1',
     excludeDexes: (process.env.BOUND_EXCLUDE_DEXES ?? 'HumidiFi,Pump.fun Amm').split(',').map(s => s.trim()).filter(Boolean),
     // Clamped to the verifier's absolute ceiling (audit B-02); the verifier enforces it anyway.
@@ -23,7 +25,8 @@ export function serverConfig() {
 /** What the browser is allowed to know. */
 export type PublicStatus = {
   enabled: boolean;
-  maxUsdPerSwap: number;
+  /** Optional operational cap per swap, in USD; null means no limit. */
+  maxUsdPerSwap: number | null;
   excludeDexes: string[];
   maxNetworkFeeLamports: string;
   secondaryRpc: boolean;

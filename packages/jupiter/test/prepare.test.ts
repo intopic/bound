@@ -56,7 +56,7 @@ function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean } = 
 }
 
 /** Answers like Jupiter for whatever is asked, with the floor and amounts an attacker chooses. */
-function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; failFirst?: number } = {}): JupiterClient {
+function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; failFirst?: number; extraAccounts?: readonly Address[] } = {}): JupiterClient {
   let calls = 0;
   return {
     async build(p: BuildParams): Promise<BuildResponse> {
@@ -79,6 +79,8 @@ function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; fail
           accounts: [
             meta(TOKEN_PROGRAM), meta(E, true), meta(eIn, false, true), meta(destination, false, true),
             meta(p.inputMint), meta(p.outputMint), meta(DEX), meta(POOL, false, true),
+            // A large swap splits over many pools; enough of them and nothing fits in one transaction.
+            ...(answer.extraAccounts ?? []).map(a => meta(a, false, true)),
           ],
           data: b64(new Uint8Array([229, 23, 203, 151, 122, 227, 173, 42, 1])),
         },
@@ -173,6 +175,14 @@ describe('C-02: Bound computes the minimum itself', () => {
 
   it('an answer for a different amount is not a quote for this swap', async () => {
     expect(await codeOf(prepare(WSOL_MINT, { jupiter: fakeJupiter({ inAmountFactor: 1_000n }) }))).toBe('bad-quote');
+  });
+
+  it('a route priced right but too big is reported as not fitting, not as a bad quote', async () => {
+    const extra = await Promise.all(Array.from({ length: 60 }, () => generateKeyPairSigner()));
+    const error = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ extraAccounts: extra.map(s => s.address) }) })
+      .then(() => null, (e: unknown) => e as BoundError);
+    expect(error?.code).toBe('no-route');
+    expect(error?.message).toMatch(/does not fit in a single protected transaction/);
   });
 });
 

@@ -166,6 +166,9 @@ export function compileIfFits<T>(build: () => T): T | null {
   }
 }
 
+/** A bps gap as a percentage, for a message a person reads: 137n → "1.37%". */
+const percent = (bps: bigint | null) => (bps === null ? 'far' : `${(Number(bps) / 100).toFixed(2)}%`);
+
 const fits = (size: number, staticAccounts: number, version: TxVersion) =>
   version === 1 ? size <= V1_SIZE_LIMIT && staticAccounts <= V1_MAX_ACCOUNTS : size <= LEGACY_SIZE_LIMIT;
 
@@ -339,23 +342,39 @@ export async function prepareProtectedSwap(deps: {
 
     let chosen: { r: BuildResponse; intermediates: IntermediateAta[] } | null = null;
     let sawBadQuote = false;
+    // A route priced right but too big for one transaction is the usual outcome for a large
+    // amount: Solana allows 64 accounts per transaction, and Bound's own instructions need a
+    // dozen of them. That is a different failure from a broken quote, and it is reported as such.
+    let sawTooBig = false;
+    /** How far the best route offered was below the unrestricted price, in bps. */
+    let bestGapBps: bigint | null = null;
     for (const [level, maxAccounts] of MAX_ACCOUNTS_LEVELS.entries()) {
       const r = attempt === 0 && level === 0 ? await firstRouteTask : await buildOrNull(maxAccounts, excluded);
       if (!r) continue;
       if (!answersThisRequest(r)) { sawBadQuote = true; continue; }
       const out = BigInt(r.outAmount);
+      const gap = baselineOut > 0n ? ((baselineOut - out) * 10_000n) / baselineOut : 0n;
+      if (bestGapBps === null || gap < bestGapBps) bestGapBps = gap;
       if (out * 10_000n < baselineOut * (10_000n - settings.badQuoteBps)) { sawBadQuote = true; continue; }
       if (BigInt(r.otherAmountThreshold) <= 0n) continue; // no floor to enforce
       const intermediates = intermediatesFromSetup(r.setupInstructions, policy);
       const c = timed(() => compileIfFits(() => compile(r, lifetime, intermediates, MAX_COMPUTE_UNITS)));
       if (c && fits(c.size, c.staticAccounts, req.version)) { chosen = { r, intermediates }; break; }
+      sawTooBig = true;
     }
     // The best route that fits cannot deliver what the user accepted: ask, never lower it silently.
     if (chosen && BigInt(chosen.r.outAmount) < accepted) throw priceMoved(chosen.r);
     if (!chosen) {
-      throw sawBadQuote
-        ? new BoundError('bad-quote', 'Jupiter only returned quotes far below the best price. Try again in a moment.')
-        : new BoundError('no-route', 'No route fits in a single protected transaction. Try a different amount or token.');
+      // After a repair, the routes we could still use are the ones nothing has blamed yet. If none
+      // of them works, the honest reason is the simulations that got us here, not the price.
+      if (learned.length) {
+        throw new BoundError('simulation-failed', 'Every route that fits failed in simulation, and what is left is far below the market price. No funds were moved.');
+      }
+      throw sawTooBig
+        ? new BoundError('no-route', 'The best route for this amount does not fit in a single protected transaction. Try a smaller amount, or split the swap.')
+        : sawBadQuote
+          ? new BoundError('bad-quote', `The best protected route for this amount is ${percent(bestGapBps)} below the best price on the market, which is more than Bound accepts. Try a smaller amount, or again in a moment.`)
+          : new BoundError('no-route', 'No route fits in a single protected transaction. Try a different amount or token.');
     }
 
     const route = chosen.r.routePlan.map(p => p.swapInfo.label);

@@ -132,8 +132,11 @@ not promise that nothing is logged anywhere.
   or a multisig (e.g. Squads).
 - Releases: build from a clean checkout of a signed tag and publish the build's hash, so anyone can
   check that the page served is the one reviewed (reproducible build and SRI are planned).
-- Alpha limit per swap `BOUND_MAX_USD_PER_SWAP`, enforced in the page. A token without a USD price is
-  blocked while the limit applies. This is a UX limit, not a security boundary.
+- No limit per swap: the guarantee is the same for any amount, and nothing in Bound holds funds.
+  `BOUND_MAX_USD_PER_SWAP` exists as an operational valve and is unset by default; while it applies
+  it is enforced in the page only, and tokens without a USD price are blocked. A large swap is
+  limited by the route, not by us: if no route fits inside one transaction, Bound refuses to build
+  it rather than splitting the swap (section "What Bound does not protect").
 - API routes are stateless: allowlisted RPC methods and Jupiter parameters (`payer` is refused), a
   second RPC that answers only lookup-table reads, request bodies counted in bytes and capped at
   64 KiB, 15 s timeouts upstream, and no request bodies are stored.

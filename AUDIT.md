@@ -209,6 +209,39 @@ re-creating a closed account from a PDA inside the swap are not covered yet.
 
 ---
 
+## 0e. T7 — large amounts
+
+There is no cap per swap any more (`BOUND_MAX_USD_PER_SWAP` is unset by default). The guarantee
+does not depend on the amount: the same instructions, the same rules, the same temporary account.
+What does depend on it is the route, so `tests/integration/large.ts` prepares real swaps at growing
+sizes, verifies each one and simulates it on mainnet state. Measured on 2026-09-20:
+
+| Pair | Size | Transaction | Price against the smallest trade | Simulation |
+| --- | --- | --- | --- | --- |
+| USDC → SOL | 1k, 10k, 100k | 1060–1138 bytes | 0.01% worse | passes |
+| USDC → SOL | 1,000,000 | 1229 bytes | 0.10% worse | passes |
+| SOL → USDC | 5 … 5,000 | 983–1101 bytes | 0.09% worse | passes |
+| SOL → USDC | 50,000 (≈ $10M) | 1062 bytes | 0.76% worse | passes |
+| USDC → BONK | 1k, 10k, 100k | 1137–1200 bytes | 2.62% worse at 100k | passes |
+| USDC → BONK | 1,000,000 | — | — | refused: no route fits |
+
+Two limits are real, and neither is ours:
+
+- **The market.** A large trade in a thin token moves its price. At $100k into BONK the route is
+  already 2.6% worse than at $1k. Bound shows the minimum and enforces it; it does not improve the
+  price.
+- **64 accounts per transaction.** A $1M BONK route needs more pools than fit beside Bound's own
+  dozen accounts. The pipeline steps down through `maxAccounts` 64 … 16, and if every route that
+  fits is more than 1% below the market price it refuses (`no-route` / `bad-quote`) instead of
+  quietly taking a bad one. It never splits a swap across transactions, because a second
+  transaction would be a second approval and a second chance to fail halfway.
+
+The failure messages now name the real cause: a route that is priced right but too large says so,
+a route far below the market says how far, and when the repair loop has already excluded the DEXes
+that failed in simulation, the error is `simulation-failed`, not a complaint about the price.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
@@ -427,12 +460,13 @@ the rule the others depend on.
 | `apps/web/test/server.test.ts` | Proxies: client key from the configured header only (C-04), kill switch, allowlists, second-RPC reads only, body size in bytes (C-07), upstream timeout, `sendTransaction` limit, icon host list, redirects with visited URLs asserted (C-08), sniffing, image size | 22/22 |
 | `packages/jupiter/test/client.test.ts` | Malformed Jupiter answers become a `JupiterError` | 9/9 |
 | `packages/jupiter/test/swap.test.ts` | A route over the 64-account limit counts as "does not fit" | 3/3 |
-| `packages/jupiter/test/prepare.test.ts` | The real pipeline against a fake RPC and a hostile fake Jupiter: decimals (C-01), floor and accepted minimum (C-02), answer binding, fee fails closed (B-12), rent (C-09), Revoke disclosure, transient "No matching liquidity", certificate and timings | 13/13 |
+| `packages/jupiter/test/prepare.test.ts` | The real pipeline against a fake RPC and a hostile fake Jupiter: decimals (C-01), floor and accepted minimum (C-02), answer binding, fee fails closed (B-12), rent (C-09), Revoke disclosure, transient "No matching liquidity", a route too large to fit, certificate and timings | 14/14 |
 | `packages/solana/test/send.test.ts` | Send lifecycle (C-03) and full lookup-table agreement | 11/11 |
 | `tests/integration/mainnet.ts` (T4) | Full pipeline on mainnet state (simulation, public exchange wallet as fee payer, `sigVerify: false`) for 30 pairs × v0 and v1, with the Bound fee charged; checks that the transaction executes and closes every temporary account | After the second review's fixes: 60/60. Earlier runs surfaced the over-64-account route (USDC → HNT) and Jupiter's transient "No matching liquidity" (SOL → RAY); both are handled now |
 | `tests/integration/mainnet.ts` (T1) | 8 attack instructions against the real SPL Token and System programs placed where Jupiter would be | 8/8 behaved as predicted; the verifier rejected all 8 |
 | `tests/integration/mainnet.ts` (T5) | USDC→SOL, SOL→USDC, USDC→BONK: the honest transaction executes; with the floor raised to 2× the quote it fails exactly at the check | 3/3 |
 | `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking the protected transaction from inside a CPI; the chain is checked against Bound's promise after every case | 17/17 (section 0d) |
+| `tests/integration/large.ts` (T7) | Growing sizes up to about $10M on mainnet state: does the pipeline still build, verify and simulate, and what does the size cost? | 14/15, the refusal being a $1M BONK route that fits in no single transaction (section 0e) |
 | `tests/integration/self-transfer.ts` | The SPL Token self-transfer behaviour behind B-04, on mainnet state | 4/4 |
 | `tests/e2e/smoke.ts` | Real browser (Edge), test wallet via Wallet Standard that returns the tx unsigned: page must stop at R6 without sending; CSP nonce per request; images only from Bound; Jupiter never receives the wallet's address; pasting a token address finds it | 17/17 |
 | `tests/e2e/devnet.ts` | Full sign → verify → E signs → send on devnet with a real signing test wallet | Blocked by the public devnet faucet; ready to rerun |
@@ -453,6 +487,7 @@ npm run typecheck && npm test
 npm run test:fuzz                       # 100,000 cases per property (~75 min)
 npm run integration                     # T4 + T1 + T5 on mainnet (nothing is signed or sent)
 (cd tests/cpi/attacker && cargo build-sbf) && node tests/cpi/run.ts   # T6; Linux or macOS, also in CI
+node tests/integration/large.ts          # T7: growing sizes up to about $10M
 node tests/integration/self-transfer.ts # the SPL Token behaviour behind B-04
 npm run build && npm run start -w @bound/web
 npm run e2e                             # needs Microsoft Edge
@@ -486,8 +521,12 @@ npm run e2e                             # needs Microsoft Edge
   signer is untested with real funds.
 - Phantom declares no v1 support, so v0 (with lookup tables and RPC trust for them) is what users get
   today. Set `RPC_URL_SECONDARY` to cross-check.
-- The alpha USD cap is enforced in the page only (the server cannot price a transaction without
-  parsing it). It is a UX limit, not a security boundary.
+- There is no cap per swap: the guarantee does not depend on the amount. `BOUND_MAX_USD_PER_SWAP`
+  remains as an operational valve, unset by default and enforced in the page only (the server
+  cannot price a transaction without parsing it); it is a UX limit, not a security boundary.
+- Large amounts are limited by the route, not by Bound: Jupiter splits them across more pools, and
+  a v0 transaction holds 64 accounts and 1232 bytes. The pipeline retries with fewer accounts and
+  otherwise refuses to build the swap (`no-route`); it never splits a swap across transactions.
 - The app's own rate limit is per instance. A limit across instances belongs in the hosting
   firewall, together with `BOUND_CLIENT_IP_HEADER` set for the real ingress.
 - For B and C, a transfer into `W_out` from someone else before execution counts toward the minimum
