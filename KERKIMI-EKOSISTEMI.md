@@ -29,17 +29,38 @@ Por praktika e ekosistemit ka ecur në drejtim tjetër:
 dështon. Nëse Phantom e shton atë instruksion te `signTransaction`, **çdo swap përmes Phantom-it
 ndalet**. Kjo nuk është më hipotezë; është modeli drejt të cilit po shkon ekosistemi.
 
-**Vendimi i propozuar.** Të ndryshojmë `verifyWalletReturn` nga "bajt për bajt i njëjtë" në:
+**Vendimi i propozuar, i korrigjuar pas rishikimit.** Formulimi i parë ishte "çdo assertion i një
+programi të njohur, pa llogari të shkrueshme". Ai ishte tepër i gjerë, dhe për një arsye më të
+mprehtë nga sa u tha në rishikim: **privilegjet në Solana janë të nivelit të transaksionit, jo të
+instruksionit.** W është nënshkrues sepse paguan fee-n, pra çdo instruksion i shtuar mund ta
+përdorë si nënshkrues. Dhe W është gjithmonë i shkrueshëm — domethënë rregulli im do ta kishte
+refuzuar pikërisht assertion-in mbi balancën e fee payer-it, atë që duhet të pranojmë.
 
-> mesazhi i kthyer kalon të 7 rregullat, dhe ndryshon nga yni **vetëm** me instruksione të shtuara
-> në fund që janë assertions të një programi të njohur, pa nënshkrues të rinj dhe pa llogari të
-> shkrueshme.
+Rregulli i saktë është shumë më i ngushtë:
 
-Një assertion mund vetëm ta **rrëzojë** transaksionin, kurrë të lëvizë fonde — prandaj kjo nuk e
-dobëson garancinë, me kusht që rregullat të rikontrollohen mbi mesazhin e kthyer, jo mbi tonin.
-Plus një rrugë e dytë nënshkrimi me `presignTransaction`, që hap edhe wallet-et e integruara.
+- program id-ja **saktësisht** e Lighthouse;
+- të dhënat dekodohen në një **variant assertion-i të njohur**, nga një listë e mbyllur;
+- llogaritë e përmendura kufizohen te një grup i pritur;
+- asnjë nënshkrues i ri;
+- dhe të 7 rregullat rikontrollohen mbi **mesazhin e kthyer**, jo mbi tonin, me ALT-të e zgjidhura
+  sërish.
 
-Kjo është ndryshimi më i rëndësishëm që kemi përpara, dhe duhet parë nga auditori.
+Rishikimi shtoi një shqetësim të drejtë: siguria varet edhe nga upgrade authority e Lighthouse.
+**E kontrolluam në zinxhir:** programi `L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95` është
+**i pandryshueshëm** — programdata `CJ5WEjifs4d77pEA9DpewppByFjHcAkNv3YYSuSoDk7c`, vendosur te slot
+294179293, pa upgrade authority. Pra kodi që pranojmë sot nuk mund të zëvendësohet nesër.
+
+**Rruga e dytë: `presignTransaction`** për wallet-et e integruara. Aty Phantom ndërton dhe validon,
+na jep mesazhin final, ne e verifikojmë dhe e nënshkruajmë brenda callback-ut, dhe Phantom shton
+firmën e W-së dhe e dërgon. E nënshkruan i fundit? Jo — por garancia qëndron: çdo ndryshim pas
+firmës së E-së do ta bënte atë firmë të pavlefshme.
+
+Një pasojë që duhet mbajtur mend: në atë rrugë **dërgimin e bën Phantom**, jo ne. Raportimi ynë i
+ndershëm i rezultatit ("asgjë nuk lëvizi", "skadoi", "e panjohur") mbështetet sot te fakti që
+dërgimin e kontrollojmë ne. Për wallet-et e integruara ai tekst duhet ndryshuar, ose do të
+pretendonim diçka që nuk e shohim dot.
+
+Kjo është ndryshimi më i rëndësishëm që kemi përpara, dhe duhet parë nga auditori para zbatimit.
 
 ---
 
@@ -63,10 +84,28 @@ Dhe Jupiter-i tashmë e mbështet nga ana e tij: endpoint-i `/swap/v2/build` pra
 në 500 dollarë. Fee-ja jonë për atë swap është 300. Domethënë kjo mbrojtje vlen **më shumë se sa
 paguhemi ne**.
 
-**Vendimi i propozuar.** Ta shtojmë si veçori: një rregull i ri te verifier-i që lejon saktësisht
-një transfertë bakshishi W → llogari Jito, nën një tavan, të llogaritur brenda kufirit të fee-së së
-rrjetit (R4); llogaria `jitodontfront` si e lexueshme; dhe dërgimi te block engine-i me kthim te
-RPC-ja normale nëse dështon.
+**Vendimi i propozuar, i korrigjuar pas rishikimit.** Kishte një gabim në formulimin e parë:
+"dërgimi te block engine-i me kthim te RPC-ja normale nëse dështon". Një kthim i heshtur te rruga
+normale do të thoshte t'i tregonim klientit "i mbrojtur nga MEV" ndërsa transaksioni del pikërisht
+aty ku bot-et e shohin. Kjo nuk bëhet.
+
+Dy mënyra, të zgjedhura para nisjes:
+
+- **E detyruar:** nëse Jito nuk e pranon, transaksioni **nuk dërgohet**.
+- **Sa të mundet:** kthimi te rruga normale lejohet vetëm nëse klienti (ose politika e një agjenti)
+  e ka pranuar paraprakisht.
+
+Dhe bakshishi nuk është konstant: minimumi është 1000 lamports, por vlera konkurruese ndryshon me
+ngarkesën. Duhet një dysheme dinamike me tavan të fiksuar, vetëm adresat zyrtare të tip accounts,
+dhe bakshishi brenda **të njëjtit transaksion** që të mos paguhet kur swap-i dështon.
+
+Një saktësim i numrave: 0.5% është **maksimumi teorik** i asaj që mund të marrë një sandwich, jo
+vlera e pritshme. Një bot merr aq sa i del fitimprurëse, dhe vetëm te tregtitë që lëvizin çmimin
+ndjeshëm.
+
+Rregulli i ri te verifier-i: saktësisht një transfertë bakshishi W → një adresë zyrtare Jito, nën
+tavan, e llogaritur brenda kufirit të fee-së së rrjetit (R4), plus llogaria `jitodontfront` si e
+lexueshme.
 
 ---
 
@@ -131,8 +170,9 @@ në një smart account.
 
 | | Puna | Pse tani |
 | --- | --- | --- |
+| 0 | Një provë reale me Phantom, të dyja llojet, për të parë saktësisht ku shtohen assertions | Gjithçka më poshtë varet nga ajo që gjendet aty |
 | 1 | Pranimi i instruksioneve shtesë nga wallet-i, plus rruga `presignTransaction` | Pa këtë, Bound mund të mos punojë fare me Phantom dhe nuk punon me wallet-et e integruara |
-| 2 | Mbrojtja nga sandwich me Jito | Vlen më shumë se fee-ja jonë për swap-et e mëdha |
+| 2 | Mbrojtja nga sandwich me Jito, me dy mënyra dhe pa kthim të heshtur | Vlen më shumë se fee-ja jonë për swap-et e mëdha, por nuk është kusht për një alfa të vogël |
 | 3 | Swap pa fee kur fee-ja është arsyeja që route-i nuk nxë | Klienti merr swap-in në vend të një refuzimi |
 | 4 | SDK për agjentët, pranë Turnkey/Privy | Tregu ku garancia jonë ka vlerë më të madhe |
 | 5 | Assertions tanat me Lighthouse (opsionale) | Mbrojtje në thellësi: rregullat tona të zbatuara edhe on-chain |
