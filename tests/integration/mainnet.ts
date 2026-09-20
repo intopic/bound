@@ -199,7 +199,7 @@ async function floorCheckIndex(tx: Transaction): Promise<number> {
 
 // ---------------------------------------------------------------- T4
 
-type Row = { pair: string; version: TxVersion; ok: boolean; detail: string; size?: number; units?: number; repairs?: number; lossBps?: number; fee?: boolean; totalMs?: number; localMs?: number };
+type Row = { pair: string; version: TxVersion; ok: boolean; detail: string; size?: number; units?: number; repairs?: number; lossBps?: number; fee?: boolean; totalMs?: number; localMs?: number; gapBps?: number };
 
 async function runT4(): Promise<Row[]> {
   const rows: Row[] = [];
@@ -228,7 +228,14 @@ async function runT4(): Promise<Row[]> {
           const treasury = await pickTreasury(owner, a);
           const prepared = await prepareProtectedSwap(
             { rpc, jupiter, settings: { ...DEFAULT_SETTINGS, treasury, jupiterProgram: JUPITER_PROGRAM } },
-            { owner, ephemeral: E, inputMint: M[a], outputMint: M[b], amountIn: amounts.get(a)!, version, ...(await decimalsOf(a, b)) },
+            {
+              owner, ephemeral: E, inputMint: M[a], outputMint: M[b], amountIn: amounts.get(a)!, version,
+              // A thin pair often routes worse than the open market, and the page asks the user
+              // about that. This test answers as a user who accepts, so that what is measured is
+              // whether the pipeline builds a verified transaction, not what the market costs.
+              acceptedCostBps: 500n,
+              ...(await decimalsOf(a, b)),
+            },
           );
           // Execution check: every temporary account is closed at the end of the transaction.
           // Every temporary account, intermediates included (second review, C-08).
@@ -252,6 +259,7 @@ async function runT4(): Promise<Row[]> {
             pair, version, ok, size: prepared.size, units: prepared.computeUnits, repairs: prepared.attempts.length - 1, lossBps: Math.max(0, lossBps),
             fee: prepared.policy.fee > 0n,
             totalMs: prepared.timings.totalMs, localMs: prepared.timings.localMs,
+            gapBps: Number(prepared.quote.gapBps),
             detail: (ok ? q.route.join(' → ') : sim.ok ? `${leftovers} temporary account(s) left open` : `simulation: ${json(sim.err)}`) +
               (tryNo > 1 ? ` (2nd prepare; 1st reverted: ${firstFailure})` : ''),
           };
@@ -262,7 +270,7 @@ async function runT4(): Promise<Row[]> {
       }
       rows.push(row);
       const r = row;
-      log(`${r.ok ? 'OK ' : 'FAIL'} v${version} ${pair.padEnd(14)} ${r.size ?? ''}B ${r.units ?? ''}CU repairs=${r.repairs ?? '-'} fee=${r.fee === undefined ? '-' : r.fee ? 'yes' : 'waived'} prepare=${r.totalMs ?? '-'}ms local=${r.localMs ?? '-'}ms ${r.detail}`);
+      log(`${r.ok ? 'OK ' : 'FAIL'} v${version} ${pair.padEnd(14)} ${r.size ?? ''}B ${r.units ?? ''}CU repairs=${r.repairs ?? '-'} fee=${r.fee === undefined ? '-' : r.fee ? 'yes' : 'waived'} prepare=${r.totalMs ?? '-'}ms local=${r.localMs ?? '-'}ms vs_treg=${r.gapBps === undefined ? '-' : `${(r.gapBps / 100).toFixed(2)}%`} ${r.detail}`);
     }
   }
   return rows;

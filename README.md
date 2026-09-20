@@ -93,8 +93,8 @@ Server only (never sent to the browser):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RPC_URL` | public mainnet RPC | Solana RPC (a paid provider is recommended) |
-| `RPC_URL_SECONDARY` | — | Second RPC to cross-check lookup tables |
+| `RPC_URL` | public mainnet RPC | Solana RPC. The public one rate-limits and refuses browser sends; run on a provider (Helius is the chosen one, see SECURITY.md) |
+| `RPC_URL_SECONDARY` | — | Optional second RPC, from a different company, to cross-check lookup tables. Unset means that cross-check is off and the single provider is trusted for them |
 | `JUPITER_API_KEY` | — | Optional; keyless access has lower limits |
 | `BOUND_MAX_USD_PER_SWAP` | unset | Optional cap per swap in USD. Unset means no limit, the intended setting: the guarantee does not depend on the amount. While a cap applies, tokens without a USD price are blocked |
 | `BOUND_DISABLED` | 0 | Kill switch: `1` makes the server refuse new swaps |

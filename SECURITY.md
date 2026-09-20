@@ -143,6 +143,22 @@ protection engine; a user's swap history lives only in their own browser. Reques
 discarded. The hosting platform and the RPC provider keep their own operational logs, so Bound does
 not promise that nothing is logged anywhere.
 
+## One RPC provider
+
+Bound runs on a single RPC provider (Helius). That is an operational choice: two providers from two
+companies would remove one trust assumption, at the cost of a second account, a second bill and a
+second thing that can break.
+
+What the second provider bought was a cross-check of address lookup tables. In a v0 transaction the
+account list is partly stored in those tables, so the verifier has to read them from somewhere, and
+an RPC that lied about a table could hide an account from rule R1. With one provider, Bound trusts
+that provider for exactly that. Everything else it returns is checked: account contents are read
+into a snapshot that every rule is applied to, and a transaction that does not match is refused.
+
+Two things bound this risk. A v1 transaction carries no lookup tables at all, so the assumption
+disappears as wallets adopt it. And setting `RPC_URL_SECONDARY` to a different company's endpoint
+turns the cross-check back on at any time, with no code change.
+
 ## Operational controls
 
 - Kill switch `BOUND_DISABLED=1`: enforced by the server (`/api/jupiter/build` and `sendTransaction`
