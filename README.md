@@ -76,6 +76,7 @@ npm run cpi               # T6: build the malicious program and run it (Linux or
 npm run build             # production build of the dApp
 npm run start -w @bound/web   # serve it on http://localhost:3000
 npm run e2e               # browser smoke test against http://localhost:3000
+npm run build:digest      # one hash over everything the browser loads, to compare with a release
 ```
 
 ## Configuration

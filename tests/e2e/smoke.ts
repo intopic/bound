@@ -98,6 +98,17 @@ try {
     !!nonceOf(csp) && nonceOf(csp) !== nonceOf(second) && !scriptSrc.includes('unsafe-inline') && /img-src 'self' data:(;|$)/.test(csp),
     csp,
   );
+  // Subresource integrity: the browser refuses a script whose bytes were altered on the way. Next
+  // does not put it on every chunk yet, so the ratio is recorded rather than assumed.
+  const scripts = await page.$$eval('script[src^="/_next/static"]', tags =>
+    tags.map(t => ({ src: t.getAttribute('src') ?? '', integrity: !!t.getAttribute('integrity') })));
+  const signed = scripts.filter(x => x.integrity).length;
+  check(
+    'scripts carry subresource integrity hashes',
+    scripts.length > 0 && signed >= Math.ceil(scripts.length * 0.7),
+    `${signed} of ${scripts.length} script tags; the rest are covered by the published build digest`,
+  );
+
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
   check('page loads with USDC → SOL preselected', await page.getByRole('button', { name: /SOL/ }).first().isVisible());
   check('protection panel is shown', await page.getByText('Wallet authority protected').isVisible());

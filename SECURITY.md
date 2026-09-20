@@ -146,6 +146,24 @@ protection engine; a user's swap history lives only in their own browser. Reques
 discarded. The hosting platform and the RPC provider keep their own operational logs, so Bound does
 not promise that nothing is logged anywhere.
 
+## Verifying the code you are running
+
+A page can claim anything. These are the two ways to check this one.
+
+**The build is reproducible.** `BOUND_BUILD_ID=<commit> npm run build && node tools/build-digest.ts`
+prints one hash over every file the browser can load from `/_next/static`. Two builds of the same
+commit produce the same hash — CI proves it on every push by building twice — so the digest
+published with a release can be compared against a build you made yourself.
+
+**Scripts carry their own hashes.** The page sets `integrity` on the scripts it loads
+(`experimental.sri`, SHA-384), so a browser refuses a script whose bytes were altered between the
+build and the tab. Next does not put it on every chunk yet: today 5 of 7 script tags carry one, and
+the browser test records the exact ratio on every run rather than assuming it. The chunks without
+it are still covered by the digest above, which is over every file.
+
+Neither of these protects against a backend that serves a different page on purpose. What they do
+is make that visible to anyone who looks, instead of impossible to tell.
+
 ## One RPC provider
 
 Bound runs on a single RPC provider (Helius). That is an operational choice: two providers from two
@@ -168,8 +186,9 @@ turns the cross-check back on at any time, with no code change.
   on `/api/rpc` are refused), not only hidden in the UI.
 - The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
   or a multisig (e.g. Squads).
-- Releases: build from a clean checkout of a signed tag and publish the build's hash, so anyone can
-  check that the page served is the one reviewed (reproducible build and SRI are planned).
+- Releases: build from a clean checkout of a signed tag and publish the build's digest
+  (`npm run build:digest`), so anyone can check that the page served is the one reviewed. The build
+  is deterministic: CI builds every commit twice and fails if the two digests differ.
 - No limit per swap: the guarantee is the same for any amount, and nothing in Bound holds funds.
   `BOUND_MAX_USD_PER_SWAP` exists as an operational valve and is unset by default; while it applies
   it is enforced in the page only, and tokens without a USD price are blocked. A large swap is

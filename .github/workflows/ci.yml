@@ -18,6 +18,29 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  reproducible:
+    # The digest of the built client assets is what a user can check against the audited source,
+    # and it is worth nothing unless the same source always produces the same bytes.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build twice and compare
+        run: |
+          BOUND_BUILD_ID=$GITHUB_SHA npm run build
+          first=$(node tools/build-digest.ts)
+          rm -rf apps/web/.next
+          BOUND_BUILD_ID=$GITHUB_SHA npm run build
+          second=$(node tools/build-digest.ts)
+          echo "first  $first"
+          echo "second $second"
+          test "$first" = "$second"
+          echo "digest=$first" >> "$GITHUB_STEP_SUMMARY"
+
   fuzz:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
