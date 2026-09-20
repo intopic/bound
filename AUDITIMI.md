@@ -227,7 +227,8 @@ Të gjitha testet kalojnë në gjendjen aktuale; i vetmi dështim në mainnet is
 | `tests/integration/mainnet.ts` T1 | 8 sulme me SPL Token dhe System realë në vendin e Jupiter-it | 8/8 siç pritej; verifier-i i refuzon të 8-t |
 | `tests/integration/mainnet.ts` T5 | Minimumi i ngritur ×2 duhet të bjerë pikërisht te kontrolli | 3/3 |
 | `tests/cpi/run.ts` + `tests/cpi/attacker` T6 | Program keqdashës i vërtetë, i ngarkuar në një makinë virtuale Solana, sulmon transaksionin e mbrojtur nga brenda një CPI-je; pas çdo rasti kontrollohet zinxhiri | 17/17 |
-| `tests/integration/large.ts` T7 | Shuma në rritje deri në rreth $10M mbi gjendjen e mainnet-it: a ndërtohet, verifikohet dhe simulohet ende, dhe sa kushton madhësia | 14/15; i vetmi refuzim është një route BONK prej $1M që nuk nxë në një transaksion |
+| `tests/integration/large.ts` T7 | Shuma në rritje deri në rreth $10M mbi gjendjen e mainnet-it: a ndërtohet, verifikohet dhe simulohet ende, dhe sa kushton madhësia | 12 u ndërtuan dhe u simuluan, 1 u refuzua drejt, 2 nuk u provuan dot |
+| `tests/integration/thresholds.ts` T9 | Sa kushton mbrojtja kundrejt tregut të hapur: 12 tokena × 4 madhësi, dhe çfarë do të bënte secili prag | 45/48 u ndërtuan; mediana 0.00%, p95 1.81%, maksimumi 18.22% (AUDIT.md, seksioni 0g) |
 | `tests/integration/self-transfer.ts` | Sjellja e self-transfer në SPL Token | 4/4 |
 | `tests/e2e/smoke.ts` | Browser real (Edge), wallet testimi që kthen tx pa nënshkruar: faqja duhet të ndalë te R6; CSP; ikonat; Jupiter nuk merr adresën e wallet-it; ngjitja e adresës së coin-it | 17/17 |
 | `tests/e2e/devnet.ts` | Nënshkrim → verifikim → E → dërgim në devnet | I bllokuar nga faucet-i publik i devnet |

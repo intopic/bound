@@ -79,14 +79,20 @@ async function measure(output: Listed, usd: number): Promise<Row> {
     config: { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_PROGRAM },
     feeAccountExists: true,
   });
+  // Why a quote is missing matters: an upstream rate limit is not the same finding as a pair with
+  // no route, and lumping them together would overstate how often Bound cannot build.
+  let lastError = '';
   const ask = (maxAccounts: number, exclude?: readonly string[]) => jupiter.build({
     inputMint: USDC as Address, outputMint: output.id as Address, amount: base.swapAmount, taker: E.address,
     slippageBps: DEFAULT_SETTINGS.slippageBps, maxAccounts, excludeDexes: exclude,
     destinationTokenAccount: base.accounts.wOut ?? undefined,
-  }).catch(() => null);
+  }).catch((e: unknown) => {
+    lastError = (e as Error).message.slice(0, 60);
+    return null;
+  });
 
   const baseline = await ask(LEVELS[0]);
-  if (!baseline) return { pair, usd, gapBps: null, fits: false, note: 'asnjë kuotë bazë' };
+  if (!baseline) return { pair, usd, gapBps: null, fits: false, note: `pa kuotë bazë: ${lastError || 'pa arsye'}` };
   const baselineOut = BigInt(baseline.outAmount);
   if (baselineOut <= 0n) return { pair, usd, gapBps: null, fits: false, note: 'kuota bazë zero' };
 

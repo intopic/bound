@@ -302,6 +302,40 @@ verified and executed in simulation.
 
 ---
 
+## 0g. What the protection costs, measured
+
+The thresholds in D15 were set by judgement. `tests/integration/thresholds.ts` (T9) now measures the
+thing they judge: for 12 tokens from the day's most traded list, at $100, $1k, $10k and $100k, it
+walks the same route selection the pipeline walks — the same account levels, the same exclusions,
+the same "does it fit in one transaction" test — and records how far the chosen route sits below the
+unrestricted one. Measured on 2026-09-20, 45 of 48 combinations built (the other three got no
+baseline quote from Jupiter at $100k):
+
+| | Gap below the unrestricted route |
+| --- | --- |
+| Median | 0.00% |
+| 75th percentile | 0.04% |
+| 90th percentile | 0.26% |
+| 95th percentile | 1.81% |
+| 99th percentile | 3.36% |
+| Worst | 18.22% (USDC → CATE at $100k) |
+
+Only four of the 45 sat above 1%, and one above 5%. Measurement noise is about ±0.05%: the baseline
+and the protected route are quoted moments apart, and a few rows came out slightly *better* than the
+baseline.
+
+So the data supports the numbers rather than overturning them. Asking above 1% fires on the cases
+that are genuinely worse and not on noise; the stronger warning at 5% catches the real outliers;
+and the refusal at 50% never fired, which is what a "this is not a price" rule should look like. Had
+the distribution been wider, the thresholds would have moved — that is the point of measuring.
+
+What the table also shows is where the cost comes from: it is not the size of the trade. A $100k
+swap of a liquid pair sits at 0.00%, while a $100 swap of a thin one sat at 3.36%. Size moves the
+market for the protected and the unprotected route alike, and cancels out; what does not cancel out
+is how many pools a route needs and whether they fit in one transaction.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
@@ -528,6 +562,7 @@ the rule the others depend on.
 | `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking the protected transaction from inside a CPI; the chain is checked against Bound's promise after every case | 17/17 (section 0d) |
 | `tests/integration/large.ts` (T7) | Growing sizes up to about $10M on mainnet state: does the pipeline still build, verify and simulate, and what does the size cost? | 12 built and simulated, 1 refused correctly (a $1M BONK route fits in no single transaction), 2 not tried because no public wallet holds that much (section 0e) |
 | `tests/integration/transfer-fee.ts` (T8) | A real taxing token (FEELSGOOD, 3%) on both sides: the pipeline must reach it, quote the amount that arrives, harvest and close, and Jupiter's `outAmount` must mean what the wallet receives | 4/4; the quoted amount and the amount received were equal to the unit, so `outAmount` is net of the token's tax |
+| `tests/integration/thresholds.ts` (T9) | What the protection costs against the open market, over 12 tokens × 4 sizes, and what each candidate threshold would do | 45/48 built; median 0.00%, p95 1.81%, worst 18.22% (section 0g) |
 | `tests/integration/self-transfer.ts` | The SPL Token self-transfer behaviour behind B-04, on mainnet state | 4/4 |
 | `tests/e2e/smoke.ts` | Real browser (Edge), test wallet via Wallet Standard that returns the tx unsigned: page must stop at R6 without sending; CSP nonce per request; images only from Bound; Jupiter never receives the wallet's address; pasting a token address finds it | 17/17 |
 | `tests/e2e/devnet.ts` | Full sign → verify → E signs → send on devnet with a real signing test wallet | Blocked by the public devnet faucet; ready to rerun |
@@ -549,6 +584,7 @@ npm run test:fuzz                       # 100,000 cases per property (~75 min)
 npm run integration                     # T4 + T1 + T5 on mainnet (nothing is signed or sent)
 (cd tests/cpi/attacker && cargo build-sbf) && node tests/cpi/run.ts   # T6; Linux or macOS, also in CI
 node tests/integration/large.ts          # T7: growing sizes up to about $10M
+npm run thresholds                      # T9: what the protection costs, measured
 node tests/integration/self-transfer.ts # the SPL Token behaviour behind B-04
 npm run build && npm run start -w @bound/web
 npm run e2e                             # needs Microsoft Edge
