@@ -116,9 +116,16 @@ export async function scenario(opts: {
 
   const intermediates: IntermediateAta[] = [];
   const hopMints = [JUP, BONK];
+  // A hop may be one of the swap's own mints, and a taxing mint is harvested wherever it lands.
+  const taxes = (mint: Address) =>
+    (mint === input && inputProgram === TOKEN_2022_PROGRAM && (opts.inputExtensions ?? []).some(([t]) => t === 1)) ||
+    (mint === output && outputProgram === TOKEN_2022_PROGRAM && (opts.outputExtensions ?? []).some(([t]) => t === 1));
   for (let i = 0; i < (opts.intermediates ?? 0); i++) {
     const mint = hopMints[i];
-    intermediates.push({ ata: await ataOf(E.address, mint), mint, tokenProgram: TOKEN_PROGRAM });
+    // A hop belongs to the program that owns its mint, which for one of the swap's own mints may
+    // be Token-2022.
+    const tokenProgram = mint === input ? inputProgram : mint === output ? outputProgram : TOKEN_PROGRAM;
+    intermediates.push({ ata: await ataOf(E.address, mint, tokenProgram), mint, tokenProgram, transferFee: taxes(mint) });
   }
 
   const pools = await Promise.all(Array.from({ length: opts.poolCount ?? 12 }, randomAddress));

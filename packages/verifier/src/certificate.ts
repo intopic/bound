@@ -5,7 +5,7 @@ import type { ChainSnapshot, Policy, Violation } from '@bound/core/types';
 import { verify } from './verify.ts';
 
 /** Changes whenever a rule changes; every certificate names the verifier that issued it. */
-export const VERIFIER_VERSION = '0.2.0';
+export const VERIFIER_VERSION = '0.3.0';
 
 /**
  * What a verified transaction does, in terms a person or a wallet can check. It is issued only after
@@ -39,13 +39,22 @@ export type Certificate = {
     minimumOutput: bigint;
   };
   networkFeeLimitLamports: bigint;
-  /** Stated as facts because the verifier refuses every transaction where they would not hold. */
-  otherAssetDebit: 0;
+  /**
+   * No token other than the input leaves the wallet. The network fee and the rent of a new account
+   * are separate and are stated above; this field is about tokens, not about lamports.
+   */
+  otherTokenDebit: 0;
+  /** Nothing the transaction grants outlives it: no delegate, no authority, no account. */
   persistentPermissions: 0;
   signers: readonly [Address, Address];
   externalProgram: Address;
-  /** Every program the transaction invokes directly. */
-  programs: readonly Address[];
+  /**
+   * The programs this transaction invokes directly. Those programs may invoke others of their own,
+   * which no list built from the message can name; what bounds them is the isolation, not this.
+   */
+  directPrograms: readonly Address[];
+  /** The slot of the chain state every rule was checked against, when the reader recorded one. */
+  snapshotSlot: bigint | null;
 };
 
 export type Certification = { ok: true; certificate: Certificate } | { ok: false; violations: Violation[] };
@@ -81,11 +90,12 @@ export async function certify(transaction: Transaction, policy: Policy, snapshot
       },
       output: { mint: policy.outputMint, decimals: policy.outputDecimals, minimumOutput: policy.minOut },
       networkFeeLimitLamports: feeLimit,
-      otherAssetDebit: 0,
+      otherTokenDebit: 0,
       persistentPermissions: 0,
       signers: [policy.owner, policy.ephemeral],
       externalProgram: policy.jupiterProgram,
-      programs,
+      directPrograms: programs,
+      snapshotSlot: snapshot.slot ?? null,
     },
   };
 }

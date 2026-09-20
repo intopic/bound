@@ -19,7 +19,7 @@ import {
 } from '@/lib/client/wallets';
 import { formatExact, formatUnits, formatUsd, parseUnits, shortAddress } from '@/lib/client/format';
 import {
-  loadTokens, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
+  amountReachingRoute, loadTokens, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
 } from '@/lib/client/tokens';
 import type { MintFacts } from '@/lib/client/tokens';
 import { addHistory, isUnsettled, readHistory, STATUS_LABEL, updateHistory } from '@/lib/client/history';
@@ -60,7 +60,7 @@ function explainError(e: unknown): Notice {
   if (e instanceof BoundError) {
     const titles: Record<BoundError['code'], string> = {
       'unsupported-token': 'This token is not supported yet',
-      'token-data-mismatch': "The token data didn't match the chain",
+      'token-data-mismatch': "The token's data could not be confirmed on chain",
       'output-account-restricted': 'Your account for this token is restricted',
       'no-route': 'No protected route right now',
       'bad-quote': 'Only bad prices were offered',
@@ -291,14 +291,17 @@ export function SwapApp() {
     const timer = setTimeout(() => {
       getJupiter()
         .build({
-          inputMint: address(tokenIn.id), outputMint: address(tokenOut.id), amount: swapAmount,
+          // The same amount the swap itself will route: what is left after the token's own tax.
+          inputMint: address(tokenIn.id), outputMint: address(tokenOut.id),
+          amount: amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts),
           taker: address(QUOTE_TAKER), slippageBps: DEFAULT_SETTINGS.slippageBps, maxAccounts: 64,
           excludeDexes: status?.excludeDexes ?? DEFAULT_SETTINGS.excludeDexes,
         })
         .then(r => {
           if (cancelled) return;
           // Shown only if it answers this exact trade; the minimum is computed by Bound (C-02).
-          const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === swapAmount;
+          const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
+          const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
           setQuote(answersThis
             ? { out: BigInt(r.outAmount), minOut: routeFloor(r, DEFAULT_SETTINGS.slippageBps), route: r.routePlan.map(p => p.swapInfo.label), at: Date.now() }
             : null);
@@ -311,7 +314,7 @@ export function SwapApp() {
       clearTimeout(timer);
       setQuoting(false);
     };
-  }, [tokenIn, tokenOut, swapAmount, status, clock]);
+  }, [tokenIn, tokenOut, swapAmount, status, clock, inFacts]);
 
   // A change of pair or amount makes the shown quote meaningless at once.
   useEffect(() => setQuote(null), [tokenIn, tokenOut, swapAmount]);
@@ -577,11 +580,13 @@ export function SwapApp() {
   // is one extra transfer. Said before the swap, not after it.
   if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
     inWarnings.push(
-      `${tokenIn.symbol} charges a tax on every transfer, and a protected swap makes one transfer more than an unprotected one, so you pay it twice. The tax goes to the token, not to Bound.`,
+      `${tokenIn.symbol} charges ${inFacts.transferFee.bps / 100}% on every transfer, and a protected swap makes one transfer more than an unprotected one, so you pay it twice. The tax goes to the token, not to Bound.`,
     );
   }
   if (tokenOut && outFacts && outFacts !== 'missing' && outFacts.transferFee) {
-    outWarnings.push(`${tokenOut.symbol} charges a tax on every transfer: you receive less than the market price shows.`);
+    outWarnings.push(
+      `${tokenOut.symbol} charges ${outFacts.transferFee.bps / 100}% on every transfer: the amount shown is what arrives after it.`,
+    );
   }
   const deepLink = typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '';
   const origin = typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : '';
@@ -889,10 +894,10 @@ function CertificateCard({ pending }: { pending: Pending }) {
     ['Swap amount', amount(c.input.swapAmount, c.input.decimals, pending.inSymbol)],
     ['Bound fee', amount(c.input.boundFee, c.input.decimals, pending.inSymbol)],
     ['Minimum output enforced', amount(c.output.minimumOutput, c.output.decimals, pending.outSymbol)],
-    ['Other assets debited', 'None'],
+    ['Other tokens debited', 'None'],
     ['Persistent permissions', 'None'],
     ['Temporary authority', shortAddress(c.temporaryAuthority)],
-    ['Programs invoked', String(c.programs.length)],
+    ['Programs invoked directly', String(c.directPrograms.length)],
     ['Verifier', `${c.verifierVersion} · message ${c.messageSha256.slice(0, 12)}…`],
   ];
   return (

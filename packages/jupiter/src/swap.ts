@@ -12,7 +12,7 @@ import {
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, TxVersion, Violation } from '@bound/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
-import { certify, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn } from '@bound/verifier';
+import { certify, hasTransferFee, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn } from '@bound/verifier';
 import type { Certificate } from '@bound/verifier';
 import type { SendResult, SendStatus, SolanaRpc } from '@bound/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
@@ -201,6 +201,15 @@ export function compileIfFits<T>(build: () => T): T | null {
   }
 }
 
+/**
+ * Why the routes failed, in the words the simulation used. Without this a failure says only that
+ * something went wrong, which helps neither the user nor whoever reads the report afterwards.
+ */
+const why = (attempts: readonly Attempt[]) =>
+  attempts.length
+    ? `Tried: ${attempts.slice(-3).map(a => `${a.route.join(' + ') || 'no route'} (${a.simulation})`).join('; ')}.`
+    : '';
+
 /** A bps gap as a percentage, for a message a person reads: 137n → "1.37%". */
 const percent = (bps: bigint | null) => (bps === null ? 'far' : `${(Number(bps) / 100).toFixed(2)}%`);
 
@@ -250,12 +259,10 @@ export async function prepareProtectedSwap(deps: {
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
     .then(BigInt)
     .catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS);
-  const [firstReads, classicRent, extendedRent, epoch] = await Promise.all([
+  const [firstReads, classicRent, extendedRent] = await Promise.all([
     fetchAccounts(rpc, [req.inputMint, req.outputMint, ...feeCandidates, ...wOutCandidates]),
     wOutCandidates.length ? rentFor(TOKEN_ACCOUNT_SIZE) : Promise.resolve(0n),
     wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
-    // Which of a mint's two fee settings applies depends on the epoch, so the chain is asked.
-    rpc.getEpochInfo({ commitment: 'confirmed' }).send().then(e => BigInt(e.epoch)).catch(() => 0n),
   ]);
   const mints = new Map([req.inputMint, req.outputMint].map(m => [m, mintInfoOf(firstReads.get(m))]));
 
@@ -266,13 +273,27 @@ export async function prepareProtectedSwap(deps: {
       throw new BoundError('unsupported-token', `${m} is not a token Bound can swap.`);
     }
     if (info.program === TOKEN_2022_PROGRAM) {
-      const bad = unsupportedExtension(firstReads.get(m)!.data);
+      // The same rule the verifier applies, with the same exception: the swap's own mints may
+      // charge a transfer fee, because their temporary account is harvested before it is closed.
+      const bad = unsupportedExtension(firstReads.get(m)!.data, { allowTransferFee: true });
       if (bad) throw new BoundError('unsupported-token', `This token uses ${bad}, which a protected swap cannot isolate.`);
     }
   }
-  const inputFee = mints.get(req.inputMint)!.program === TOKEN_2022_PROGRAM
-    ? transferFeeOf(firstReads.get(req.inputMint)!.data, epoch)
-    : null;
+  // A mint with the transfer-fee extension keeps a cut of every transfer, and which of its two fee
+  // settings applies depends on the epoch. The epoch is read only for such a mint, and a swap is
+  // never built on a guess: without it the tax cannot be priced.
+  const inputTaxes = mints.get(req.inputMint)!.program === TOKEN_2022_PROGRAM
+    && hasTransferFee(firstReads.get(req.inputMint)!.data);
+  const epoch = inputTaxes
+    ? await rpc.getEpochInfo({ commitment: 'confirmed' }).send().then(e => BigInt(e.epoch)).catch(() => null)
+    : 0n;
+  if (epoch === null) {
+    throw new BoundError(
+      'token-data-mismatch',
+      "Bound could not read the epoch that decides this token's transfer fee, so the amount could not be priced. Nothing was built; try again in a moment.",
+    );
+  }
+  const inputFee = inputTaxes ? transferFeeOf(firstReads.get(req.inputMint)!.data, epoch) : null;
   const inputTokenProgram = mints.get(req.inputMint)!.program!;
   const outputTokenProgram = mints.get(req.outputMint)!.program!;
   const feeAccount = feeCandidates.length ? await ataOf(settings.treasury!, req.inputMint, inputTokenProgram) : null;
@@ -294,7 +315,9 @@ export async function prepareProtectedSwap(deps: {
     outputDecimals: mints.get(req.outputMint)!.decimals,
     inputTokenProgram,
     outputTokenProgram,
-    inputTransferFee: !!inputFee,
+    // The extension itself, not this epoch's rate: an account that has ever received the token
+    // may hold withheld fees, and the cleanup must harvest them whatever the rate is today.
+    inputTransferFee: inputTaxes,
     config: settings,
     feeAccountExists,
   });
@@ -408,6 +431,21 @@ export async function prepareProtectedSwap(deps: {
       lookupTables: req.version === 0 ? (r.addressesByLookupTableAddress ?? undefined) as never : undefined,
     });
 
+  // A hop through a mint that taxes transfers leaves withheld fees in the temporary account, which
+  // then cannot be closed; the compiler harvests those, so it has to know which mints tax.
+  const taxing = new Map<string, boolean>([[req.inputMint, inputTaxes]]);
+  const withTransferFees = async (list: IntermediateAta[]): Promise<IntermediateAta[]> => {
+    const unknown = [...new Set(list.map(x => x.mint).filter(m => !taxing.has(m)))];
+    if (unknown.length) {
+      const states = await fetchAccounts(rpc, unknown);
+      for (const m of unknown) {
+        const state = states.get(m);
+        taxing.set(m, !!state && state.owner === TOKEN_2022_PROGRAM && hasTransferFee(state.data));
+      }
+    }
+    return list.map(x => ({ ...x, transferFee: taxing.get(x.mint) ?? false }));
+  };
+
   for (let attempt = 0; attempt < settings.maxRepairAttempts; attempt++) {
     const excluded = [...settings.excludeDexes, ...learned];
     const lifetime = await (attempt === 0 ? firstLifetimeTask : latestLifetime(rpc));
@@ -430,7 +468,7 @@ export async function prepareProtectedSwap(deps: {
       if (bestGapBps === null || gap < bestGapBps) bestGapBps = gap;
       if (gap > settings.badQuoteBps) { sawBadQuote = true; continue; }
       if (BigInt(r.otherAmountThreshold) <= 0n) continue; // no floor to enforce
-      const intermediates = intermediatesFromSetup(r.setupInstructions, policy);
+      const intermediates = await withTransferFees(intermediatesFromSetup(r.setupInstructions, policy));
       const c = timed(() => compileIfFits(() => compile(r, lifetime, intermediates, MAX_COMPUTE_UNITS)));
       if (c && fits(c.size, c.staticAccounts, req.version)) { chosen = { r, intermediates }; chosenGapBps = gap; break; }
       sawTooBig = true;
@@ -456,7 +494,10 @@ export async function prepareProtectedSwap(deps: {
       // After a repair, the routes we could still use are the ones nothing has blamed yet. If none
       // of them works, the honest reason is the simulations that got us here, not the price.
       if (learned.length) {
-        throw new BoundError('simulation-failed', 'Every route that fits failed in simulation, and what is left is far below the market price. No funds were moved.');
+        throw new BoundError(
+          'simulation-failed',
+          `Every route that fits failed in simulation, and what is left is far below the market price. No funds were moved. ${why(attempts)}`,
+        );
       }
       throw sawTooBig
         ? new BoundError('no-route', 'The best route for this amount does not fit in a single protected transaction. Try a smaller amount, or split the swap.')
@@ -589,7 +630,7 @@ export async function prepareProtectedSwap(deps: {
     }
     if (learned.length === before) break;
   }
-  throw new BoundError('simulation-failed', 'Every route failed in simulation. No funds were moved.');
+  throw new BoundError('simulation-failed', `Every route failed in simulation. No funds were moved. ${why(attempts)}`);
 }
 
 /**

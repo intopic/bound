@@ -96,7 +96,10 @@ a reproducible build, keep dependencies minimal, and review every dependency upd
 - A price that is worse than the open market by up to 5%: a protected route must fit in one
   transaction and leaves out pools that would leave an account behind. Above 1% the page shows the
   difference and asks; above 5% Bound refuses, because at that distance the likelier explanation is
-  a broken quote.
+  a broken quote. **This comparison is a courtesy, not a guarantee:** both the protected route and
+  the unrestricted one it is measured against come from Jupiter, so an aggregator that lowered both
+  would pass it unnoticed. What protects the user is the minimum output they accepted, which is
+  enforced on chain. A guarantee about the market price would need an independent price source.
 
 ## The temporary key (D7)
 
@@ -110,9 +113,15 @@ matters.
 
 After a transaction passes every rule, the verifier (`@bound/verifier`) issues a certificate bound
 to the SHA-256 of the exact message: approved total debit, swap amount, Bound fee, minimum output,
-signers, programs invoked, "other assets debited: none" and "persistent permissions: none". The page
-shows it while the wallet is open. A certificate is as trustworthy as the verifier that issued it: a
-wallet or auditor that does not trust the page should run the verifier on the same bytes.
+signers, the programs the transaction invokes directly, "other tokens debited: none", "persistent
+permissions: none", the verifier's version and the slot of the chain state the rules were checked
+against. The page shows it while the wallet is open.
+
+A certificate is a receipt, not a proof. It is not signed by anyone, and it is issued by the same
+code that verified the transaction, so a compromised page could show one that says anything. It is
+worth exactly what the verifier that issued it is worth: a wallet, an agent or an auditor that does
+not trust the page should run `@bound/verifier` on the same bytes, policy and chain state and
+compare. For an automated signer that is the intended use — run the verifier next to the signer.
 
 ## Frontend hardening
 

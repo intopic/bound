@@ -35,14 +35,23 @@ describe('certificate', () => {
         expect(c.input.swapAmount + c.input.boundFee).toBe(c.input.totalDebit);
         expect(c.output.minimumOutput).toBe(s.policy.minOut);
         expect(c.signers).toEqual([s.W, s.E.address]);
-        expect(c.programs).toContain(JUPITER_PROGRAM);
-        expect(c.programs).toContain(TOKEN_PROGRAM);
-        expect(c.otherAssetDebit).toBe(0);
+        expect(c.directPrograms).toContain(JUPITER_PROGRAM);
+        expect(c.directPrograms).toContain(TOKEN_PROGRAM);
+        expect(c.otherTokenDebit).toBe(0);
         expect(c.persistentPermissions).toBe(0);
+        // The snapshot of these tests carries no slot; a real read does, and it is carried through.
+        expect(c.snapshotSlot).toBe(null);
         expect(JSON.parse(certificateJson(c)).input.totalDebit).toBe(s.policy.amountIn.toString());
       });
     }
   }
+
+  it('names the slot the chain state was read at, when the reader recorded one', async () => {
+    const s = await scenario();
+    const tx = await compileHonest(s, 0);
+    const result = await certify(tx, s.policy, { ...s.snapshot, slot: 123_456_789n });
+    expect(result.ok && result.certificate.snapshotSlot).toBe(123_456_789n);
+  });
 
   it('is never issued for a transaction that fails a rule', async () => {
     const s = await scenario();

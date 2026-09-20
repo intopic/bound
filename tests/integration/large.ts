@@ -123,7 +123,7 @@ async function payerFor(sym: Sym, amount: bigint): Promise<{ owner: Address; fun
 }
 
 type Row = {
-  pair: string; size: string; ok: boolean; detail: string;
+  pair: string; size: string; ok: boolean; skipped?: boolean; detail: string;
   bytes?: number; legs?: number; hops?: number; impactPct?: number; unitPrice?: number; lossVsSmallestPct?: number;
   simulated?: string; ms?: number;
 };
@@ -140,7 +140,8 @@ for (const [a, b] of PAIRS) {
     const { owner, funded } = await payerFor(a, amountIn);
     const started = Date.now();
     if (!funded) {
-      rows.push({ pair: `${a}→${b}`, size, ok: true, detail: 'u anashkalua: asnjë wallet publik nuk e mban këtë shumë', ms: 0 });
+      // Not a pass: nothing was built or simulated, and counting it as one would flatter the report.
+      rows.push({ pair: `${a}→${b}`, size, ok: false, skipped: true, detail: 'asnjë wallet publik nuk e mban këtë shumë', ms: 0 });
       log(`--   ${a}→${b} ${size}: u anashkalua (asnjë wallet publik nuk e mban këtë shumë)`);
       continue;
     }
@@ -178,20 +179,23 @@ for (const [a, b] of PAIRS) {
 }
 
 mkdirSync('tests/integration/results', { recursive: true });
-const failed = rows.filter(r => !r.ok).length;
+const skipped = rows.filter(r => r.skipped).length;
+const passed = rows.filter(r => r.ok).length;
+const refused = rows.length - passed - skipped;
 writeFileSync('tests/integration/results/large.md', [
   '# T7 — shuma të mëdha',
   '',
-  `${rows.length - failed}/${rows.length} madhësi u ndërtuan dhe u verifikuan. Asgjë nuk u nënshkrua e nuk u dërgua.`,
+  `${passed} madhësi u ndërtuan, u verifikuan dhe u simuluan; ${refused} u refuzuan; ${skipped} nuk u provuan dot`
+  + ' (asnjë wallet publik nuk i mban ato shuma). Asgjë nuk u nënshkrua e nuk u dërgua.',
   '',
   '| Çifti | Shuma | Transaksioni | Hop-e | Ndikimi në çmim | Humbja kundrejt shumës më të vogël | Simulimi | Detaji |',
   '| --- | --- | --- | --- | --- | --- | --- | --- |',
   ...rows.map(r => r.ok
     ? `| ${r.pair} | ${r.size} | ${r.bytes} bajt | ${r.legs} | ${r.impactPct?.toFixed(3)}% | ${r.lossVsSmallestPct?.toFixed(2)}% | ${r.simulated} | ${r.detail} |`
-    : `| ${r.pair} | ${r.size} | — | — | — | — | — | ${r.detail} |`),
+    : `| ${r.pair} | ${r.size} | — | — | — | — | ${r.skipped ? 'nuk u provua' : 'u refuzua'} | ${r.detail} |`),
   '',
   'Ndërtimi dhe verifikimi janë të njëjtë për çdo shumë: ndryshon vetëm route-i, prandaj shumat shumë të mëdha',
   'mund të mos nxënë në një transaksion. Në atë rast Bound refuzon ta ndërtojë swap-in; nuk e ndan kurrë në disa transaksione.',
   '',
 ].join('\n'));
-log(`\nT7 ${rows.length - failed}/${rows.length}  →  tests/integration/results/large.md`);
+log(`\nT7 ${passed} kaluan, ${refused} u refuzuan, ${skipped} nuk u provuan dot (nga ${rows.length})  →  tests/integration/results/large.md`);

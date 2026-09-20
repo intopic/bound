@@ -74,6 +74,22 @@ const ALLOWED_MINT_EXTENSIONS = new Set([
   20, 21, 22, 23, // Group and member pointers
 ]);
 
+/**
+ * The byte length each extension we interpret must declare. A length that disagrees with the
+ * program's own layout means we are not reading what we think we are reading, so the mint is
+ * refused rather than parsed further (audit follow-up). Extensions of variable size - metadata and
+ * the group ones - are not listed here.
+ */
+const EXTENSION_LENGTH: Record<number, number> = {
+  1: 108, // TransferFeeConfig: two authorities, the withheld amount, two fee schedules
+  3: 32, // MintCloseAuthority
+  12: 32, // PermanentDelegate
+  14: 64, // TransferHook: authority and program id
+  18: 64, // MetadataPointer: authority and address
+  20: 64, // GroupPointer
+  22: 64, // GroupMemberPointer
+};
+
 const EXTENSION_NAMES: Record<number, string> = {
   1: 'transfer fee', 6: 'accounts frozen by default', 8: 'memo required on transfer',
   9: 'non-transferable', 10: 'interest-bearing', 12: 'permanent delegate', 25: 'scaled UI amount',
@@ -146,12 +162,16 @@ export function unsupportedExtension(data: Uint8Array, options: { allowTransferF
   if (data.length <= TOKEN_ACCOUNT_SIZE || data[TOKEN_ACCOUNT_SIZE] !== 1) return 'malformed extension area';
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const nonZero = (from: number, to: number) => data.subarray(from, to).some(b => b !== 0);
-  for (let at = TOKEN_ACCOUNT_SIZE + 1; at + 4 <= data.length; ) {
+  for (let at = TOKEN_ACCOUNT_SIZE + 1; ; ) {
+    if (at === data.length) break; // the area ends exactly where the last extension does
+    if (at + 4 > data.length) return 'malformed extension area'; // a header cut in half
     const type = view.getUint16(at, true);
     const length = view.getUint16(at + 2, true);
     const value = at + 4;
     if (type === 0) break; // Uninitialized: the rest is padding
     if (value + length > data.length) return 'malformed extension';
+    const expected = EXTENSION_LENGTH[type];
+    if (expected !== undefined && length !== expected) return `extension ${type} with a length of ${length}, not ${expected}`;
     // A declared hook with no program set runs no code at all, which is what the largest
     // Token-2022 tokens do; a real program is refused.
     if (type === 14) {
@@ -192,13 +212,14 @@ const V1_ALLOWED_CONFIG =
 
 type Slot =
   | 'cuLimit' | 'cuPrice' | 'createEIn' | 'createEOut' | 'createWOut' | 'revokeWOut'
-  | 'createIntermediate' | 'transferIn' | 'feeTransfer' | 'sync' | 'minOutCheck' | 'harvestEIn' | 'closeEIn' | 'closeEOut'
+  | 'createIntermediate' | 'transferIn' | 'feeTransfer' | 'sync' | 'minOutCheck' | 'harvestEIn' | 'harvestIntermediate'
+  | 'closeEIn' | 'closeEOut'
   | 'closeIntermediate';
 
 const BEFORE_SWAP: Slot[] = [
   'createEIn', 'createEOut', 'createWOut', 'revokeWOut', 'createIntermediate', 'transferIn', 'feeTransfer', 'sync',
 ];
-const AFTER_SWAP: Slot[] = ['minOutCheck', 'harvestEIn', 'closeEIn', 'closeEOut', 'closeIntermediate'];
+const AFTER_SWAP: Slot[] = ['minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate'];
 
 /**
  * The 7 rules of the plan (section 6), checked on the exact bytes the wallet will sign.
@@ -312,12 +333,14 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   const swapIndex = externals.length ? externals[0].i : -1;
 
   // Intermediate ATA(E, m) accounts: allowed only as matched create + close pairs (D14).
-  const intermediates = new Map<string, { tokenProgram: Address; mint: Address; created: number; closed: number }>();
+  const intermediates = new Map<string, { tokenProgram: Address; mint: Address; created: number; closed: number; fee: boolean; harvested?: number }>();
   for (const x of parsed) {
     if (x.kind !== 'createAta' || x.owner !== E || x.ata === eIn || x.ata === eOut) continue;
     if (x.mint === p.inputMint || (A && x.mint === WSOL_MINT)) continue;
     if (x.ata === (await ata(E, x.mint, x.tokenProgram))) {
-      intermediates.set(x.ata, { tokenProgram: x.tokenProgram, mint: x.mint, created: 0, closed: 0 });
+      const state = snapshot.accounts.get(x.mint);
+      const fee = !!state && state.owner === TOKEN_2022_PROGRAM && hasTransferFee(state.data);
+      intermediates.set(x.ata, { tokenProgram: x.tokenProgram, mint: x.mint, created: 0, closed: 0, fee });
     }
   }
 
@@ -365,13 +388,18 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
         if (B && x.account === eIn) put('sync', i);
         else fail('R2', `instruction ${i}: unexpected SyncNative`);
         break;
-      case 'harvest':
-        // Only the temporary input account, and only to its own mint: harvesting moves nothing of
+      case 'harvest': {
+        // Only a temporary account of ours, and only to its own mint: harvesting moves nothing of
         // the user's, but an unexpected account here would be an instruction we did not intend.
+        const hop = x.sources.length === 1 ? intermediates.get(x.sources[0]) : undefined;
         if (x.program === inputProgram && x.mint === p.inputMint && x.sources.length === 1 && x.sources[0] === eIn) {
           put('harvestEIn', i);
+        } else if (hop && hop.fee && x.program === hop.tokenProgram && x.mint === hop.mint) {
+          hop.harvested = (hop.harvested ?? 0) + 1;
+          put('harvestIntermediate', i);
         } else fail('R2', `instruction ${i}: unexpected harvest of withheld fees`);
         break;
+      }
       case 'revoke':
         if (!A && x.program === outputProgram && x.source === wOut && x.owner === W) put('revokeWOut', i);
         else fail('R2', `instruction ${i}: unexpected Revoke`);
@@ -411,6 +439,8 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (version === 0) { need('cuLimit', 1, 'R4'); need('cuPrice', 1, 'R4'); }
   for (const [address, m] of intermediates) {
     if (m.created !== 1 || m.closed !== 1) fail('R5', `intermediate account ${address} is not created and closed exactly once`);
+    // A taxing mint withholds in every account that receives it, and such an account cannot close.
+    if (m.fee && (m.harvested ?? 0) !== 1) fail('R5', `intermediate account ${address} of a taxing mint is not harvested exactly once`);
   }
   if (intermediates.size > MAX_INTERMEDIATE_ACCOUNTS) {
     fail('R5', `${intermediates.size} intermediate accounts, above the maximum of ${MAX_INTERMEDIATE_ACCOUNTS}`);
@@ -498,7 +528,9 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   for (const m of intermediates.values()) {
     if (m.tokenProgram !== TOKEN_2022_PROGRAM) continue;
     const state = snapshot.accounts.get(m.mint);
-    const risky = state && state.owner === TOKEN_2022_PROGRAM ? unsupportedExtension(state.data) : 'missing mint';
+    const risky = state && state.owner === TOKEN_2022_PROGRAM
+      ? unsupportedExtension(state.data, { allowTransferFee: true })
+      : 'missing mint';
     if (risky) fail('R7', `intermediate mint ${m.mint}: ${risky}`);
   }
 

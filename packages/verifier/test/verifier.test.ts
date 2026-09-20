@@ -261,6 +261,20 @@ describe('Token-2022', () => {
     expect(rules(await verify(await compileHonest(s, 0), lying, s.snapshot))).toContain('R2');
   });
 
+  it('an extension whose declared length disagrees with the program layout → R7', async () => {
+    const s = await t22([[18, 64], [14, 32]]); // a transfer hook is 64 bytes, never 32
+    expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
+  });
+
+  it('bytes left over after the last extension → R7', async () => {
+    const s = await t22([[18, 64]]);
+    const mint = s.snapshot.accounts.get(USDC)!;
+    const padded = { ...mint, data: new Uint8Array(mint.data.length + 3) };
+    padded.data.set(mint.data);
+    (s.snapshot.accounts as Map<string, unknown>).set(USDC, padded);
+    expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
+  });
+
   it('a Token-2022 swap compiled with the classic program is refused', async () => {
     const s = await t22([[18, 64]]);
     // The policy is honest, but the transaction is built as if the mint were a classic token.

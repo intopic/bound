@@ -2,7 +2,8 @@
 
 import { address, isAddress } from '@solana/kit';
 import type { TokenInfo } from '@bound/jupiter';
-import { hasTransferFee, unsupportedExtension } from '@bound/verifier';
+import { transferFeeOf, transferFeeOn, unsupportedExtension } from '@bound/verifier';
+import type { TransferFee } from '@bound/verifier';
 import { getJupiter, getRpc } from './chain';
 
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -40,9 +41,34 @@ export const isSupported = (t: TokenInfo) => t.tokenProgram === TOKEN_PROGRAM ||
  * `unsupported` names the extension that makes a protected swap impossible, and comes from the
  * verifier itself, so the page and the rules cannot disagree.
  */
-export type MintFacts = { decimals: number; program: string; unsupported: string | null; transferFee: boolean };
+export type MintFacts = {
+  decimals: number;
+  program: string;
+  unsupported: string | null;
+  /** The tax the token itself charges on every transfer this epoch, or null. */
+  transferFee: TransferFee | null;
+};
+
+/**
+ * What actually reaches the route: a taxing token keeps a cut of the transfer into the protected
+ * account, so a price asked for the full amount would be a price for money that never arrives.
+ */
+export const amountReachingRoute = (amount: bigint, facts: Pick<MintFacts, 'transferFee'> | null | undefined) =>
+  facts?.transferFee ? amount - transferFeeOn(amount, facts.transferFee) : amount;
 
 const mintFacts = new Map<string, Promise<MintFacts | null>>();
+
+/**
+ * Which of a mint's two fee settings applies depends on the epoch. Read once per page load; an
+ * epoch lasts days, and the exact number only matters at the moment a fee schedule changes.
+ */
+let epoch: Promise<bigint> | null = null;
+const currentEpoch = () => (epoch ??= getRpc().getEpochInfo({ commitment: 'confirmed' }).send()
+  .then(e => BigInt(e.epoch))
+  .catch(() => {
+    epoch = null; // a failed read is retried next time
+    return 0n;
+  }));
 
 /** Decimals and token program from the mint account itself; null if it is not a token mint. */
 export function readMint(mint: string): Promise<MintFacts | null> {
@@ -59,7 +85,7 @@ export function readMint(mint: string): Promise<MintFacts | null> {
         program: value.owner,
         // The swap's own mints may charge a transfer fee; the cleanup harvests it before closing.
         unsupported: value.owner === TOKEN_2022_PROGRAM ? unsupportedExtension(data, { allowTransferFee: true }) : null,
-        transferFee: value.owner === TOKEN_2022_PROGRAM && hasTransferFee(data),
+        transferFee: value.owner === TOKEN_2022_PROGRAM ? transferFeeOf(data, await currentEpoch()) : null,
       };
     })();
     facts.catch(() => mintFacts.delete(mint)); // a failed read is retried next time

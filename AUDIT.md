@@ -269,12 +269,19 @@ memo requirement would need another instruction on every incoming transfer (an *
 that requires one is refused up front by the pipeline, with its own message).
 
 **Transfer fees** are supported, and they cost the user more here than elsewhere, so three things
-had to be true. The cleanup harvests the withheld amount before closing the temporary account
+had to be true. (The first review of this work found the feature dead on arrival: the pipeline's own
+pre-check still refused such a mint before any of it ran. `tests/integration/transfer-fee.ts` (T8)
+now exercises the path against mainnet state so that cannot happen again.) The cleanup harvests the withheld amount before closing the temporary account
 (`HarvestWithheldTokensToMint`, a permissionless instruction): without it the close fails with
 `AccountHasWithheldTransferFees` and the whole swap reverts. R5 requires exactly one harvest of
-E_in when the input mint charges a fee, before the close, and nothing else may be harvested; the
-policy's own flag is checked against the mint (R2). The route is quoted for the amount that
-actually lands in the temporary account, not the amount that leaves the wallet. And the page says
+every temporary account of a taxing mint — E_in and any intermediate hop — before that account is
+closed, once each, and nothing else may be harvested; the policy's own flag is checked against the
+mint (R2). Hops matter in practice: a route for a taxing token often passes through a temporary
+account of that same token, and refusing those was refusing most of its routes. The route is quoted for the amount that
+actually lands in the temporary account, not the amount that leaves the wallet — the page asks for
+its price on the same amount, so the first number a user sees is the one they can get. Which of a
+mint's two fee schedules applies depends on the epoch, so the epoch is read for such a mint and a
+swap is refused rather than built on a guess when it cannot be read. And the page says
 what the tax costs: the token charges it on every transfer, a protected swap makes one transfer
 more than an unprotected one, so it applies twice on the input side, and the money goes to the
 token, never to Bound. Bound's minimum-output check is unaffected: a self-transfer on a mint with a
@@ -490,7 +497,7 @@ the rule the others depend on.
 | D12 | Jupiter's `payer` parameter is never sent (and the proxy rejects it) | With `payer = W`, W appeared inside the swap instruction on a HumidiFi route. |
 | D13 | DEXes charging persistent per-taker rent are excluded (`HumidiFi`, `Pump.fun Amm`) | With a fresh E per swap that rent (~0.013 SOL on HumidiFi) would be lost every time. |
 | D14 | Intermediate ATA(E, m) are created by Bound (payer W) and closed back to W | Some routes (e.g. Quay) output to ATA(E, output) first. |
-| D15 | A protected route more than 1% below the unrestricted one is put to the user (`costs-more`); more than 5% below is refused as broken. Failed simulations trigger route repair (blame the DEX from logs, exclude, rebuild) | Jupiter once returned `outAmount = 0` and once a route 12% worse, so a wide gap is treated as a broken answer. A narrow one is the price of the protection — fewer accounts fit in one transaction, and pools that leave an account behind are excluded — and that is the user's decision, not ours. A simulation that fails at Bound's own minimum-output check is requoted without blaming any DEX. |
+| D15 | A protected route more than 1% below the unrestricted one is put to the user (`costs-more`); more than 5% below is refused as broken. Both numbers come from the same aggregator, so this is a courtesy check, not a guarantee about the market price. Failed simulations trigger route repair (blame the DEX from logs, exclude, rebuild) | Jupiter once returned `outAmount = 0` and once a route 12% worse, so a wide gap is treated as a broken answer. A narrow one is the price of the protection — fewer accounts fit in one transaction, and pools that leave an account behind are excluded — and that is the user's decision, not ours. A simulation that fails at Bound's own minimum-output check is requoted without blaming any DEX. |
 | D16 | No fee when the treasury has no account for the input token | The user never pays rent for Bound's account (B-09). Operations pre-create treasury accounts for the tokens where the fee matters. |
 | D17 | Token icons are fetched by Bound's server | Keeps `img-src 'self' data:` and hides users' IP addresses from hosts chosen by token creators (B-08). |
 | D18 | Fee and treasury are fixed at build time (`NEXT_PUBLIC_BOUND_*`) | The server has no live channel to change them (B-01). |
@@ -519,7 +526,8 @@ the rule the others depend on.
 | `tests/integration/mainnet.ts` (T1) | 8 attack instructions against the real SPL Token and System programs placed where Jupiter would be | 8/8 behaved as predicted; the verifier rejected all 8 |
 | `tests/integration/mainnet.ts` (T5) | USDC→SOL, SOL→USDC, USDC→BONK: the honest transaction executes; with the floor raised to 2× the quote it fails exactly at the check | 3/3 |
 | `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking the protected transaction from inside a CPI; the chain is checked against Bound's promise after every case | 17/17 (section 0d) |
-| `tests/integration/large.ts` (T7) | Growing sizes up to about $10M on mainnet state: does the pipeline still build, verify and simulate, and what does the size cost? | 14/15, the refusal being a $1M BONK route that fits in no single transaction (section 0e) |
+| `tests/integration/large.ts` (T7) | Growing sizes up to about $10M on mainnet state: does the pipeline still build, verify and simulate, and what does the size cost? | 12 built and simulated, 1 refused correctly (a $1M BONK route fits in no single transaction), 2 not tried because no public wallet holds that much (section 0e) |
+| `tests/integration/transfer-fee.ts` (T8) | A real taxing token (FEELSGOOD, 3%) on both sides: the pipeline must reach it, quote the amount that arrives, harvest and close, and Jupiter's `outAmount` must mean what the wallet receives | 4/4; the quoted amount and the amount received were equal to the unit, so `outAmount` is net of the token's tax |
 | `tests/integration/self-transfer.ts` | The SPL Token self-transfer behaviour behind B-04, on mainnet state | 4/4 |
 | `tests/e2e/smoke.ts` | Real browser (Edge), test wallet via Wallet Standard that returns the tx unsigned: page must stop at R6 without sending; CSP nonce per request; images only from Bound; Jupiter never receives the wallet's address; pasting a token address finds it | 17/17 |
 | `tests/e2e/devnet.ts` | Full sign → verify → E signs → send on devnet with a real signing test wallet | Blocked by the public devnet faucet; ready to rerun |

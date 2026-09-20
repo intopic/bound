@@ -74,8 +74,12 @@ export type Policy = {
   accounts: PolicyAccounts;
 };
 
-/** A token account owned by E that the route uses as an intermediate hop (D14). */
-export type IntermediateAta = { ata: Address; mint: Address; tokenProgram: Address };
+/**
+ * A token account owned by E that the route uses as an intermediate hop (D14). `transferFee` says
+ * whether its mint taxes transfers, in which case the withheld amount is harvested before the
+ * account is closed, exactly as for E_in.
+ */
+export type IntermediateAta = { ata: Address; mint: Address; tokenProgram: Address; transferFee?: boolean };
 
 export type AccountState = { owner: Address; lamports: bigint; data: Uint8Array };
 
@@ -85,6 +89,8 @@ export type AccountState = { owner: Address; lamports: bigint; data: Uint8Array 
  */
 export type ChainSnapshot = {
   accounts: ReadonlyMap<string, AccountState | null>;
+  /** The slot the accounts were read at, so a certificate can name the state it was checked against. */
+  slot?: bigint;
   /** v0 only: lookup table contents as read from the RPC (never from Jupiter). */
   lookupTables: Readonly<Record<string, readonly Address[]>>;
 };

@@ -3,9 +3,11 @@
  * verify) runs against a fake RPC and a fake Jupiter that answer the way an attacker would.
  */
 import { describe, expect, it } from 'vitest';
-import { address, generateKeyPairSigner, getAddressEncoder } from '@solana/kit';
+import {
+  address, decompileTransactionMessage, generateKeyPairSigner, getAddressEncoder, getCompiledTransactionMessageDecoder,
+} from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
+import { ataOf, JUPITER_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
 import { BoundError, DEFAULT_SETTINGS, prepareProtectedSwap } from '../src/swap.ts';
 import { JupiterError } from '../src/client.ts';
@@ -27,6 +29,21 @@ function mint(decimals: number): Account {
   return { owner: TOKEN_PROGRAM, data };
 }
 
+/** A Token-2022 mint that charges `bps` on every transfer, with no cap. */
+function feeMint(decimals: number, bps: number): Account {
+  const data = new Uint8Array(166 + 4 + 108);
+  data[44] = decimals;
+  data[165] = 1; // AccountType::Mint
+  const view = new DataView(data.buffer);
+  view.setUint16(166, 1, true); // TransferFeeConfig
+  view.setUint16(168, 108, true);
+  const newer = 170 + 90; // two authorities, the withheld amount, then older and newer
+  view.setBigUint64(newer, 0n, true); // from epoch 0
+  view.setBigUint64(newer + 8, 2n ** 63n, true); // no practical cap
+  view.setUint16(newer + 16, bps, true);
+  return { owner: TOKEN_2022_PROGRAM, data };
+}
+
 function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: boolean; memo?: boolean } = {}): Account {
   // A Token-2022 account that requires a memo carries extension 8 after the account-type byte.
   const data = new Uint8Array(opts.memo ? 171 : 165);
@@ -42,10 +59,11 @@ function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: b
   return { owner: TOKEN_PROGRAM, data };
 }
 
-function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean } = {}): SolanaRpc {
+function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean; epochFails?: boolean } = {}): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
   return {
     getMultipleAccounts: call((addresses: string[]) => ({
+      context: { slot: 300_000_000n },
       value: addresses.map(a => {
         const acc = accounts.get(a);
         return acc ? { owner: acc.owner, lamports: 2_000_000n, data: [b64(acc.data), 'base64'], executable: false, space: BigInt(acc.data.length) } : null;
@@ -58,7 +76,10 @@ function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean } = 
       return { value: 15_000n };
     }),
     getMinimumBalanceForRentExemption: call(() => 1_488_440n),
-    getEpochInfo: call(() => ({ epoch: 900n })),
+    getEpochInfo: call(() => {
+      if (opts.epochFails) throw new Error('RPC unavailable');
+      return { epoch: 900n };
+    }),
   } as unknown as SolanaRpc;
 }
 
@@ -122,11 +143,12 @@ const settings = { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_
 
 async function prepare(output: Address, opts: {
   jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean;
-  acceptedMinOut?: bigint; memo?: boolean;
+  acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
+  if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
   return prepareProtectedSwap(
-    { rpc: fakeRpc(accounts, { feeFails: opts.feeFails }), jupiter: opts.jupiter ?? fakeJupiter(), settings },
+    { rpc: fakeRpc(accounts, { feeFails: opts.feeFails, epochFails: opts.epochFails }), jupiter: opts.jupiter ?? fakeJupiter(), settings },
     {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: USDC, outputMint: output, amountIn: 1_000_000n,
       inputDecimals: opts.inputDecimals ?? DECIMALS[USDC], outputDecimals: DECIMALS[output], version: 1,
@@ -191,6 +213,45 @@ describe('C-02: Bound computes the minimum itself', () => {
       .then(() => null, (e: unknown) => e as BoundError);
     expect(error?.code).toBe('no-route');
     expect(error?.message).toMatch(/does not fit in a single protected transaction/);
+  });
+});
+
+describe('a token that taxes its own transfers', () => {
+  it('is swappable: the route is quoted for what arrives, and the withheld fees are harvested', async () => {
+    const prepared = await prepare(WSOL_MINT, { inputFeeBps: 300 });
+    // These tests run without a treasury, so Bound takes no fee; the token keeps 3% on the way in.
+    const swapAmount = 1_000_000n;
+    const tax = (swapAmount * 300n + 9_999n) / 10_000n;
+    expect(prepared.policy.swapAmount).toBe(swapAmount);
+    expect(prepared.policy.inputTransferFee).toBe(true);
+    expect(prepared.quote.inAmount).toBe(swapAmount - tax);
+    expect(prepared.tokenTax).toEqual({ inputBps: 300, extraOnInput: tax });
+  });
+
+  it('its transaction harvests the withheld amount before closing the temporary account', async () => {
+    const prepared = await prepare(WSOL_MINT, { inputFeeBps: 300 });
+    const compiled = getCompiledTransactionMessageDecoder().decode(prepared.transaction.messageBytes);
+    const message = decompileTransactionMessage(compiled as never, { addressesByLookupTableAddress: {} });
+    const ixs = message.instructions as readonly { data?: ArrayLike<number> }[];
+    const harvest = ixs.findIndex(i => i.data?.[0] === 26 && i.data?.[1] === 4);
+    const close = ixs.findIndex(i => i.data?.length === 1 && i.data?.[0] === 9);
+    expect(harvest).toBeGreaterThan(-1);
+    expect(harvest).toBeLessThan(close);
+  });
+
+  it('without the epoch the tax cannot be priced, so nothing is built', async () => {
+    expect(await codeOf(prepare(WSOL_MINT, { inputFeeBps: 300, epochFails: true }))).toBe('token-data-mismatch');
+  });
+
+  it('a token that charges nothing needs no epoch at all', async () => {
+    const prepared = await prepare(WSOL_MINT, { epochFails: true });
+    expect(prepared.tokenTax).toBe(null);
+  });
+
+  it('a token with no tax neither harvests nor reports one', async () => {
+    const prepared = await prepare(WSOL_MINT);
+    expect(prepared.tokenTax).toBe(null);
+    expect(prepared.policy.inputTransferFee).toBe(false);
   });
 });
 

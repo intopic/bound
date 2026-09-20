@@ -146,6 +146,7 @@ export function protectedInstructions(
   post.push(getCloseAccountInstruction({ account: a.eIn, destination: p.owner, owner: E }, { programAddress: p.inputTokenProgram }));
   if (p.variant === 'A') post.push(getCloseAccountInstruction({ account: a.eOut!, destination: p.owner, owner: E }));
   for (const x of intermediates) {
+    if (x.transferFee) post.push(harvestWithheld(x.mint, x.ata));
     post.push(getCloseAccountInstruction({ account: x.ata, destination: p.owner, owner: E }, { programAddress: x.tokenProgram }));
   }
   return [...pre, swapInstruction, ...post];

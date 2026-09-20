@@ -39,16 +39,29 @@ const decodeBase64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0
 
 /** Reads accounts in batches; a missing account maps to null. */
 export async function fetchAccounts(rpc: SolanaRpc, addresses: readonly Address[]): Promise<Map<string, AccountState | null>> {
+  return (await readAccounts(rpc, addresses)).accounts;
+}
+
+/** The same read, keeping the slot the chain answered at. */
+export async function readAccounts(
+  rpc: SolanaRpc,
+  addresses: readonly Address[],
+): Promise<{ accounts: Map<string, AccountState | null>; slot: bigint }> {
   const unique = [...new Set(addresses)];
   const out = new Map<string, AccountState | null>();
+  let slot = 0n;
   for (let i = 0; i < unique.length; i += MAX_ACCOUNTS_PER_CALL) {
     const batch = unique.slice(i, i + MAX_ACCOUNTS_PER_CALL);
-    const { value } = await rpc.getMultipleAccounts(batch, { encoding: 'base64', commitment: 'confirmed' }).send();
+    const { context, value } = await rpc.getMultipleAccounts(batch, { encoding: 'base64', commitment: 'confirmed' }).send();
+    // The oldest slot of the batches: the state is at least that recent. An RPC that omits the
+    // context leaves the slot at zero, and a certificate then simply names no slot.
+    const at = BigInt(context?.slot ?? 0);
+    slot = slot === 0n || (at !== 0n && at < slot) ? at : slot;
     value.forEach((acc, j) => {
       out.set(batch[j], acc ? { owner: acc.owner, lamports: acc.lamports, data: decodeBase64(acc.data[0]) } : null);
     });
   }
-  return out;
+  return { accounts: out, slot };
 }
 
 export class LookupTableMismatchError extends Error {}
@@ -71,7 +84,7 @@ export async function fetchSnapshot(args: {
   addresses: readonly Address[];
   lookupTableAddresses: readonly Address[];
 }): Promise<ChainSnapshot> {
-  const accounts = await fetchAccounts(args.rpc, args.addresses);
+  const { accounts, slot } = await readAccounts(args.rpc, args.addresses);
   let lookupTables: Record<string, readonly Address[]> = {};
   if (args.lookupTableAddresses.length) {
     lookupTables = await fetchAddressesForLookupTables([...args.lookupTableAddresses], args.rpc);
@@ -84,7 +97,7 @@ export async function fetchSnapshot(args: {
       }
     }
   }
-  return { accounts, lookupTables };
+  return { accounts, lookupTables, slot };
 }
 
 export type MintInfo = { exists: boolean; program: Address | null; decimals: number; freezeAuthority: boolean; mintAuthority: boolean };
