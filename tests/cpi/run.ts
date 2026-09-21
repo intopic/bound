@@ -510,6 +510,41 @@ const CASES: Case[] = [
     inners: () => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT)],
   },
   {
+    // Bound's cleanup closes E_in unconditionally. A route that destroys it first would, if the
+    // swap still counted as a success, keep the rent W paid to open it. It does not: the close
+    // fails on an account that no longer exists, and that takes the whole transaction with it.
+    name: 'destroys the temporary input account after emptying it',
+    variant: 'C', expect: 'reverts',
+    proves: 'a route cannot complete around a temporary account it destroyed: cleanup fails and everything is undone',
+    inners: w => [
+      takeFrom(SWAP_AMOUNT),
+      {
+        program: IX.token,
+        metas: [{ key: IX.eIn, w: true }, { key: IX.attackerIn, w: true }, { key: IX.E, s: true }],
+        data: CLOSE_ACCOUNT,
+      },
+      deliver(MIN_OUT),
+    ],
+  },
+  {
+    // To re-create E_in and hide the theft, the attacker needs a payer that signs and holds
+    // lamports. The only lamports within reach are E_in's own rent, and the only key it can sign
+    // for is its program-derived authority — which Bound handed over read-only. A cross-program
+    // call cannot widen that.
+    name: 'sends the temporary account\'s rent to a key it can sign for',
+    variant: 'C', expect: 'reverts',
+    proves: 'an account handed over read-only stays read-only inside the program\'s own inner call, so the rent cannot be moved somewhere the attacker could spend it',
+    inners: () => [
+      takeFrom(SWAP_AMOUNT),
+      {
+        program: IX.token,
+        metas: [{ key: IX.eIn, w: true }, { key: IX.poolAuthority, w: true }, { key: IX.E, s: true }],
+        data: CLOSE_ACCOUNT,
+      },
+      deliver(MIN_OUT),
+    ],
+  },
+  {
     name: 'SPL → SOL: takes the approved amount and delivers the minimum',
     variant: 'A', expect: 'succeeds',
     proves: 'the wrapped-SOL variant works and closes both temporary accounts',
