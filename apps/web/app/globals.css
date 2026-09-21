@@ -124,3 +124,13 @@ main > .banner { margin: 0 0 14px; }
 
 .foot { color: var(--muted); font-size: 12px; text-align: center; }
 .foot p { margin: 4px 0; }
+
+/* The wallet signing diagnostic at /diagnostic: an internal tool, not part of the swap flow. */
+.diag h1 { font-size: 20px; margin: 0; }
+.diag h2 { font-size: 16px; margin: 16px 0 0; }
+.diag .field { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.diag .field label { color: var(--muted); font-size: 12px; }
+.diag .field input, .diag .field select { font: inherit; padding: 9px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--box); color: var(--text); }
+.diag .findings { margin: 10px 0; padding-left: 18px; font-size: 13px; }
+.diag .findings li { margin: 4px 0; }
+.diag .raw { margin-top: 10px; padding: 10px; background: var(--box); border-radius: var(--radius); font-size: 11px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 520px; overflow: auto; }

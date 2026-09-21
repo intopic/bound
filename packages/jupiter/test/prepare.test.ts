@@ -7,7 +7,7 @@ import {
   address, decompileTransactionMessage, generateKeyPairSigner, getAddressEncoder, getCompiledTransactionMessageDecoder,
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
+import { ataOf, ATA_PROGRAM, JUPITER_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
 import { BoundError, DEFAULT_SETTINGS, prepareProtectedSwap } from '../src/swap.ts';
 import { JupiterError } from '../src/client.ts';
@@ -41,6 +41,26 @@ function feeMint(decimals: number, bps: number): Account {
   view.setBigUint64(newer, 0n, true); // from epoch 0
   view.setBigUint64(newer + 8, 2n ** 63n, true); // no practical cap
   view.setUint16(newer + 16, bps, true);
+  return { owner: TOKEN_2022_PROGRAM, data };
+}
+
+/** A Token-2022 mint that runs a transfer hook: arbitrary code on every transfer of it. */
+function hookMint(decimals: number, program: Address): Account {
+  const data = new Uint8Array(166 + 4 + 64);
+  data[44] = decimals;
+  data[165] = 1; // AccountType::Mint
+  const view = new DataView(data.buffer);
+  view.setUint16(166, 14, true); // TransferHook
+  view.setUint16(168, 64, true);
+  data.set(getAddressEncoder().encode(program), 170 + 32); // authority, then the program it calls
+  return { owner: TOKEN_2022_PROGRAM, data };
+}
+
+/** A plain Token-2022 mint with no extensions at all. */
+function plain2022Mint(decimals: number): Account {
+  const data = new Uint8Array(166);
+  data[44] = decimals;
+  data[165] = 1;
   return { owner: TOKEN_2022_PROGRAM, data };
 }
 
@@ -84,7 +104,10 @@ function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean; epo
 }
 
 /** Answers like Jupiter for whatever is asked, with the floor and amounts an attacker chooses. */
-function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; failFirst?: number; extraAccounts?: readonly Address[]; worseByBps?: bigint } = {}): JupiterClient {
+function fakeJupiter(answer: {
+  threshold?: bigint; inAmountFactor?: bigint; failFirst?: number; extraAccounts?: readonly Address[];
+  worseByBps?: bigint; hop?: { mint: Address; tokenProgram: Address };
+} = {}): JupiterClient {
   let calls = 0;
   return {
     async build(p: BuildParams): Promise<BuildResponse> {
@@ -103,7 +126,18 @@ function fakeJupiter(answer: { threshold?: bigint; inAmountFactor?: bigint; fail
         otherAmountThreshold: (answer.threshold ?? (OUT * 9_950n) / 10_000n).toString(),
         routePlan: [{ percent: 100, swapInfo: { label: 'Whirlpool', ammKey: POOL } }],
         computeBudgetInstructions: [],
-        setupInstructions: [],
+        // Jupiter asks for an ATA of the taker for every token the route passes through. Bound
+        // does not run these; it recreates the accounts itself and closes them again (D14).
+        setupInstructions: answer.hop
+          ? [{
+            programId: ATA_PROGRAM,
+            accounts: [
+              meta(E, true, true), meta(await ataOf(E, answer.hop.mint, answer.hop.tokenProgram), false, true),
+              meta(E), meta(answer.hop.mint), meta(SYSTEM_PROGRAM), meta(answer.hop.tokenProgram),
+            ],
+            data: b64(new Uint8Array([1])),
+          }]
+          : [],
         swapInstruction: {
           programId: JUPITER_PROGRAM,
           accounts: [
@@ -146,9 +180,11 @@ const settings = { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_
 async function prepare(output: Address, opts: {
   jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean;
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
+  chain?: Iterable<[string, Account]>;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
+  for (const [key, account] of opts.chain ?? []) accounts.set(key, account);
   return prepareProtectedSwap(
     { rpc: fakeRpc(accounts, { feeFails: opts.feeFails, epochFails: opts.epochFails }), jupiter: opts.jupiter ?? fakeJupiter(), settings },
     {
@@ -311,5 +347,42 @@ describe('C-09 and Revoke: costs and side effects are reported from the chain', 
   it('removing an existing delegate on the output account is disclosed', async () => {
     expect((await prepare(BONK, { delegate: true })).notices.removesDelegate).toBe(true);
     expect((await prepare(BONK, { wOutExists: true })).notices.removesDelegate).toBe(false);
+  });
+});
+
+describe('the mints a route passes through are screened like its own two', () => {
+  const HOP = address('HoPP1ng1111111111111111111111111111111111111');
+  const HOOK = address('Hook1111111111111111111111111111111111111111');
+
+  it('a hop through a token that runs a transfer hook is refused, and nothing is built', async () => {
+    const code = await codeOf(prepare(BONK, {
+      jupiter: fakeJupiter({ hop: { mint: HOP, tokenProgram: TOKEN_2022_PROGRAM } }),
+      chain: [[HOP, hookMint(6, HOOK)]],
+    }));
+    expect(code).toBe('unsupported-token');
+  });
+
+  it('says which extension it was, so the refusal is not a shrug', async () => {
+    await expect(prepare(BONK, {
+      jupiter: fakeJupiter({ hop: { mint: HOP, tokenProgram: TOKEN_2022_PROGRAM } }),
+      chain: [[HOP, hookMint(6, HOOK)]],
+    })).rejects.toThrow(/transfer hook/);
+  });
+
+  it('a hop through a Token-2022 mint with no extensions builds normally', async () => {
+    const prepared = await prepare(BONK, {
+      jupiter: fakeJupiter({ hop: { mint: HOP, tokenProgram: TOKEN_2022_PROGRAM } }),
+      chain: [[HOP, plain2022Mint(6)]],
+    });
+    expect(prepared.intermediates.map(x => x.mint)).toEqual([HOP]);
+    expect(prepared.certificate.otherTokenDebit).toBe(0);
+  });
+
+  it('a hop that charges a transfer fee is still allowed, because the compiler harvests it', async () => {
+    const prepared = await prepare(BONK, {
+      jupiter: fakeJupiter({ hop: { mint: HOP, tokenProgram: TOKEN_2022_PROGRAM } }),
+      chain: [[HOP, feeMint(6, 50)]],
+    });
+    expect(prepared.intermediates).toEqual([expect.objectContaining({ mint: HOP, transferFee: true })]);
   });
 });

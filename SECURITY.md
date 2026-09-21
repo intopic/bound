@@ -63,8 +63,9 @@ The guarantee holds if these are correct and unmodified:
 | RPC | Returns true lookup tables and account state | v1 has no lookup tables, but account state (owners, balances, decimals, authorities) still comes from the RPC; v0 tables must match in full on a second RPC when one is configured |
 | Wallet | Signs what it is given | The returned message is re-verified byte for byte before E signs |
 
-The largest remaining risk is a modified frontend (compromised server or supply chain). Serve it from
-a reproducible build, keep dependencies minimal, and review every dependency update.
+The largest remaining risk is a modified frontend (compromised server or supply chain). Serve it
+from a reproducible build, keep dependencies minimal, and review every dependency update. What
+"minimal" currently means is counted under "The dependencies that run in your browser".
 
 ## Adversaries covered
 
@@ -163,6 +164,54 @@ it are still covered by the digest above, which is over every file.
 
 Neither of these protects against a backend that serves a different page on purpose. What they do
 is make that visible to anyone who looks, instead of impossible to tell.
+
+## The dependencies that run in your browser
+
+"Keep dependencies minimal" is a claim until someone counts it. Counted on 2026-09-21:
+
+| | |
+| --- | --- |
+| Known advisories, `npm audit` with and without dev | **0** |
+| Packages in the whole locked tree that declare an install script | **1** — `fsevents`, macOS-only, optional, dev |
+| Entries resolved from anywhere other than `registry.npmjs.org` | **0** |
+| Entries without an integrity hash | **0** |
+| Third-party code that can reach a browser | 55 packages, from 5 publishers |
+| Built client JavaScript | 744 KB across 12 files |
+
+An install script is how a supply-chain attack usually runs: it executes on `npm install`, with the
+developer's or the build machine's privileges, before anyone has read a line of the package. One
+package in this tree has one, it only installs on macOS, and it is a dev dependency of the test
+runner. Nothing that ships has one.
+
+The 55 browser-reachable packages are not 55 vendors. They are `@solana/*` (43 packages, one release
+train of `@solana/kit`), `@solana-program/*` (3), `@wallet-standard/*` (2), React with its scheduler
+(3), and Next's runtime helpers. Nothing else: no analytics, no error reporter, no font loader, no
+wallet-adapter aggregator, no UI framework.
+
+The Node-only packages `@solana/kit` carries for its own tooling — `ws`, `chalk`, `commander`,
+`undici-types` — were checked against the built chunks rather than assumed away. None of their
+markers appears anywhere in `.next/static`, so none of them reaches a browser.
+
+Two things matter more than the count itself.
+
+**`connect-src 'self'`.** A compromised dependency inside the page cannot send anything anywhere:
+the CSP allows network calls only back to Bound's own origin, and `img-src` is `'self' data:`. What
+it could still do is alter the transaction before the wallet sees it — but the verifier lives in the
+same bundle, so a compromised bundle is compromised whatever its dependency count. That is what the
+reproducible build and SRI above are for, and it is why they matter more than this table.
+
+**`npm ci` everywhere.** Every workflow installs from the lockfile, so a build uses the exact
+versions recorded rather than whatever the `^` ranges resolve to that day. One deviation: `cpi.yml`
+adds `litesvm@1.4.1` with `npm install --no-save`, because litesvm publishes no Windows binding and
+only CI can run that test. It is pinned to an exact version but sits outside the lockfile.
+
+One limit of this count: 81 of the locked entries are native binaries for platforms other than this
+one (`@next/swc-*`, `sharp`, `litesvm`), so they are not installed here and could not be read. A
+different subset installs on the deploy platform. The install-script figure above comes from the
+lockfile's own `hasInstallScript` flags, which cover every entry regardless of platform.
+
+A dependency update is therefore a security event, not a chore. It changes the bytes a browser runs,
+and the digest published with the release is what makes that visible.
 
 ## One RPC provider
 

@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "integration": "node tests/integration/mainnet.ts",
     "thresholds": "node tests/integration/thresholds.ts",
+    "lighthouse": "node tests/integration/lighthouse-usage.ts",
     "cpi": "cargo build-sbf --manifest-path tests/cpi/attacker/Cargo.toml && node tests/cpi/run.ts",
     "dev": "npm run dev -w @bound/web",
     "build": "npm run build -w @bound/web",

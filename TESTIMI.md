@@ -22,6 +22,9 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar a
 | T6: një program keqdashës i vërtetë në vendin e Jupiter-it, i ekzekutuar në një makinë virtuale Solana | 17/17 |
 | Token-2022: rregulli i extensions-ave dhe një swap i ndershëm me Token-2022 | 12 teste njësie + 12/12 çifte reale (PUMP, CATE, PAID, TIPPED) në mainnet |
 | T7: shuma në rritje deri në rreth $10M (nuk ka limit shume) | 14/15; refuzohet vetëm një route BONK prej $1M që nuk nxë në një transaksion |
+| Tokenët nëpër të cilët kalon route-i: një hop që ekzekuton kod refuzohet, një i pastër kalon (AUDIT.md 0i) | 4/4 |
+| T11: çfarë shtojnë vërtet wallet-et, lexuar nga 90 transaksione reale në mainnet (AUDIT.md 0h) | asnjë handler kujtese, deri në 10 asertime, 0–1 llogari secila |
+| Diagnostika e wallet-it: mesazh identik, shtesë në fund, shtesë në fillim, instruksionet tona të ndryshuara, nënshkrues i ri, raporti | 6/6 |
 | E2E në Edge me wallet testimi: quote, ndërtim, verifikim, R6 ndalon kthimin e panënshkruar, CSP me nonce, ikonat vetëm nga Bound, Jupiter nuk merr adresën e wallet-it, ngjitja e adresës së coin-it | 17/17 |
 
 ## Para se të fillosh
@@ -34,6 +37,31 @@ npm install
 ```
 
 2. Përdor një **wallet testimi** në Phantom, kurrë wallet-in kryesor.
+
+## Testi 0: çfarë i bën wallet-i transaksionit (bëje këtë të parin)
+
+Bound ka një premtim të vetëm: bajtët që verifikoi janë bajtët që ekzekutohen, dhe çdo gjë tjetër refuzohet. Phantom-i shkruan në dokumentacionin e vet se mund t'i shtojë transaksionit kontrollet e veta. Nëse e bën, rregulli ynë do ta refuzonte dhe swap-i do të dështonte pa asnjë arsye të vërtetë. Nëse nuk e bën, s'kemi pse të shkruajmë asnjë përjashtim. Askush nuk e di ende cila nga të dyja është e vërteta.
+
+Kjo faqe e zgjidh pyetjen me fakte. **Nuk dërgon asgjë** — transaksioni nënshkruhet, lexohet dhe hidhet. Asnjë fond nuk lëviz.
+
+1. Nis faqen:
+
+```powershell
+cd "C:\Users\Perdorues\Desktop\orientim cr\bound"
+npm run dev
+```
+
+2. Hap http://localhost:3000/diagnostic
+3. Lidh Phantom-in. Lëri mintet siç janë (SOL → USDC) dhe shumën `0.01`; wallet-i duhet të ketë aq SOL sa të ndërtohet route-i.
+4. Shtyp **Build and ask the wallet to sign** dhe aprovo në Phantom.
+5. Faqja të thotë njërën nga të dyja:
+   - *The wallet changed nothing* — rregulli aktual qëndron dhe nuk ka punë tjetër për të bërë.
+   - *The wallet changed the transaction* — poshtë saj shkruhet saktësisht çfarë shtoi, **ku** e shtoi (para apo pas instruksioneve tona), me cilat llogari, dhe a solli ndonjë nënshkrues të ri.
+6. Shtyp **Copy the full report** dhe ma dërgo tekstin.
+7. Përsërite me **v1** te "Transaction version", pastaj me Solflare dhe Backpack.
+8. Ndale serverin me `Ctrl+C`.
+
+Raporti është prova mbi të cilën shkruhet rregulli i pranimit. Pa të, çdo rregull për atë që pranojmë nga wallet-i është hamendje.
 
 ## Testi 1: falas në devnet (sjellja e Phantom-it)
 

@@ -12,3 +12,7 @@ spikes/
 spikes/*/results/*.json
 tests/cpi/results/
 tests/cpi/attacker/target/
+
+# Written by `next dev` on every run; not part of the project.
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

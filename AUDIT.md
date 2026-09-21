@@ -207,8 +207,10 @@ This is also the first time the whole protected transaction has been *executed* 
 simulated, with real signatures from W and E, including the wrapped-SOL variant.
 
 Limits of the test: litesvm is the Agave runtime with real SPL programs, but it is not a validator,
-and the attacker is our own program rather than a real DEX. Token-2022 transfer hooks and
-re-creating a closed account from a PDA inside the swap are not covered yet.
+and the attacker is our own program rather than a real DEX. Re-creating a closed account from a PDA
+inside the swap is still not covered — litesvm publishes no Windows binding, so that case can only
+be written against CI. Token-2022 transfer hooks are covered a different way, in 0i: a mint that
+runs one never reaches the runtime, because the swap is refused before it is signed.
 
 ---
 
@@ -336,6 +338,79 @@ What the table also shows is where the cost comes from: it is not the size of th
 swap of a liquid pair sits at 0.00%, while a $100 swap of a thin one sat at 3.36%. Size moves the
 market for the protected and the unprotected route alike, and cancels out; what does not cancel out
 is how many pools a route needs and whether they fit in one transaction.
+
+---
+
+## 0h. T11 — what wallets actually append, read from the chain
+
+Bound refuses a transaction whose bytes changed after it verified them. Phantom's documentation says
+it may append Lighthouse assertions to a transaction it signs, which would break that equality and
+make every Phantom swap fail. The acceptance rule that follows cannot be written from a document,
+and the decisive test — signing a real Bound transaction with the Phantom extension — needs a funded
+wallet. `apps/web/app/diagnostic` exists for exactly that and is waiting on one.
+
+What needs no wallet is the chain itself. `tests/integration/lighthouse-usage.ts` (T11) reads a
+sample of real mainnet transactions that invoked Lighthouse and reports the shape of what is there.
+Measured on 2026-09-21 over 90 successful transactions:
+
+| Selector | Handler | Times | Accounts | Data bytes |
+| --- | --- | --- | --- | --- |
+| 6 | AssertAccountInfoMulti | 44 | 1 | 16–26 |
+| 15 | AssertSysvarClock | 38 | 0 or 1 | 12 |
+| 2 | AssertAccountData | 19 | 1 | 13–14 |
+| 5 | AssertAccountInfo | 10 | 1 | 12 |
+| 10 | AssertTokenAccountMulti | 6 | 1 | 17–64 |
+
+Three things follow, and one does not.
+
+**No memory handler appeared at all.** `MemoryWrite` (0) and `MemoryClose` (1) are the two handlers
+that write rather than read, and they are the ones a wallet would need to place *before* the
+instructions it guards in order to assert a delta between two states. In 90 transactions neither
+occurred once. A rule that accepts only an appended suffix is therefore not obviously wrong, which
+was the open question.
+
+**Up to ten assertions occur in one transaction**, with a median of one. Any cap on how many a
+wallet may append should come from that, not from a round number.
+
+**AssertSysvarClock takes zero accounts.** An allowlist that demands exactly one account per
+assertion would reject it.
+
+What does *not* follow is anything about position. Lighthouse is a public program: 53 of the 90
+transactions carry an assertion somewhere other than the end, but grouped by the other programs they
+call, those are bots and protocols invoking Lighthouse inside their own recipe — not a wallet
+appending a guard to someone else's transaction. This sample cannot separate the two, so it is not
+evidence that a wallet ever prepends, and it is not evidence that one never does.
+
+---
+
+## 0i. The mints a route passes through
+
+Closing the gaps left by 0d turned up something T6 could not have shown, because it is decided
+before anything is signed.
+
+Bound screens a Token-2022 mint against an extension allowlist and refuses one it cannot isolate: a
+transfer hook that runs code on every transfer, a permanent delegate, a frozen default state. That
+screen ran on the swap's own two mints only. But a route is not always two mints. Jupiter routes
+through intermediate tokens, and for each one Bound creates a temporary account, moves the whole
+balance through it and closes it again in the same transaction. Those mints were read — to price a
+transfer fee — and never screened.
+
+The effect was a reverted transaction rather than a theft. A hop account exists for the length of
+one atomic transaction; a hook program is handed no authority over anything of W's; and anything
+that fails takes the whole transaction with it, so no funds move. But it contradicted the rule the
+endpoints obey, and it spent a network fee to discover on chain what was knowable before signing.
+
+`prepareProtectedSwap` now applies the same screen, with the same transfer-fee exception, to every
+mint a route passes through. A route that fails it is skipped rather than the swap failing — the
+next route down is usually fine. Only when every route for the pair passes through such a token is
+the swap refused, and then by name: *"Every route for this swap passes through a token that uses a
+transfer hook, which a protected swap cannot isolate."*
+
+Four tests in `packages/jupiter/test/prepare.test.ts` cover it: a hop that runs a hook is refused,
+the refusal names the extension, a hop through a plain Token-2022 mint still builds, and a hop that
+charges a transfer fee is still allowed because the compiler harvests it before closing the
+account. The first two fail against the previous code, which is the only reason to believe the
+other two.
 
 ---
 

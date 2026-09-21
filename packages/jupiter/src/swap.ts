@@ -439,13 +439,26 @@ export async function prepareProtectedSwap(deps: {
   // A hop through a mint that taxes transfers leaves withheld fees in the temporary account, which
   // then cannot be closed; the compiler harvests those, so it has to know which mints tax.
   const taxing = new Map<string, boolean>([[req.inputMint, inputTaxes]]);
+  /**
+   * The same rule the swap's own two mints pass, applied to every mint a route passes through.
+   * Bound creates and closes a temporary account for each hop, so a hop is not a detail of
+   * Jupiter's route: it is an account Bound owns for the length of one transaction, and a mint it
+   * cannot isolate has no business being one. Screening only the endpoints let a hop through a
+   * mint with a transfer hook, a permanent delegate or a frozen default state build and get
+   * signed, only to revert on chain.
+   */
+  const cannotIsolate = new Map<string, string | null>();
   const withTransferFees = async (list: IntermediateAta[]): Promise<IntermediateAta[]> => {
     const unknown = [...new Set(list.map(x => x.mint).filter(m => !taxing.has(m)))];
     if (unknown.length) {
       const states = await fetchAccounts(rpc, unknown);
       for (const m of unknown) {
         const state = states.get(m);
-        taxing.set(m, !!state && state.owner === TOKEN_2022_PROGRAM && hasTransferFee(state.data));
+        const token2022 = !!state && state.owner === TOKEN_2022_PROGRAM;
+        taxing.set(m, token2022 && hasTransferFee(state!.data));
+        // A hop that charges a transfer fee is allowed for the same reason the endpoints are: the
+        // compiler harvests what the mint withheld before it closes the account.
+        cannotIsolate.set(m, token2022 ? unsupportedExtension(state!.data, { allowTransferFee: true }) : null);
       }
     }
     return list.map(x => ({ ...x, transferFee: taxing.get(x.mint) ?? false }));
@@ -462,6 +475,8 @@ export async function prepareProtectedSwap(deps: {
     // amount: Solana allows 64 accounts per transaction, and Bound's own instructions need a
     // dozen of them. That is a different failure from a broken quote, and it is reported as such.
     let sawTooBig = false;
+    /** A route was priced and fitted, but one of its hops is a mint Bound cannot isolate. */
+    let sawUnsupportedHop: string | null = null;
     /** How far the best route offered was below the unrestricted price, in bps. */
     let bestGapBps: bigint | null = null;
     for (const [level, maxAccounts] of MAX_ACCOUNTS_LEVELS.entries()) {
@@ -474,6 +489,8 @@ export async function prepareProtectedSwap(deps: {
       if (gap > settings.badQuoteBps) { sawBadQuote = true; continue; }
       if (BigInt(r.otherAmountThreshold) <= 0n) continue; // no floor to enforce
       const intermediates = await withTransferFees(intermediatesFromSetup(r.setupInstructions, policy));
+      const badHop = intermediates.map(x => cannotIsolate.get(x.mint)).find(Boolean);
+      if (badHop) { sawUnsupportedHop = badHop; continue; }
       const c = timed(() => compileIfFits(() => compile(r, lifetime, intermediates, MAX_COMPUTE_UNITS)));
       if (c && fits(c.size, c.staticAccounts, req.version)) { chosen = { r, intermediates }; chosenGapBps = gap; break; }
       sawTooBig = true;
@@ -505,7 +522,12 @@ export async function prepareProtectedSwap(deps: {
           `Every route that fits failed in simulation, and what is left is far below the market price. No funds were moved. ${why(attempts)}`,
         );
       }
-      throw sawTooBig
+      throw sawUnsupportedHop
+        ? new BoundError(
+          'unsupported-token',
+          `Every route for this swap passes through a token that uses ${sawUnsupportedHop}, which a protected swap cannot isolate. Nothing was built.`,
+        )
+        : sawTooBig
         ? new BoundError('no-route', 'The best route for this amount does not fit in a single protected transaction. Try a smaller amount, or split the swap.')
         : sawBadQuote
           ? new BoundError('bad-quote', `Every route offered is at least ${percent(bestGapBps)} below the best price on the market. That is not a price, it is a broken answer, so nothing was built. Try again in a moment.`)
