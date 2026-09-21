@@ -170,7 +170,7 @@ Garancia mban nëse komponentët më poshtë janë të saktë dhe të pandryshua
 
 | Komponenti | Supozimi | Mbrojtja sot |
 | --- | --- | --- |
-| Runtime-i i Solana | Një program nuk përdor dot llogari ose privilegje signer-i që nuk iu dhanë (CPI nuk i rrit ato) | T1 me instruksione direkte dhe T6 me program keqdashës të vërtetë, 19/19 |
+| Runtime-i i Solana | Një program nuk përdor dot llogari ose privilegje signer-i që nuk iu dhanë (CPI nuk i rrit ato) | T1 me instruksione direkte dhe T6 me program keqdashës të vërtetë mbi SPL klasik dhe Token-2022, 27/27 |
 | SPL Token, Token-2022, ATA, System | Sillen sipas specifikës, përfshirë kontrollin e balancës në self-transfer | Programe të audituara; self-transfer i provuar në gjendjen e mainnet-it |
 | Kodi i Bound në browser | Compiler-i dhe verifier-i janë të saktë dhe të pandryshuar | Verifier i pavarur, teste mutacioni dhe property, CSP me nonce; build i riprodhueshëm mungon ende |
 | Serveri i Bound | Shërben faqen e vërtetë dhe përcjell përgjigjet e RPC-së dhe metadata e tokenëve | Nuk mund të ndryshojë fee-n ose treasury-n; F_max e tij kufizohet nga verifier-i; decimals kontrollohen kundrejt mint-it on-chain |
@@ -226,7 +226,7 @@ Të gjitha testet kalojnë në gjendjen aktuale; i vetmi dështim në mainnet is
 | `tests/integration/mainnet.ts` T4 | Pipeline i plotë mbi gjendjen e mainnet-it, 30 çifte × v0 dhe v1, me fee | 60/60 pas rregullimeve të auditimit të dytë |
 | `tests/integration/mainnet.ts` T1 | 8 sulme me SPL Token dhe System realë në vendin e Jupiter-it | 8/8 siç pritej; verifier-i i refuzon të 8-t |
 | `tests/integration/mainnet.ts` T5 | Minimumi i ngritur ×2 duhet të bjerë pikërisht te kontrolli | 3/3 |
-| `tests/cpi/run.ts` + `tests/cpi/attacker` T6 | Program keqdashës i vërtetë, i ngarkuar në një makinë virtuale Solana, sulmon transaksionin e mbrojtur nga brenda një CPI-je; pas çdo rasti kontrollohet zinxhiri | 19/19 |
+| `tests/cpi/run.ts` + `tests/cpi/attacker` T6 | Program keqdashës i vërtetë, i ngarkuar në një makinë virtuale Solana, sulmon transaksione SPL klasik dhe Token-2022 nga brenda një CPI-je; pas çdo rasti kontrollohet zinxhiri | 27/27 |
 | `tests/integration/large.ts` T7 | Shuma në rritje deri në rreth $10M mbi gjendjen e mainnet-it: a ndërtohet, verifikohet dhe simulohet ende, dhe sa kushton madhësia | 12 u ndërtuan dhe u simuluan, 1 u refuzua drejt, 2 nuk u provuan dot |
 | `tests/integration/thresholds.ts` T9 | Sa kushton mbrojtja kundrejt tregut të hapur: 12 tokena × 4 madhësi, dhe çfarë do të bënte secili prag | 45/48 u ndërtuan; mediana 0.00%, p95 1.81%, maksimumi 18.22% (AUDIT.md, seksioni 0g) |
 | `tests/integration/self-transfer.ts` | Sjellja e self-transfer në SPL Token | 4/4 |
@@ -256,7 +256,7 @@ Kërkojmë një auditim të të gjithë repos, jo vetëm të verifier-it. Lista 
 
 ### A. Siguria on-chain dhe garancia
 
-- [x] **Sulmet me CPI (prioriteti 1).** U bë: testi T6 (`tests/cpi/`) ngarkon një program keqdashës të vërtetë në vendin e Jupiter-it dhe e lë të sulmojë nga brenda një CPI-je. 17 raste, të gjitha kaluan. Mbetet për ju: a ka sulm që lista nuk e mbulon — sidomos rikrijimi i një llogarie të mbyllur nga një PDA brenda swap-it, ose ri-hyrja përmes një transfer hook Token-2022?
+- [x] **Sulmet me CPI (prioriteti 1).** U bë: testi T6 (`tests/cpi/`) ngarkon një program keqdashës të vërtetë në vendin e Jupiter-it dhe e lë të sulmojë SPL klasik dhe Token-2022 nga brenda një CPI-je. 27 raste, të gjitha kaluan. Mbetet për ju: a ka sulm që lista nuk e mbulon — sidomos rikrijimi i një llogarie të mbyllur nga një PDA brenda swap-it, ose ri-hyrja përmes një transfer hook Token-2022?
 - [ ] **Plotësia e R1 duke u mbështetur te R6.** A ka ndonjë aset të W-së që lëviz pa nënshkrimin e W-së dhe që filtri i R1 nuk e kap?
 - [ ] **Kontrolli i minimumit** (`compiler.ts`, `verify.ts`). A mund ta kalojë një route kontrollin duke dhënë më pak se `minOut`? Një transfertë e jashtme në W_out midis përgatitjes dhe ekzekutimit do ta fshihte mungesën; a është e pranueshme?
 - [ ] **`Revoke(W_out)`**: a mjafton, dhe a është në vendin e duhur? W_out është e vetmja llogari e W-së e shkrueshme në swap.
@@ -313,7 +313,7 @@ Kërkojmë një auditim të të gjithë repos, jo vetëm të verifier-it. Lista 
 
 Këto janë pyetjet për të cilat na intereson më shumë një përgjigje e drejtpërdrejtë.
 
-1. A mund të mbajë një program keqdashës, përmes CPI, fonde ose qira pa i bërë mbylljet tonë të dështojnë? Testi T6 thotë jo për 17 raste; a mungon ndonjë rrugë?
+1. A mund të mbajë një program keqdashës, përmes CPI, fonde ose qira pa i bërë mbylljet tonë të dështojnë? Testi T6 thotë jo për 27 raste mbi SPL klasik dhe Token-2022; a mungon ndonjë rrugë?
 2. A mund të kalojë kontrolli i minimumit ndonëse route-i jep më pak? A duhet të shqetësohemi për një transfertë të jashtme në W_out që e fsheh mungesën?
 3. A është `Revoke(W_out)` i mjaftueshëm, apo ka rrugë tjetër për të lëvizur tokena nga W_out pa nënshkrimin e W-së?
 4. A është i saktë parsimi ynë i extension-eve Token-2022 për hop-et, dhe a duhen refuzuar extension-e të tjera (p.sh. pausable, default frozen)?

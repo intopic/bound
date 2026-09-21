@@ -176,13 +176,13 @@ instruction data is a list of inner instructions to attempt — program, account
 whether to sign with its own program-derived key. A meta may name an account by index into what the
 program was given, or by raw address, which lets a case demand an account Bound never handed over.
 
-`tests/cpi/run.ts` deploys it into a real Solana VM (litesvm: the Agave runtime, real SPL Token and
-ATA programs), builds the protected transaction with Bound's own policy builder and compiler,
+`tests/cpi/run.ts` deploys it into a real Solana VM (litesvm: the Agave runtime, real SPL Token,
+Token-2022 and ATA programs), builds the protected transaction with Bound's own policy builder and compiler,
 verifies it, signs as W and as E, and executes it. After every case the chain is checked against
 Bound's promise: nothing beyond the approved amount moved, no permission survived, both temporary
 accounts are gone, and the wallet's other tokens and SOL are untouched.
 
-19 cases, all passing (`tests/cpi/results/cpi.md`):
+27 cases, all passing (`tests/cpi/results/cpi.md`):
 
 - The route takes the approved amount and delivers the minimum: the transaction succeeds, exactly
   `q` leaves the wallet, the fee is exact, and E_in (and E_out) no longer exist.
@@ -211,6 +211,10 @@ accounts are gone, and the wallet's other tokens and SOL are untouched.
   never granted.
 - A route that also demands the wallet's input account never reaches the wallet at all: R1 rejects
   it before signing.
+- Eight cases repeat the protected path and the key attacks through the real Token-2022 program:
+  no output, the wallet's remaining input, an unrelated token, SOL, the existing output balance,
+  a delegate and a new owner. The honest path succeeds; every attack reverts without breaking an
+  invariant.
 
 This is also the first time the whole protected transaction has been *executed* rather than
 simulated, with real signatures from W and E, including the wrapped-SOL variant.
@@ -646,7 +650,7 @@ the rule the others depend on.
 | `tests/integration/mainnet.ts` (T4) | Full pipeline on mainnet state (simulation, public exchange wallet as fee payer, `sigVerify: false`) for 30 pairs × v0 and v1, with the Bound fee charged; checks that the transaction executes and closes every temporary account | After the second review's fixes: 60/60. Earlier runs surfaced the over-64-account route (USDC → HNT) and Jupiter's transient "No matching liquidity" (SOL → RAY); both are handled now |
 | `tests/integration/mainnet.ts` (T1) | 8 attack instructions against the real SPL Token and System programs placed where Jupiter would be | 8/8 behaved as predicted; the verifier rejected all 8 |
 | `tests/integration/mainnet.ts` (T5) | USDC→SOL, SOL→USDC, USDC→BONK: the honest transaction executes; with the floor raised to 2× the quote it fails exactly at the check | 3/3 |
-| `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking the protected transaction from inside a CPI; the chain is checked against Bound's promise after every case | 19/19 (section 0d) |
+| `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking classic SPL and Token-2022 protected transactions from inside a CPI; the chain is checked against Bound's promise after every case | 27/27 (section 0d) |
 | `tests/integration/large.ts` (T7) | Growing sizes up to about $10M on mainnet state: does the pipeline still build, verify and simulate, and what does the size cost? | 12 built and simulated, 1 refused correctly (a $1M BONK route fits in no single transaction), 2 not tried because no public wallet holds that much (section 0e) |
 | `tests/integration/transfer-fee.ts` (T8) | A real taxing token (FEELSGOOD, 3%) on both sides: the pipeline must reach it, quote the amount that arrives, harvest and close, and Jupiter's `outAmount` must mean what the wallet receives | 4/4; the quoted amount and the amount received were equal to the unit, so `outAmount` is net of the token's tax |
 | `tests/integration/thresholds.ts` (T9) | What the protection costs against the open market, over 12 tokens × 4 sizes, and what each candidate threshold would do | 45/48 built; median 0.00%, p95 1.81%, worst 18.22% (section 0g) |
