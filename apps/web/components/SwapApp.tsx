@@ -22,7 +22,7 @@ import {
   amountReachingRoute, loadTokens, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
 } from '@/lib/client/tokens';
 import type { MintFacts } from '@/lib/client/tokens';
-import { addHistory, isUnsettled, readHistory, STATUS_LABEL, updateHistory } from '@/lib/client/history';
+import { addHistory, isUnsettled, readHistory, settledHistoryStatus, STATUS_LABEL, updateHistory } from '@/lib/client/history';
 import type { HistoryEntry, HistoryStatus } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
 import { TokenIcon, TokenPicker } from './TokenPicker';
@@ -134,19 +134,26 @@ function outcomeNotice(status: SendOutcome, signature: string, t: SwapTexts, err
 async function settleHistory(): Promise<HistoryEntry[] | null> {
   const open = readHistory().filter(isUnsettled);
   if (!open.length) return null;
-  const { value } = await getRpc()
+  const rpc = getRpc();
+  const { value } = await rpc
     .getSignatureStatuses(open.map(h => h.signature as never), { searchTransactionHistory: true })
     .send();
+  const needsHeight = open.some((h, i) => !value[i] && h.lastValidBlockHeight !== undefined);
+  const blockHeight = needsHeight
+    ? await rpc.getBlockHeight({ commitment: 'confirmed' }).send().then(BigInt).catch(() => null)
+    : null;
+  // Once the recorded lifetime is over, ask full history again. A status read made just before the
+  // height read may have lagged a transaction that landed near the boundary; one empty read is not
+  // enough evidence for the UI to invite a retry.
+  const needsSecondLookup = open.some((h, i) =>
+    settledHistoryStatus(h, value[i] ?? null, blockHeight) === 'expired');
+  const second = needsSecondLookup
+    ? (await rpc.getSignatureStatuses(open.map(h => h.signature as never), { searchTransactionHistory: true }).send()).value
+    : [];
   let list: HistoryEntry[] | null = null;
-  for (const [i, s] of value.entries()) {
-    const h = open[i];
-    const next: HistoryStatus | null = s?.err
-      ? 'failed'
-      : s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')
-        ? 'confirmed'
-        : !s && Date.now() - h.at > 180_000
-          ? 'expired' // its blockhash expired long ago and the cluster has no record of it
-          : null;
+  for (const [i, h] of open.entries()) {
+    const state = value[i] ?? second[i] ?? null;
+    const next: HistoryStatus | null = settledHistoryStatus(h, state, blockHeight);
     if (next) list = updateHistory(h.signature, next);
   }
   return list;
@@ -543,7 +550,11 @@ export function SwapApp() {
           if (s !== 'sending') return;
           // Recorded before anything is sent, so it is never lost (C-03).
           sent.signature = signature;
-          setHistory(addHistory({ at: Date.now(), signature, status: 'pending', ...texts }));
+          setHistory(addHistory({
+            at: Date.now(), signature, status: 'pending',
+            lastValidBlockHeight: prepared.lifetime.lastValidBlockHeight.toString(),
+            ...texts,
+          }));
         },
       });
       setHistory(updateHistory(result.signature, result.status));

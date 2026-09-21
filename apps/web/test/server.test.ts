@@ -53,14 +53,14 @@ describe('B-06, C-04: the client key comes only from the header the ingress over
 });
 
 describe('RPC proxy', () => {
-  it('forwards allowlisted methods, including getFeeForMessage and the rent query', async () => {
+  it('forwards allowlisted methods, including the epoch, fee and rent queries', async () => {
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
-    for (const method of ['getFeeForMessage', 'getMinimumBalanceForRentExemption']) {
+    for (const method of ['getEpochInfo', 'getFeeForMessage', 'getMinimumBalanceForRentExemption']) {
       const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method, params: [] }), 'https://rpc.test');
       expect(res.status).toBe(200);
     }
-    expect(upstream).toHaveBeenCalledTimes(2);
+    expect(upstream).toHaveBeenCalledTimes(3);
   });
 
   it('refuses other methods and batches', async () => {
@@ -83,7 +83,18 @@ describe('RPC proxy', () => {
 
   it('an upstream that does not answer becomes a 504, not a hanging request', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('timed out', 'TimeoutError'); }));
-    expect((await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }), 'https://rpc.test')).status).toBe(504);
+    const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }), 'https://rpc.test');
+    expect(res.status).toBe(504);
+    expect(res.headers.get('x-bound-not-forwarded')).toBeNull();
+  });
+
+  it('never forwards the local-refusal marker from an upstream response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('busy', {
+      status: 429, headers: { 'x-bound-not-forwarded': '1' },
+    })));
+    const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }), 'https://rpc.test');
+    expect(res.status).toBe(429);
+    expect(res.headers.get('x-bound-not-forwarded')).toBeNull();
   });
 
   it('the second RPC answers only the reads that lookup tables need', async () => {
@@ -102,6 +113,7 @@ describe('RPC proxy', () => {
     vi.stubGlobal('fetch', upstream);
     const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'sendTransaction', params: ['AA=='] }), 'https://rpc.test');
     expect(res.status).toBe(403);
+    expect(res.headers.get('x-bound-not-forwarded')).toBe('1');
     expect(upstream).not.toHaveBeenCalled();
   });
 

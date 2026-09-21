@@ -14,10 +14,34 @@ export type HistoryEntry = {
   at: number;
   signature: string;
   status: HistoryStatus;
+  /** Decimal string because localStorage cannot serialize bigint; absent on entries from older builds. */
+  lastValidBlockHeight?: string;
   paid: string;
   received: string;
   exposed: string;
 };
+
+export type SignatureState = {
+  confirmationStatus?: 'processed' | 'confirmed' | 'finalized' | null;
+  err?: unknown;
+} | null;
+
+/** A persisted swap changes state only when the chain proves the outcome. */
+export function settledHistoryStatus(
+  entry: HistoryEntry,
+  state: SignatureState,
+  blockHeight: bigint | null,
+): HistoryStatus | null {
+  if (state?.err) return 'failed';
+  if (state && (state.confirmationStatus === 'confirmed' || state.confirmationStatus === 'finalized')) return 'confirmed';
+  if (state || blockHeight === null || entry.lastValidBlockHeight === undefined) return null;
+  try {
+    return blockHeight > BigInt(entry.lastValidBlockHeight) ? 'expired' : null;
+  } catch {
+    // Old or malformed local data is not evidence of expiry.
+    return null;
+  }
+}
 
 const KEY = 'bound.history.v1';
 const MAX = 50;

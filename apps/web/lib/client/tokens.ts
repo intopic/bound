@@ -2,7 +2,7 @@
 
 import { address, isAddress } from '@solana/kit';
 import type { TokenInfo } from '@bound/jupiter';
-import { transferFeeOf, transferFeeOn, unsupportedExtension } from '@bound/verifier';
+import { hasTransferFee, transferFeeOf, transferFeeOn, unsupportedExtension } from '@bound/verifier';
 import type { TransferFee } from '@bound/verifier';
 import { getJupiter, getRpc } from './chain';
 
@@ -65,10 +65,16 @@ const mintFacts = new Map<string, Promise<MintFacts | null>>();
 let epoch: Promise<bigint> | null = null;
 const currentEpoch = () => (epoch ??= getRpc().getEpochInfo({ commitment: 'confirmed' }).send()
   .then(e => BigInt(e.epoch))
-  .catch(() => {
+  .catch(e => {
     epoch = null; // a failed read is retried next time
-    return 0n;
+    throw e; // never price a transfer fee using a guessed epoch
   }));
+
+/** Reads the active schedule only when the mint actually carries the extension; never guesses. */
+export const currentTransferFee = async (
+  data: Uint8Array,
+  readEpoch: () => Promise<bigint> = currentEpoch,
+): Promise<TransferFee | null> => hasTransferFee(data) ? transferFeeOf(data, await readEpoch()) : null;
 
 /** Decimals and token program from the mint account itself; null if it is not a token mint. */
 export function readMint(mint: string): Promise<MintFacts | null> {
@@ -85,7 +91,9 @@ export function readMint(mint: string): Promise<MintFacts | null> {
         program: value.owner,
         // The swap's own mints may charge a transfer fee; the cleanup harvests it before closing.
         unsupported: value.owner === TOKEN_2022_PROGRAM ? unsupportedExtension(data, { allowTransferFee: true }) : null,
-        transferFee: value.owner === TOKEN_2022_PROGRAM ? transferFeeOf(data, await currentEpoch()) : null,
+        transferFee: value.owner === TOKEN_2022_PROGRAM
+          ? await currentTransferFee(data)
+          : null,
       };
     })();
     facts.catch(() => mintFacts.delete(mint)); // a failed read is retried next time

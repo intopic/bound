@@ -6,6 +6,7 @@ import {
   getBase64EncodedWireTransaction,
   getSignatureFromTransaction,
   isSolanaError,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
   SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Rpc, SolanaRpcApi, Transaction } from '@solana/kit';
@@ -194,17 +195,19 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const stringify = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? x.toString() : x));
 
 /**
- * The RPC answered the first send with a refusal, so the transaction was never forwarded: a
- * JSON-RPC error (preflight simulation failed, blockhash not found, node unhealthy) or an HTTP 4xx
- * (Bound's proxy: rate limit, kill switch). Network errors and 5xx are ambiguous.
+ * Only two responses prove that the first send never left a node: Solana's structured preflight
+ * failure, and a 4xx that Bound's proxy explicitly marks as rejected before forwarding. Every
+ * upstream HTTP/JSON-RPC error is ambiguous, because a node may have accepted the transaction
+ * before its response failed.
  */
 export function refusedBeforeBroadcast(e: unknown): boolean {
-  if (!isSolanaError(e)) return false;
+  if (isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE)) return true;
   if (isSolanaError(e, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR)) {
     const status = (e.context as { statusCode?: number }).statusCode ?? 0;
-    return status >= 400 && status < 500;
+    const headers = (e.context as { headers?: Headers }).headers;
+    return status >= 400 && status < 500 && headers?.get('x-bound-not-forwarded') === '1';
   }
-  return (e.context as { __code: number }).__code < 0; // JSON-RPC server errors are negative codes
+  return false;
 }
 
 /**

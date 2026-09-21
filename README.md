@@ -109,10 +109,10 @@ Protected: authority over the wallet and everything in it except the approved am
 minimum output the user accepted (never below the quote minus 0.5% slippage), which Bound checks on
 chain. If the price moves further before signing, Bound asks instead of lowering it.
 Not in scope: price movement and MEV within that tolerance, the value of the token you buy,
-approvals granted elsewhere before, phishing sites that do not use Bound, Token-2022 tokens whose
-extensions Bound refuses (transfer fee, permanent delegate, frozen by default, pausable and the
-rest, listed in AUDIT.md section 0f)
-tokens.
+approvals granted elsewhere before, phishing sites that do not use Bound, and Token-2022 tokens
+whose extensions Bound refuses (permanent delegate, frozen by default, pausable and the rest,
+listed in AUDIT.md section 0f). Transfer-fee tokens are supported: Bound prices the active schedule
+from the current epoch and harvests temporary accounts before closing them.
 
 See `SECURITY.md` for the threat model, `AUDIT.md` for the audit brief (with the fixes from the first
 review), `AUDITIMI.md` for the engineering-audit brief in Albanian and `TESTIMI.md` for the manual

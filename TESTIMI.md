@@ -10,10 +10,11 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar a
 | Gjetjet e auditimit të parë B-01 deri B-12 dhe C-05: një test për secilën, në vend të PoC-ve të auditorit | 35/35 |
 | Kthimi nga wallet-i (R6) dhe arkitektura (verifier-i paketë e pavarur, kufijtë nga `constants.ts`) | 6/6 dhe 3/3 |
 | Certifikata e çdo transaksioni të verifikuar (debiti, fee, minimumi, SHA-256 i mesazhit) | 6/6 |
-| Serveri: kill switch, çelësi i klientit vetëm nga header-i i konfiguruar, metodat RPC, `payer`, madhësia në bajte, timeout-et, proxy-ja e ikonave | 22/22 |
+| Serveri: kill switch, marker-i i refuzimit lokal, çelësi i klientit vetëm nga header-i i konfiguruar, metodat RPC (përfshirë `getEpochInfo`), `payer`, madhësia në bajte, timeout-et, proxy-ja e ikonave | 23/23 |
 | Përgjigjet e Jupiter-it: një quote i keqformuar refuzohet me gabim të qartë | 9/9 |
 | Auditimi i dytë, mbi pipeline-in real me Jupiter armiqësor: decimals nga Solana (C-01), minimumi i llogaritur nga Bound dhe ai i pranuar nga klienti (C-02), fee e rrjetit, qiraja, njoftimi për delegate, refuzimet e përkohshme të Jupiter-it, certifikata dhe kohët | 13/13 |
-| Dërgimi (C-03): "No funds moved" vetëm kur rrjeti e provon; përndryshe "kontrollo Solscan" | 11/11 |
+| Dërgimi (C-03): preflight/refuzimi lokal ndahet nga gabimet e paqarta të RPC-së; përndryshe "kontrollo Solscan" | 13/13 |
+| Rikthimi te swap-et e hapura dhe wallet chain: skadim vetëm me `lastValidBlockHeight`, entries e vjetra mbeten unknown, vetëm account `solana:mainnet` pranohet | 5/5 |
 | Zgjedhja e route-it: një route me mbi 64 llogari anashkalohet dhe kërkohet një më i vogël | 3/3 |
 | Property tests (fast-check): variacione të ndershme pranohen, sulme të rastësishme refuzohen | 20,000 raste për secilën veti, pas rregullimeve të auditimit të dytë |
 | T4 në mainnet: Jupiter → compiler → simulim → verifier, 30 çifte × v0 dhe v1, me fee-n e Bound | 60/60 |

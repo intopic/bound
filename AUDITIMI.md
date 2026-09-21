@@ -41,7 +41,7 @@ Debit(W, SOL) ≤ min(F_max, 0.001 SOL) + qiraja e W_out nëse krijohet (+ q kur
 
 **Pse mban: R6 para R1.** Rregulli mbajtës është R6: transaksioni ka saktësisht dy signerë, W dhe E, dhe W paguan. R1 e mban W-në jashtë instruksionit të jashtëm, ndaj nënshkrimi i W-së nuk është kurrë i disponueshëm atje. Gjithçka që kërkon nënshkrimin e W-së për të lëvizur mbetet e paarritshme edhe sikur llogaria t'i jepej: transferta SPL, SOL, stake, mbyllje llogarish, ndryshime autoriteti. Filtri i adresave në R1 duhet të mbulojë vetëm atë që lëviz pa nënshkrimin e W-së: llogari tokenësh me delegate të mëparshëm dhe mint-e me permanent delegate.
 
-**Çfarë nuk garantohet:** lëvizja e çmimit dhe MEV brenda tolerancës 0.5%, vlera e tokenit që blihet (rug pull, freeze authority), approve-t që përdoruesi ka dhënë më parë diku tjetër, faqet phishing që nuk përdorin Bound, dhe tokenët Token-2022 me extensions që i refuzojmë (tarifë transferimi, permanent delegate, ngrirje e parazgjedhur, pausable e të tjera — lista te AUDIT.md, seksioni 0f).
+**Çfarë nuk garantohet:** lëvizja e çmimit dhe MEV brenda tolerancës 0.5%, vlera e tokenit që blihet (rug pull, freeze authority), approve-t që përdoruesi ka dhënë më parë diku tjetër, faqet phishing që nuk përdorin Bound, dhe tokenët Token-2022 me extensions që i refuzojmë (permanent delegate, ngrirje e parazgjedhur, pausable e të tjera — lista te AUDIT.md, seksioni 0f). Tarifa e transferimit mbështetet: lexohet epoka aktive dhe llogaritë e përkohshme harvest-ohen para mbylljes.
 
 ## 3. Si funksionon një swap
 
@@ -373,7 +373,7 @@ Auditimi i dytë (19 shtator 2026) nuk gjeti rrugë për të marrë asetet e tje
 | --- | --- | --- |
 | C-01 | E lartë | Shuma që shkruan klienti kthehet me decimals nga mint-i on-chain, jo nga metadata e Jupiter-it. Pipeline-i refuzon kur decimals e faqes ndryshojnë nga zinxhiri, dhe verifier-i i krahason me snapshot-in. |
 | C-02 | E lartë | Minimumin e llogarit Bound: quote × (1 − 0.5%), i rrumbullakuar poshtë; pragu i Jupiter-it mund ta bëjë vetëm më të rreptë. Minimumi që pa klienti bëhet minimumi që kontrollohet on-chain. Nëse tregu nuk e mban më, klienti sheh minimumin e ri dhe vendos; nuk ulet kurrë në heshtje. Përgjigjet e Jupiter-it për një tregti tjetër refuzohen. |
-| C-03 | Mesatare | Signature regjistrohet para dërgimit. Rezultatet: confirmed, failed, rejected, expired, unknown. "No funds moved" thuhet vetëm kur rrjeti e provon; swap-et e pasigurta rikontrollohen në vizitën tjetër. |
+| C-03 | Mesatare | Signature dhe `lastValidBlockHeight` regjistrohen para dërgimit. `rejected` përdoret vetëm për preflight failure ose refuzim lokal të shënuar nga proxy-ja; gabimet e jashtme mbeten `unknown`. `expired` kërkon blockheight-in e regjistruar dhe kërkim bosh në historinë e zinxhirit. |
 | C-04 | Mesatare | Çelësi i klientit merret vetëm nga header-i i konfiguruar (`BOUND_CLIENT_IP_HEADER`). Limiti global vendoset te firewall-i i hosting-ut. |
 | C-05 | E ulët | Verifier-i e nxjerr variantin nga mint-et. |
 | C-06 | E ulët | Asnjë shumë nuk rrumbullakohet lart; minimumi shfaqet me të gjitha shifrat. |
@@ -391,7 +391,7 @@ Gjithashtu: kontrolli i fee-së së rrjetit tani ndalon kur Solana nuk e jep çm
 **Për rishikimin e radhës:**
 
 1. Minimumi i pranuar (`routeFloor`, `acceptedMinOut`, `price-moved`): a ka rrugë ku minimumi i zbatuar del më i ulët se ai që pa klienti, ose ku klienti nënshkruan pa e parë?
-2. Rezultatet e dërgimit: "no funds moved" vetëm për `rejected` (gabim JSON-RPC ose HTTP 4xx te dërgimi i parë) dhe `expired` (blockhash i skaduar, dy kërkime në histori pa rezultat). A qëndrojnë të dyja për çdo ofrues RPC?
+2. Rezultatet e dërgimit: "no funds moved" vetëm për preflight failure, refuzim lokal me marker-in e proxy-së, ose skadim të provuar nga `lastValidBlockHeight`; çdo gabim i paqartë i provider-it mbetet `unknown`. A janë këta kufij prove të mjaftueshëm?
 3. Bllokimi i swap-eve paralele mbi localStorage: a mjafton për alpha?
 4. Testi T6: a mungon ndonjë sulm në listën e rasteve?
-5. Për mbështetjen e ardhshme të Token-2022 si input/output: cilat extension-e duhen refuzuar?
+5. Për Token-2022 tashmë të mbështetur si input/output/hop: a është allowlist-i i extension-eve mjaftueshëm konservativ?

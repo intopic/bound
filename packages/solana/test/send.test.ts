@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest';
 import {
   appendTransactionMessageInstruction, createTransactionMessage, generateKeyPairSigner, pipe,
   setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash, signTransactionMessageWithSigners,
-  SolanaError, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+  SolanaError, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
 import { sameLookupTable, sendAndConfirm } from '../src/index.ts';
@@ -63,8 +64,11 @@ async function run(script: Parameters<typeof fakeRpc>[0]) {
 
 const confirmed: Status = { confirmationStatus: 'confirmed', err: null };
 const processed: Status = { confirmationStatus: 'processed', err: null };
-const httpError = (statusCode: number) =>
-  new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, { headers: new Headers(), message: 'error', statusCode } as never);
+const httpError = (statusCode: number, stoppedByBound = false) => {
+  const headers = new Headers();
+  if (stoppedByBound) headers.set('x-bound-not-forwarded', '1');
+  return new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, { headers, message: 'error', statusCode } as never);
+};
 
 describe('C-03: the outcome of a send', () => {
   it('reports the signature before the first request', async () => {
@@ -83,6 +87,17 @@ describe('C-03: the outcome of a send', () => {
     expect(result.status).toBe('confirmed');
   });
 
+  it('an upstream 4xx is ambiguous without Bound\'s local-refusal marker', async () => {
+    const { result } = await run({ firstSend: httpError(429), statuses: [confirmed] });
+    expect(result.status).toBe('confirmed');
+  });
+
+  it('an internal JSON-RPC error keeps watching because the node may have accepted the send', async () => {
+    const internal = new SolanaError(SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR, { __serverMessage: 'internal' });
+    const { result } = await run({ firstSend: internal, statuses: [null, confirmed] });
+    expect(result.status).toBe('confirmed');
+  });
+
   it('a preflight refusal means it was never broadcast', async () => {
     const preflight = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
     const { result, reads } = await run({ firstSend: preflight });
@@ -91,7 +106,7 @@ describe('C-03: the outcome of a send', () => {
   });
 
   it("a refusal from Bound's proxy (4xx) means it was never broadcast", async () => {
-    expect((await run({ firstSend: httpError(429) })).result.status).toBe('rejected');
+    expect((await run({ firstSend: httpError(429, true) })).result.status).toBe('rejected');
   });
 
   it('status reads that keep failing end as unknown, never as "nothing moved"', async () => {

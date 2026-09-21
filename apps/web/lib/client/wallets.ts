@@ -15,7 +15,11 @@ type EventsFeature = { on(event: 'change', listener: (props: { accounts?: readon
 export const CHAIN = 'solana:mainnet';
 
 const isSolanaWallet = (w: Wallet) =>
-  'standard:connect' in w.features && 'solana:signTransaction' in w.features && w.chains.some(c => c.startsWith('solana:'));
+  'standard:connect' in w.features && 'solana:signTransaction' in w.features && w.chains.includes(CHAIN);
+
+/** Accounts valid for the chain this application builds and broadcasts on. */
+export const mainnetAccounts = (accounts: readonly WalletAccount[]): readonly WalletAccount[] =>
+  accounts.filter(a => a.chains.includes(CHAIN));
 
 /** Wallets discovered through the Wallet Standard (Phantom, Solflare, Backpack, …). */
 export function useWallets(): readonly Wallet[] {
@@ -36,7 +40,7 @@ export function useWallets(): readonly Wallet[] {
 
 export async function connectWallet(wallet: Wallet, silent = false): Promise<WalletAccount | null> {
   const { accounts } = await (wallet.features['standard:connect'] as ConnectFeature).connect(silent ? { silent: true } : undefined);
-  return accounts.find(a => a.chains.includes(CHAIN)) ?? accounts[0] ?? null;
+  return mainnetAccounts(accounts)[0] ?? null;
 }
 
 export async function disconnectWallet(wallet: Wallet): Promise<void> {
@@ -46,7 +50,7 @@ export async function disconnectWallet(wallet: Wallet): Promise<void> {
 
 export function onAccountChange(wallet: Wallet, listener: (accounts: readonly WalletAccount[]) => void): () => void {
   const f = wallet.features['standard:events'] as EventsFeature | undefined;
-  return f ? f.on('change', props => props.accounts && listener(props.accounts)) : () => {};
+  return f ? f.on('change', props => props.accounts && listener(mainnetAccounts(props.accounts))) : () => {};
 }
 
 export function supportedVersions(wallet: Wallet): readonly (string | number)[] {

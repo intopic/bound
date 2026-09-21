@@ -154,8 +154,8 @@ export function hasTransferFee(data: Uint8Array): boolean {
 }
 
 /**
- * `allowTransferFee` is set for the swap's own mints, whose temporary account is harvested before
- * it is closed. An intermediate hop is not harvested, so a fee there is still refused.
+ * `allowTransferFee` is set for swap and intermediate mints whose temporary accounts are harvested
+ * before they are closed. Output accounts belong to the user and do not need to be closed.
  */
 export function unsupportedExtension(data: Uint8Array, options: { allowTransferFee?: boolean } = {}): string | null {
   if (data.length === MINT_SIZE) return null;

@@ -5,7 +5,7 @@ import { clientKey, rateLimited } from './rateLimit';
 /** The only RPC methods the dApp needs. Everything else is refused. */
 const ALLOWED_METHODS = new Set([
   'getAccountInfo', 'getMultipleAccounts', 'getBalance', 'getTokenAccountBalance', 'getLatestBlockhash',
-  'getBlockHeight', 'simulateTransaction', 'sendTransaction', 'getSignatureStatuses', 'getFeeForMessage',
+  'getBlockHeight', 'getEpochInfo', 'simulateTransaction', 'sendTransaction', 'getSignatureStatuses', 'getFeeForMessage',
   'getMinimumBalanceForRentExemption',
 ]);
 /** The second RPC only cross-checks address lookup tables. */
@@ -16,8 +16,18 @@ const LIMIT_PER_MINUTE = 300;
 // for that while still bounding the one method that costs real money per call (B-06).
 const SENDS_PER_MINUTE = 60;
 
-const rpcError = (id: unknown, code: number, message: string, status: number) =>
-  Response.json({ jsonrpc: '2.0', id: id ?? null, error: { code, message } }, { status, headers: { 'cache-control': 'no-store' } });
+const rpcError = (id: unknown, code: number, message: string, status: number, notForwarded = true) =>
+  Response.json(
+    { jsonrpc: '2.0', id: id ?? null, error: { code, message } },
+    {
+      status,
+      headers: {
+        'cache-control': 'no-store',
+        // The sender may say "not broadcast" only when this proxy stopped the request locally.
+        ...(notForwarded ? { 'x-bound-not-forwarded': '1' } : {}),
+      },
+    },
+  );
 
 export async function proxyRpc(req: Request, target: string | null, methods: ReadonlySet<string> = ALLOWED_METHODS): Promise<Response> {
   if (!target) return rpcError(null, -32601, 'Not configured', 404);
@@ -38,8 +48,8 @@ export async function proxyRpc(req: Request, target: string | null, methods: Rea
     return rpcError(body.id, -32601, 'Method not allowed', 403);
   }
   if (body.method === 'sendTransaction') {
-    // The kill switch is enforced here, not only in the UI (audit B-05). A 4xx tells the client the
-    // transaction was never forwarded, so it can say that nothing moved (audit C-03).
+    // The kill switch is enforced here, not only in the UI (audit B-05). Local refusals carry an
+    // explicit marker, so an upstream 4xx can never be mistaken for proof that nothing was sent.
     if (serverConfig().disabled) return rpcError(body.id, -32000, 'Protected swaps are paused', 403);
     if (rateLimited(`send:${client}`, SENDS_PER_MINUTE)) return rpcError(body.id, -32005, 'Too many requests', 429);
   }
@@ -54,6 +64,8 @@ export async function proxyRpc(req: Request, target: string | null, methods: Rea
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
     });
   } catch {
-    return rpcError(body.id, -32603, 'Upstream RPC did not answer', 504);
+    // The request may have reached the RPC before the connection failed, so this is not proof that
+    // a send was stopped before broadcast.
+    return rpcError(body.id, -32603, 'Upstream RPC did not answer', 504, false);
   }
 }

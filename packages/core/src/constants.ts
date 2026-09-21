@@ -33,7 +33,7 @@ export const BPS_DENOMINATOR = 10_000n;
 // Ceilings the verifier enforces whatever the configuration says (audit B-01, B-02). The fee and
 // F_max reach the browser from the deployment; these limits do not, so a compromised backend or a
 // config bug cannot push past them.
-export const MAX_FEE_BPS = 100n; // 1%, the intended fee is 0.5%
+export const MAX_FEE_BPS = 100n; // 1% ceiling; the current product fee is 0.3%
 export const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1_000_000n; // 0.001 SOL
 export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
 

@@ -83,7 +83,7 @@ the proxies and the tests. Each has a regression test that fails on the old code
 | --- | --- | --- | --- | --- |
 | C-01 | High | Fixed | The page converts what the user types with the mint's **on-chain** decimals (`readMint` in `apps/web/lib/client/tokens.ts`); Jupiter's metadata is only for names and icons. The request carries the decimals the page used, and `prepareProtectedSwap` refuses to build when they differ from the chain (`token-data-mismatch`). The verifier also compares the policy's decimals with the mints in the snapshot (R2). A USD price is used only if it is a finite positive number. | `packages/jupiter/test/prepare.test.ts` (metadata says 9 for USDC → refused); `audit.test.ts` (decimals ≠ mint → R2) |
 | C-02 | High | Fixed | Bound computes the floor itself: `outAmount × (1 − slippage)`, rounded down; Jupiter's `otherAmountThreshold` can only make it stricter (`routeFloor`). A Jupiter answer for another pair or amount is refused. The page shows that floor, and the request carries it as `acceptedMinOut`: the transaction enforces at least what the user saw. If the market can no longer deliver it, nothing is built; the page shows the new minimum and asks (`price-moved`), and it never lowers it silently. A swap needs a visible quote. | `prepare.test.ts`: floor of 1 replaced; stricter floor kept; accepted minimum enforced; `price-moved` with the new minimum; answer for another amount → `bad-quote` |
-| C-03 | Medium | Fixed | `sendAndConfirm` reports the signature before the first request; the page records the swap as `pending` at that moment. Outcomes: `confirmed`, `failed` (reverted, fee paid), `rejected` (JSON-RPC error or HTTP 4xx on the first send: never forwarded), `expired` (blockhash expired and two history lookups find nothing), `unknown` (anything else, including `processed` that never confirms). "No funds moved" is said only for `rejected` and `expired`. Unsettled entries are settled from the chain on the next visit. Re-broadcast every 3 s, fire-and-forget; the kill switch answers 403 so it reads as never forwarded. | `packages/solana/test/send.test.ts` (10 cases) |
+| C-03 | Medium | Fixed | `sendAndConfirm` reports the signature before the first request; the page records the swap as `pending` with its `lastValidBlockHeight` at that moment. Outcomes: `confirmed`, `failed` (reverted, fee paid), `rejected` (a structured preflight failure or an HTTP 4xx explicitly marked by Bound's proxy as stopped locally), `expired` (the recorded block height has passed and two full-history lookups find nothing), `unknown` (anything else, including upstream HTTP/JSON-RPC errors and `processed` that never confirms). "No funds moved" is said only for proven `rejected` and `expired` outcomes. Old history entries without a block height remain unknown. Re-broadcasts are fire-and-forget every 3 s. | `packages/solana/test/send.test.ts`; `apps/web/test/history.test.ts`; `apps/web/test/server.test.ts` |
 | C-04 | Medium (deployment) | Fixed | The client key comes only from the header named by `BOUND_CLIENT_IP_HEADER` (default `x-vercel-forwarded-for`; `cf-connecting-ip` behind Cloudflare). No other header is read; without it every request shares one bucket. Under a key flood the oldest windows are dropped instead of clearing all. A limit across instances is left to the hosting firewall (documented). | `server.test.ts`: behind Cloudflare a sent `x-vercel-forwarded-for` cannot mint identities; XFF ignored |
 | C-05 | Low | Fixed | The verifier derives the variant from the mints and checks the policy's label (R2). | `audit.test.ts` |
 | C-06 | Low | Fixed | Amounts are never rounded up; a value too small to show reads `<0.000001`. The minimum is shown with every digit (`formatExact`). | e2e shows the exact minimum |
@@ -270,8 +270,8 @@ the pipeline and the page so they cannot disagree:
   (usable only at zero supply), confidential transfers (our transfers are the ordinary public
   ones), and a transfer hook whose program id is unset — the largest Token-2022 tokens, PUMP among
   them, declare the extension and leave the program empty, so no code runs.
-- **Allowed for the swap's own mints:** a transfer fee (see below). A hop mint may not have one,
-  because a hop is not harvested.
+- **Allowed for swap and intermediate mints:** a transfer fee (see below). Every temporary account
+  of a taxing mint is harvested before it is closed.
 - **Refused:** permanent delegate, accounts frozen by default, pausable, non-transferable,
   interest-bearing, scaled UI amount, memo required on transfer, and **any extension the list does
   not name**.
@@ -684,9 +684,10 @@ npm run e2e                             # needs Microsoft Edge
 1. **The accepted minimum** (`routeFloor`, `acceptedMinOut`, `price-moved` in `swap.ts`, and
    `prepareAccepted` in `SwapApp.tsx`). Is there a path where the enforced floor ends below what the
    user saw, or where the user signs without having seen it?
-2. **Send outcomes** (`sendAndConfirm`). We say "no funds moved" only for `rejected` (JSON-RPC error
-   or HTTP 4xx on the first send) and `expired` (blockhash expired, two history lookups empty). Are
-   both inferences sound for every RPC provider?
+2. **Send outcomes** (`sendAndConfirm`). We say "no funds moved" only for a structured preflight
+   rejection, a local proxy refusal carrying `x-bound-not-forwarded`, or expiry proven from the
+   stored `lastValidBlockHeight` plus an empty full-history lookup. All upstream failures remain
+   `unknown`. Are these proof boundaries sound for every RPC provider?
 3. **The swap lock** (`swapLock.ts`): best effort over localStorage. Enough for alpha?
 4. **CPI attacks**: now tested in T6 (section 0d). Does the case list miss an attack you would
    run, in particular around re-creating a closed account from a PDA or a Token-2022 transfer hook?
