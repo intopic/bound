@@ -29,7 +29,8 @@ import {
 import { LiteSVM } from 'litesvm';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import {
-  ataOf, buildPolicy, compileProtectedSwap, MINT_SIZE, SYSTEM_PROGRAM, tokenAmountOf, TOKEN_PROGRAM, WSOL_MINT,
+  ataOf, buildPolicy, compileProtectedSwap, MINT_SIZE, SYSTEM_PROGRAM, tokenAmountOf, TOKEN_2022_PROGRAM,
+  TOKEN_PROGRAM, WSOL_MINT,
 } from '@bound/core';
 import type { AccountState, ChainSnapshot, Policy } from '@bound/core';
 import { verify } from '@bound/verifier';
@@ -124,6 +125,7 @@ const deliver = (amount: bigint): Inner => ({
 type World = {
   svm: LiteSVM;
   attackerProgram: Address;
+  tokenProgram: Address;
   payer: KeyPairSigner;
   W: KeyPairSigner;
   E: KeyPairSigner;
@@ -184,7 +186,7 @@ function sendOrThrow(svm: LiteSVM, tx: Transaction, what: string) {
 }
 
 /** A fresh chain with the wallet, the attacker's pool and three tokens. */
-async function setup(): Promise<World> {
+async function setup(tokenProgram: Address = TOKEN_PROGRAM): Promise<World> {
   const svm = new LiteSVM().withNativeMints();
   const program = await generateKeyPairSigner(); // only its address matters: the program id
   svm.addProgramFromFile(program.address, SO);
@@ -206,44 +208,47 @@ async function setup(): Promise<World> {
   const mints: [KeyPairSigner, number][] = [[mintInKey, IN_DECIMALS], [mintOutKey, OUT_DECIMALS], [mintOtherKey, 6]];
   sendOrThrow(svm, await sign(svm, mints.flatMap(([mint, decimals]) => [
     getCreateAccountInstruction({
-      payer, newAccount: mint, lamports: lamports(rent), space: BigInt(MINT_SIZE), programAddress: TOKEN_PROGRAM,
+      payer, newAccount: mint, lamports: lamports(rent), space: BigInt(MINT_SIZE), programAddress: tokenProgram,
     }),
-    getInitializeMint2Instruction({ mint: mint.address, decimals, mintAuthority: payer.address, freezeAuthority: null }),
+    getInitializeMint2Instruction(
+      { mint: mint.address, decimals, mintAuthority: payer.address, freezeAuthority: null },
+      { programAddress: tokenProgram },
+    ),
   ]), payer, mints.map(([m]) => m)), 'creating the mints');
 
   const mintIn = mintInKey.address, mintOut = mintOutKey.address, mintOther = mintOtherKey.address;
   const world: World = {
-    svm, attackerProgram: program.address, payer, W, E,
+    svm, attackerProgram: program.address, tokenProgram, payer, W, E,
     attacker: attackerWallet.address, vaultAuthority, mintIn, mintOut, mintOther,
-    wIn: await ataOf(W.address, mintIn),
-    wOut: await ataOf(W.address, mintOut),
-    wOther: await ataOf(W.address, mintOther),
-    eIn: await ataOf(E.address, mintIn),
+    wIn: await ataOf(W.address, mintIn, tokenProgram),
+    wOut: await ataOf(W.address, mintOut, tokenProgram),
+    wOther: await ataOf(W.address, mintOther, tokenProgram),
+    eIn: await ataOf(E.address, mintIn, tokenProgram),
     eOut: await ataOf(E.address, WSOL_MINT),
-    attackerIn: await ataOf(attackerWallet.address, mintIn),
-    vaultOut: await ataOf(vaultAuthority, mintOut),
+    attackerIn: await ataOf(attackerWallet.address, mintIn, tokenProgram),
+    vaultOut: await ataOf(vaultAuthority, mintOut, tokenProgram),
     vaultWsol: await ataOf(vaultAuthority, WSOL_MINT),
     treasury: treasuryWallet.address,
-    treasuryIn: await ataOf(treasuryWallet.address, mintIn),
+    treasuryIn: await ataOf(treasuryWallet.address, mintIn, tokenProgram),
   };
 
-  const ata = (owner: Address, mint: Address, account: Address) =>
-    getCreateAssociatedTokenIdempotentInstruction({ payer, ata: account, owner, mint });
+  const ata = (owner: Address, mint: Address, account: Address, programAddress: Address = tokenProgram) =>
+    getCreateAssociatedTokenIdempotentInstruction({ payer, ata: account, owner, mint, tokenProgram: programAddress });
   sendOrThrow(svm, await sign(svm, [
     ata(W.address, mintIn, world.wIn),
     ata(W.address, mintOut, world.wOut),
     ata(W.address, mintOther, world.wOther),
     ata(world.attacker, mintIn, world.attackerIn),
     ata(vaultAuthority, mintOut, world.vaultOut),
-    ata(vaultAuthority, WSOL_MINT, world.vaultWsol),
+    ata(vaultAuthority, WSOL_MINT, world.vaultWsol, TOKEN_PROGRAM),
     ata(world.treasury, mintIn, world.treasuryIn),
   ], payer), 'creating the token accounts');
 
   sendOrThrow(svm, await sign(svm, [
-    getMintToInstruction({ mint: mintIn, token: world.wIn, mintAuthority: payer, amount: 1000n * 1_000_000n }),
-    getMintToInstruction({ mint: mintOut, token: world.wOut, mintAuthority: payer, amount: 500n * SOL }),
-    getMintToInstruction({ mint: mintOther, token: world.wOther, mintAuthority: payer, amount: 777n * 1_000_000n }),
-    getMintToInstruction({ mint: mintOut, token: world.vaultOut, mintAuthority: payer, amount: 1_000_000n * SOL }),
+    getMintToInstruction({ mint: mintIn, token: world.wIn, mintAuthority: payer, amount: 1000n * 1_000_000n }, { programAddress: tokenProgram }),
+    getMintToInstruction({ mint: mintOut, token: world.wOut, mintAuthority: payer, amount: 500n * SOL }, { programAddress: tokenProgram }),
+    getMintToInstruction({ mint: mintOther, token: world.wOther, mintAuthority: payer, amount: 777n * 1_000_000n }, { programAddress: tokenProgram }),
+    getMintToInstruction({ mint: mintOut, token: world.vaultOut, mintAuthority: payer, amount: 1_000_000n * SOL }, { programAddress: tokenProgram }),
   ], payer), 'minting');
 
   // The attacker's wrapped-SOL pool: lamports plus SyncNative, the way any wrapper funds one.
@@ -268,7 +273,7 @@ function externalInstruction(w: World, variant: Variant, inners: Inner[], extra:
   return {
     programAddress: w.attackerProgram,
     accounts: [
-      { address: TOKEN_PROGRAM, role: AccountRole.READONLY },
+      { address: w.tokenProgram, role: AccountRole.READONLY },
       { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
       { address: w.E.address, role: AccountRole.READONLY_SIGNER },
       { address: w.eIn, role: AccountRole.WRITABLE },
@@ -290,6 +295,8 @@ async function protectedSwap(w: World, variant: Variant, inners: Inner[], extra:
     ephemeral: w.E.address,
     inputDecimals: IN_DECIMALS,
     outputDecimals: OUT_DECIMALS,
+    inputTokenProgram: w.tokenProgram,
+    outputTokenProgram: variant === 'A' ? TOKEN_PROGRAM : w.tokenProgram,
     minOut: variant === 'A' ? MIN_OUT_SOL : MIN_OUT,
     config: { feeBps: FEE_BPS, treasury: w.treasury, maxNetworkFeeLamports: 200_000n, jupiterProgram: w.attackerProgram },
     feeAccountExists: true,
@@ -379,6 +386,8 @@ function invariants(w: World, policy: Policy, before: Balances, after: Balances,
 type Case = {
   name: string;
   variant: Variant;
+  /** Classic SPL by default; selected cases run the same hostile CPI through Token-2022. */
+  tokenProgram?: Address;
   /** What the malicious program attempts, in order. */
   inners: (w: World) => Inner[];
   /** Accounts the route demands on top of what Bound allows. */
@@ -566,6 +575,78 @@ const CASES: Case[] = [
       data: CLOSE_ACCOUNT,
     }],
   },
+  {
+    name: 'Token-2022: takes the approved amount and delivers the minimum',
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, expect: 'succeeds',
+    proves: 'the protected path itself works with real Token-2022 program CPIs',
+    inners: () => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT)],
+  },
+  {
+    name: 'Token-2022: takes the approved amount and delivers nothing',
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, expect: 'reverts',
+    proves: 'the minimum-output check rolls back a Token-2022 theft too',
+    inners: () => [takeFrom(SWAP_AMOUNT)],
+  },
+  {
+    name: "Token-2022: tries to spend the wallet's remaining input balance",
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, expect: 'reverts',
+    proves: 'the Token-2022 input balance beyond the approved amount is out of reach',
+    inners: w => [{
+      program: IX.token,
+      metas: [{ key: w.wIn, w: true }, { key: IX.attackerIn, w: true }, { key: w.W.address, s: true }],
+      data: transfer(1_000_000n),
+    }],
+  },
+  {
+    name: "Token-2022: tries to spend the wallet's unrelated token",
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, expect: 'reverts',
+    proves: 'an unrelated Token-2022 balance is out of reach',
+    inners: w => [{
+      program: IX.token,
+      metas: [{ key: w.wOther, w: true }, { key: IX.attackerIn, w: true }, { key: w.W.address, s: true }],
+      data: transfer(1n),
+    }],
+  },
+  {
+    name: "Token-2022: tries to take the wallet's SOL",
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, expect: 'reverts',
+    proves: 'using Token-2022 in the route does not expose the wallet or its SOL',
+    inners: w => [{
+      program: IX.system,
+      metas: [{ key: w.W.address, w: true, s: true }, { key: w.attacker, w: true }],
+      data: transferSol(SOL),
+    }],
+  },
+  {
+    name: 'Token-2022: tries to spend the balance already in the output account',
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, expect: 'reverts',
+    proves: 'the Token-2022 output account can receive but cannot be spent by the route',
+    inners: w => [{
+      program: IX.token,
+      metas: [{ key: IX.output, w: true }, { key: IX.pool, w: true }, { key: w.W.address, s: true }],
+      data: transfer(1n),
+    }],
+  },
+  {
+    name: 'Token-2022: tries to leave a delegate on the output account',
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, expect: 'reverts',
+    proves: 'a Token-2022 spending permission cannot be left behind',
+    inners: w => [{
+      program: IX.token,
+      metas: [{ key: IX.output, w: true }, { key: IX.poolAuthority }, { key: w.W.address, s: true }],
+      data: approve(2n ** 63n),
+    }],
+  },
+  {
+    name: 'Token-2022: tries to take ownership of the output account',
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, expect: 'reverts',
+    proves: "ownership of the wallet's Token-2022 account cannot be reassigned",
+    inners: w => [{
+      program: IX.token,
+      metas: [{ key: IX.output, w: true }, { key: w.W.address, s: true }],
+      data: setAuthority(2, w.attacker),
+    }],
+  },
 ];
 
 // ---------------------------------------------------------------- run
@@ -574,7 +655,7 @@ type Row = { name: string; proves: string; expected: string; outcome: string; ve
 
 const rows: Row[] = [];
 for (const c of CASES) {
-  const w = await setup();
+  const w = await setup(c.tokenProgram ?? TOKEN_PROGRAM);
   const { policy, transaction, swapIndex, verdict } = await protectedSwap(w, c.variant, c.inners(w), c.extra?.(w) ?? []);
   const verifier = verdict.ok ? 'e pranoi' : `e refuzoi (${[...new Set(verdict.violations.map(v => v.rule))].join(', ')})`;
 
