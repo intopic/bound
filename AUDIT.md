@@ -182,7 +182,7 @@ verifies it, signs as W and as E, and executes it. After every case the chain is
 Bound's promise: nothing beyond the approved amount moved, no permission survived, both temporary
 accounts are gone, and the wallet's other tokens and SOL are untouched.
 
-17 cases, all passing (`tests/cpi/results/cpi.md`):
+19 cases, all passing (`tests/cpi/results/cpi.md`):
 
 - The route takes the approved amount and delivers the minimum: the transaction succeeds, exactly
   `q` leaves the wallet, the fee is exact, and E_in (and E_out) no longer exist.
@@ -200,6 +200,15 @@ accounts are gone, and the wallet's other tokens and SOL are untouched.
   the permission dies with the account, which cleanup closes.
 - It closes the temporary output account to itself (SPL → SOL): allowed by the runtime, since E is
   the owner, but the minimum check then fails and the transaction reverts.
+- It empties the temporary *input* account and then destroys it before delivering honestly, so that
+  a successful swap would leave it holding the rent W paid to open that account. Cleanup then
+  closes an account that no longer exists: the transaction reverts at instruction 9, three
+  instructions after the swap, and the rent goes nowhere.
+- It sends that rent to the one key it could sign for — its own program-derived authority — which
+  is what it would need to pay for re-creating the account and hiding the loss. The runtime refuses
+  with *"Cross-program invocation with unauthorized signer or writable account"*: Bound handed that
+  account over read-only, and a program's own inner call cannot widen a privilege the transaction
+  never granted.
 - A route that also demands the wallet's input account never reaches the wallet at all: R1 rejects
   it before signing.
 
@@ -207,10 +216,10 @@ This is also the first time the whole protected transaction has been *executed* 
 simulated, with real signatures from W and E, including the wrapped-SOL variant.
 
 Limits of the test: litesvm is the Agave runtime with real SPL programs, but it is not a validator,
-and the attacker is our own program rather than a real DEX. Re-creating a closed account from a PDA
-inside the swap is still not covered — litesvm publishes no Windows binding, so that case can only
-be written against CI. Token-2022 transfer hooks are covered a different way, in 0i: a mint that
-runs one never reaches the runtime, because the swap is refused before it is signed.
+and the attacker is our own program rather than a real DEX. It also publishes no Windows binding,
+so T6 runs only in `.github/workflows/cpi.yml`, and a case counts as verified when that workflow
+has passed and not before. Token-2022 transfer hooks are covered a different way, in 0i: a mint
+that runs one never reaches the runtime, because the swap is refused before it is signed.
 
 ---
 
@@ -637,7 +646,7 @@ the rule the others depend on.
 | `tests/integration/mainnet.ts` (T4) | Full pipeline on mainnet state (simulation, public exchange wallet as fee payer, `sigVerify: false`) for 30 pairs × v0 and v1, with the Bound fee charged; checks that the transaction executes and closes every temporary account | After the second review's fixes: 60/60. Earlier runs surfaced the over-64-account route (USDC → HNT) and Jupiter's transient "No matching liquidity" (SOL → RAY); both are handled now |
 | `tests/integration/mainnet.ts` (T1) | 8 attack instructions against the real SPL Token and System programs placed where Jupiter would be | 8/8 behaved as predicted; the verifier rejected all 8 |
 | `tests/integration/mainnet.ts` (T5) | USDC→SOL, SOL→USDC, USDC→BONK: the honest transaction executes; with the floor raised to 2× the quote it fails exactly at the check | 3/3 |
-| `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking the protected transaction from inside a CPI; the chain is checked against Bound's promise after every case | 17/17 (section 0d) |
+| `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking the protected transaction from inside a CPI; the chain is checked against Bound's promise after every case | 19/19 (section 0d) |
 | `tests/integration/large.ts` (T7) | Growing sizes up to about $10M on mainnet state: does the pipeline still build, verify and simulate, and what does the size cost? | 12 built and simulated, 1 refused correctly (a $1M BONK route fits in no single transaction), 2 not tried because no public wallet holds that much (section 0e) |
 | `tests/integration/transfer-fee.ts` (T8) | A real taxing token (FEELSGOOD, 3%) on both sides: the pipeline must reach it, quote the amount that arrives, harvest and close, and Jupiter's `outAmount` must mean what the wallet receives | 4/4; the quoted amount and the amount received were equal to the unit, so `outAmount` is net of the token's tax |
 | `tests/integration/thresholds.ts` (T9) | What the protection costs against the open market, over 12 tokens × 4 sizes, and what each candidate threshold would do | 45/48 built; median 0.00%, p95 1.81%, worst 18.22% (section 0g) |
