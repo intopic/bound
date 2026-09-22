@@ -65,7 +65,7 @@ The guarantee holds if these are correct and unmodified:
 
 | Component | Assumption | Mitigation |
 | --- | --- | --- |
-| Solana runtime | A program cannot use accounts or signatures it was not given | Runtime attack tests (T1) and a malicious swap program run in a real Solana VM against classic SPL and Token-2022 (T6, 27/27) |
+| Solana runtime | A program cannot use accounts or signatures it was not given | Runtime attack tests (T1) and a malicious swap program run in a real Solana VM against classic SPL and Token-2022 (T6, 30/30) |
 | SPL Token and Token-2022 programs | Transfers respect owner and amount; a self-transfer checks the balance | Audited, widely used; the self-transfer behaviour is tested on mainnet state (T5) and both programs are exercised through hostile CPI (T6) |
 | Bound code in the browser | Compiler and verifier are correct and untampered | Independent verifier, mutation and property tests, nonce-based CSP, minimal dependencies |
 | Bound's server | Serves the genuine page, and relays RPC answers and token metadata | CI compares two builds and the page uses partial SRI (details below). The server cannot change the fee or the treasury (compiled into the page); F_max from the server is capped by the verifier; decimals are checked against the mint on chain |
