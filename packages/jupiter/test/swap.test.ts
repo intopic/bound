@@ -33,6 +33,12 @@ describe('the strict on-chain minimum model', () => {
     });
   }
 
+  it('does not mistake an instruction without accounts for the minimum check', () => {
+    // Both missing accounts read as undefined, and undefined === undefined.
+    expect(isMinimumOutputCheckInstruction({ programAddress: TOKEN_PROGRAM, data: new Uint8Array([12]), accounts: [] }))
+      .toBe(false);
+  });
+
   it('does not mistake an ordinary transfer for the minimum check', () => {
     expect(isMinimumOutputCheckInstruction({
       programAddress: TOKEN_PROGRAM,

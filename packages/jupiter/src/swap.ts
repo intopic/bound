@@ -195,7 +195,11 @@ export function strictMinimumOutput(
   return acceptedMinOut > route ? acceptedMinOut : route;
 }
 
-/** Did the simulation fail at Bound's own minimum-output check (a self-TransferChecked)? */
+/**
+ * Is this Bound's minimum-output check: a TransferChecked from an account to itself, under either
+ * token program? TransferChecked always names source, mint and destination, so an instruction with
+ * fewer accounts is not one, whatever its first data byte says.
+ */
 export function isMinimumOutputCheckInstruction(ix: {
   programAddress?: string;
   data?: ArrayLike<number>;
@@ -204,9 +208,11 @@ export function isMinimumOutputCheckInstruction(ix: {
   return (ix?.programAddress === TOKEN_PROGRAM || ix?.programAddress === TOKEN_2022_PROGRAM)
     && ix.data?.[0] === 12
     && !!ix.accounts
-    && ix.accounts[0]?.address === ix.accounts[2]?.address;
+    && ix.accounts.length >= 3
+    && ix.accounts[0].address === ix.accounts[2].address;
 }
 
+/** Did the simulation fail at Bound's own minimum-output check (a self-TransferChecked)? */
 function failedAtFloorCheck(tx: Transaction, index: number | null, lookups: Record<string, string[]> | null): boolean {
   if (index === null) return false;
   try {
