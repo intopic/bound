@@ -6,7 +6,9 @@ import { address, getTransactionEncoder } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
 import { feeFor, JUPITER_PROGRAM } from '@bound/core';
 import type { TxVersion } from '@bound/core';
-import { BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, prepareProtectedSwap, routeFloor } from '@bound/jupiter';
+import {
+  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, prepareProtectedSwap, requestSlippageBps, routeFloor, slippageFor,
+} from '@bound/jupiter';
 import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
 import type { Certificate } from '@bound/verifier';
 import { createEphemeral } from '@bound/solana';
@@ -334,16 +336,17 @@ export function SwapApp() {
           // The same amount the swap itself will route: what is left after the token's own tax.
           inputMint: address(tokenIn.id), outputMint: address(tokenOut.id),
           amount: amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts),
-          taker: address(QUOTE_TAKER), slippageBps: DEFAULT_SETTINGS.slippageBps, maxAccounts: 64,
+          taker: address(QUOTE_TAKER), slippageBps: requestSlippageBps(DEFAULT_SETTINGS), maxAccounts: 64,
           excludeDexes: status?.excludeDexes ?? DEFAULT_SETTINGS.excludeDexes,
         })
         .then(r => {
           if (cancelled) return;
-          // Shown only if it answers this exact trade; the minimum is computed by Bound (C-02).
+          // Shown only if it answers this exact trade; the minimum is computed by Bound (C-02), with
+          // the wider tolerance when the route trades on a Pump.fun bonding curve.
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
           setQuote(answersThis
-            ? { out: BigInt(r.outAmount), minOut: routeFloor(r, DEFAULT_SETTINGS.slippageBps), route: r.routePlan.map(p => p.swapInfo.label), at: Date.now() }
+            ? { out: BigInt(r.outAmount), minOut: routeFloor(r, slippageFor(r, DEFAULT_SETTINGS)), route: r.routePlan.map(p => p.swapInfo.label), at: Date.now() }
             : null);
         })
         .catch(() => !cancelled && setQuote(null))

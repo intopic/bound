@@ -106,8 +106,9 @@ Server only (never sent to the browser):
 ## Scope of v0.1
 
 Protected: authority over the wallet and everything in it except the approved amount, and the
-minimum output the user accepted (never below the quote minus 0.5% slippage), which Bound checks on
-chain. If the price moves further before signing, Bound asks instead of lowering it.
+minimum output the user accepted (never below the quote minus 0.5% slippage, 3% on a Pump.fun
+bonding curve), which Bound checks on chain. If the price moves further before signing, Bound asks
+instead of lowering it.
 Every router must compile its quote to this same exact on-chain balance floor. A router-only or
 off-chain minimum is not accepted as protection; a route that cannot express the floor is refused.
 Not in scope: price movement and MEV within that tolerance, the value of the token you buy,

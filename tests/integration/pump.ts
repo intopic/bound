@@ -50,10 +50,10 @@ const jupiter = createJupiterClient({
   minIntervalMs: 1100,
 });
 const log = (...a: unknown[]) => console.log(...a);
-// Jupiter's last refusal, so that "no route" in a report says what Jupiter actually answered.
-let jupiterSaid = '';
+// Jupiter's refusals during a sale, so that "no route" in a report says what Jupiter answered.
+let jupiterSaid: string[] = [];
 const build = jupiter.build.bind(jupiter);
-jupiter.build = p => build(p).catch((e: Error) => { jupiterSaid = e.message.slice(0, 120); throw e; });
+jupiter.build = p => build(p).catch((e: Error) => { jupiterSaid.push(e.message.slice(0, 80)); throw e; });
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? Number(x) : x));
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const BUYER = address('GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE');
@@ -80,6 +80,11 @@ async function execute(transaction: Parameters<typeof getBase64EncodedWireTransa
     : '';
   return { ok: value.err === null, failure, after };
 }
+/**
+ * Did a minimum stop the swap: Jupiter's own (6001), or Bound's check after it, which the token
+ * program refuses for insufficient funds? Either way the price moved and the swap reverted.
+ */
+const priceMoved = (failure: string) => failure.includes('0x1771') || failure.includes('insufficient funds');
 /** A closed account comes back from a simulation as an empty entry with no lamports. */
 const gone = (a: { lamports: bigint; data: Uint8Array } | null) => a === null || (a.lamports === 0n && a.data.length === 0);
 
@@ -126,12 +131,13 @@ for (const t of candidates) {
   const mint = address(t.id);
   const info = (await fetchMints(rpc, [mint])).get(mint);
   if (!info) continue;
+  const buyOnce = async () => prepareProtectedSwap({ rpc, jupiter, settings }, {
+    owner: BUYER, ephemeral: await createEphemeral(), inputMint: WSOL_MINT, outputMint: mint, amountIn: 20_000_000n,
+    inputDecimals: 9, outputDecimals: info.decimals, version: 0, acceptedCostBps: 5_000n,
+  });
   let prepared;
   try {
-    prepared = await prepareProtectedSwap({ rpc, jupiter, settings }, {
-      owner: BUYER, ephemeral: await createEphemeral(), inputMint: WSOL_MINT, outputMint: mint, amountIn: 20_000_000n,
-      inputDecimals: 9, outputDecimals: info.decimals, version: 0, acceptedCostBps: 5_000n,
-    });
+    prepared = await buyOnce();
   } catch (e) {
     log(`     ${t.symbol.padEnd(10)} not built: ${e instanceof BoundError ? e.code : 'error'} ${(e as Error).message.slice(0, 80)}`);
     continue;
@@ -148,14 +154,18 @@ for (const t of candidates) {
   const wOut = prepared.policy.accounts.wOut!;
   const before = tokenAmountOf((await fetchAccounts(rpc, [wOut])).get(wOut)?.data);
   let run = await execute(prepared.transaction, [E, prepared.policy.accounts.eIn, wOut]);
-  if (!run.ok && run.failure.includes('0x1771')) {
-    // Jupiter's 6001, slippage exceeded: the price moved between building and executing, and the
-    // minimum reverted the swap as it should. Build once more on the current price.
+  if (!run.ok && priceMoved(run.failure)) {
+    // The price moved between building and executing, and a minimum reverted the swap as it should.
+    // Build once more on the current price.
     log(`     ${t.symbol.padEnd(10)} the price moved past the tolerance; building again`);
-    prepared = await prepareProtectedSwap({ rpc, jupiter, settings }, {
-      owner: BUYER, ephemeral: await createEphemeral(), inputMint: WSOL_MINT, outputMint: mint, amountIn: 20_000_000n,
-      inputDecimals: 9, outputDecimals: info.decimals, version: 0, acceptedCostBps: 5_000n,
-    });
+    try {
+      prepared = await buyOnce();
+    } catch (e) {
+      // Moving past the tolerance again in the seconds a build takes: Bound refused, as it should.
+      if (!(e instanceof BoundError && /price moved/i.test(e.message))) throw e;
+      check(t.symbol, 'buy: the final transaction executes', null, 'çmimi lëvizi përtej tolerancës edhe në ndërtimin e dytë');
+      continue;
+    }
     run = await execute(prepared.transaction, [prepared.policy.ephemeral, prepared.policy.accounts.eIn, wOut]);
   }
   check(t.symbol, 'buy: the final transaction executes', run.ok, run.failure);
@@ -170,7 +180,11 @@ for (const t of candidates) {
   await sleep(2_000);
   const holder = await holderOf(mint, info.program as Address);
   if (!holder) { check(t.symbol, 'sell: needs a holder the public RPC would name', null, 'mbajtësi nuk u gjet'); continue; }
-  const amountIn = holder.balance / 100n;
+  // A small sale: 1% of the holder's balance, and no more than the purchase above got. Some holders
+  // own nearly the whole supply, and 1% of that is more than a bonding curve can buy back.
+  const bought = prepared.quote.outAmount;
+  const amountIn = holder.balance / 100n < bought ? holder.balance / 100n : bought;
+  jupiterSaid = [];
   const sellOnce = async () => {
     const sell = await prepareProtectedSwap({ rpc, jupiter, settings }, {
       owner: holder.owner, ephemeral: await createEphemeral(), inputMint: mint, outputMint: WSOL_MINT,
@@ -180,7 +194,7 @@ for (const t of candidates) {
   };
   try {
     let { sell, done } = await sellOnce();
-    if (!done.ok && done.failure.includes('0x1771')) {
+    if (!done.ok && priceMoved(done.failure)) {
       log(`     ${t.symbol.padEnd(10)} the price moved past the tolerance; building the sell again`);
       ({ sell, done } = await sellOnce());
     }
@@ -193,8 +207,14 @@ for (const t of candidates) {
     const now = tokenAmountOf((await fetchAccounts(rpc, [holder.account])).get(holder.account)?.data);
     if (now < amountIn) { check(t.symbol, 'sell: needs a holder that still holds the amount', null, `mbajtësi shiti ndërkohë (${now} < ${amountIn})`); continue; }
     const code = e instanceof BoundError ? e.code : 'error';
+    // The unrestricted quote, asked for before anything of Bound's applies, had no route either:
+    // Jupiter had nothing to offer for this sale at that moment, which says nothing about Bound.
+    if (code === 'no-route' && (e as Error).message.startsWith('Jupiter could not quote')) {
+      check(t.symbol, 'sell: needs a route Jupiter itself offers', null, `Jupiter nuk dha rrugë: ${[...new Set(jupiterSaid)].join(' | ')}`);
+      continue;
+    }
     check(t.symbol, 'sell: built, verified and certified', false,
-      `${code}: ${(e as Error).message.slice(0, 200)}${code === 'no-route' && jupiterSaid ? ` Jupiter: ${jupiterSaid}` : ''}`);
+      `${code}: ${(e as Error).message.slice(0, 200)}${jupiterSaid.length ? ` Jupiter: ${[...new Set(jupiterSaid)].join(' | ')}` : ''}`);
   }
 }
 

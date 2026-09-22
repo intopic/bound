@@ -15,7 +15,7 @@ For every swap Bound builds:
    a close authority is refused.
 3. The transaction grants no new authority over W's assets (no approvals, no ownership changes).
 4. The user receives at least the minimum they accepted before signing, which is never below the
-   quote less the 0.5% slippage. Bound checks it on chain after the swap; if less arrived, the whole
+   quote less the slippage: 0.5%, or 3% when the route trades on a Pump.fun bonding curve. Bound checks it on chain after the swap; if less arrived, the whole
    transaction reverts. When a token is bought, the check compares the user's account for that
    token with its balance when the swap was prepared: a transfer into that account from someone else
    at the same moment counts toward it. Bound never runs two of its own swaps into the same token at
@@ -104,8 +104,8 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
 - Phishing sites that do not use Bound, and approvals the user granted elsewhere before.
 - The value of the token bought (rug pulls, freeze authority, mint authority). The page warns about
   the last two.
-- Price movement and MEV within the 0.5% slippage tolerance: the minimum output is the quoted amount
-  minus that tolerance.
+- Price movement and MEV within the slippage tolerance (0.5%, or 3% on a Pump.fun bonding curve):
+  the minimum output is the quoted amount minus that tolerance.
 - Token-2022 tokens whose extensions Bound refuses: a permanent delegate a program can sign for,
   accounts frozen by default, pausable, non-transferable, interest-bearing, a scaled UI amount, a
   required memo, a transfer hook with a real program, or any extension the verifier does not know.

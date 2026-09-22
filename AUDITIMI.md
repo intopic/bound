@@ -26,7 +26,7 @@ Për çdo transaksion që ndërton Bound, instruksioni i jashtëm (Jupiter) mund
 
 - Instruksioni i jashtëm nuk merr kurrë W-në ose ndonjë llogari tokeni të W-së, përveç llogarisë ku vjen tokeni i blerë (`W_out`). Delegate-i i `W_out` hiqet para swap-it.
 - Transaksioni nuk jep asnjë autoritet të ri mbi asetet e W-së: as approve, as ndryshim pronari.
-- Përdoruesi merr të paktën `minOut`, minimumin që pranoi para nënshkrimit, kurrë më pak se quote-i minus 0.5%; përndryshe i gjithë transaksioni anulohet.
+- Përdoruesi merr të paktën `minOut`, minimumin që pranoi para nënshkrimit, kurrë më pak se quote-i minus 0.5% (3% kur route-i kalon nëpër bonding curve të Pump.fun); përndryshe i gjithë transaksioni anulohet.
 
 Formalisht, me `E_in` dhe `E_out` llogaritë e përkohshme të E-së dhe `b0` balancën e `W_out` para transaksionit:
 
@@ -41,7 +41,7 @@ Debit(W, SOL) ≤ min(F_max, 0.001 SOL) + qiraja e W_out nëse krijohet (+ q kur
 
 **Pse mban: R6 para R1.** Rregulli mbajtës është R6: transaksioni ka saktësisht dy signerë, W dhe E, dhe W paguan. R1 e mban W-në jashtë instruksionit të jashtëm, ndaj nënshkrimi i W-së nuk është kurrë i disponueshëm atje. Gjithçka që kërkon nënshkrimin e W-së për të lëvizur mbetet e paarritshme edhe sikur llogaria t'i jepej: transferta SPL, SOL, stake, mbyllje llogarish, ndryshime autoriteti. Filtri i adresave në R1 duhet të mbulojë vetëm atë që lëviz pa nënshkrimin e W-së: llogari tokenësh me delegate të mëparshëm dhe mint-e me permanent delegate. Një permanent delegate që është çelës i zakonshëm vepron vetëm duke nënshkruar, dhe R6 nuk lejon asnjë nënshkrues tjetër përveç W dhe E; ai që është adresë programi refuzohet, sepse programi i tij mund të jetë vetë route-i (AUDIT.md, seksioni 0j).
 
-**Çfarë nuk garantohet:** lëvizja e çmimit dhe MEV brenda tolerancës 0.5%, vlera e tokenit që blihet (rug pull, freeze authority), approve-t që përdoruesi ka dhënë më parë diku tjetër, faqet phishing që nuk përdorin Bound, tokenët Token-2022 me extensions që i refuzojmë (permanent delegate që e kontrollon një program, ngrirje e parazgjedhur, pausable e të tjera — lista te AUDIT.md, seksioni 0f), dhe ajo që lëshuesi i një tokeni mund të bëjë jashtë swap-it (p.sh. i PYUSD-së mund ta lëvizë në çdo wallet; faqja ia thotë klientit). Tarifa e transferimit mbështetet: lexohet epoka aktive dhe llogaritë e përkohshme harvest-ohen para mbylljes.
+**Çfarë nuk garantohet:** lëvizja e çmimit dhe MEV brenda tolerancës 0.5% (3% në bonding curve), vlera e tokenit që blihet (rug pull, freeze authority), approve-t që përdoruesi ka dhënë më parë diku tjetër, faqet phishing që nuk përdorin Bound, tokenët Token-2022 me extensions që i refuzojmë (permanent delegate që e kontrollon një program, ngrirje e parazgjedhur, pausable e të tjera — lista te AUDIT.md, seksioni 0f), dhe ajo që lëshuesi i një tokeni mund të bëjë jashtë swap-it (p.sh. i PYUSD-së mund ta lëvizë në çdo wallet; faqja ia thotë klientit). Tarifa e transferimit mbështetet: lexohet epoka aktive dhe llogaritë e përkohshme harvest-ohen para mbylljes.
 
 ## 3. Si funksionon një swap
 
@@ -185,7 +185,7 @@ Garancia mban nëse komponentët më poshtë janë të saktë dhe të pandryshua
 - Ndryshim pas verifikimit nga wallet-i, extension-i ose rrjeti: e refuzon kontrolli i kthimit (R6).
 - Server i komprometuar që ende shërben faqen e vërtetë: sheh mint-e, shuma, çelësin publik të E-së dhe adresën e përdoruesit, kurrë çelës privat. Mund të ndalë swap-et, por nuk mund ta çojë fee-n mbi 1%, fee-n e rrjetit mbi 0.001 SOL, ose ta dërgojë fee-n diku tjetër.
 
-**Nuk mbulohen:** server ose varësi që shërben faqe të **modifikuar**, phishing jashtë Bound, approve të vjetër, vlera e tokenit të blerë, dhe çmimi brenda tolerancës 0.5%.
+**Nuk mbulohen:** server ose varësi që shërben faqe të **modifikuar**, phishing jashtë Bound, approve të vjetër, vlera e tokenit të blerë, dhe çmimi brenda tolerancës 0.5% (3% në bonding curve).
 
 ## 8. Auditimi i parë dhe si u zgjidh
 
@@ -296,7 +296,7 @@ Kërkojmë një auditim të të gjithë repos, jo vetëm të verifier-it. Lista 
 ### F. Ekonomia dhe UX
 
 - [ ] Modeli i fee-s: në tokenin e dhënë, rrumbullakim poshtë, pa fee kur mungon llogaria e treasury-t. A mund të shmanget fee-ja në mënyrë abuzive?
-- [ ] Slippage i fiksuar 0.5%: tokenët e rrallë do të dështojnë shpesh. A duhet slippage dinamik, dhe me çfarë rreziku?
+- [ ] Slippage 0.5%, dhe 3% vetëm kur route-i kalon nëpër bonding curve të Pump.fun (vendim i 23 shtatorit 2026, AUDIT.md 0k). A duhet slippage dinamik edhe për tokenë të tjerë të rrallë, dhe me çfarë rreziku?
 - [ ] A janë të sakta dhe të qarta mesazhet dhe kostot që sheh përdoruesi: fee, qiraja e llogarisë së re, minimumi, limiti $100?
 
 ### G. Kodi dhe arkitektura

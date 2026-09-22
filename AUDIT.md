@@ -536,6 +536,17 @@ past its threshold (its error 6001), Bound used to treat the market as broken an
 a curve token that left no route at all. It is now handled like a miss at Bound's own minimum:
 quoted again, and after two misses the user is told the price moved.
 
+**Slippage on the curve: 3%.** The same speed reaches past the simulation: in T14 a curve token moved
+more than 0.5% between building a swap and executing it, which reverts the swap and costs the user
+the network fee for nothing. A route with any leg on a Pump.fun bonding curve (Jupiter's label
+`Pump.fun`) now gets a 3% tolerance; every other route, PumpSwap included, keeps 0.5%. Jupiter is
+asked for the wider of the two before the route is known, so that its own threshold never stops a
+route first. That cannot weaken anything: Bound computes the floor per route, enforces it with its
+own check, and Jupiter's threshold only ever makes it stricter. The minimum the page shows is
+computed the same way, and a stricter minimum the user already accepted still wins. The cost is
+the wider room for price movement and MEV on those tokens, up to 3%, which the minimum shown
+before signing states. Decision of 23 September 2026.
+
 **Evidence.**
 
 - Verifier tests, for all three variants in v0 and v1: exactly the measured rent is accepted; one
@@ -548,16 +559,19 @@ quoted again, and after two misses the user is told the price moved.
 - Pipeline tests for a price that moves: a route Jupiter stops for slippage is quoted again and its
   market kept, also when it happens with E funded; a price that keeps moving is reported as such.
   Without the change all three fail.
+- Slippage tests: a curve route is enforced at 3%, any other route (PumpSwap included) at 0.5%,
+  Jupiter is always asked for 3% without lowering a 0.5% floor, and a stricter accepted minimum
+  still wins. Removing the rule fails three of them.
 - **T13** (`tests/integration/pump.ts --market amm`) runs the real pipeline on mainnet state:
   **45/45** on five trending Pump.fun tokens that route through PumpSwap. Buys: built, verified
   and certified, rent 1,346,200 lamports, executed, at least the minimum arrived, and E ended with
   nothing. Sells from real holders, found by listing the token program's accounts for the mint:
   executed, E and both temporary accounts empty. Sells need no rent.
 - **T14** (`tests/integration/pump.ts --market curve`), the same on five Pump.fun tokens still on
-  their bonding curve: **39/39**. Buys: built, verified and certified, rent 1,346,200 or 1,478,280
-  lamports, executed, at least the minimum arrived, and E ended with nothing. Sells from real
-  holders: executed, E and both temporary accounts empty. Two tokens had no holder the public RPC
-  would name, reported as skipped rather than passed.
+  their bonding curve: **42/42**, with the 3% tolerance. Buys: built, verified and certified, rent
+  1,346,200 or 1,478,280 lamports, executed, at least the minimum arrived, and E ended with nothing.
+  Sells from real holders: executed, E and both temporary accounts empty. One token had no holder
+  the public RPC would name, reported as skipped rather than passed.
 - **T6** adds two cases in the real Solana VM: a route that pockets the rent and swaps honestly
   succeeds, and the wallet loses nothing beyond the network fee and the stated rent; a route that
   tries to take one lamport more reverts.
@@ -581,8 +595,8 @@ verified byte for byte.
 > (fixed at build time, 0.3% by default, at most 1% by the verifier). It never receives W or any token
 > account of W except the output account, whose delegate is revoked before the swap, and the
 > transaction grants no new authority over W's assets. The user receives at least `minOut` — the
-> minimum they accepted before signing, never below the quote less the 0.5% slippage — or the
-> transaction reverts.
+> minimum they accepted before signing, never below the quote less the slippage (0.5%, or 3% on a
+> route through a Pump.fun bonding curve) — or the transaction reverts.
 
 Formally, with `E_in`, `E_out` the temporary accounts of E, `W_out` the user's output account and
 `b0` its balance before the transaction:
@@ -600,7 +614,8 @@ Debit(W, SOL) ≤ min(F_max, 0.001 SOL) + rent(W_out, if created; read from the 
 For B and C, a transfer into `W_out` from someone else between prepare and execution counts toward
 the minimum. Bound itself never runs two swaps into the same output token at once (decision A).
 
-What is **not** guaranteed: price movement and MEV within the slippage tolerance (0.5%), the value of
+What is **not** guaranteed: price movement and MEV within the slippage tolerance (0.5%, or 3% on a
+Pump.fun bonding curve), the value of
 the token bought, approvals the user gave elsewhere before, phishing sites that do not use Bound.
 
 **Why it holds.** The load-bearing rule is R6 (signers are exactly W and E), not R1: because W never
@@ -866,8 +881,9 @@ npm run e2e                             # needs Microsoft Edge
 - For B and C, a transfer into `W_out` from someone else before execution counts toward the minimum
   (section 1). Bound's own swaps into the same token do not overlap.
 - Tokens that trade only on excluded DEXes (D13, HumidiFi) may find no protected route.
-- The slippage is a fixed 0.5%. A token on its bonding curve often moves more than that in the
-  seconds between signing and landing; such a swap reverts on chain and costs only the network fee.
+- The slippage is 0.5%, and 3% on a route through a Pump.fun bonding curve (section 0k). A price
+  that moves more than that between signing and landing reverts the swap on chain, which costs
+  only the network fee.
 - T6 runs against litesvm (the Agave runtime with real SPL programs), not a validator, and its
   attacker is our own program rather than a real DEX.
 - Not done yet: a reproducible build with SRI, and a dependency supply-chain review (section 0).

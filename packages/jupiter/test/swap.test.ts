@@ -10,7 +10,9 @@ import {
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, tokenAccountSizeFor } from '@bound/core';
-import { compileIfFits, isMinimumOutputCheckInstruction, strictMinimumOutput } from '../src/swap.ts';
+import {
+  compileIfFits, DEFAULT_SETTINGS, isMinimumOutputCheckInstruction, requestSlippageBps, slippageFor, strictMinimumOutput,
+} from '../src/swap.ts';
 
 describe('the strict on-chain minimum model', () => {
   const quote = { outAmount: '1000000', otherAmountThreshold: '1' };
@@ -108,5 +110,20 @@ describe('the size of a new token account, which decides the rent shown before s
   it('CASH accounts are 175 bytes, as on mainnet', () => {
     const cash = mint2022([[3, 32], [12, 32], [6, 1], [4, 65], [14, 64], [18, 64], [19, 138]]);
     expect(tokenAccountSizeFor(TOKEN_2022_PROGRAM, cash)).toBe(175);
+  });
+});
+
+describe('which slippage a route gets', () => {
+  const route = (...labels: string[]) => ({ routePlan: labels.map(label => ({ percent: 100, swapInfo: { label, ammKey: '' } })) });
+
+  it('3% when any leg trades on a Pump.fun bonding curve, 0.5% otherwise', () => {
+    expect(slippageFor(route('Pump.fun'), DEFAULT_SETTINGS)).toBe(300);
+    expect(slippageFor(route('Whirlpool', 'Pump.fun'), DEFAULT_SETTINGS)).toBe(300);
+    expect(slippageFor(route('Pump.fun Amm'), DEFAULT_SETTINGS)).toBe(50);
+    expect(slippageFor(route('Whirlpool', 'Raydium CLMM'), DEFAULT_SETTINGS)).toBe(50);
+  });
+
+  it('Jupiter is always asked for the wider of the two', () => {
+    expect(requestSlippageBps(DEFAULT_SETTINGS)).toBe(300);
   });
 });

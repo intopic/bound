@@ -156,11 +156,12 @@ function fakeRpc(
 /** Answers like Jupiter for whatever is asked, with the floor and amounts an attacker chooses. */
 function fakeJupiter(answer: {
   threshold?: bigint; inAmountFactor?: bigint; failFirst?: number; extraAccounts?: readonly Address[];
-  worseByBps?: bigint; hop?: { mint: Address; tokenProgram: Address };
+  worseByBps?: bigint; hop?: { mint: Address; tokenProgram: Address }; label?: string; asked?: BuildParams[];
 } = {}): JupiterClient {
   let calls = 0;
   return {
     async build(p: BuildParams): Promise<BuildResponse> {
+      answer.asked?.push(p);
       if (calls++ < (answer.failFirst ?? 0)) throw new JupiterError('Jupiter 400: No matching liquidity', 400);
       const E = p.taker;
       const eIn = await ataOf(E, p.inputMint);
@@ -173,8 +174,9 @@ function fakeJupiter(answer: {
         // The baseline is asked for without exclusions and a protected route with them, so this
         // is how a route that costs more than the open market is simulated.
         outAmount: (p.excludeDexes?.length ? (OUT * (10_000n - (answer.worseByBps ?? 0n))) / 10_000n : OUT).toString(),
-        otherAmountThreshold: (answer.threshold ?? (OUT * 9_950n) / 10_000n).toString(),
-        routePlan: [{ percent: 100, swapInfo: { label: 'Whirlpool', ammKey: POOL } }],
+        // Like Jupiter, the threshold is the quote less the slippage it was asked for.
+        otherAmountThreshold: (answer.threshold ?? (OUT * BigInt(10_000 - p.slippageBps)) / 10_000n).toString(),
+        routePlan: [{ percent: 100, swapInfo: { label: answer.label ?? 'Whirlpool', ammKey: POOL } }],
         computeBudgetInstructions: [],
         // Jupiter asks for an ATA of the taker for every token the route passes through. Bound
         // does not run these; it recreates the accounts itself and closes them again (D14).
@@ -485,5 +487,36 @@ describe("a route that opens an account in the taker's name (PumpSwap, the Pump.
     expect(prepared.policy.takerRent).toBe(RENT);
     expect(prepared.attempts[0].simulation).toBe('output below the minimum');
     expect(prepared.attempts.at(-1)!.excluded).not.toContain('Whirlpool');
+  });
+});
+
+describe('slippage on a Pump.fun bonding curve', () => {
+  const floor = (bps: number) => (OUT * BigInt(10_000 - bps)) / 10_000n;
+
+  it('a route through the bonding curve is enforced at 3% below the quote', async () => {
+    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Pump.fun' }) });
+    expect(settings.curveSlippageBps).toBe(300);
+    expect(prepared.policy.minOut).toBe(floor(300));
+    expect(prepared.certificate.output.minimumOutput).toBe(floor(300));
+  });
+
+  it('every other route, PumpSwap included, stays at 0.5%', async () => {
+    for (const label of ['Whirlpool', 'Pump.fun Amm']) {
+      const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label }) });
+      expect(prepared.policy.minOut).toBe(floor(50));
+    }
+  });
+
+  it('Jupiter is asked for the wider tolerance, and its looser threshold does not lower Bound\'s floor', async () => {
+    const asked: BuildParams[] = [];
+    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ asked }) });
+    expect(asked.every(p => p.slippageBps === 300)).toBe(true);
+    expect(prepared.policy.minOut).toBe(floor(50));
+  });
+
+  it('a minimum the user accepted still wins on the bonding curve when it is stricter', async () => {
+    const accepted = floor(100);
+    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Pump.fun' }), acceptedMinOut: accepted });
+    expect(prepared.policy.minOut).toBe(accepted);
   });
 });

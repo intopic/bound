@@ -24,8 +24,9 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar a
 | Token-2022: rregulli i extensions-ave dhe një swap i ndershëm me Token-2022 | 12 teste njësie + 12/12 çifte reale (PUMP, CATE, PAID, TIPPED) në mainnet |
 | T7: shuma në rritje deri në rreth $10M (nuk ka limit shume) | 14/15; refuzohet vetëm një route BONK prej $1M që nuk nxë në një transaksion |
 | T13: PumpSwap në mainnet, 5 tokenë të Pump.fun: blerje (me qiranë 0.0013 SOL që i jepet çelësit të përkohshëm) dhe shitje nga mbajtës realë; çelësi mbetet bosh (AUDIT.md 0k) | 45/45 |
-| T14: bonding curve i Pump.fun në mainnet, 5 tokenë që s'kanë dalë ende nga kurba: blerje dhe shitje; Pump.fun e zhbën vetë WSOL-in nga kutia e çelësit të përkohshëm; qiraja 0.0013–0.0015 SOL; çelësi mbetet bosh (AUDIT.md 0k) | 39/39 |
+| T14: bonding curve i Pump.fun në mainnet, 5 tokenë që s'kanë dalë ende nga kurba: blerje dhe shitje me tolerancë 3%; Pump.fun e zhbën vetë WSOL-in nga kutia e çelësit të përkohshëm; qiraja 0.0013–0.0015 SOL; çelësi mbetet bosh (AUDIT.md 0k) | 42/42 |
 | Çmimi që lëviz gjatë simulimit: rikuotohet dhe tregu nuk përjashtohet, edhe kur çelësi është financuar me qiranë | 3/3 |
+| Toleranca e çmimit: 3% kur route-i kalon nëpër bonding curve, 0.5% për çdo route tjetër (edhe PumpSwap); minimumi i pranuar nga klienti fiton kur është më i rreptë | 6/6 |
 | T12: stablecoin-ët me delegat të lëshuesit (PYUSD, USDG, AUSD, CASH) në mainnet: si hyrje dhe si dalje, llogaritë e përkohshme mbyllen, qiraja e shfaqur = qiraja e ngarkuar (AUDIT.md 0j) | 33/33 |
 | Tokenët nëpër të cilët kalon route-i: një hop që ekzekuton kod refuzohet, një i pastër kalon (AUDIT.md 0i) | 4/4 |
 | T11: çfarë shtojnë vërtet wallet-et, lexuar nga 90 transaksione reale në mainnet (AUDIT.md 0h) | asnjë handler kujtese, deri në 10 asertime, 0–1 llogari secila |

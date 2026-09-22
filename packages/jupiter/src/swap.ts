@@ -23,6 +23,12 @@ export type SwapSettings = BoundConfig & {
   excludeDexes: readonly string[];
   slippageBps: number;
   /**
+   * The slippage on a route that trades on a Pump.fun bonding curve. A token there trades in one
+   * place only and moves fast: T14 saw it move past 0.5% in the seconds between building a swap and
+   * executing it, which reverts the swap and costs the user the network fee for nothing.
+   */
+  curveSlippageBps: number;
+  /**
    * How far below the unrestricted route a protected one may sit (D15). Under `askAboveBps` the
    * swap proceeds; above it the user is told the difference and decides, with a stronger warning
    * past `warnAboveBps`. Bound refuses on its own only past `badQuoteBps`, where the number is no
@@ -48,6 +54,7 @@ export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'>
   // SOL, which Bound pays through `takerRent` and shows.
   excludeDexes: ['HumidiFi'],
   slippageBps: 50,
+  curveSlippageBps: 300,
   askAboveBps: 100n,
   warnAboveBps: 500n,
   badQuoteBps: 5_000n,
@@ -171,6 +178,27 @@ export function intermediatesFromSetup(setup: readonly ApiInstruction[], policy:
   }
   return out;
 }
+
+/** Jupiter's label for the Pump.fun bonding curve; PumpSwap, after it, is `Pump.fun Amm`. */
+export const BONDING_CURVE_LABEL = 'Pump.fun';
+
+type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps'>;
+
+/**
+ * The slippage Bound accepts on a route: the bonding-curve one when any leg of the route trades on
+ * a Pump.fun bonding curve, the usual one otherwise. Either way Bound computes the floor itself and
+ * enforces it on chain.
+ */
+export function slippageFor(r: Pick<BuildResponse, 'routePlan'>, settings: Slippages): number {
+  return r.routePlan.some(p => p.swapInfo.label === BONDING_CURVE_LABEL) ? settings.curveSlippageBps : settings.slippageBps;
+}
+
+/**
+ * The slippage Jupiter is asked for, before anyone knows the route: the widest Bound may accept, so
+ * that Jupiter's own threshold never stops a route before Bound's floor would. It cannot weaken
+ * that floor: Jupiter's threshold only ever makes it stricter (`strictMinimumOutput`).
+ */
+export const requestSlippageBps = (settings: Slippages): number => Math.max(settings.slippageBps, settings.curveSlippageBps);
 
 /**
  * The minimum Bound enforces for a route (audit C-02): the quoted output less the slippage the user
@@ -418,7 +446,7 @@ export async function prepareProtectedSwap(deps: {
     outputMint: req.outputMint,
     amount: arriving,
     taker: E,
-    slippageBps: settings.slippageBps,
+    slippageBps: requestSlippageBps(settings),
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
   };
   // Individual quotes fail transiently ("pool has not been updated", "zero tradable amount"):
@@ -465,13 +493,13 @@ export async function prepareProtectedSwap(deps: {
   // Bound computes each route's floor itself and enforces it on chain, never below what the user
   // accepted (audit B-04, C-02).
   const accepted = req.acceptedMinOut ?? 0n;
-  const floorOf = (r: BuildResponse) => strictMinimumOutput(r, settings.slippageBps, accepted);
+  const floorOf = (r: BuildResponse) => strictMinimumOutput(r, slippageFor(r, settings), accepted);
   // Rent the chosen route needs E to pay, measured in simulation (see `measureTakerRent`).
   let takerRent = 0n;
   const policyFor = (r: BuildResponse) => withTakerRent(withMinOut(policy, floorOf(r)), takerRent);
   const priceMoved = (r: BuildResponse) =>
     new BoundError('price-moved', 'The price moved beyond the slippage tolerance since you looked. Nothing was signed.', [], {
-      newMinOut: routeFloor(r, settings.slippageBps),
+      newMinOut: routeFloor(r, slippageFor(r, settings)),
       newOutAmount: BigInt(r.outAmount),
     });
   /**
