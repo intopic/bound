@@ -170,7 +170,7 @@ Garancia mban nëse komponentët më poshtë janë të saktë dhe të pandryshua
 
 | Komponenti | Supozimi | Mbrojtja sot |
 | --- | --- | --- |
-| Runtime-i i Solana | Një program nuk përdor dot llogari ose privilegje signer-i që nuk iu dhanë (CPI nuk i rrit ato) | T1 me instruksione direkte dhe T6 me program keqdashës të vërtetë mbi SPL klasik dhe Token-2022, 30/30 |
+| Runtime-i i Solana | Një program nuk përdor dot llogari ose privilegje signer-i që nuk iu dhanë (CPI nuk i rrit ato) | T1 me instruksione direkte dhe T6 me program keqdashës të vërtetë mbi SPL klasik dhe Token-2022, 32/32 |
 | SPL Token, Token-2022, ATA, System | Sillen sipas specifikës, përfshirë kontrollin e balancës në self-transfer | Programe të audituara; self-transfer i provuar në gjendjen e mainnet-it |
 | Kodi i Bound në browser | Compiler-i dhe verifier-i janë të saktë dhe të pandryshuar | Verifier i pavarur, teste mutacioni dhe property, CSP me nonce; build i riprodhueshëm mungon ende |
 | Serveri i Bound | Shërben faqen e vërtetë dhe përcjell përgjigjet e RPC-së dhe metadata e tokenëve | Nuk mund të ndryshojë fee-n ose treasury-n; F_max e tij kufizohet nga verifier-i; decimals kontrollohen kundrejt mint-it on-chain |
@@ -226,7 +226,7 @@ Të gjitha testet kalojnë në gjendjen aktuale; i vetmi dështim në mainnet is
 | `tests/integration/mainnet.ts` T4 | Pipeline i plotë mbi gjendjen e mainnet-it, 30 çifte × v0 dhe v1, me fee | 60/60 pas rregullimeve të auditimit të dytë |
 | `tests/integration/mainnet.ts` T1 | 8 sulme me SPL Token dhe System realë në vendin e Jupiter-it | 8/8 siç pritej; verifier-i i refuzon të 8-t |
 | `tests/integration/mainnet.ts` T5 | Minimumi i ngritur ×2 duhet të bjerë pikërisht te kontrolli | 3/3 |
-| `tests/cpi/run.ts` + `tests/cpi/attacker` T6 | Program keqdashës i vërtetë, i ngarkuar në një makinë virtuale Solana, sulmon transaksione SPL klasik dhe Token-2022 nga brenda një CPI-je; pas çdo rasti kontrollohet zinxhiri | 30/30 |
+| `tests/cpi/run.ts` + `tests/cpi/attacker` T6 | Program keqdashës i vërtetë, i ngarkuar në një makinë virtuale Solana, sulmon transaksione SPL klasik dhe Token-2022 nga brenda një CPI-je; pas çdo rasti kontrollohet zinxhiri | 32/32 |
 | `tests/integration/large.ts` T7 | Shuma në rritje deri në rreth $10M mbi gjendjen e mainnet-it: a ndërtohet, verifikohet dhe simulohet ende, dhe sa kushton madhësia | 12 u ndërtuan dhe u simuluan, 1 u refuzua drejt, 2 nuk u provuan dot |
 | `tests/integration/thresholds.ts` T9 | Sa kushton mbrojtja kundrejt tregut të hapur: 12 tokena × 4 madhësi, dhe çfarë do të bënte secili prag | 45/48 u ndërtuan; mediana 0.00%, p95 1.81%, maksimumi 18.22% (AUDIT.md, seksioni 0g) |
 | `tests/integration/self-transfer.ts` | Sjellja e self-transfer në SPL Token | 4/4 |

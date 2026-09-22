@@ -182,7 +182,7 @@ verifies it, signs as W and as E, and executes it. After every case the chain is
 Bound's promise: nothing beyond the approved amount moved, no permission survived, both temporary
 accounts are gone, and the wallet's other tokens and SOL are untouched.
 
-30 cases, all passing (`tests/cpi/results/cpi.md`):
+32 cases, all passing (`tests/cpi/results/cpi.md`):
 
 - The route takes the approved amount and delivers the minimum: the transaction succeeds, exactly
   `q` leaves the wallet, the fee is exact, and E_in (and E_out) no longer exist.
@@ -762,7 +762,7 @@ the rule the others depend on.
 | `tests/integration/mainnet.ts` (T4) | Full pipeline on mainnet state (simulation, public exchange wallet as fee payer, `sigVerify: false`) for 30 pairs × v0 and v1, with the Bound fee charged; checks that the transaction executes and closes every temporary account | After the second review's fixes: 60/60. Earlier runs surfaced the over-64-account route (USDC → HNT) and Jupiter's transient "No matching liquidity" (SOL → RAY); both are handled now |
 | `tests/integration/mainnet.ts` (T1) | 8 attack instructions against the real SPL Token and System programs placed where Jupiter would be | 8/8 behaved as predicted; the verifier rejected all 8 |
 | `tests/integration/mainnet.ts` (T5) | USDC→SOL, SOL→USDC, USDC→BONK: the honest transaction executes; with the floor raised to 2× the quote it fails exactly at the check | 3/3 |
-| `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking classic SPL and Token-2022 protected transactions from inside a CPI; the chain is checked against Bound's promise after every case | 30/30 (section 0d) |
+| `tests/cpi/run.ts` + `tests/cpi/attacker` (T6) | A malicious swap program, deployed into a real Solana VM, attacking classic SPL and Token-2022 protected transactions from inside a CPI; the chain is checked against Bound's promise after every case | 32/32 (section 0d) |
 | `tests/integration/large.ts` (T7) | Growing sizes up to about $10M on mainnet state: does the pipeline still build, verify and simulate, and what does the size cost? | 12 built and simulated, 1 refused correctly (a $1M BONK route fits in no single transaction), 2 not tried because no public wallet holds that much (section 0e) |
 | `tests/integration/transfer-fee.ts` (T8) | A real taxing token (FEELSGOOD, 3%) on both sides: the pipeline must reach it, quote the amount that arrives, harvest and close, and Jupiter's `outAmount` must mean what the wallet receives | 4/4; the quoted amount and the amount received were equal to the unit, so `outAmount` is net of the token's tax |
 | `tests/integration/thresholds.ts` (T9) | What the protection costs against the open market, over 12 tokens × 4 sizes, and what each candidate threshold would do | 45/48 built; median 0.00%, p95 1.81%, worst 18.22% (section 0g) |
@@ -812,7 +812,7 @@ npm run e2e                             # needs Microsoft Edge
    transfer fee rather than harvesting the withheld amount before the close?
 6. **Anything in section 0b** that closes a finding only in the case the test covers.
 7. **The issuer-delegate rule** (section 0j, `unsupportedExtension` in `verify.ts`). This one
-   *relaxes* a rule. It is on `main` since 2026-09-22, tested (T12 33/33, T6 30/30), and we want
+   *relaxes* a rule. It is on `main` since 2026-09-22, tested (T12 33/33, T6 32/32), and we want
    your reading of it before production. The claim is that an on-curve permanent delegate cannot act
    inside a transaction whose signers are exactly W and E, and that an off-curve one is
    the only kind a program in the route could sign for. Is there a third way a delegate can be

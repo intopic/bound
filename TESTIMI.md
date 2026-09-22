@@ -20,7 +20,7 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar a
 | T4 në mainnet: Jupiter → compiler → simulim → verifier, 30 çifte × v0 dhe v1, me fee-n e Bound | 60/60 |
 | T1 në mainnet: 8 sulme me SPL Token dhe System Program realë | 8/8 sillen siç pritet, verifier-i i refuzon të gjitha |
 | T5 në mainnet: minimumi i daljes (nëse swap-i jep më pak, i gjithë transaksioni anulohet) | 3/3 |
-| T6: një program keqdashës i vërtetë në vendin e Jupiter-it, i ekzekutuar kundër SPL klasik dhe Token-2022 në një makinë virtuale Solana | 30/30 |
+| T6: një program keqdashës i vërtetë në vendin e Jupiter-it, i ekzekutuar kundër SPL klasik dhe Token-2022 në një makinë virtuale Solana | 32/32 |
 | Token-2022: rregulli i extensions-ave dhe një swap i ndershëm me Token-2022 | 12 teste njësie + 12/12 çifte reale (PUMP, CATE, PAID, TIPPED) në mainnet |
 | T7: shuma në rritje deri në rreth $10M (nuk ka limit shume) | 14/15; refuzohet vetëm një route BONK prej $1M që nuk nxë në një transaksion |
 | T13: PumpSwap në mainnet, 5 tokenë të Pump.fun: blerje (me qiranë 0.0013 SOL që i jepet çelësit të përkohshëm) dhe shitje nga mbajtës realë; çelësi mbetet bosh (AUDIT.md 0k) | 45/45 |
