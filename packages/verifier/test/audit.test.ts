@@ -14,7 +14,7 @@ import {
   TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, withMinOut,
 } from '@bound/core';
 import type { AccountState, RuleId, TxVersion } from '@bound/core';
-import { verify } from '../src/index.ts';
+import { memoRequired, verify } from '../src/index.ts';
 import {
   BONK, compileRaw, compileRawV1WithHeap, cuIxs, honest, JUP, LIFETIME, randomAddress, scenario, USDC,
 } from './fixtures.ts';
@@ -122,6 +122,7 @@ describe('B-04: Bound enforces the minimum output itself', () => {
     ['A: USDC → SOL (check on E_out)', {}],
     ['B: SOL → USDC (check on W_out)', { input: WSOL_MINT, output: USDC }],
     ['C: USDC → BONK, W_out already holds a balance', { input: USDC, output: BONK, wOutBalance: 7_000_000n }],
+    ['C: USDC → Token-2022 BONK', { input: USDC, output: BONK, outputProgram: TOKEN_2022_PROGRAM }],
   ] as const) {
     it(`${name}: the honest check is accepted`, async () => {
       const s = await scenario(opts);
@@ -161,6 +162,30 @@ describe('B-04: Bound enforces the minimum output itself', () => {
     const s = await scenario();
     const v = await verify(compileHonest(s), { ...s.policy, minOut: 0n }, s.snapshot);
     expect(v.violations.map(x => x.detail)).toContain('the policy has no minimum output');
+  });
+});
+
+describe('Token-2022 MemoTransfer account state', () => {
+  const account = (required: number, length = 1) => {
+    const data = new Uint8Array(166 + 4 + length);
+    data[165] = 2; // AccountType::Account
+    const view = new DataView(data.buffer);
+    view.setUint16(166, 8, true); // MemoTransfer
+    view.setUint16(168, length, true);
+    if (length > 0) data[170] = required;
+    return data;
+  };
+
+  it('allows an account whose memo requirement is present but disabled', () => {
+    expect(memoRequired(account(0))).toBe(false);
+  });
+
+  it('refuses an account whose incoming memo requirement is enabled', () => {
+    expect(memoRequired(account(1))).toBe(true);
+  });
+
+  it('fails closed on a malformed MemoTransfer payload', () => {
+    expect(memoRequired(account(0, 0))).toBe(true);
   });
 });
 

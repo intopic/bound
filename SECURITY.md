@@ -18,6 +18,12 @@ For every swap Bound builds:
    at the same moment counts toward it. Bound never runs two of its own swaps into the same token at
    once.
 
+Bound has one minimum-output model for every router: an exact base-unit amount enforced by a trusted
+instruction in the same transaction and checked independently by the verifier. A router's own
+threshold may make that amount stricter, never weaker. Router-only, off-chain or differently shaped
+guarantees are not substitutes; an integration that cannot compile to this balance floor is not a
+supported protected route.
+
 SOL leaving W in one swap is at most:
 
 ```

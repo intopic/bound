@@ -9,7 +9,38 @@ import {
   generateKeyPairSigner, pipe, setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { compileIfFits } from '../src/swap.ts';
+import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@bound/core';
+import { compileIfFits, isMinimumOutputCheckInstruction, strictMinimumOutput } from '../src/swap.ts';
+
+describe('the strict on-chain minimum model', () => {
+  const quote = { outAmount: '1000000', otherAmountThreshold: '1' };
+
+  it('never lets a weak router threshold lower Bound\'s slippage floor', () => {
+    expect(strictMinimumOutput(quote, 50)).toBe(995_000n);
+  });
+
+  it('keeps a stricter minimum already accepted by the user', () => {
+    expect(strictMinimumOutput(quote, 50, 999_000n)).toBe(999_000n);
+  });
+
+  for (const programAddress of [TOKEN_PROGRAM, TOKEN_2022_PROGRAM]) {
+    it(`recognizes the on-chain self-transfer under ${programAddress}`, () => {
+      expect(isMinimumOutputCheckInstruction({
+        programAddress,
+        data: new Uint8Array([12]),
+        accounts: [{ address: 'output' }, { address: 'mint' }, { address: 'output' }],
+      })).toBe(true);
+    });
+  }
+
+  it('does not mistake an ordinary transfer for the minimum check', () => {
+    expect(isMinimumOutputCheckInstruction({
+      programAddress: TOKEN_PROGRAM,
+      data: new Uint8Array([12]),
+      accounts: [{ address: 'source' }, { address: 'mint' }, { address: 'destination' }],
+    })).toBe(false);
+  });
+});
 
 async function transactionWith(accountCount: number) {
   const payer = createNoopSigner((await generateKeyPairSigner()).address);

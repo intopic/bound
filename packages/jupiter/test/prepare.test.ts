@@ -75,6 +75,7 @@ function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: b
     data[165] = 2; // AccountType::Account
     new DataView(data.buffer).setUint16(166, 8, true); // MemoTransfer
     new DataView(data.buffer).setUint16(168, 1, true);
+    data[170] = 1; // requireIncomingTransferMemos = true
   }
   return { owner: TOKEN_PROGRAM, data };
 }

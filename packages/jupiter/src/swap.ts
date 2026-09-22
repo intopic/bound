@@ -180,14 +180,40 @@ export function routeFloor(r: Pick<BuildResponse, 'outAmount' | 'otherAmountThre
   return quoted > local ? quoted : local;
 }
 
+/**
+ * Bound has one minimum-output model, regardless of what a router calls its own threshold: an exact
+ * token amount that Bound puts into the transaction and the verifier checks on the exact bytes.
+ * A router threshold may make it stricter but never weaker, and a previously accepted user floor
+ * may make it stricter again. Router-only or off-chain guarantees are not accepted as substitutes.
+ */
+export function strictMinimumOutput(
+  r: Pick<BuildResponse, 'outAmount' | 'otherAmountThreshold'>,
+  slippageBps: number,
+  acceptedMinOut = 0n,
+): bigint {
+  const route = routeFloor(r, slippageBps);
+  return acceptedMinOut > route ? acceptedMinOut : route;
+}
+
 /** Did the simulation fail at Bound's own minimum-output check (a self-TransferChecked)? */
+export function isMinimumOutputCheckInstruction(ix: {
+  programAddress?: string;
+  data?: ArrayLike<number>;
+  accounts?: { address: string }[];
+} | undefined): boolean {
+  return (ix?.programAddress === TOKEN_PROGRAM || ix?.programAddress === TOKEN_2022_PROGRAM)
+    && ix.data?.[0] === 12
+    && !!ix.accounts
+    && ix.accounts[0]?.address === ix.accounts[2]?.address;
+}
+
 function failedAtFloorCheck(tx: Transaction, index: number | null, lookups: Record<string, string[]> | null): boolean {
   if (index === null) return false;
   try {
     const compiled = getCompiledTransactionMessageDecoder().decode(tx.messageBytes);
     const msg = decompileTransactionMessage(compiled as never, { addressesByLookupTableAddress: (lookups ?? {}) as never });
     const ix = msg.instructions[index] as { programAddress: string; data?: ArrayLike<number>; accounts?: { address: string }[] };
-    return ix?.programAddress === TOKEN_PROGRAM && ix.data?.[0] === 12 && !!ix.accounts && ix.accounts[0].address === ix.accounts[2].address;
+    return isMinimumOutputCheckInstruction(ix);
   } catch {
     return false;
   }
@@ -409,10 +435,7 @@ export async function prepareProtectedSwap(deps: {
   // Bound computes each route's floor itself and enforces it on chain, never below what the user
   // accepted (audit B-04, C-02).
   const accepted = req.acceptedMinOut ?? 0n;
-  const floorOf = (r: BuildResponse) => {
-    const floor = routeFloor(r, settings.slippageBps);
-    return floor > accepted ? floor : accepted;
-  };
+  const floorOf = (r: BuildResponse) => strictMinimumOutput(r, settings.slippageBps, accepted);
   const policyFor = (r: BuildResponse) => withMinOut(policy, floorOf(r));
   const priceMoved = (r: BuildResponse) =>
     new BoundError('price-moved', 'The price moved beyond the slippage tolerance since you looked. Nothing was signed.', [], {

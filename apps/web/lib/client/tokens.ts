@@ -1,6 +1,8 @@
 'use client';
 
 import { address, isAddress } from '@solana/kit';
+import type { Address } from '@solana/kit';
+import { ataOf } from '@bound/core';
 import type { TokenInfo } from '@bound/jupiter';
 import { hasTransferFee, transferFeeOf, transferFeeOn, unsupportedExtension } from '@bound/verifier';
 import type { TransferFee } from '@bound/verifier';
@@ -48,6 +50,17 @@ export type MintFacts = {
   /** The tax the token itself charges on every transfer this epoch, or null. */
   transferFee: TransferFee | null;
 };
+
+/**
+ * An ATA includes the token program id in its seeds. The mint owner read from the chain therefore
+ * has to travel with every derivation: the same wallet and mint have different classic and
+ * Token-2022 ATA addresses.
+ */
+export const mintAta = (
+  owner: Address,
+  mint: string,
+  facts: Pick<MintFacts, 'program'>,
+) => ataOf(owner, address(mint), address(facts.program));
 
 /**
  * What actually reaches the route: a taxing token keeps a cut of the transfer into the protected

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
 import { address, getTransactionEncoder } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
-import { ataOf, feeFor, JUPITER_PROGRAM } from '@bound/core';
+import { feeFor, JUPITER_PROGRAM } from '@bound/core';
 import type { TxVersion } from '@bound/core';
 import { BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, prepareProtectedSwap, routeFloor } from '@bound/jupiter';
 import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
@@ -19,7 +19,7 @@ import {
 } from '@/lib/client/wallets';
 import { formatExact, formatUnits, formatUsd, parseUnits, shortAddress } from '@/lib/client/format';
 import {
-  amountReachingRoute, loadTokens, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
+  amountReachingRoute, loadTokens, mintAta, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
 } from '@/lib/client/tokens';
 import type { MintFacts } from '@/lib/client/tokens';
 import { addHistory, isUnsettled, readHistory, settledHistoryStatus, STATUS_LABEL, updateHistory } from '@/lib/client/history';
@@ -191,6 +191,10 @@ export function SwapApp() {
   const decideOffer = useRef<((accept: boolean) => void) | null>(null);
 
   const W = account ? (account.address as Address) : null;
+  // The mint owner is the token program. It is part of every ATA derivation, so keep these facts
+  // beside the selected tokens instead of falling back to the classic program while they load.
+  const inFacts = tokenIn ? facts[tokenIn.id] : undefined;
+  const outFacts = tokenOut ? facts[tokenOut.id] : undefined;
 
   // --- bootstrap
   useEffect(() => {
@@ -232,20 +236,20 @@ export function SwapApp() {
 
   const refreshBalances = useCallback(async () => {
     const request = ++balanceRequest.current; // only the latest request may set balances (C-10)
-    if (!W || !tokenIn) return setBalances(null);
+    if (!W || !tokenIn || !inFacts || inFacts === 'missing') return setBalances(null);
     const rpc = getRpc();
     const sol = (await rpc.getBalance(W, { commitment: 'confirmed' }).send()).value;
     let tokenBalance: bigint = sol;
     if (tokenIn.id !== SOL_MINT) {
       try {
-        const ata = await ataOf(W, address(tokenIn.id));
+        const ata = await mintAta(W, tokenIn.id, inFacts);
         tokenBalance = BigInt((await rpc.getTokenAccountBalance(ata, { commitment: 'confirmed' }).send()).value.amount);
       } catch {
         tokenBalance = 0n;
       }
     }
     if (request === balanceRequest.current) setBalances({ sol, tokenIn: tokenBalance });
-  }, [W, tokenIn]);
+  }, [W, tokenIn, inFacts]);
 
   useEffect(() => {
     refreshBalances().catch(() => setBalances(null));
@@ -256,10 +260,14 @@ export function SwapApp() {
   const refreshAccounts = useCallback(async () => {
     const exists = async (a: Address) =>
       (await getRpc().getAccountInfo(a, { encoding: 'base64', commitment: 'confirmed' }).send()).value !== null;
-    const fee = TREASURY && tokenIn && tokenIn.id !== SOL_MINT ? await exists(await ataOf(TREASURY, address(tokenIn.id))) : true;
-    const out = W && tokenOut && tokenOut.id !== SOL_MINT ? await exists(await ataOf(W, address(tokenOut.id))) : true;
+    const fee = TREASURY && tokenIn && tokenIn.id !== SOL_MINT && inFacts && inFacts !== 'missing'
+      ? await exists(await mintAta(TREASURY, tokenIn.id, inFacts))
+      : true;
+    const out = W && tokenOut && tokenOut.id !== SOL_MINT && outFacts && outFacts !== 'missing'
+      ? await exists(await mintAta(W, tokenOut.id, outFacts))
+      : true;
     return { fee, out };
-  }, [tokenIn, tokenOut, W]);
+  }, [tokenIn, tokenOut, W, inFacts, outFacts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,8 +284,6 @@ export function SwapApp() {
   }, [refreshAccounts]);
 
   // --- amounts, always with the mints' on-chain decimals (audit C-01)
-  const inFacts = tokenIn ? facts[tokenIn.id] : undefined;
-  const outFacts = tokenOut ? facts[tokenOut.id] : undefined;
   const inDecimals = inFacts && inFacts !== 'missing' ? inFacts.decimals : null;
   const outDecimals = outFacts && outFacts !== 'missing' ? outFacts.decimals : null;
   const chargesFee = !!TREASURY && feeAccountExists;

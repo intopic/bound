@@ -4,8 +4,23 @@
  * quoting the amount before that cut while the pipeline quoted the amount after it — so the first
  * number a user saw was higher than the one they could actually get.
  */
+import { address } from '@solana/kit';
+import { ataOf, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@bound/core';
 import { describe, expect, it } from 'vitest';
-import { amountReachingRoute, currentTransferFee } from '../lib/client/tokens';
+import { amountReachingRoute, currentTransferFee, mintAta } from '../lib/client/tokens';
+
+describe('the selected mint decides its ATA program', () => {
+  const owner = address('GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE');
+  const mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+  it('derives distinct classic and Token-2022 accounts from on-chain mint facts', async () => {
+    const classic = await mintAta(owner, mint, { program: TOKEN_PROGRAM });
+    const token2022 = await mintAta(owner, mint, { program: TOKEN_2022_PROGRAM });
+    expect(classic).toBe(await ataOf(owner, address(mint), TOKEN_PROGRAM));
+    expect(token2022).toBe(await ataOf(owner, address(mint), TOKEN_2022_PROGRAM));
+    expect(token2022).not.toBe(classic);
+  });
+});
 
 describe('the amount a quote is asked for', () => {
   it('is the whole amount for a token that charges nothing', () => {

@@ -199,8 +199,13 @@ export function memoRequired(data: Uint8Array): boolean {
     const type = view.getUint16(at, true);
     const length = view.getUint16(at + 2, true);
     if (type === 0) break;
-    if (type === 8) return true;
-    at = at + 4 + length;
+    const value = at + 4;
+    // MemoTransfer is a one-byte PodBool. The extension may remain present after the owner disables
+    // it, so its presence alone does not mean incoming transfers require a memo. Malformed forms
+    // fail closed: accepting one would let a supposedly supported output fail only after signing.
+    if (type === 8) return length !== 1 || value >= data.length || data[value] !== 0;
+    if (value + length > data.length) return true;
+    at = value + length;
   }
   return false;
 }
