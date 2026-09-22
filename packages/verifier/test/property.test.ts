@@ -24,11 +24,15 @@ const PAIRS: [Address, Address][] = [[USDC, WSOL_MINT], [WSOL_MINT, USDC], [USDC
 // Token-2022 extension sets a protected swap can live with, and ones it must refuse (section 0f).
 const ALLOWED_EXTENSIONS: [number, number][][] = [
   [], [[18, 64]], [[18, 64], [19, 120]], [[14, 64]], [[3, 32], [18, 64]], [[4, 97]], [[20, 64], [21, 80]],
+  // An empty permanent-delegate slot names nobody; a confidential-transfer fee never touches a public transfer.
+  [[12, 32]], [[4, 65], [16, 129]],
 ];
 // A transfer fee is not here: the swap's own mints may charge one, because the cleanup harvests
-// the withheld amount before closing the temporary account.
+// the withheld amount before closing the temporary account. The fixtures fill every value with
+// zeros, so the default-state entry here means "uninitialized", which is refused. A permanent
+// delegate is exercised with real keys in verifier.test.ts, since an empty one names nobody.
 const REFUSED_EXTENSIONS: [number, number][] = [
-  [6, 1], [8, 1], [9, 0], [10, 52], [12, 32], [25, 24], [26, 33], [250, 8],
+  [6, 1], [8, 1], [9, 0], [10, 52], [12, 31], [16, 128], [25, 24], [26, 33], [250, 8],
 ];
 
 const shape = fc.record({

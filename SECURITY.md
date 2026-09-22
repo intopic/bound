@@ -48,10 +48,13 @@ R1's address filter then only has to cover what can move **without** W's signatu
 
 - token accounts with a pre-existing delegate: none of W's token accounts reach the external program
   except `W_out`, and `W_out`'s delegate is revoked before the swap;
-- mints with a permanent delegate: such a mint is refused outright, and the Token-2022
-  mint of an intermediate account that Bound creates may carry neither a permanent delegate nor a
-  transfer hook. Tokens used only inside the route's own pools never reach W's accounts; the
-  external instruction is untrusted anyway.
+- mints with a permanent delegate: such a delegate moves tokens without W's signature, but not
+  without its own. A delegate that is an ordinary key signs only as a signer of the transaction,
+  and R6 admits none but W and E, so it cannot act inside the swap. A delegate off the curve is a
+  program-derived address its program could sign for, and that program could be in the route, so
+  such a mint is refused — as an endpoint and as an intermediate. The same holds for a transfer
+  hook with a real program. Tokens used only inside the route's own pools never reach W's
+  accounts; the external instruction is untrusted anyway (AUDIT.md section 0j).
 
 Anyone changing R1 or R6 must re-read this section. The same note sits above the rules in
 `packages/verifier/src/verify.ts`.
@@ -93,9 +96,12 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   the last two.
 - Price movement and MEV within the 0.5% slippage tolerance: the minimum output is the quoted amount
   minus that tolerance.
-- Token-2022 tokens whose extensions Bound refuses: a permanent delegate, accounts frozen by
-  default, pausable, non-transferable, interest-bearing, a scaled UI amount, a required memo, a
-  transfer hook with a real program, or any extension the verifier does not know.
+- Token-2022 tokens whose extensions Bound refuses: a permanent delegate a program can sign for,
+  accounts frozen by default, pausable, non-transferable, interest-bearing, a scaled UI amount, a
+  required memo, a transfer hook with a real program, or any extension the verifier does not know.
+- What a token's issuer can do outside the swap. A stablecoin such as PYUSD gives its issuer a
+  delegate that can move or freeze it in any wallet; Bound accepts it only when that delegate cannot
+  act inside the swap, and says so to the user, but it cannot and does not limit the issuer.
 - A token that charges its own transfer fee is supported, and costs more through Bound than
   elsewhere: the fee applies to every transfer, and a protected swap makes one transfer more than
   an unprotected one. The page says so before the swap and again while the wallet is open. That

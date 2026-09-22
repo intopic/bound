@@ -2,9 +2,9 @@
 
 import { address, isAddress } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ataOf } from '@bound/core';
+import { ataOf, tokenAccountSizeFor } from '@bound/core';
 import type { TokenInfo } from '@bound/jupiter';
-import { hasTransferFee, transferFeeOf, transferFeeOn, unsupportedExtension } from '@bound/verifier';
+import { hasPermanentDelegate, hasTransferFee, transferFeeOf, transferFeeOn, unsupportedExtension } from '@bound/verifier';
 import type { TransferFee } from '@bound/verifier';
 import { getJupiter, getRpc } from './chain';
 
@@ -49,6 +49,10 @@ export type MintFacts = {
   unsupported: string | null;
   /** The tax the token itself charges on every transfer this epoch, or null. */
   transferFee: TransferFee | null;
+  /** Size of a new account of this token, which decides the rent it costs to open one. */
+  accountSize: number;
+  /** The issuer can move or burn this token in any account, without its owner (Token-2022). */
+  issuerCanMove: boolean;
 };
 
 /**
@@ -107,6 +111,8 @@ export function readMint(mint: string): Promise<MintFacts | null> {
         transferFee: value.owner === TOKEN_2022_PROGRAM
           ? await currentTransferFee(data)
           : null,
+        accountSize: tokenAccountSizeFor(address(value.owner), data),
+        issuerCanMove: value.owner === TOKEN_2022_PROGRAM && hasPermanentDelegate(data),
       };
     })();
     facts.catch(() => mintFacts.delete(mint)); // a failed read is retried next time

@@ -1,11 +1,13 @@
 import {
   decompileTransactionMessage,
+  getAddressDecoder,
   getAddressEncoder,
   getCompiledTransactionMessageDecoder,
   getTransactionMessageComputeUnitLimit,
   getTransactionMessageLoadedAccountsDataSizeLimit,
   getTransactionMessagePriorityFeeLamports,
   getTransactionSize,
+  isOffCurveAddress,
   TRANSACTION_CONFIG_COMPUTE_UNIT_LIMIT_BIT_MASK,
   TRANSACTION_CONFIG_LOADED_ACCOUNTS_DATA_SIZE_LIMIT_BIT_MASK,
   TRANSACTION_CONFIG_PRIORITY_FEE_LAMPORTS_BIT_MASK,
@@ -60,15 +62,18 @@ const hasCloseAuthority = (s: AccountState | null | undefined) =>
  * any extension this list does not know: an extension changes what a transfer does, and what we
  * have not read, we do not allow.
  *
- * Left out on purpose: transfer fee (an account holding withheld fees cannot be closed, and Bound's
- * extra hop would pay the fee twice), permanent delegate and default-frozen accounts (someone else
- * could move or freeze the temporary account), pausable and non-transferable (a third party can
- * stop the swap), interest-bearing and scaled UI amount (we would show a different number than the
- * wallet), memo-required (every incoming transfer would need one more instruction).
+ * Left out on purpose: pausable and non-transferable (a third party can stop the swap),
+ * interest-bearing and scaled UI amount (we would show a different number than the wallet),
+ * memo-required (every incoming transfer would need one more instruction). Three more are allowed
+ * only in a form that cannot act inside the transaction — transfer fee, permanent delegate and
+ * default account state; see `unsupportedExtension`.
  */
 const ALLOWED_MINT_EXTENSIONS = new Set([
   3, // MintCloseAuthority: usable only at zero supply
   4, // ConfidentialTransferMint: ordinary public transfers still work
+  // ConfidentialTransferFee: the fee on confidential transfers only. A public transfer never
+  // touches it, and the account-side amount it adds starts at zero and stays there.
+  16,
   14, // TransferHook, but only with no program set - see below
   18, 19, // MetadataPointer, TokenMetadata
   20, 21, 22, 23, // Group and member pointers
@@ -83,8 +88,10 @@ const ALLOWED_MINT_EXTENSIONS = new Set([
 const EXTENSION_LENGTH: Record<number, number> = {
   1: 108, // TransferFeeConfig: two authorities, the withheld amount, two fee schedules
   3: 32, // MintCloseAuthority
+  6: 1, // DefaultAccountState: the state new accounts start in
   12: 32, // PermanentDelegate
   14: 64, // TransferHook: authority and program id
+  16: 129, // ConfidentialTransferFeeConfig: authority, ElGamal key, harvest flag, withheld ciphertext
   18: 64, // MetadataPointer: authority and address
   20: 64, // GroupPointer
   22: 64, // GroupMemberPointer
@@ -157,6 +164,23 @@ export function hasTransferFee(data: Uint8Array): boolean {
  * `allowTransferFee` is set for swap and intermediate mints whose temporary accounts are harvested
  * before they are closed. Output accounts belong to the user and do not need to be closed.
  */
+/** Does this mint have an issuer that can move or burn its balance anywhere (extension 12, set)? */
+export function hasPermanentDelegate(data: Uint8Array): boolean {
+  if (data.length <= TOKEN_ACCOUNT_SIZE || data[TOKEN_ACCOUNT_SIZE] !== 1) return false;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  for (let at = TOKEN_ACCOUNT_SIZE + 1; at + 4 <= data.length; ) {
+    const type = view.getUint16(at, true);
+    const length = view.getUint16(at + 2, true);
+    const value = at + 4;
+    if (type === 0) break;
+    if (type === 12) return value + 32 <= data.length && data.subarray(value, value + 32).some(b => b !== 0);
+    at = value + length;
+  }
+  return false;
+}
+
+const addressDecoder = getAddressDecoder();
+
 export function unsupportedExtension(data: Uint8Array, options: { allowTransferFee?: boolean } = {}): string | null {
   if (data.length === MINT_SIZE) return null;
   if (data.length <= TOKEN_ACCOUNT_SIZE || data[TOKEN_ACCOUNT_SIZE] !== 1) return 'malformed extension area';
@@ -178,6 +202,21 @@ export function unsupportedExtension(data: Uint8Array, options: { allowTransferF
       if (length < 64 || nonZero(value + 32, value + 64)) return 'transfer hook';
     } else if (type === 1) {
       if (!options.allowTransferFee) return 'transfer fee';
+    } else if (type === 12) {
+      // A permanent delegate may move or burn any balance of this token in any account, without
+      // the owner. Inside a Bound transaction it can do so only if it signs. A delegate on the
+      // ed25519 curve is an ordinary key: it signs only as a signer of the transaction, and R6
+      // admits none but W and E. A delegate off the curve is a program-derived address, which its
+      // program can sign for through invoke_signed — and that program could be a hop in the route —
+      // so it is refused. What the issuer can do outside the transaction is the token's own nature:
+      // it holds in every wallet, is disclosed to the user, and is not Bound's to grant.
+      if (nonZero(value, value + 32) && isOffCurveAddress(addressDecoder.decode(data.subarray(value, value + 32)))) {
+        return 'permanent delegate controlled by a program';
+      }
+    } else if (type === 6) {
+      // New accounts, Bound's temporary ones included, start in this state. Frozen, they could never
+      // receive the swap; initialized, the extension changes nothing a transfer does.
+      if (data[value] !== 1) return 'accounts frozen by default';
     } else if (!ALLOWED_MINT_EXTENSIONS.has(type)) {
       return EXTENSION_NAMES[type] ?? `unknown extension ${type}`;
     }

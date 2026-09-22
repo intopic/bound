@@ -30,7 +30,7 @@ Every finding has a regression test that replaces the reviewer's proof of concep
 | B-07 | Low | Fixed | The v1 message config is an allowlist: CU limit, priority fee and loaded-accounts data size (≤ 64 MiB). Any other field → R4. | heap size in the config → R4 |
 | B-08 | Low | Fixed | Nonce-based CSP from Next.js 16 `proxy.ts` with `'strict-dynamic'`; the page renders per request. `img-src 'self' data:`; token icons come from `/api/token-icon` (section 9, question 6). | e2e: a different nonce per request, no `'unsafe-inline'` for scripts, no third-party image request; icon proxy tests |
 | B-09 | Info | Fixed | The reviewer's cleanest option: Bound no longer creates the treasury's account at the user's expense. If `ATA(treasury, input)` does not exist, the swap is fee-free (the policy's treasury is null). `createFeeAccount` is gone from policy, compiler and verifier. The remaining rent (opening `W_out`) is returned as `oneTimeCosts` and shown before and while the wallet is open; the guarantee now carries that term. | fee-free without the account; creating the treasury account → R2; SOL input still pays the fee |
-| B-10 | Info | Fixed | A Token-2022 hop mint must be in the snapshot and carry no transfer hook (non-null program) and no permanent delegate (R7). At most 4 intermediate accounts (R5). The pipeline treats a refused hop as a route to repair. | base mint, harmless extension and null hook accepted; hook, permanent delegate and missing mint → R7; 5 hops → R5 |
+| B-10 | Info | Fixed | A Token-2022 hop mint must be in the snapshot and carry no transfer hook (non-null program) and no permanent delegate a program can sign for (R7; see 0j). At most 4 intermediate accounts (R5). The pipeline treats a refused hop as a route to repair. | base mint, harmless extension and null hook accepted; hook, permanent delegate and missing mint → R7; 5 hops → R5 |
 | B-11 | Info | Fixed | R1 refuses the fee account and the treasury inside the external instruction. | fee ATA in the swap → R1 |
 | B-12 | Info | Mitigated | The constant is documented as a cluster parameter, and after verification the pipeline prices the final message with `getFeeForMessage` and refuses a fee above the limit. | mainnet runs |
 
@@ -276,12 +276,16 @@ the pipeline and the page so they cannot disagree:
   them, declare the extension and leave the program empty, so no code runs.
 - **Allowed for swap and intermediate mints:** a transfer fee (see below). Every temporary account
   of a taxing mint is harvested before it is closed.
-- **Refused:** permanent delegate, accounts frozen by default, pausable, non-transferable,
-  interest-bearing, scaled UI amount, memo required on transfer, and **any extension the list does
-  not name**.
+- **Allowed only in a form that cannot act inside the transaction** (section 0j): a permanent
+  delegate that is an ordinary key, accounts that start *initialized* by default, and a fee on
+  confidential transfers.
+- **Refused:** a permanent delegate a program can sign for, accounts frozen by default, pausable,
+  non-transferable, interest-bearing, scaled UI amount, memo required on transfer, and **any
+  extension the list does not name**.
 
-Why those are refused: a permanent delegate or a default-frozen account would let someone else move
-or freeze the temporary account; pausable and non-transferable let a third party stop the swap;
+Why those are refused: a delegate a program can sign for could be the route acting as the issuer,
+and a default-frozen account could never receive the swap; pausable and non-transferable let a
+third party stop the swap;
 interest-bearing and scaled UI amount would make Bound show a different number than the wallet; a
 memo requirement would need another instruction on every incoming transfer (an *output account*
 that requires one is refused up front by the pipeline, with its own message).
@@ -424,6 +428,66 @@ the refusal names the extension, a hop through a plain Token-2022 mint still bui
 charges a transfer fee is still allowed because the compiler harvests it before closing the
 account. The first two fail against the previous code, which is the only reason to believe the
 other two.
+
+---
+
+## 0j. Stablecoins whose issuer can move them
+
+Some of the largest Token-2022 tokens give their issuer a **permanent delegate**: an authority that
+can move or burn the token in any account, without the owner. PYUSD, USDG, AUSD and CASH do, and so
+do all the xStocks. Bound refused every such mint. Counted on 2026-09-22 over the day's most traded
+tokens, that was about 40 of 100 Token-2022 tokens and about $460M of daily volume — every refusal
+for the same reason.
+
+**The rule now.** A permanent delegate is accepted when it is an **ordinary key**, one on the
+ed25519 curve, and refused when it is **off the curve**. The reasoning is two facts, not a judgement:
+
+- Inside a Bound transaction a delegate can act only if it signs. An ordinary key signs only as a
+  signer of the transaction, and R6 admits exactly two, W and E.
+- An off-curve address is a program-derived address. Its program can sign for it through
+  `invoke_signed`, and that program could be a hop in the route, so the route could act as the
+  issuer inside the swap. That is refused (R7).
+
+What the issuer can do outside the transaction is the token's own nature. It holds in every wallet,
+is not something Bound grants, and the page tells the user before the swap: *"PYUSD's issuer can
+move or freeze it in any wallet at any time. That is true wherever you hold it; Bound neither adds
+nor changes it, and it cannot act inside this swap."*
+
+Two more extensions these tokens carry are accepted, each in a form that cannot act:
+
+- **Default account state**, only when new accounts start *initialized*. Frozen, Bound's temporary
+  accounts could never receive the swap.
+- **Confidential transfer fee**: the fee on confidential transfers only. A public transfer never
+  touches it, and it adds nothing to the accounts Bound creates (measured below).
+
+The rule is read from the mint on every swap, not remembered. If an issuer ever moves its delegate
+to a program address, sets a hook program, or switches new accounts to frozen, the next swap is
+refused; if that happens between the snapshot and execution, the transaction reverts whole.
+
+**Evidence.**
+
+- Unit tests pin the rule to the delegates the real tokens use: PYUSD's ordinary key is accepted, the
+  xStocks' program address is refused, as an endpoint and as a hop. Breaking either half of the rule
+  on purpose fails five tests.
+- **T12** (`tests/integration/issuer-stablecoins.ts`) runs the real pipeline on mainnet state:
+  **33/33**. PYUSD, USDG and CASH as input from real holders — built, verified, executed, and both
+  temporary accounts gone afterwards; all four as output into a wallet that has no account of them —
+  executed, at least the minimum arrived.
+- **T6** adds three cases in the real Solana VM: a token with an ordinary-key issuer delegate swaps
+  honestly; the attacker *is* that issuer, the route even hands its key along, and it still cannot
+  move the wallet's output balance, because the key never signs; and a delegate that is the route
+  program's own address is refused before signing.
+
+**Found on the way: the rent shown for a new account.** Bound priced a new output account at 165
+bytes (170 for Token-2022). The token program allocates more when the mint needs account-side
+extensions — a transfer fee withholds into the account, a hook marks it. T12 measured the real
+accounts: PYUSD, USDG and AUSD 187 bytes, CASH 175. `tokenAccountSizeFor` now computes the size from
+the mint, the pipeline asks the cluster for that size's rent, and the page does the same before a
+quote. T12 checks that the rent shown equals the lamports the created account holds, for all four.
+
+**Still refused:** the xStocks, whose delegate is a program address and which also need their
+scaled UI amount shown before Bound could quote them honestly. Accepting them would need evidence
+of who controls those addresses, and a decision.
 
 ---
 
@@ -699,6 +763,13 @@ npm run e2e                             # needs Microsoft Edge
    that declares a transfer hook whose program id is the zero address, and to refuse a mint with a
    transfer fee rather than harvesting the withheld amount before the close?
 6. **Anything in section 0b** that closes a finding only in the case the test covers.
+7. **The issuer-delegate rule** (section 0j, `unsupportedExtension` in `verify.ts`). This one
+   *relaxes* a rule, so we want it checked before it reaches production: it lives on the branch
+   `token2022-issuer-stablecoins` until you have. The claim is that an on-curve permanent delegate
+   cannot act inside a transaction whose signers are exactly W and E, and that an off-curve one is
+   the only kind a program in the route could sign for. Is there a third way a delegate can be
+   exercised inside the transaction that this misses? And is accepting a default state of
+   *initialized* and a confidential-transfer fee as harmless as section 0j argues?
 
 ---
 

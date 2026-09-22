@@ -1,12 +1,38 @@
 import { findAssociatedTokenPda } from '@solana-program/token';
 import type { Address } from '@solana/kit';
-import { BPS_DENOMINATOR, TOKEN_PROGRAM, WSOL_MINT } from './constants.ts';
+import { BPS_DENOMINATOR, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, WSOL_MINT } from './constants.ts';
 import type { BoundConfig, Intent, Policy, Variant } from './types.ts';
 
 /** Token amount of a classic SPL token account (offset 64), or 0 for a missing account. */
 export function tokenAmountOf(data: Uint8Array | null | undefined): bigint {
   if (!data || data.length < 72) return 0n;
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(64, true);
+}
+
+/**
+ * The size of a new associated token account for this mint, as the token program allocates it, so
+ * the rent shown before signing is the rent that will be charged. A classic account is 165 bytes.
+ * A Token-2022 one adds an account-type byte, the ImmutableOwner marker the ATA program always
+ * sets, and one account-side extension for each mint extension that needs one: a transfer fee
+ * withholds into the account (8 bytes), a transfer hook marks it (1), a non-transferable or
+ * pausable mint flags it (0). Checked against mainnet in T12: PYUSD and USDG 187, CASH 175.
+ */
+export function tokenAccountSizeFor(program: Address, mintData: Uint8Array | null | undefined): number {
+  if (program !== TOKEN_2022_PROGRAM) return TOKEN_ACCOUNT_SIZE;
+  const ACCOUNT_SIDE: Record<number, number> = { 1: 8, 9: 0, 14: 1, 26: 0 };
+  let size = TOKEN_ACCOUNT_SIZE + 1 + 4; // account type, then ImmutableOwner's empty entry
+  if (mintData && mintData.length > TOKEN_ACCOUNT_SIZE && mintData[TOKEN_ACCOUNT_SIZE] === 1) {
+    const view = new DataView(mintData.buffer, mintData.byteOffset, mintData.byteLength);
+    for (let at = TOKEN_ACCOUNT_SIZE + 1; at + 4 <= mintData.length; ) {
+      const type = view.getUint16(at, true);
+      if (type === 0) break;
+      if (ACCOUNT_SIDE[type] !== undefined) size += 4 + ACCOUNT_SIDE[type];
+      at += 4 + view.getUint16(at + 2, true);
+    }
+  }
+  // The token program never lets an account be the size of a multisig, which is 355 bytes; it
+  // pads such an account by the width of one extension type.
+  return size === 355 ? size + 2 : size;
 }
 
 export async function ataOf(owner: Address, mint: Address, tokenProgram: Address = TOKEN_PROGRAM): Promise<Address> {

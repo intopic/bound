@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AccountRole, generateKeyPairSigner } from '@solana/kit';
+import { AccountRole, address, generateKeyPairSigner, getAddressEncoder } from '@solana/kit';
 import type { Address, Instruction } from '@solana/kit';
 import {
   AuthorityType, getApproveInstruction, getCloseAccountInstruction, getSetAuthorityInstruction,
@@ -213,9 +213,57 @@ describe('Token-2022', () => {
     expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
   });
 
+  // The delegates the real tokens use, read from mainnet on 2026-09-22: PYUSD and USDG share an
+  // ordinary key; the xStocks use a program-derived address.
+  const PYUSD_DELEGATE = Uint8Array.from(getAddressEncoder().encode(address('2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk')));
+  const XSTOCKS_DELEGATE = Uint8Array.from(getAddressEncoder().encode(address('5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq')));
+  const withDelegate = async (delegate: Uint8Array) => {
+    const s = await t22([[12, 32]]);
+    s.snapshot.accounts.get(USDC)!.data.set(delegate, 166 + 4);
+    return s;
+  };
+
+  it('a permanent delegate that is an ordinary key can act only by signing, so it is accepted', async () => {
+    const s = await withDelegate(PYUSD_DELEGATE);
+    expect((await verify(await compileHonest(s, 0), s.policy, s.snapshot)).violations).toEqual([]);
+  });
+
+  it('a permanent delegate that a program can sign for → R7', async () => {
+    const s = await withDelegate(XSTOCKS_DELEGATE);
+    expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
+  });
+
+  it('new accounts that start initialized change nothing, so the default-state extension is accepted', async () => {
+    const s = await t22([[6, 1]]);
+    s.snapshot.accounts.get(USDC)!.data[166 + 4] = 1; // AccountState::Initialized
+    expect((await verify(await compileHonest(s, 0), s.policy, s.snapshot)).violations).toEqual([]);
+  });
+
+  it('the fee on confidential transfers never touches a public one, so it is accepted', async () => {
+    const s = await t22([[4, 65], [16, 129]]);
+    expect((await verify(await compileHonest(s, 0), s.policy, s.snapshot)).violations).toEqual([]);
+  });
+
+  it('PYUSD\'s own set of extensions passes every rule', async () => {
+    const s = await t22([[3, 32], [12, 32], [1, 108], [4, 65], [16, 129], [14, 64], [18, 64], [19, 174]]);
+    const mint = s.snapshot.accounts.get(USDC)!.data;
+    mint.set(PYUSD_DELEGATE, 166 + 4 + 32 + 4); // after MintCloseAuthority
+    expect((await verify(await compileHonest(s, 0), s.policy, s.snapshot)).violations).toEqual([]);
+  });
+
   it.each([
-    ['accounts frozen by default', 6, 1],
-    ['a permanent delegate', 12, 32],
+    ['accounts frozen by default', 6, 1, 2],
+    ['a default state that is not a state at all', 6, 1, 0],
+  ])('%s → R7', async (_name, type, length, state) => {
+    const s = await t22([[type, length]]);
+    s.snapshot.accounts.get(USDC)!.data[166 + 4] = state;
+    expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
+  });
+
+  it.each([
+    ['a default-state extension of the wrong size', 6, 2],
+    ['a permanent-delegate extension of the wrong size', 12, 31],
+    ['a confidential-fee extension of the wrong size', 16, 128],
     ['an interest-bearing mint', 10, 52],
     ['a scaled UI amount', 25, 24],
     ['a pausable mint', 26, 33],

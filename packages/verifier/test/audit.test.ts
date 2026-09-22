@@ -277,7 +277,9 @@ describe('B-10: Token-2022 intermediate hops', () => {
     ['a harmless extension (metadata pointer) is accepted', t22Mint([METADATA_POINTER, cat(key(7), key(8))], [METADATA_POINTER + 1, new Uint8Array(0)]), true],
     ['a transfer-hook extension with no program is accepted', t22Mint([HOOK, cat(key(9), key(0))]), true],
     ['a mint that runs a transfer hook is rejected', t22Mint([HOOK, cat(key(9), key(5))]), false],
-    ['a mint with a permanent delegate is rejected', t22Mint([PERMANENT_DELEGATE, key(3)]), false],
+    // Delegates read from mainnet: PYUSD's is an ordinary key, the xStocks' a program address.
+    ['a hop whose issuer delegate is an ordinary key is accepted', t22Mint([PERMANENT_DELEGATE, Uint8Array.from(getAddressEncoder().encode(address('2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk')))]), true],
+    ['a hop whose issuer delegate a program can sign for is rejected', t22Mint([PERMANENT_DELEGATE, Uint8Array.from(getAddressEncoder().encode(address('5aMNNLQJwAEeoemTEMkv5NVjqKwvvefRYCQ5Z67HFvEq')))]), false],
 
     ['a hop mint missing from the snapshot is rejected', null, false],
   ];

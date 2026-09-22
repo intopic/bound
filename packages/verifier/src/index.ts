@@ -1,4 +1,4 @@
-export { hasTransferFee, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verify } from './verify.ts';
+export { hasPermanentDelegate, hasTransferFee, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verify } from './verify.ts';
 export type { TransferFee } from './verify.ts';
 export { verifyWalletReturn } from './wallet.ts';
 export { parseInstruction } from './parse.ts';

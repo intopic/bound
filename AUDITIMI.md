@@ -39,9 +39,9 @@ Debit(W, tokeni i dhënë) = q     Debit(W, tokenë të tjerë) = 0
 Debit(W, SOL) ≤ min(F_max, 0.001 SOL) + qiraja e W_out nëse krijohet (+ q kur jepet SOL)
 ```
 
-**Pse mban: R6 para R1.** Rregulli mbajtës është R6: transaksioni ka saktësisht dy signerë, W dhe E, dhe W paguan. R1 e mban W-në jashtë instruksionit të jashtëm, ndaj nënshkrimi i W-së nuk është kurrë i disponueshëm atje. Gjithçka që kërkon nënshkrimin e W-së për të lëvizur mbetet e paarritshme edhe sikur llogaria t'i jepej: transferta SPL, SOL, stake, mbyllje llogarish, ndryshime autoriteti. Filtri i adresave në R1 duhet të mbulojë vetëm atë që lëviz pa nënshkrimin e W-së: llogari tokenësh me delegate të mëparshëm dhe mint-e me permanent delegate.
+**Pse mban: R6 para R1.** Rregulli mbajtës është R6: transaksioni ka saktësisht dy signerë, W dhe E, dhe W paguan. R1 e mban W-në jashtë instruksionit të jashtëm, ndaj nënshkrimi i W-së nuk është kurrë i disponueshëm atje. Gjithçka që kërkon nënshkrimin e W-së për të lëvizur mbetet e paarritshme edhe sikur llogaria t'i jepej: transferta SPL, SOL, stake, mbyllje llogarish, ndryshime autoriteti. Filtri i adresave në R1 duhet të mbulojë vetëm atë që lëviz pa nënshkrimin e W-së: llogari tokenësh me delegate të mëparshëm dhe mint-e me permanent delegate. Një permanent delegate që është çelës i zakonshëm vepron vetëm duke nënshkruar, dhe R6 nuk lejon asnjë nënshkrues tjetër përveç W dhe E; ai që është adresë programi refuzohet, sepse programi i tij mund të jetë vetë route-i (AUDIT.md, seksioni 0j).
 
-**Çfarë nuk garantohet:** lëvizja e çmimit dhe MEV brenda tolerancës 0.5%, vlera e tokenit që blihet (rug pull, freeze authority), approve-t që përdoruesi ka dhënë më parë diku tjetër, faqet phishing që nuk përdorin Bound, dhe tokenët Token-2022 me extensions që i refuzojmë (permanent delegate, ngrirje e parazgjedhur, pausable e të tjera — lista te AUDIT.md, seksioni 0f). Tarifa e transferimit mbështetet: lexohet epoka aktive dhe llogaritë e përkohshme harvest-ohen para mbylljes.
+**Çfarë nuk garantohet:** lëvizja e çmimit dhe MEV brenda tolerancës 0.5%, vlera e tokenit që blihet (rug pull, freeze authority), approve-t që përdoruesi ka dhënë më parë diku tjetër, faqet phishing që nuk përdorin Bound, tokenët Token-2022 me extensions që i refuzojmë (permanent delegate që e kontrollon një program, ngrirje e parazgjedhur, pausable e të tjera — lista te AUDIT.md, seksioni 0f), dhe ajo që lëshuesi i një tokeni mund të bëjë jashtë swap-it (p.sh. i PYUSD-së mund ta lëvizë në çdo wallet; faqja ia thotë klientit). Tarifa e transferimit mbështetet: lexohet epoka aktive dhe llogaritë e përkohshme harvest-ohen para mbylljes.
 
 ## 3. Si funksionon një swap
 
@@ -202,7 +202,7 @@ Një rishikim i jashtëm i v0.1 (19 shtator 2026) nuk gjeti mënyrë për të th
 | B-07 | E ulët | Config-u v1 kontrollohej pjesërisht | Listë e lejuar e plotë e fushave |
 | B-08 | E ulët | `script-src 'unsafe-inline'` dhe `img-src https:` | CSP me nonce në `proxy.ts`; ikonat nga `/api/token-icon` |
 | B-09 | Info | Qiraja kalonte kufirin e deklaruar për SOL | Pa krijim të llogarisë së treasury-t në kurriz të përdoruesit; qiraja e W_out shfaqet para nënshkrimit |
-| B-10 | Info | Hop-et Token-2022 pa kufizim | Pa transfer hook dhe pa permanent delegate; ≤ 4 llogari të ndërmjetme |
+| B-10 | Info | Hop-et Token-2022 pa kufizim | Pa transfer hook dhe pa permanent delegate që e kontrollon një program; ≤ 4 llogari të ndërmjetme |
 | B-11 | Info | Llogaria e fee-së mund t'i jepej swap-it | R1 e refuzon |
 | B-12 | Info | `LAMPORTS_PER_SIGNATURE` i fiksuar | Kryqkëzim me `getFeeForMessage` pas verifikimit |
 

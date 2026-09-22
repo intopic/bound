@@ -185,8 +185,24 @@ function sendOrThrow(svm: LiteSVM, tx: Transaction, what: string) {
   if (!r.ok) throw new Error(`${what} failed: ${r.error}\n${r.logs.join('\n')}`);
 }
 
+/**
+ * Who holds the permanent delegate of the swap's two Token-2022 mints, when one is set: an ordinary
+ * key (the attacker's own wallet, which never signs the swap), or an address the attacker's
+ * program can sign for itself (its pool authority).
+ */
+type IssuerDelegate = 'key' | 'program';
+
+/** InitializePermanentDelegate (Token-2022 instruction 35); it must run before the mint is initialized. */
+const initializePermanentDelegate = (mint: Address, delegate: Address): Instruction => ({
+  programAddress: TOKEN_2022_PROGRAM,
+  accounts: [{ address: mint, role: AccountRole.WRITABLE }],
+  data: Uint8Array.from([35, ...encoder.encode(delegate)]),
+});
+/** A mint with one 32-byte extension: padded to an account's size, a type byte, then the entry. */
+const MINT_WITH_DELEGATE_SIZE = 165 + 1 + 4 + 32;
+
 /** A fresh chain with the wallet, the attacker's pool and three tokens. */
-async function setup(tokenProgram: Address = TOKEN_PROGRAM): Promise<World> {
+async function setup(tokenProgram: Address = TOKEN_PROGRAM, issuer?: IssuerDelegate): Promise<World> {
   const svm = new LiteSVM().withNativeMints();
   const program = await generateKeyPairSigner(); // only its address matters: the program id
   svm.addProgramFromFile(program.address, SO);
@@ -204,17 +220,24 @@ async function setup(tokenProgram: Address = TOKEN_PROGRAM): Promise<World> {
     seeds: [new TextEncoder().encode('attacker')],
   });
 
-  const rent = svm.minimumBalanceForRentExemption(BigInt(MINT_SIZE));
-  const mints: [KeyPairSigner, number][] = [[mintInKey, IN_DECIMALS], [mintOutKey, OUT_DECIMALS], [mintOtherKey, 6]];
-  sendOrThrow(svm, await sign(svm, mints.flatMap(([mint, decimals]) => [
-    getCreateAccountInstruction({
-      payer, newAccount: mint, lamports: lamports(rent), space: BigInt(MINT_SIZE), programAddress: tokenProgram,
-    }),
-    getInitializeMint2Instruction(
-      { mint: mint.address, decimals, mintAuthority: payer.address, freezeAuthority: null },
-      { programAddress: tokenProgram },
-    ),
-  ]), payer, mints.map(([m]) => m)), 'creating the mints');
+  const delegate = issuer === 'key' ? attackerWallet.address : issuer === 'program' ? vaultAuthority : null;
+  const mints: [KeyPairSigner, number, boolean][] = [
+    [mintInKey, IN_DECIMALS, !!delegate], [mintOutKey, OUT_DECIMALS, !!delegate], [mintOtherKey, 6, false],
+  ];
+  sendOrThrow(svm, await sign(svm, mints.flatMap(([mint, decimals, withDelegate]) => {
+    const space = withDelegate ? MINT_WITH_DELEGATE_SIZE : MINT_SIZE;
+    return [
+      getCreateAccountInstruction({
+        payer, newAccount: mint, lamports: lamports(svm.minimumBalanceForRentExemption(BigInt(space))),
+        space: BigInt(space), programAddress: tokenProgram,
+      }),
+      ...(withDelegate ? [initializePermanentDelegate(mint.address, delegate!)] : []),
+      getInitializeMint2Instruction(
+        { mint: mint.address, decimals, mintAuthority: payer.address, freezeAuthority: null },
+        { programAddress: tokenProgram },
+      ),
+    ];
+  }), payer, mints.map(([m]) => m)), 'creating the mints');
 
   const mintIn = mintInKey.address, mintOut = mintOutKey.address, mintOther = mintOtherKey.address;
   const world: World = {
@@ -388,6 +411,8 @@ type Case = {
   variant: Variant;
   /** Classic SPL by default; selected cases run the same hostile CPI through Token-2022. */
   tokenProgram?: Address;
+  /** A permanent delegate on both swap mints (Token-2022 only); see `IssuerDelegate`. */
+  issuer?: IssuerDelegate;
   /** What the malicious program attempts, in order. */
   inners: (w: World) => Inner[];
   /** Accounts the route demands on top of what Bound allows. */
@@ -647,6 +672,35 @@ const CASES: Case[] = [
       data: setAuthority(2, w.attacker),
     }],
   },
+  {
+    // PYUSD's shape: the issuer's delegate is an ordinary key. The swap itself must still work.
+    name: 'issuer delegate is an ordinary key: takes the approved amount and delivers the minimum',
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, issuer: 'key', expect: 'succeeds',
+    proves: 'a token whose issuer can move it anywhere still swaps through the protected path',
+    inners: () => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT)],
+  },
+  {
+    // The attacker is the issuer here, and uses its delegate power on the wallet's output account.
+    // The key is an ordinary one, so it can act only as a signer, and it never signs the swap.
+    name: "issuer delegate is an ordinary key: the attacker holds it and tries to take the wallet's output balance",
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, issuer: 'key', expect: 'reverts',
+    proves: 'an issuer key that is not a signer of the transaction cannot act inside it, even when the route belongs to the issuer and hands the key along',
+    // The route even passes the issuer's key along, so the only thing missing is its signature.
+    extra: w => [w.attacker],
+    inners: w => [{
+      program: IX.token,
+      metas: [{ key: IX.output, w: true }, { key: IX.pool, w: true }, { key: w.attacker, s: true }],
+      data: transfer(1n),
+    }],
+  },
+  {
+    // The xStocks' shape: the delegate is an address a program can sign for. If that program is
+    // the route, it could sign as the issuer inside the swap, so Bound refuses before signing.
+    name: "issuer delegate is the route program's own address",
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, issuer: 'program', expect: 'refused before signing',
+    proves: 'a delegate a program can sign for is refused (R7) before the wallet is ever asked',
+    inners: () => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT)],
+  },
 ];
 
 // ---------------------------------------------------------------- run
@@ -655,7 +709,7 @@ type Row = { name: string; proves: string; expected: string; outcome: string; ve
 
 const rows: Row[] = [];
 for (const c of CASES) {
-  const w = await setup(c.tokenProgram ?? TOKEN_PROGRAM);
+  const w = await setup(c.tokenProgram ?? TOKEN_PROGRAM, c.issuer);
   const { policy, transaction, swapIndex, verdict } = await protectedSwap(w, c.variant, c.inners(w), c.extra?.(w) ?? []);
   const verifier = verdict.ok ? 'e pranoi' : `e refuzoi (${[...new Set(verdict.violations.map(v => v.rule))].join(', ')})`;
 

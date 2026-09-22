@@ -112,8 +112,9 @@ Every router must compile its quote to this same exact on-chain balance floor. A
 off-chain minimum is not accepted as protection; a route that cannot express the floor is refused.
 Not in scope: price movement and MEV within that tolerance, the value of the token you buy,
 approvals granted elsewhere before, phishing sites that do not use Bound, and Token-2022 tokens
-whose extensions Bound refuses (permanent delegate, frozen by default, pausable and the rest,
-listed in AUDIT.md section 0f). Transfer-fee tokens are supported: Bound prices the active schedule
+whose extensions Bound refuses (a permanent delegate a program can sign for, frozen by default,
+pausable and the rest, listed in AUDIT.md section 0f), and what a token's own issuer can do outside
+the swap (PYUSD's, for example, can move it in any wallet; the page says so). Transfer-fee tokens are supported: Bound prices the active schedule
 from the current epoch and harvests temporary accounts before closing them.
 
 See `SECURITY.md` for the threat model, `AUDIT.md` for the audit brief (with the fixes from the first

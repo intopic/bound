@@ -7,7 +7,7 @@ import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
-  TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAmountOf,
+  TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, TxVersion, Violation } from '@bound/core';
@@ -335,7 +335,13 @@ export async function prepareProtectedSwap(deps: {
   const outputTokenProgram = mints.get(req.outputMint)!.program!;
   const feeAccount = feeCandidates.length ? await ataOf(settings.treasury!, req.inputMint, inputTokenProgram) : null;
   const wOutAddress = wOutCandidates.length ? await ataOf(req.owner, req.outputMint, outputTokenProgram) : null;
-  const newAccountRent = !wOutAddress ? 0n : outputTokenProgram === TOKEN_PROGRAM ? classicRent : extendedRent;
+  // A Token-2022 account is larger when its mint needs account-side extensions, so its rent is
+  // asked for at that size; the two common sizes were fetched above, in parallel.
+  const outputAccountSize = tokenAccountSizeFor(outputTokenProgram, firstReads.get(req.outputMint)?.data);
+  const newAccountRent = !wOutAddress ? 0n
+    : outputAccountSize === TOKEN_ACCOUNT_SIZE ? classicRent
+      : outputAccountSize === TOKEN_2022_ACCOUNT_SIZE ? extendedRent
+        : await rentFor(outputAccountSize);
   // The amount the user typed was converted with `inputDecimals`; if the chain disagrees, the
   // wallet would be asked for a different amount than the one shown (audit C-01).
   for (const [m, shown] of [[req.inputMint, req.inputDecimals], [req.outputMint, req.outputDecimals]] as const) {

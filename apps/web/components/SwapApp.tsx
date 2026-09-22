@@ -211,8 +211,18 @@ export function SwapApp() {
       .catch(() => setNotice({ kind: 'error', title: "Couldn't load the token list", body: 'Check your connection and reload.' }));
     setHistory(readHistory());
     settleHistory().then(list => list && setHistory(list)).catch(() => undefined);
-    getRpc().getMinimumBalanceForRentExemption(TOKEN_ACCOUNT_SIZE).send().then(v => setRent(BigInt(v))).catch(() => setRent(null));
   }, []);
+
+  // Rent for a new account of the selected output token, at the size the token program gives it:
+  // a Token-2022 account with a transfer fee or hook is larger than a classic one.
+  const outAccountSize = outFacts && outFacts !== 'missing' ? BigInt(outFacts.accountSize) : TOKEN_ACCOUNT_SIZE;
+  useEffect(() => {
+    let cancelled = false;
+    getRpc().getMinimumBalanceForRentExemption(outAccountSize).send()
+      .then(v => { if (!cancelled) setRent(BigInt(v)); })
+      .catch(() => { if (!cancelled) setRent(null); });
+    return () => { cancelled = true; };
+  }, [outAccountSize]);
 
   // --- on-chain facts for the selected tokens
   useEffect(() => {
@@ -631,6 +641,14 @@ export function SwapApp() {
     outWarnings.push(
       `${tokenOut.symbol} charges ${outFacts.transferFee.bps / 100}% on every transfer: the amount shown is what arrives after it.`,
     );
+  }
+  // An issuer that can move the token anywhere is the token's nature, not something Bound grants:
+  // inside the swap it cannot act at all (only an ordinary-key issuer is accepted), but outside it,
+  // it can, in this wallet as in any other. The user is told before they choose to hold it.
+  for (const [token, f, list] of [[tokenIn, inFacts, inWarnings], [tokenOut, outFacts, outWarnings]] as const) {
+    if (token && f && f !== 'missing' && f.issuerCanMove) {
+      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it; Bound neither adds nor changes it, and it cannot act inside this swap.`);
+    }
   }
   const deepLink = typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '';
   const origin = typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : '';

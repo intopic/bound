@@ -9,7 +9,7 @@ import {
   generateKeyPairSigner, pipe, setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@bound/core';
+import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, tokenAccountSizeFor } from '@bound/core';
 import { compileIfFits, isMinimumOutputCheckInstruction, strictMinimumOutput } from '../src/swap.ts';
 
 describe('the strict on-chain minimum model', () => {
@@ -73,5 +73,40 @@ describe('route selection', () => {
 
   it('any other compile error still surfaces', () => {
     expect(() => compileIfFits(() => { throw new Error('boom'); })).toThrow('boom');
+  });
+});
+
+describe('the size of a new token account, which decides the rent shown before signing', () => {
+  /** A Token-2022 mint whose extension area holds these (type, length) entries, zero-filled. */
+  const mint2022 = (extensions: [number, number][]) => {
+    const data = new Uint8Array(166 + extensions.reduce((n, [, l]) => n + 4 + l, 0));
+    data[165] = 1; // AccountType::Mint
+    const view = new DataView(data.buffer);
+    let at = 166;
+    for (const [type, length] of extensions) {
+      view.setUint16(at, type, true);
+      view.setUint16(at + 2, length, true);
+      at += 4 + length;
+    }
+    return data;
+  };
+
+  it('a classic account is 165 bytes', () => {
+    expect(tokenAccountSizeFor(TOKEN_PROGRAM, new Uint8Array(82))).toBe(165);
+  });
+
+  it('a Token-2022 account with no extensions still carries the ImmutableOwner marker: 170', () => {
+    expect(tokenAccountSizeFor(TOKEN_2022_PROGRAM, new Uint8Array(82))).toBe(170);
+  });
+
+  // Measured on mainnet: the real associated accounts of these tokens are this size.
+  it('PYUSD and USDG accounts are 187 bytes, as on mainnet', () => {
+    const pyusd = mint2022([[3, 32], [12, 32], [1, 108], [4, 65], [16, 129], [14, 64], [18, 64], [19, 174]]);
+    expect(tokenAccountSizeFor(TOKEN_2022_PROGRAM, pyusd)).toBe(187);
+  });
+
+  it('CASH accounts are 175 bytes, as on mainnet', () => {
+    const cash = mint2022([[3, 32], [12, 32], [6, 1], [4, 65], [14, 64], [18, 64], [19, 138]]);
+    expect(tokenAccountSizeFor(TOKEN_2022_PROGRAM, cash)).toBe(175);
   });
 });
