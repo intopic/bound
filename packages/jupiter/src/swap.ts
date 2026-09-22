@@ -44,7 +44,8 @@ export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'>
   feeBps: 30n,
   maxNetworkFeeLamports: 200_000n,
   // HumidiFi opens a per-taker account whose rent (about 0.013 SOL) would be lost on every swap.
-  // PumpSwap does the same for about 0.0013 SOL, which Bound pays through `takerRent` and shows.
+  // Pump.fun's two markets, PumpSwap and the bonding curve, do the same for about 0.0013–0.0015
+  // SOL, which Bound pays through `takerRent` and shows.
   excludeDexes: ['HumidiFi'],
   slippageBps: 50,
   askAboveBps: 100n,
@@ -103,7 +104,7 @@ export type PreparedSwap = {
   /** Rent this transaction moves out of W beyond the network fee, to show before signing (audit B-09, C-09). */
   /**
    * `routeRent`: SOL the route keeps as rent for an account it opens in the temporary key's name
-   * (PumpSwap's per-buyer account). It does not come back, and it is shown before signing.
+   * (Pump.fun's per-buyer account). It does not come back, and it is shown before signing.
    */
   oneTimeCosts: { outputAccountRent: bigint; routeRent: bigint };
   /** The network fee of this exact message, as the cluster prices it (audit B-12). */
@@ -229,6 +230,17 @@ function failedAtFloorCheck(tx: Transaction, index: number | null, lookups: Reco
   } catch {
     return false;
   }
+}
+
+/**
+ * Did the route stop itself because it would deliver less than its own threshold? That is
+ * Jupiter's error 6001, SlippageToleranceExceeded: the price moved between the quote and the
+ * simulation. The market is working and the quote is stale, so like a miss at Bound's own minimum
+ * it calls for a fresh quote, not for leaving the market out. On a token that trades in one place
+ * only, a Pump.fun bonding curve, leaving it out means no route at all.
+ */
+export function routeMissedItsThreshold(logs: readonly string[], jupiterProgram: string): boolean {
+  return logs.includes(`Program ${jupiterProgram} failed: custom program error: 0x1771`);
 }
 
 /**
@@ -484,8 +496,11 @@ export async function prepareProtectedSwap(deps: {
     const probe = attempt(MAX_TAKER_RENT_LAMPORTS);
     if (!probe) { set(0n); return null; }
     const probed = await simulate(rpc, probe.transaction, [E]);
+    // With the lamports it lacked, the route failed for another reason, usually a price that moved.
+    // That reason is the one to act on; nothing is built on this probe, so it carries no rent.
+    if (!probed.ok) { set(0n); return { trial: probe, sim: probed }; }
     const spent = MAX_TAKER_RENT_LAMPORTS - (probed.lamportsAfter[0] ?? MAX_TAKER_RENT_LAMPORTS);
-    if (!probed.ok || spent <= 0n) { set(0n); return null; }
+    if (spent <= 0n) { set(0n); return null; }
     const exact = attempt(spent);
     if (!exact) { set(0n); return null; }
     const sim = await simulate(rpc, exact.transaction, [E]);
@@ -614,8 +629,9 @@ export async function prepareProtectedSwap(deps: {
     const route = chosen.r.routePlan.map(p => p.swapInfo.label);
     let trial = timed(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS));
     let sim = await simulate(rpc, trial.transaction);
-    // Some routes open an account in the taker's name and make the taker pay its rent — PumpSwap
-    // does, once per buyer. E holds no SOL on purpose, so such a route fails for want of lamports.
+    // Some routes open an account in the taker's name and make the taker pay its rent — both of
+    // Pump.fun's markets do, once per buyer. E holds no SOL on purpose, so such a route fails for
+    // want of lamports.
     // Measure exactly what it needs and send E that and no more; see `measureTakerRent`.
     if (!sim.ok && sim.logs.some(l => l.includes('insufficient lamports'))) {
       const measured = await measureTakerRent(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS), rent => { takerRent = rent; });
@@ -722,8 +738,12 @@ export async function prepareProtectedSwap(deps: {
     }
 
     // The swap delivered less than the floor, or W_out's balance moved since it was read (the
-    // check is b0 + minOut). Both are transient: re-read W_out and requote, without blaming DEXes.
-    if (failedAtFloorCheck(trial.transaction, sim.failedInstruction, chosen.r.addressesByLookupTableAddress)) {
+    // check is b0 + minOut), or the route itself saw the price move past its threshold. All are
+    // transient: re-read W_out and requote, without blaming DEXes.
+    if (
+      failedAtFloorCheck(trial.transaction, sim.failedInstruction, chosen.r.addressesByLookupTableAddress)
+      || routeMissedItsThreshold(sim.logs, settings.jupiterProgram)
+    ) {
       attempts[attempts.length - 1].simulation = 'output below the minimum';
       if (++floorMisses >= 2) {
         if (accepted > 0n) throw priceMoved(chosen.r);

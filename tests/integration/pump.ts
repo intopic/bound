@@ -1,12 +1,19 @@
 /**
- * T13: PumpSwap, the market Pump.fun tokens move to once they leave the bonding curve.
+ * T13 and T14: Pump.fun's two markets.
  *
- * PumpSwap opens an account for every buyer and makes the buyer pay its rent. In a Bound swap the
- * buyer is the one-time key E, which holds nothing on purpose, so every PumpSwap route used to fail
- * and the market was excluded. Bound now measures that rent in simulation and sends E exactly it.
+ *   --market amm    T13, PumpSwap, where Pump.fun tokens trade once they leave the bonding curve.
+ *   --market curve  T14, the bonding curve itself, where a new Pump.fun token trades first.
+ *
+ * Both open an account for every buyer and make the buyer pay its rent; the bonding curve may also
+ * charge a buyer for growing the curve's own account. In a Bound swap the buyer is the one-time key
+ * E, which holds nothing on purpose, so every such route used to fail. Bound now measures that rent
+ * in simulation and sends E exactly it. On the bonding curve Pump.fun takes the purchase in native
+ * SOL, which it first unwraps itself from E's temporary WSOL account, so the approved amount
+ * reaches it the same way as on any other market.
+ *
  * This runs the real pipeline on mainnet state and checks what matters:
  *
- *   - the route goes through PumpSwap and is built, verified and certified;
+ *   - the route goes through the market and is built, verified and certified;
  *   - the rent sent to E is above zero and under the ceiling;
  *   - the final transaction executes, at least the minimum arrives, and E ends with nothing — no SOL
  *     left under a key that is about to be discarded.
@@ -15,7 +22,7 @@
  * listing the token program's accounts for that mint. When none is found the sell is reported as
  * skipped, not as passed. Nothing is signed or sent.
  *
- *   node tests/integration/pumpswap.ts [--tokens 5]
+ *   node tests/integration/pump.ts [--market amm|curve] [--tokens 5]
  */
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
@@ -29,6 +36,10 @@ const arg = (name: string, fallback: string) => {
   return i > 0 ? process.argv[i + 1] : fallback;
 };
 const WANTED = Number(arg('tokens', '5'));
+const CURVE = arg('market', 'amm') === 'curve';
+const MARKET = CURVE
+  ? { test: 'T14', label: 'Pump.fun', name: 'the bonding curve', title: 'Pump.fun, bonding curve', results: 'bonding-curve' }
+  : { test: 'T13', label: 'Pump.fun Amm', name: 'PumpSwap', title: 'PumpSwap', results: 'pumpswap' };
 const RPC_URL = process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const rpc = createRetryingRpc(RPC_URL, 8);
 const jupiter = createJupiterClient({
@@ -39,6 +50,10 @@ const jupiter = createJupiterClient({
   minIntervalMs: 1100,
 });
 const log = (...a: unknown[]) => console.log(...a);
+// Jupiter's last refusal, so that "no route" in a report says what Jupiter actually answered.
+let jupiterSaid = '';
+const build = jupiter.build.bind(jupiter);
+jupiter.build = p => build(p).catch((e: Error) => { jupiterSaid = e.message.slice(0, 120); throw e; });
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? Number(x) : x));
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const BUYER = address('GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE');
@@ -73,7 +88,7 @@ const gone = (a: { lamports: bigint; data: Uint8Array } | null) => a === null ||
  * rate-limited to nothing on the public RPC, but the token program's own accounts can be listed by
  * mint, reading only owner and amount.
  */
-async function holderOf(mint: Address, program: Address): Promise<{ owner: Address; balance: bigint } | null> {
+async function holderOf(mint: Address, program: Address): Promise<{ owner: Address; account: Address; balance: bigint } | null> {
   const res = await fetch(RPC_URL, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -91,15 +106,19 @@ async function holderOf(mint: Address, program: Address): Promise<{ owner: Addre
     const wallet = wallets.get(r.owner);
     if (!wallet || wallet.owner !== SYSTEM_PROGRAM || wallet.lamports < 50_000_000n || r.balance === 0n) continue;
     if ((await ataOf(r.owner, mint, program)) !== r.account) continue;
-    return { owner: r.owner, balance: r.balance };
+    return { owner: r.owner, account: r.account, balance: r.balance };
   }
   return null;
 }
 
 type Listed = { id: string; symbol: string; liquidity?: number };
-const trending = await (await fetch('https://lite-api.jup.ag/tokens/v2/toptrending/1h?limit=100')).json() as Listed[];
-const candidates = trending.filter(t => t.id.endsWith('pump') && (t.liquidity ?? 0) > 5_000);
-log(`${candidates.length} Pump.fun tokens trending with over $5k liquidity; looking for ${WANTED} that route through PumpSwap\n`);
+const list = async (url: string) => fetch(url).then(r => r.json() as Promise<Listed[]>).catch(() => [] as Listed[]);
+const trending = await list('https://lite-api.jup.ag/tokens/v2/toptrending/1h?limit=100');
+// Most tokens still on a bonding curve are new, and the newest are listed separately.
+const listed = CURVE ? [...await list('https://lite-api.jup.ag/tokens/v2/recent'), ...trending] : trending;
+const candidates = listed.filter((t, i) =>
+  t.id.endsWith('pump') && (CURVE || (t.liquidity ?? 0) > 5_000) && listed.findIndex(x => x.id === t.id) === i);
+log(`${candidates.length} Pump.fun tokens listed; looking for ${WANTED} that route through ${MARKET.name}\n`);
 
 let found = 0;
 for (const t of candidates) {
@@ -118,10 +137,10 @@ for (const t of candidates) {
     continue;
   }
   const route = prepared.quote.route.join(' → ');
-  if (!route.includes('Pump.fun Amm')) { log(`     ${t.symbol.padEnd(10)} routes elsewhere (${route})`); continue; }
+  if (!prepared.quote.route.includes(MARKET.label)) { log(`     ${t.symbol.padEnd(10)} routes elsewhere (${route})`); continue; }
   found++;
   const rent = prepared.policy.takerRent;
-  check(t.symbol, 'buy: built, verified and certified through PumpSwap', true, `${route}, ${prepared.size} bajt`);
+  check(t.symbol, `buy: built, verified and certified through ${MARKET.name}`, true, `${route}, ${prepared.size} bajt`);
   check(t.symbol, "buy: the rent sent to the temporary key is the market's, under the ceiling",
     rent > 0n && rent <= MAX_TAKER_RENT_LAMPORTS && prepared.oneTimeCosts.routeRent === rent && prepared.certificate.routeRentLamports === rent,
     `${rent} lamports`);
@@ -151,18 +170,31 @@ for (const t of candidates) {
   await sleep(2_000);
   const holder = await holderOf(mint, info.program as Address);
   if (!holder) { check(t.symbol, 'sell: needs a holder the public RPC would name', null, 'mbajtësi nuk u gjet'); continue; }
-  try {
+  const amountIn = holder.balance / 100n;
+  const sellOnce = async () => {
     const sell = await prepareProtectedSwap({ rpc, jupiter, settings }, {
       owner: holder.owner, ephemeral: await createEphemeral(), inputMint: mint, outputMint: WSOL_MINT,
-      amountIn: holder.balance / 100n, inputDecimals: info.decimals, outputDecimals: 9, version: 0, acceptedCostBps: 5_000n,
+      amountIn, inputDecimals: info.decimals, outputDecimals: 9, version: 0, acceptedCostBps: 5_000n,
     });
-    const sellRoute = sell.quote.route.join(' → ');
-    check(t.symbol, 'sell: built, verified and certified', true, `${sellRoute}, rent ${sell.policy.takerRent}`);
-    const done = await execute(sell.transaction, [sell.policy.ephemeral, sell.policy.accounts.eIn, sell.policy.accounts.eOut!]);
+    return { sell, done: await execute(sell.transaction, [sell.policy.ephemeral, sell.policy.accounts.eIn, sell.policy.accounts.eOut!]) };
+  };
+  try {
+    let { sell, done } = await sellOnce();
+    if (!done.ok && done.failure.includes('0x1771')) {
+      log(`     ${t.symbol.padEnd(10)} the price moved past the tolerance; building the sell again`);
+      ({ sell, done } = await sellOnce());
+    }
+    check(t.symbol, 'sell: built, verified and certified', true, `${sell.quote.route.join(' → ')}, rent ${sell.policy.takerRent}`);
     check(t.symbol, 'sell: the final transaction executes', done.ok, done.failure);
     if (done.ok) check(t.symbol, 'sell: the key and both temporary accounts end empty', done.after.every(gone));
   } catch (e) {
-    check(t.symbol, 'sell: built, verified and certified', false, `${e instanceof BoundError ? e.code : 'error'}: ${(e as Error).message.slice(0, 200)}`);
+    // The holder is someone else's wallet, and it keeps trading. When it no longer holds the
+    // amount, the refusal is about the holder, not about Bound.
+    const now = tokenAmountOf((await fetchAccounts(rpc, [holder.account])).get(holder.account)?.data);
+    if (now < amountIn) { check(t.symbol, 'sell: needs a holder that still holds the amount', null, `mbajtësi shiti ndërkohë (${now} < ${amountIn})`); continue; }
+    const code = e instanceof BoundError ? e.code : 'error';
+    check(t.symbol, 'sell: built, verified and certified', false,
+      `${code}: ${(e as Error).message.slice(0, 200)}${code === 'no-route' && jupiterSaid ? ` Jupiter: ${jupiterSaid}` : ''}`);
   }
 }
 
@@ -170,15 +202,15 @@ mkdirSync('tests/integration/results', { recursive: true });
 const failed = rows.filter(r => r.ok === false).length;
 const skipped = rows.filter(r => r.ok === null).length;
 const passed = rows.length - failed - skipped;
-writeFileSync('tests/integration/results/pumpswap.md', [
-  '# T13 — PumpSwap',
+writeFileSync(`tests/integration/results/${MARKET.results}.md`, [
+  `# ${MARKET.test} — ${MARKET.title}`,
   '',
-  `${passed}/${rows.length - skipped} kontrolle kaluan${skipped ? `, ${skipped} u anashkaluan` : ''}, në ${found} tokenë që kalojnë nëpër PumpSwap. Asgjë nuk u nënshkrua e nuk u dërgua.`,
+  `${passed}/${rows.length - skipped} kontrolle kaluan${skipped ? `, ${skipped} u anashkaluan` : ''}, në ${found} tokenë që kalojnë nëpër ${CURVE ? 'bonding curve' : 'PumpSwap'}. Asgjë nuk u nënshkrua e nuk u dërgua.`,
   '',
   '| Tokeni | Kontrolli | Rezultati | Detaji |',
   '| --- | --- | --- | --- |',
   ...rows.map(r => `| ${r.token} | ${r.name} | ${r.ok === null ? 'anashkaluar' : r.ok ? 'kaloi' : 'DËSHTOI'} | ${r.detail || '—'} |`),
   '',
 ].join('\n'));
-log(`\nT13 ${passed}/${rows.length - skipped}${skipped ? ` (${skipped} skipped)` : ''} on ${found} PumpSwap tokens  →  tests/integration/results/pumpswap.md`);
+log(`\n${MARKET.test} ${passed}/${rows.length - skipped}${skipped ? ` (${skipped} skipped)` : ''} on ${found} tokens through ${MARKET.name}  →  tests/integration/results/${MARKET.results}.md`);
 process.exit(failed || found === 0 ? 1 : 0);

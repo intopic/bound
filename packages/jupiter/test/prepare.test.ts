@@ -101,8 +101,12 @@ function lamportsSentToTaker(wire: string): { taker: string; lamports: bigint } 
   return { taker, lamports };
 }
 
-function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean; epochFails?: boolean; takerRent?: bigint } = {}): SolanaRpc {
+function fakeRpc(
+  accounts: Map<string, Account>,
+  opts: { feeFails?: boolean; epochFails?: boolean; takerRent?: bigint; priceMoves?: number } = {},
+): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
+  let moved = 0;
   return {
     getMultipleAccounts: call((addresses: string[]) => ({
       context: { slot: 300_000_000n },
@@ -119,6 +123,16 @@ function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean; epo
       const { taker, lamports } = lamportsSentToTaker(wire);
       if (lamports < need) {
         return { value: { err: { InstructionError: [8, { Custom: 1 }] }, logs: [`Transfer: insufficient lamports ${lamports}, need ${need}`], unitsConsumed: 90_000n } };
+      }
+      // The price moves between the quote and the simulation, and Jupiter stops the route itself.
+      if (moved < (opts.priceMoves ?? 0)) {
+        moved++;
+        return {
+          value: {
+            err: { InstructionError: [8, { Custom: 6001 }] }, unitsConsumed: 150_000n,
+            logs: [`Program ${JUPITER_PROGRAM} invoke [1]`, `Program ${JUPITER_PROGRAM} failed: custom program error: 0x1771`],
+          },
+        };
       }
       return {
         value: {
@@ -216,13 +230,16 @@ const settings = { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_
 async function prepare(output: Address, opts: {
   jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean;
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
-  chain?: Iterable<[string, Account]>; takerRent?: bigint;
+  chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
   for (const [key, account] of opts.chain ?? []) accounts.set(key, account);
   return prepareProtectedSwap(
-    { rpc: fakeRpc(accounts, { feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent }), jupiter: opts.jupiter ?? fakeJupiter(), settings },
+    {
+      rpc: fakeRpc(accounts, { feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent, priceMoves: opts.priceMoves }),
+      jupiter: opts.jupiter ?? fakeJupiter(), settings,
+    },
     {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: USDC, outputMint: output, amountIn: 1_000_000n,
       inputDecimals: opts.inputDecimals ?? DECIMALS[USDC], outputDecimals: DECIMALS[output], version: 1,
@@ -423,7 +440,22 @@ describe('the mints a route passes through are screened like its own two', () =>
   });
 });
 
-describe("a route that opens an account in the taker's name (PumpSwap)", () => {
+describe('a price that moves between the quote and the simulation', () => {
+  it('is quoted again, and the market is not left out for it', async () => {
+    const prepared = await prepare(BONK, { priceMoves: 1 });
+    expect(prepared.attempts[0].simulation).toBe('output below the minimum');
+    expect(prepared.attempts.at(-1)!.excluded).not.toContain('Whirlpool');
+  });
+
+  it('that keeps moving is reported as a price move, not as a broken market', async () => {
+    const failure = await prepare(BONK, { priceMoves: 10 }).catch((e: BoundError) => e);
+    expect(failure).toBeInstanceOf(BoundError);
+    expect((failure as BoundError).code).toBe('simulation-failed');
+    expect((failure as BoundError).message).toContain('price moved');
+  });
+});
+
+describe("a route that opens an account in the taker's name (PumpSwap, the Pump.fun bonding curve)", () => {
   const RENT = 1_346_200n;
 
   it('the temporary key is sent exactly the rent the route spends, and nothing more', async () => {
@@ -446,5 +478,12 @@ describe("a route that opens an account in the taker's name (PumpSwap)", () => {
   it('a route that wants more than the ceiling is not paying rent but spending, and is not funded', async () => {
     const code = await codeOf(prepare(BONK, { takerRent: MAX_TAKER_RENT_LAMPORTS + 1n }));
     expect(code).not.toBe('ok');
+  });
+
+  it('when the funded route fails because the price moved, that is what is acted on: quote again, keep the market', async () => {
+    const prepared = await prepare(BONK, { takerRent: RENT, priceMoves: 1 });
+    expect(prepared.policy.takerRent).toBe(RENT);
+    expect(prepared.attempts[0].simulation).toBe('output below the minimum');
+    expect(prepared.attempts.at(-1)!.excluded).not.toContain('Whirlpool');
   });
 });

@@ -545,7 +545,7 @@ export function SwapApp() {
         networkFee: `${formatExact(prepared.networkFeeLamports, 9)} SOL`,
         oneTimeCost: [
           newAccountRent > 0n ? `${formatExact(newAccountRent, 9)} SOL opens your ${outToken.symbol} account (one time, stays yours)` : '',
-          // PumpSwap charges every new buyer a small account deposit, and it does not come back.
+          // Pump.fun charges every new buyer a small account deposit, and it does not come back.
           routeRent > 0n ? `${formatExact(routeRent, 9)} SOL account fee charged by this market` : '',
         ].filter(Boolean).join('; ') || null,
         removesDelegate: prepared.notices.removesDelegate
