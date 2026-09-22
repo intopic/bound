@@ -100,7 +100,7 @@ Server only (never sent to the browser):
 | `BOUND_MAX_USD_PER_SWAP` | unset | Optional cap per swap in USD. Unset means no limit, the intended setting: the guarantee does not depend on the amount. While a cap applies, tokens without a USD price are blocked |
 | `BOUND_DISABLED` | 0 | Kill switch: `1` makes the server refuse new swaps |
 | `BOUND_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limit is per instance; add a rule in the hosting firewall too |
-| `BOUND_EXCLUDE_DEXES` | `HumidiFi,Pump.fun Amm` | DEXes that charge the taker persistent rent |
+| `BOUND_EXCLUDE_DEXES` | `HumidiFi` | DEXes whose per-taker rent is too high to pay on every swap |
 | `BOUND_MAX_NETWORK_FEE_LAMPORTS` | 200000 | F_max, capped at 1,000,000 by the verifier |
 
 ## Scope of v0.1

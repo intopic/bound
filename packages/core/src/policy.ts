@@ -1,6 +1,8 @@
 import { findAssociatedTokenPda } from '@solana-program/token';
 import type { Address } from '@solana/kit';
-import { BPS_DENOMINATOR, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, WSOL_MINT } from './constants.ts';
+import {
+  BPS_DENOMINATOR, MAX_TAKER_RENT_LAMPORTS, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, WSOL_MINT,
+} from './constants.ts';
 import type { BoundConfig, Intent, Policy, Variant } from './types.ts';
 
 /** Token amount of a classic SPL token account (offset 64), or 0 for a missing account. */
@@ -58,6 +60,12 @@ export function withMinOut(policy: Policy, minOut: bigint): Policy {
   return { ...policy, minOut };
 }
 
+/** The policy with the rent the chosen route needs E to pay; see `Policy.takerRent`. */
+export function withTakerRent(policy: Policy, takerRent: bigint): Policy {
+  if (takerRent < 0n || takerRent > MAX_TAKER_RENT_LAMPORTS) throw new PolicyError('Route rent outside the allowed range');
+  return { ...policy, takerRent };
+}
+
 /** Turns an intent into the exact policy the compiler builds and the verifier enforces (plan, section 1). */
 export async function buildPolicy(args: {
   intent: Intent;
@@ -107,6 +115,7 @@ export async function buildPolicy(args: {
     inputDecimals: args.inputDecimals,
     outputDecimals: args.outputDecimals,
     minOut: args.minOut ?? 0n,
+    takerRent: 0n,
     amountIn: intent.amountIn,
     feeBps: config.feeBps,
     fee,

@@ -158,13 +158,16 @@ export type Simulation = {
   blame: string | null;
   /** Index of the instruction that failed, when the error names one. */
   failedInstruction: number | null;
+  /** Lamports each requested account holds after the transaction (0 when it no longer exists). */
+  lamportsAfter: bigint[];
 };
 
 /** Simulation answers "will it execute?" — never "is it safe?" (plan, section 15). */
-export async function simulate(rpc: SolanaRpc, transaction: Transaction): Promise<Simulation> {
+export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: readonly Address[] = []): Promise<Simulation> {
   const { value } = await rpc
     .simulateTransaction(getBase64EncodedWireTransaction(transaction), {
       encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed',
+      ...(watch.length ? { accounts: { addresses: [...watch], encoding: 'base64' as const } } : {}),
     })
     .send();
   const logs = [...(value.logs ?? [])];
@@ -175,6 +178,9 @@ export async function simulate(rpc: SolanaRpc, transaction: Transaction): Promis
     logs,
     blame: value.err === null ? null : blameProgram(logs),
     failedInstruction: failedInstructionOf(value.err),
+    lamportsAfter: watch.map((_, i) => BigInt(
+      (value as { accounts?: readonly ({ lamports: bigint | number } | null)[] | null }).accounts?.[i]?.lamports ?? 0,
+    )),
   };
 }
 

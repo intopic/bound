@@ -6,7 +6,10 @@ For every swap Bound builds:
 
 1. The external swap program (Jupiter's route) can move at most `q − f` of the input token, where `q`
    is the amount the user entered and `f` is the Bound fee. The fee is compiled into the page at
-   build time (0.3% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`).
+   build time (0.3% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`). When
+   the route opens an account in the temporary key's name and charges it the rent (PumpSwap does,
+   once per buyer), it can also reach exactly that rent, which is measured in simulation, capped at
+   0.005 SOL (`MAX_TAKER_RENT_LAMPORTS`) and stated before signing. Nothing else in SOL.
 2. It never receives the wallet W or any token account of W except the output account `W_out`. Any
    delegate on `W_out` is revoked by a trusted instruction before the swap runs, and a `W_out` with
    a close authority is refused.
@@ -31,7 +34,13 @@ network fee (≤ F_max, and never above 0.001 SOL)
 + q, when SOL is the input
 + rent, only when the swap opens W's account for the output token
   (1,488,440 lamports ≈ 0.0015 SOL on 19 September 2026, read from the cluster)
++ route rent, only when the route opens an account in E's name
+  (1,346,200 lamports ≈ 0.0013 SOL on PumpSwap, September 2026; at most 0.005 SOL)
 ```
+
+The route rent does not come back: the account it pays for stays with a key that is discarded. It
+is the market's charge to a new buyer, and with Bound every swap is a new buyer. The page states it
+as the market's account fee.
 
 The rent stays in the user's own new token account and is shown before signing. Bound never makes the
 user pay rent for Bound's own fee account: if the treasury has no account for the input token, that

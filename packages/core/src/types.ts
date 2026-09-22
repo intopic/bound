@@ -62,6 +62,12 @@ export type Policy = {
    * verifier rejects 0.
    */
   minOut: bigint;
+  /**
+   * Lamports W sends E before the swap, because the route opens an account in E's name and E holds
+   * nothing (Pump's per-buyer account). Measured in simulation so that E spends all of it; 0 for
+   * almost every route. The external program can reach this on top of the approved amount.
+   */
+  takerRent: bigint;
   amountIn: bigint;
   feeBps: bigint;
   fee: bigint;

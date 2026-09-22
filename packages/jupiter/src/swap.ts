@@ -7,7 +7,7 @@ import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
-  TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf,
+  MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, TxVersion, Violation } from '@bound/core';
@@ -43,7 +43,9 @@ export type SwapSettings = BoundConfig & {
 export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'> = {
   feeBps: 30n,
   maxNetworkFeeLamports: 200_000n,
-  excludeDexes: ['HumidiFi', 'Pump.fun Amm'],
+  // HumidiFi opens a per-taker account whose rent (about 0.013 SOL) would be lost on every swap.
+  // PumpSwap does the same for about 0.0013 SOL, which Bound pays through `takerRent` and shows.
+  excludeDexes: ['HumidiFi'],
   slippageBps: 50,
   askAboveBps: 100n,
   warnAboveBps: 500n,
@@ -99,7 +101,11 @@ export type PreparedSwap = {
     gapBps: bigint;
   };
   /** Rent this transaction moves out of W beyond the network fee, to show before signing (audit B-09, C-09). */
-  oneTimeCosts: { outputAccountRent: bigint };
+  /**
+   * `routeRent`: SOL the route keeps as rent for an account it opens in the temporary key's name
+   * (PumpSwap's per-buyer account). It does not come back, and it is shown before signing.
+   */
+  oneTimeCosts: { outputAccountRent: bigint; routeRent: bigint };
   /** The network fee of this exact message, as the cluster prices it (audit B-12). */
   networkFeeLamports: bigint;
   /** Side effects the user should be told about before signing. */
@@ -448,12 +454,47 @@ export async function prepareProtectedSwap(deps: {
   // accepted (audit B-04, C-02).
   const accepted = req.acceptedMinOut ?? 0n;
   const floorOf = (r: BuildResponse) => strictMinimumOutput(r, settings.slippageBps, accepted);
-  const policyFor = (r: BuildResponse) => withMinOut(policy, floorOf(r));
+  // Rent the chosen route needs E to pay, measured in simulation (see `measureTakerRent`).
+  let takerRent = 0n;
+  const policyFor = (r: BuildResponse) => withTakerRent(withMinOut(policy, floorOf(r)), takerRent);
   const priceMoved = (r: BuildResponse) =>
     new BoundError('price-moved', 'The price moved beyond the slippage tolerance since you looked. Nothing was signed.', [], {
       newMinOut: routeFloor(r, settings.slippageBps),
       newOutAmount: BigInt(r.outAmount),
     });
+  /**
+   * Finds the rent a route needs E to pay. E is funded with the ceiling once, and what it holds
+   * afterwards says how much the route spent; E is then funded with exactly that, and the
+   * simulation must show it ending empty. A route that wants more than the ceiling is not paying
+   * rent but spending, and is left to fail as before. Every number comes from the chain, so Bound
+   * needs no knowledge of the program that opens the account.
+   */
+  const measureTakerRent = async (
+    build: () => ReturnType<typeof compileProtectedSwap>,
+    set: (rent: bigint) => void,
+  ) => {
+    const attempt = (rent: bigint) => {
+      set(rent);
+      try {
+        return build();
+      } catch {
+        return null; // the funding instruction pushed the route over a transaction limit
+      }
+    };
+    const probe = attempt(MAX_TAKER_RENT_LAMPORTS);
+    if (!probe) { set(0n); return null; }
+    const probed = await simulate(rpc, probe.transaction, [E]);
+    const spent = MAX_TAKER_RENT_LAMPORTS - (probed.lamportsAfter[0] ?? MAX_TAKER_RENT_LAMPORTS);
+    if (!probed.ok || spent <= 0n) { set(0n); return null; }
+    const exact = attempt(spent);
+    if (!exact) { set(0n); return null; }
+    const sim = await simulate(rpc, exact.transaction, [E]);
+    // Funded with exactly what it spends, E must end with nothing: no SOL stays behind under a key
+    // that is about to be discarded.
+    if (!sim.ok || sim.lamportsAfter[0] !== 0n) { set(0n); return null; }
+    return { trial: exact, sim };
+  };
+
   const compile = (
     r: BuildResponse, lifetime: Lifetime, intermediates: IntermediateAta[], computeUnitLimit: number,
     outputBalanceBefore = wOutBefore.balance,
@@ -500,6 +541,7 @@ export async function prepareProtectedSwap(deps: {
   };
 
   for (let attempt = 0; attempt < settings.maxRepairAttempts; attempt++) {
+    takerRent = 0n; // every route is measured afresh
     const excluded = [...settings.excludeDexes, ...learned];
     const lifetime = await (attempt === 0 ? firstLifetimeTask : latestLifetime(rpc));
 
@@ -570,8 +612,18 @@ export async function prepareProtectedSwap(deps: {
     }
 
     const route = chosen.r.routePlan.map(p => p.swapInfo.label);
-    const trial = timed(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS));
-    const sim = await simulate(rpc, trial.transaction);
+    let trial = timed(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS));
+    let sim = await simulate(rpc, trial.transaction);
+    // Some routes open an account in the taker's name and make the taker pay its rent — PumpSwap
+    // does, once per buyer. E holds no SOL on purpose, so such a route fails for want of lamports.
+    // Measure exactly what it needs and send E that and no more; see `measureTakerRent`.
+    if (!sim.ok && sim.logs.some(l => l.includes('insufficient lamports'))) {
+      const measured = await measureTakerRent(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS), rent => { takerRent = rent; });
+      if (measured) {
+        trial = measured.trial;
+        sim = measured.sim;
+      }
+    }
     attempts.push({ excluded, route, simulation: sim.ok ? 'ok' : sim.error ?? 'failed', blamed: sim.blame ? labels[sim.blame] ?? sim.blame : null });
 
     if (sim.ok) {
@@ -643,7 +695,7 @@ export async function prepareProtectedSwap(deps: {
       if (!certification.ok) throw new BoundError('verification-failed', 'A protected transaction cannot be produced.', certification.violations);
 
       return {
-        oneTimeCosts: { outputAccountRent: createsOutputAccount ? newAccountRent : 0n },
+        oneTimeCosts: { outputAccountRent: createsOutputAccount ? newAccountRent : 0n, routeRent: chosenPolicy.takerRent },
         certificate: certification.certificate,
         timings: { totalMs: Math.round(performance.now() - started), localMs: Math.round(localMs) },
         networkFeeLamports: BigInt(clusterFee),

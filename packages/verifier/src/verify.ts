@@ -16,6 +16,7 @@ import type { Address, Transaction } from '@solana/kit';
 import { findAssociatedTokenPda } from '@solana-program/token';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, BPS_DENOMINATOR, LAMPORTS_PER_SIGNATURE, LEGACY_SIZE_LIMIT, MAX_COMPUTE_UNITS,
+  MAX_TAKER_RENT_LAMPORTS,
   MAX_FEE_BPS, MAX_INTERMEDIATE_ACCOUNTS, MAX_LOADED_ACCOUNTS_DATA_SIZE, MINT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, V1_MAX_ACCOUNTS,
   V1_SIZE_LIMIT, WSOL_MINT,
 } from '@bound/core/constants';
@@ -256,12 +257,12 @@ const V1_ALLOWED_CONFIG =
 
 type Slot =
   | 'cuLimit' | 'cuPrice' | 'createEIn' | 'createEOut' | 'createWOut' | 'revokeWOut'
-  | 'createIntermediate' | 'transferIn' | 'feeTransfer' | 'sync' | 'minOutCheck' | 'harvestEIn' | 'harvestIntermediate'
+  | 'createIntermediate' | 'transferIn' | 'feeTransfer' | 'takerRent' | 'sync' | 'minOutCheck' | 'harvestEIn' | 'harvestIntermediate'
   | 'closeEIn' | 'closeEOut'
   | 'closeIntermediate';
 
 const BEFORE_SWAP: Slot[] = [
-  'createEIn', 'createEOut', 'createWOut', 'revokeWOut', 'createIntermediate', 'transferIn', 'feeTransfer', 'sync',
+  'createEIn', 'createEOut', 'createWOut', 'revokeWOut', 'createIntermediate', 'transferIn', 'feeTransfer', 'takerRent', 'sync',
 ];
 const AFTER_SWAP: Slot[] = ['minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate'];
 
@@ -426,6 +427,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
       case 'systemTransfer':
         if (B && x.from === W && x.to === eIn && x.lamports === p.swapAmount) put('transferIn', i);
         else if (B && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put('feeTransfer', i);
+        else if (p.takerRent > 0n && x.from === W && x.to === E && x.lamports === p.takerRent) put('takerRent', i);
         else fail('R2', `instruction ${i}: unexpected SOL transfer of ${x.lamports} lamports`);
         break;
       case 'syncNative':
@@ -480,6 +482,12 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   need('harvestEIn', p.inputTransferFee ? 1 : 0, 'R5');
   if (B) need('sync', 1);
   need('feeTransfer', p.fee > 0n ? 1 : 0);
+  // SOL for E is rent for an account the route opens in E's name, never money to swap with: it is
+  // capped, and the external program can take at most this on top of the approved amount.
+  need('takerRent', p.takerRent > 0n ? 1 : 0, 'R4');
+  if (p.takerRent < 0n || p.takerRent > MAX_TAKER_RENT_LAMPORTS) {
+    fail('R4', `route rent ${p.takerRent} lamports is outside 0..${MAX_TAKER_RENT_LAMPORTS}`);
+  }
   if (version === 0) { need('cuLimit', 1, 'R4'); need('cuPrice', 1, 'R4'); }
   for (const [address, m] of intermediates) {
     if (m.created !== 1 || m.closed !== 1) fail('R5', `intermediate account ${address} is not created and closed exactly once`);

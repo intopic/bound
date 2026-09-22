@@ -5,9 +5,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   address, decompileTransactionMessage, generateKeyPairSigner, getAddressEncoder, getCompiledTransactionMessageDecoder,
+  getTransactionDecoder,
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ataOf, ATA_PROGRAM, JUPITER_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
+import {
+  ataOf, ATA_PROGRAM, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
+} from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
 import { BoundError, DEFAULT_SETTINGS, prepareProtectedSwap } from '../src/swap.ts';
 import { JupiterError } from '../src/client.ts';
@@ -80,7 +83,25 @@ function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: b
   return { owner: TOKEN_PROGRAM, data };
 }
 
-function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean; epochFails?: boolean } = {}): SolanaRpc {
+/**
+ * The SOL a transaction sends the temporary key: the signer that is not the fee payer, credited by
+ * a System transfer (instruction 2).
+ */
+function lamportsSentToTaker(wire: string): { taker: string; lamports: bigint } {
+  const tx = getTransactionDecoder().decode(Uint8Array.from(Buffer.from(wire, 'base64')));
+  const compiled = getCompiledTransactionMessageDecoder().decode(tx.messageBytes);
+  const message = decompileTransactionMessage(compiled as never);
+  const taker = compiled.staticAccounts.slice(1, compiled.header.numSignerAccounts)[0];
+  let lamports = 0n;
+  for (const ix of message.instructions) {
+    const data = ix.data ?? new Uint8Array();
+    if (ix.programAddress !== SYSTEM_PROGRAM || data[0] !== 2 || ix.accounts?.[1]?.address !== taker) continue;
+    lamports += new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(4, true);
+  }
+  return { taker, lamports };
+}
+
+function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean; epochFails?: boolean; takerRent?: bigint } = {}): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
   return {
     getMultipleAccounts: call((addresses: string[]) => ({
@@ -91,7 +112,21 @@ function fakeRpc(accounts: Map<string, Account>, opts: { feeFails?: boolean; epo
       }),
     })),
     getLatestBlockhash: call(() => ({ value: { blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1_000n } })),
-    simulateTransaction: call(() => ({ value: { err: null, logs: [], unitsConsumed: 200_000n } })),
+    // A route that opens an account in the taker's name fails, as PumpSwap does, until the taker
+    // holds its rent; with it, the taker ends holding whatever it was sent beyond the rent.
+    simulateTransaction: call((wire: string, config: { accounts?: { addresses: string[] } }) => {
+      const need = opts.takerRent ?? 0n;
+      const { taker, lamports } = lamportsSentToTaker(wire);
+      if (lamports < need) {
+        return { value: { err: { InstructionError: [8, { Custom: 1 }] }, logs: [`Transfer: insufficient lamports ${lamports}, need ${need}`], unitsConsumed: 90_000n } };
+      }
+      return {
+        value: {
+          err: null, logs: [], unitsConsumed: 200_000n,
+          accounts: config.accounts?.addresses.map(a => (a === taker ? { lamports: lamports - need } : null)) ?? null,
+        },
+      };
+    }),
     getFeeForMessage: call(() => {
       if (opts.feeFails) throw new Error('RPC unavailable');
       return { value: 15_000n };
@@ -181,13 +216,13 @@ const settings = { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_
 async function prepare(output: Address, opts: {
   jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean;
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
-  chain?: Iterable<[string, Account]>;
+  chain?: Iterable<[string, Account]>; takerRent?: bigint;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
   for (const [key, account] of opts.chain ?? []) accounts.set(key, account);
   return prepareProtectedSwap(
-    { rpc: fakeRpc(accounts, { feeFails: opts.feeFails, epochFails: opts.epochFails }), jupiter: opts.jupiter ?? fakeJupiter(), settings },
+    { rpc: fakeRpc(accounts, { feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent }), jupiter: opts.jupiter ?? fakeJupiter(), settings },
     {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: USDC, outputMint: output, amountIn: 1_000_000n,
       inputDecimals: opts.inputDecimals ?? DECIMALS[USDC], outputDecimals: DECIMALS[output], version: 1,
@@ -385,5 +420,31 @@ describe('the mints a route passes through are screened like its own two', () =>
       chain: [[HOP, feeMint(6, 50)]],
     });
     expect(prepared.intermediates).toEqual([expect.objectContaining({ mint: HOP, transferFee: true })]);
+  });
+});
+
+describe("a route that opens an account in the taker's name (PumpSwap)", () => {
+  const RENT = 1_346_200n;
+
+  it('the temporary key is sent exactly the rent the route spends, and nothing more', async () => {
+    const prepared = await prepare(BONK, { takerRent: RENT });
+    expect(prepared.policy.takerRent).toBe(RENT);
+    expect(prepared.oneTimeCosts.routeRent).toBe(RENT);
+    expect(prepared.certificate.routeRentLamports).toBe(RENT);
+  });
+
+  it('the same for a swap into SOL and a swap from SOL', async () => {
+    expect((await prepare(WSOL_MINT, { takerRent: RENT })).policy.takerRent).toBe(RENT);
+  });
+
+  it('a route that needs no rent sends the temporary key none', async () => {
+    const prepared = await prepare(BONK);
+    expect(prepared.policy.takerRent).toBe(0n);
+    expect(prepared.oneTimeCosts.routeRent).toBe(0n);
+  });
+
+  it('a route that wants more than the ceiling is not paying rent but spending, and is not funded', async () => {
+    const code = await codeOf(prepare(BONK, { takerRent: MAX_TAKER_RENT_LAMPORTS + 1n }));
+    expect(code).not.toBe('ok');
   });
 });

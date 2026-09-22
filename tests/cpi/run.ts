@@ -30,7 +30,7 @@ import { LiteSVM } from 'litesvm';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import {
   ataOf, buildPolicy, compileProtectedSwap, MINT_SIZE, SYSTEM_PROGRAM, tokenAmountOf, TOKEN_2022_PROGRAM,
-  TOKEN_PROGRAM, WSOL_MINT,
+  TOKEN_PROGRAM, withTakerRent, WSOL_MINT,
 } from '@bound/core';
 import type { AccountState, ChainSnapshot, Policy } from '@bound/core';
 import { verify } from '@bound/verifier';
@@ -292,13 +292,14 @@ type Variant = 'C' | 'A';
  * accounts the design allows it to see. `extra` is for the case where the route also demands an
  * account it must never get.
  */
-function externalInstruction(w: World, variant: Variant, inners: Inner[], extra: Address[] = []): Instruction {
+function externalInstruction(w: World, variant: Variant, inners: Inner[], extra: Address[] = [], takerPays = false): Instruction {
   return {
     programAddress: w.attackerProgram,
     accounts: [
       { address: w.tokenProgram, role: AccountRole.READONLY },
       { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
-      { address: w.E.address, role: AccountRole.READONLY_SIGNER },
+      // A route that makes the taker pay rent (PumpSwap) needs E writable, as Jupiter lists it then.
+      { address: w.E.address, role: takerPays ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER },
       { address: w.eIn, role: AccountRole.WRITABLE },
       { address: variant === 'A' ? w.eOut : w.wOut, role: AccountRole.WRITABLE },
       { address: w.attackerIn, role: AccountRole.WRITABLE },
@@ -312,8 +313,8 @@ function externalInstruction(w: World, variant: Variant, inners: Inner[], extra:
   };
 }
 
-async function protectedSwap(w: World, variant: Variant, inners: Inner[], extra: Address[] = []) {
-  const policy = await buildPolicy({
+async function protectedSwap(w: World, variant: Variant, inners: Inner[], extra: Address[] = [], takerRent = 0n) {
+  const built = await buildPolicy({
     intent: { owner: w.W.address, inputMint: w.mintIn, outputMint: variant === 'A' ? WSOL_MINT : w.mintOut, amountIn: AMOUNT_IN },
     ephemeral: w.E.address,
     inputDecimals: IN_DECIMALS,
@@ -324,8 +325,9 @@ async function protectedSwap(w: World, variant: Variant, inners: Inner[], extra:
     config: { feeBps: FEE_BPS, treasury: w.treasury, maxNetworkFeeLamports: 200_000n, jupiterProgram: w.attackerProgram },
     feeAccountExists: true,
   });
+  const policy = withTakerRent(built, takerRent);
   if (policy.swapAmount !== SWAP_AMOUNT) throw new Error(`swap amount ${policy.swapAmount}, expected ${SWAP_AMOUNT}`);
-  const swapInstruction = externalInstruction(w, variant, inners, extra);
+  const swapInstruction = externalInstruction(w, variant, inners, extra, takerRent > 0n);
   const outputBalanceBefore = policy.accounts.wOut ? tokensOf(w.svm, policy.accounts.wOut) : 0n;
   const { transaction } = compileProtectedSwap({
     policy, swapInstruction, intermediates: [], version: 0, lifetime: lifetimeOf(w.svm),
@@ -387,11 +389,15 @@ function invariants(w: World, policy: Policy, before: Balances, after: Balances,
     bad.push(`the attacker took ${after.attackerIn - before.attackerIn}, above the approved ${policy.swapAmount}`);
   }
   if (variantA) {
-    if (after.wSol - before.wSol < MIN_OUT_SOL - MAX_NETWORK_FEE) bad.push(`the wallet received ${after.wSol - before.wSol} lamports, below the minimum`);
+    if (after.wSol - before.wSol < MIN_OUT_SOL - MAX_NETWORK_FEE - policy.takerRent) bad.push(`the wallet received ${after.wSol - before.wSol} lamports, below the minimum`);
     same("the wallet's token output account", before.wOut, after.wOut);
   } else {
     if (after.wOut - before.wOut < MIN_OUT) bad.push(`the wallet received ${after.wOut - before.wOut}, below the minimum ${MIN_OUT}`);
-    if (before.wSol - after.wSol > MAX_NETWORK_FEE) bad.push(`the wallet lost ${before.wSol - after.wSol} lamports beyond the network fee`);
+    // The rent Bound sends E for the route's account is the one SOL the route may take besides the
+    // network fee; it is stated in the certificate before the wallet signs.
+    if (before.wSol - after.wSol > MAX_NETWORK_FEE + policy.takerRent) {
+      bad.push(`the wallet lost ${before.wSol - after.wSol} lamports beyond the network fee and the stated route rent`);
+    }
   }
   // No temporary account and no permission may outlive the transaction.
   for (const [what, a] of [['E_in', policy.accounts.eIn], ['E_out', policy.accounts.eOut], ['E', w.E.address]] as const) {
@@ -413,6 +419,8 @@ type Case = {
   tokenProgram?: Address;
   /** A permanent delegate on both swap mints (Token-2022 only); see `IssuerDelegate`. */
   issuer?: IssuerDelegate;
+  /** Rent Bound sends E for an account the route opens in E's name (PumpSwap). */
+  takerRent?: bigint;
   /** What the malicious program attempts, in order. */
   inners: (w: World) => Inner[];
   /** Accounts the route demands on top of what Bound allows. */
@@ -701,6 +709,28 @@ const CASES: Case[] = [
     proves: 'a delegate a program can sign for is refused (R7) before the wallet is ever asked',
     inners: () => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT)],
   },
+  {
+    // PumpSwap charges each new buyer an account's rent, so Bound sends E exactly that. A hostile
+    // route may pocket it instead: that is the most it can take on top of the approved amount.
+    name: 'route rent: takes the rent Bound sent the temporary key, and the approved amount',
+    variant: 'C', takerRent: 1_346_200n, expect: 'succeeds',
+    proves: "the SOL a route can reach is the stated rent and nothing more; the wallet's own SOL stays out of reach",
+    extra: w => [w.attacker],
+    inners: w => [
+      { program: IX.system, metas: [{ key: IX.E, w: true, s: true }, { key: w.attacker, w: true }], data: transferSol(1_346_200n) },
+      takeFrom(SWAP_AMOUNT), deliver(MIN_OUT),
+    ],
+  },
+  {
+    name: 'route rent: tries to take one lamport more than the rent',
+    variant: 'C', takerRent: 1_346_200n, expect: 'reverts',
+    proves: 'the temporary key holds exactly the rent, so there is nothing more to take',
+    extra: w => [w.attacker],
+    inners: w => [
+      { program: IX.system, metas: [{ key: IX.E, w: true, s: true }, { key: w.attacker, w: true }], data: transferSol(1_346_201n) },
+      takeFrom(SWAP_AMOUNT), deliver(MIN_OUT),
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------- run
@@ -710,7 +740,7 @@ type Row = { name: string; proves: string; expected: string; outcome: string; ve
 const rows: Row[] = [];
 for (const c of CASES) {
   const w = await setup(c.tokenProgram ?? TOKEN_PROGRAM, c.issuer);
-  const { policy, transaction, swapIndex, verdict } = await protectedSwap(w, c.variant, c.inners(w), c.extra?.(w) ?? []);
+  const { policy, transaction, swapIndex, verdict } = await protectedSwap(w, c.variant, c.inners(w), c.extra?.(w) ?? [], c.takerRent ?? 0n);
   const verifier = verdict.ok ? 'e pranoi' : `e refuzoi (${[...new Set(verdict.violations.map(v => v.rule))].join(', ')})`;
 
   if (c.expect === 'refused before signing') {

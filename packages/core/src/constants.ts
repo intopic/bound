@@ -35,6 +35,12 @@ export const BPS_DENOMINATOR = 10_000n;
 // config bug cannot push past them.
 export const MAX_FEE_BPS = 100n; // 1% ceiling; the current product fee is 0.3%
 export const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1_000_000n; // 0.001 SOL
+/**
+ * The most W may send E for rent of an account the route opens in E's name. PumpSwap opens one per
+ * buyer (1,346,200 lamports in September 2026). A route that needs more is refused; a route that
+ * wants SOL to spend, not to rent with, cannot fit under it.
+ */
+export const MAX_TAKER_RENT_LAMPORTS = 5_000_000n; // 0.005 SOL
 export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
 
 /**

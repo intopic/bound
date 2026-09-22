@@ -539,12 +539,15 @@ export function SwapApp() {
       texts.received = `${formatUnits(prepared.quote.outAmount, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
       const newAccountRent = prepared.oneTimeCosts.outputAccountRent;
+      const routeRent = prepared.oneTimeCosts.routeRent;
       setPending({
         minReceived: `${formatExact(prepared.quote.minOut, outDecimals)} ${outToken.symbol}`,
         networkFee: `${formatExact(prepared.networkFeeLamports, 9)} SOL`,
-        oneTimeCost: newAccountRent > 0n
-          ? `${formatExact(newAccountRent, 9)} SOL opens your ${outToken.symbol} account (one time, stays yours)`
-          : null,
+        oneTimeCost: [
+          newAccountRent > 0n ? `${formatExact(newAccountRent, 9)} SOL opens your ${outToken.symbol} account (one time, stays yours)` : '',
+          // PumpSwap charges every new buyer a small account deposit, and it does not come back.
+          routeRent > 0n ? `${formatExact(routeRent, 9)} SOL account fee charged by this market` : '',
+        ].filter(Boolean).join('; ') || null,
         removesDelegate: prepared.notices.removesDelegate
           ? `It also removes an existing spending permission (delegate) on your ${outToken.symbol} account.`
           : null,

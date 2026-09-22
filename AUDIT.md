@@ -491,6 +491,54 @@ of who controls those addresses, and a decision.
 
 ---
 
+## 0k. PumpSwap: rent the route charges the temporary key
+
+PumpSwap is where Pump.fun tokens trade once they leave the bonding curve. It opens a small account
+for every buyer and charges the buyer its rent. In a Bound swap the buyer is the one-time key E,
+which holds nothing on purpose, so every PumpSwap route failed in simulation and the market was
+excluded (D13). Tokens that trade only there had no protected route at all.
+
+**What Bound does now.** When a route fails for want of lamports, the pipeline funds E once with the
+ceiling (0.005 SOL), reads from the simulation how much E spent, then funds E with exactly that and
+requires the simulation to show E ending with nothing. The measured amount becomes `takerRent` in
+the policy. The compiler adds one trusted instruction before the swap, a transfer of exactly that
+amount from W to E. The verifier accepts it only at exactly the policy's amount, only to E, only
+before the swap, and never above the ceiling (R2, R4). The certificate and the page state it.
+
+Bound needs no knowledge of PumpSwap for this: every number comes from the chain. A route that
+wants more than the ceiling is not paying rent but spending, and is left to fail as before.
+HumidiFi stays excluded: its per-taker rent, about 0.013 SOL, is too much to charge on every swap.
+
+**What changes in the guarantee.** The external program can now reach the approved amount *plus the
+stated rent*, and nothing else in SOL. A hostile route that pockets the rent instead of opening the
+account gets exactly that. The rent does not come back to the user even on an honest route,
+because the account it pays for stays with a key that is discarded — PumpSwap charges every new
+buyer, and with Bound every swap is a new buyer. About 0.0013 SOL.
+
+**Evidence.**
+
+- Verifier tests, for all three variants in v0 and v1: exactly the measured rent is accepted; one
+  lamport more, a different destination, rent the policy does not state, rent the policy states
+  but the transaction omits, rent sent after the swap, and a policy above the ceiling are refused.
+  Loosening the rule on purpose fails three of them.
+- Pipeline tests against a fake RPC that behaves like PumpSwap: the key is funded with exactly what
+  it spends; a route that needs none is funded with none; a route that wants more than the ceiling
+  is not funded. Funding the ceiling instead of the measurement fails two of them.
+- **T13** (`tests/integration/pumpswap.ts`) runs the real pipeline on mainnet state: **45/45** on
+  five trending Pump.fun tokens that route through PumpSwap. Buys: built, verified and certified,
+  rent 1,346,200 lamports, executed, at least the minimum arrived, and E ended with nothing. Sells
+  from real holders, found by listing the token program's accounts for the mint: executed, E and
+  both temporary accounts empty. Sells need no rent.
+- **T6** adds two cases in the real Solana VM: a route that pockets the rent and swaps honestly
+  succeeds, and the wallet loses nothing beyond the network fee and the stated rent; a route that
+  tries to take one lamport more reverts.
+
+**Not covered yet:** tokens still on the bonding curve. There, Pump.fun takes the whole purchase in
+native SOL from the buyer's own balance, not from a token account, which needs a different way of
+handing E the approved amount.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
@@ -684,7 +732,7 @@ the rule the others depend on.
 | D7 | E is a non-extractable WebCrypto key, one per transaction | `createEphemeral` asserts `extractable === false`. Non-extractable prevents export, not use: script in the page could make E sign, which is harmless because E's accounts are empty outside the transaction. |
 | D11 | v1 transactions (live on mainnet since 15 September 2026) when the wallet supports them, else v0 | v1 has no ALTs, so R1 does not depend on RPC lookup-table answers (account state still comes from the RPC). Phantom currently declares only `legacy, 0`. |
 | D12 | Jupiter's `payer` parameter is never sent (and the proxy rejects it) | With `payer = W`, W appeared inside the swap instruction on a HumidiFi route. |
-| D13 | DEXes charging persistent per-taker rent are excluded (`HumidiFi`, `Pump.fun Amm`) | With a fresh E per swap that rent (~0.013 SOL on HumidiFi) would be lost every time. |
+| D13 | DEXes whose per-taker rent is too high to pay on every swap are excluded (`HumidiFi`) | With a fresh E per swap that rent (~0.013 SOL on HumidiFi) would be lost every time. PumpSwap's (~0.0013 SOL) is paid through `takerRent` and shown (section 0k). |
 | D14 | Intermediate ATA(E, m) are created by Bound (payer W) and closed back to W | Some routes (e.g. Quay) output to ATA(E, output) first. |
 | D15 | A protected route more than 1% below the unrestricted one is put to the user (`costs-more`), with a stronger warning past 5%; Bound refuses on its own only past 50%, where the answer is no longer a price. Both numbers come from the same aggregator, so this is a courtesy check, not a guarantee about the market price. Bound does not block a trade it merely dislikes: the difference is shown, and the person decides. Failed simulations trigger route repair (blame the DEX from logs, exclude, rebuild) | Jupiter once returned `outAmount = 0` and once a route 12% worse, so a wide gap is treated as a broken answer. A narrow one is the price of the protection — fewer accounts fit in one transaction, and pools that leave an account behind are excluded — and that is the user's decision, not ours. A simulation that fails at Bound's own minimum-output check is requoted without blaming any DEX. |
 | D16 | No fee when the treasury has no account for the input token | The user never pays rent for Bound's account (B-09). Operations pre-create treasury accounts for the tokens where the fee matters. |
@@ -792,7 +840,8 @@ npm run e2e                             # needs Microsoft Edge
   firewall, together with `BOUND_CLIENT_IP_HEADER` set for the real ingress.
 - For B and C, a transfer into `W_out` from someone else before execution counts toward the minimum
   (section 1). Bound's own swaps into the same token do not overlap.
-- Tokens that trade only on excluded DEXes (D13, e.g. Pump.fun AMM) may find no protected route.
+- Tokens that trade only on excluded DEXes (D13, HumidiFi) may find no protected route. Pump.fun
+  tokens still on the bonding curve have none yet (section 0k).
 - T6 runs against litesvm (the Agave runtime with real SPL programs), not a validator, and its
   attacker is our own program rather than a real DEX.
 - Not done yet: a reproducible build with SRI, and a dependency supply-chain review (section 0).

@@ -23,6 +23,7 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar a
 | T6: një program keqdashës i vërtetë në vendin e Jupiter-it, i ekzekutuar kundër SPL klasik dhe Token-2022 në një makinë virtuale Solana | 30/30 |
 | Token-2022: rregulli i extensions-ave dhe një swap i ndershëm me Token-2022 | 12 teste njësie + 12/12 çifte reale (PUMP, CATE, PAID, TIPPED) në mainnet |
 | T7: shuma në rritje deri në rreth $10M (nuk ka limit shume) | 14/15; refuzohet vetëm një route BONK prej $1M që nuk nxë në një transaksion |
+| T13: PumpSwap në mainnet, 5 tokenë të Pump.fun: blerje (me qiranë 0.0013 SOL që i jepet çelësit të përkohshëm) dhe shitje nga mbajtës realë; çelësi mbetet bosh (AUDIT.md 0k) | 45/45 |
 | T12: stablecoin-ët me delegat të lëshuesit (PYUSD, USDG, AUSD, CASH) në mainnet: si hyrje dhe si dalje, llogaritë e përkohshme mbyllen, qiraja e shfaqur = qiraja e ngarkuar (AUDIT.md 0j) | 33/33 |
 | Tokenët nëpër të cilët kalon route-i: një hop që ekzekuton kod refuzohet, një i pastër kalon (AUDIT.md 0i) | 4/4 |
 | T11: çfarë shtojnë vërtet wallet-et, lexuar nga 90 transaksione reale në mainnet (AUDIT.md 0h) | asnjë handler kujtese, deri në 10 asertime, 0–1 llogari secila |

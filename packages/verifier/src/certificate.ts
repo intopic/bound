@@ -5,7 +5,7 @@ import type { ChainSnapshot, Policy, Violation } from '@bound/core/types';
 import { verify } from './verify.ts';
 
 /** Changes whenever a rule changes; every certificate names the verifier that issued it. */
-export const VERIFIER_VERSION = '0.4.0';
+export const VERIFIER_VERSION = '0.5.0';
 
 /**
  * What a verified transaction does, in terms a person or a wallet can check. It is issued only after
@@ -39,6 +39,8 @@ export type Certificate = {
     minimumOutput: bigint;
   };
   networkFeeLimitLamports: bigint;
+  /** Rent W sends the temporary key for an account the route opens in its name; usually 0. */
+  routeRentLamports: bigint;
   /**
    * No token other than the input leaves the wallet. The network fee and the rent of a new account
    * are separate and are stated above; this field is about tokens, not about lamports.
@@ -90,6 +92,7 @@ export async function certify(transaction: Transaction, policy: Policy, snapshot
       },
       output: { mint: policy.outputMint, decimals: policy.outputDecimals, minimumOutput: policy.minOut },
       networkFeeLimitLamports: feeLimit,
+      routeRentLamports: policy.takerRent,
       otherTokenDebit: 0,
       persistentPermissions: 0,
       signers: [policy.owner, policy.ephemeral],

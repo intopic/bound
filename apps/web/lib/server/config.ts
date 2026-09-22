@@ -16,7 +16,7 @@ export function serverConfig() {
     // limit would also block every token that has no USD price.
     maxUsdPerSwap: process.env.BOUND_MAX_USD_PER_SWAP ? Number(process.env.BOUND_MAX_USD_PER_SWAP) : null,
     disabled: process.env.BOUND_DISABLED === '1',
-    excludeDexes: (process.env.BOUND_EXCLUDE_DEXES ?? 'HumidiFi,Pump.fun Amm').split(',').map(s => s.trim()).filter(Boolean),
+    excludeDexes: (process.env.BOUND_EXCLUDE_DEXES ?? 'HumidiFi').split(',').map(s => s.trim()).filter(Boolean),
     // Clamped to the verifier's absolute ceiling (audit B-02); the verifier enforces it anyway.
     maxNetworkFeeLamports: maxFee < ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS ? maxFee : ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS,
   };

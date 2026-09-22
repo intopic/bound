@@ -6,7 +6,10 @@ import {
 } from '@solana-program/token';
 import { getAssignInstruction, getTransferSolInstruction } from '@solana-program/system';
 import { createNoopSigner } from '@solana/kit';
-import { compileProtectedSwap, JUPITER_PROGRAM, protectedInstructions, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
+import {
+  compileProtectedSwap, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, protectedInstructions, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
+  withTakerRent, WSOL_MINT,
+} from '@bound/core';
 import type { RuleId, TxVersion } from '@bound/core';
 import { verify } from '../src/index.ts';
 import { BONK, compileRaw, cuIxs, honest, LIFETIME, randomAddress, scenario, USDC } from './fixtures.ts';
@@ -405,5 +408,78 @@ describe('more attacks', () => {
     const v = await verify(mutated(s, ixs), s.policy, s.snapshot);
     expect(v.ok).toBe(false);
     expect(rules(v)).toEqual(expect.arrayContaining(['R2', 'R6']));
+  });
+});
+
+describe('rent a route needs the temporary key to pay (PumpSwap)', () => {
+  // PumpSwap opens a per-buyer account and charges its rent to the buyer, which here is E.
+  const RENT = 1_346_200n;
+  const withRent = async (opts: Parameters<typeof scenario>[0] = {}) => {
+    const s = await scenario(opts);
+    return { ...s, policy: withTakerRent(s.policy, RENT) };
+  };
+  const rentTransfer = (s: Awaited<ReturnType<typeof withRent>>, lamports: bigint, to: Address = s.E.address) =>
+    getTransferSolInstruction({ source: createNoopSigner(s.W), destination: to, amount: lamports });
+
+  for (const [name, opts] of [
+    ['A: token → SOL', {}], ['B: SOL → token', { input: WSOL_MINT, output: USDC }], ['C: token → token', { input: USDC, output: BONK }],
+  ] as const) {
+    for (const version of [0, 1] as const) {
+      it(`exactly the measured rent to E is accepted, ${name}, v${version}`, async () => {
+        const s = await withRent(opts);
+        expect((await verify(await compileHonest(s, version), s.policy, s.snapshot)).violations).toEqual([]);
+      });
+    }
+  }
+
+  it('one lamport more than the policy states → R2', async () => {
+    const s = await withRent();
+    const ixs = honest(s).map(ix => (ix.programAddress === '11111111111111111111111111111111' && ix.accounts?.[1].address === s.E.address
+      ? rentTransfer(s, RENT + 1n) : ix));
+    expect(rules(await verify(mutated(s, ixs), s.policy, s.snapshot))).toContain('R2');
+  });
+
+  it('the rent sent to anyone but E → R2', async () => {
+    const s = await withRent();
+    const other = await randomAddress();
+    const ixs = honest(s).map(ix => (ix.programAddress === '11111111111111111111111111111111' && ix.accounts?.[1].address === s.E.address
+      ? rentTransfer(s, RENT, other) : ix));
+    expect(rules(await verify(mutated(s, ixs), s.policy, s.snapshot))).toContain('R2');
+  });
+
+  it('SOL for E when the policy states none → R2', async () => {
+    const s = await scenario();
+    const ixs = honest(s);
+    ixs.splice(swapIndex(ixs), 0, getTransferSolInstruction({ source: createNoopSigner(s.W), destination: s.E.address, amount: RENT }));
+    expect(rules(await verify(mutated(s, ixs), s.policy, s.snapshot))).toContain('R2');
+  });
+
+  it('the rent the policy states, but missing from the transaction → R4', async () => {
+    const s = await withRent();
+    const ixs = honest(s).filter(ix => !(ix.programAddress === '11111111111111111111111111111111' && ix.accounts?.[1].address === s.E.address));
+    expect(rules(await verify(mutated(s, ixs), s.policy, s.snapshot))).toContain('R4');
+  });
+
+  it('the rent sent after the swap → R2', async () => {
+    const s = await withRent();
+    const ixs = honest(s);
+    const at = ixs.findIndex(ix => ix.programAddress === '11111111111111111111111111111111' && ix.accounts?.[1].address === s.E.address);
+    const [rent] = ixs.splice(at, 1);
+    ixs.splice(swapIndex(ixs) + 1, 0, rent);
+    expect(rules(await verify(mutated(s, ixs), s.policy, s.snapshot))).toContain('R2');
+  });
+
+  it('a policy asking for more than the ceiling → R4, whatever the transaction says', async () => {
+    const s = await scenario();
+    const policy = { ...s.policy, takerRent: MAX_TAKER_RENT_LAMPORTS + 1n };
+    const ixs = honest({ ...s, policy });
+    expect(rules(await verify(mutated(s, ixs), policy, s.snapshot))).toContain('R4');
+  });
+
+  it('the certificate states the rent, so the page can show it', async () => {
+    const s = await withRent();
+    const { certify } = await import('../src/index.ts');
+    const c = await certify(await compileHonest(s, 0), s.policy, s.snapshot);
+    expect(c.ok && c.certificate.routeRentLamports).toBe(RENT);
   });
 });

@@ -128,6 +128,10 @@ export function protectedInstructions(
     }
   }
 
+  // Rent for an account the route opens in E's name, and nothing more: the exact amount was
+  // measured in simulation, so E spends all of it and does not survive the transaction.
+  if (p.takerRent > 0n) pre.push(getTransferSolInstruction({ source: W, destination: p.ephemeral, amount: p.takerRent }));
+
   // Minimum-output check (audit B-04): a self-transfer of the expected floor. The Token program
   // checks the balance before short-circuiting a self-transfer, so this is a no-op when the swap
   // delivered at least minOut and reverts the whole transaction when it did not.
