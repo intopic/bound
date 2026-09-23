@@ -71,6 +71,7 @@ function explainError(e: unknown): Notice {
       'no-route': 'No protected route right now',
       'bad-quote': 'Only bad prices were offered',
       'price-moved': 'The price moved',
+      'insufficient-sol': 'Not enough SOL',
       'costs-more': 'Protecting this swap costs more here',
       'simulation-failed': 'The swap would fail',
       'verification-failed': "We couldn't build a protected swap",

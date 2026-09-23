@@ -5,7 +5,7 @@ import {
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import {
-  ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
+  ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, feeFor, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
   MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf,
@@ -14,7 +14,7 @@ import type { BoundConfig, IntermediateAta, Lifetime, Policy, TxVersion, Violati
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
 import { certify, hasTransferFee, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn } from '@bound/verifier';
 import type { Certificate } from '@bound/verifier';
-import type { SendResult, SendStatus, SolanaRpc } from '@bound/solana';
+import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@bound/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
 import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';
 
@@ -134,6 +134,7 @@ export type PreparedSwap = {
 
 export type BoundErrorCode =
   | 'unsupported-token' | 'token-data-mismatch' | 'output-account-restricted' | 'no-route' | 'bad-quote' | 'price-moved'
+  | 'insufficient-sol'
   | 'costs-more' | 'simulation-failed'
   | 'verification-failed' | 'wallet-changed-transaction' | 'expired';
 
@@ -264,6 +265,21 @@ export function isMinimumOutputCheckInstruction(ix: {
     && ix.accounts[0].address === ix.accounts[2].address;
 }
 
+/** The program the instruction at `index` invokes, or null when it cannot be told. */
+function programAt(tx: Transaction, index: number | null, lookups: Record<string, string[]> | null): string | null {
+  if (index === null) return null;
+  try {
+    const compiled = getCompiledTransactionMessageDecoder().decode(tx.messageBytes);
+    const msg = decompileTransactionMessage(compiled as never, { addressesByLookupTableAddress: (lookups ?? {}) as never });
+    return (msg.instructions[index] as { programAddress?: string } | undefined)?.programAddress ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Lamports as SOL for a message a person reads, to four decimals. */
+const solText = (lamports: bigint) => (Number(lamports) / 1e9).toFixed(4);
+
 /** Did the simulation fail at Bound's own minimum-output check (a self-TransferChecked)? */
 function failedAtFloorCheck(tx: Transaction, index: number | null, lookups: Record<string, string[]> | null): boolean {
   if (index === null) return false;
@@ -358,8 +374,10 @@ export async function prepareProtectedSwap(deps: {
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
     .then(BigInt)
     .catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS);
+  // SOL input pays the fee to the treasury wallet itself, so it is read too (BR-06, below).
+  const treasuryWallet = variant === 'B' && settings.treasury ? [settings.treasury] : [];
   const [firstReads, classicRent, extendedRent] = await Promise.all([
-    fetchAccounts(rpc, [req.inputMint, req.outputMint, ...feeCandidates, ...wOutCandidates]),
+    fetchAccounts(rpc, [req.inputMint, req.outputMint, ...feeCandidates, ...wOutCandidates, ...treasuryWallet]),
     wOutCandidates.length ? rentFor(TOKEN_ACCOUNT_SIZE) : Promise.resolve(0n),
     wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
   ]);
@@ -413,6 +431,11 @@ export async function prepareProtectedSwap(deps: {
   }
 
   const feeAccountExists = feeAccount ? !!firstReads.get(feeAccount) : true;
+  // A SOL fee into a treasury wallet that does not exist yet would open it below the rent minimum,
+  // which the runtime refuses, and every small SOL swap would revert. Such a swap is fee-free, the
+  // same as a token the treasury has no account for (review BR-06; audit B-09).
+  const treasuryCannotReceive = treasuryWallet.length > 0 && !firstReads.get(settings.treasury!)
+    && feeFor(req.amountIn, settings) < await rentFor(0);
   const policy = await buildPolicy({
     intent: { owner: req.owner, inputMint: req.inputMint, outputMint: req.outputMint, amountIn: req.amountIn },
     ephemeral: E,
@@ -423,7 +446,7 @@ export async function prepareProtectedSwap(deps: {
     // The extension itself, not this epoch's rate: an account that has ever received the token
     // may hold withheld fees, and the cleanup must harvest them whatever the rate is today.
     inputTransferFee: inputTaxes,
-    config: settings,
+    config: treasuryCannotReceive ? { ...settings, treasury: null } : settings,
     feeAccountExists,
   });
 
@@ -557,6 +580,37 @@ export async function prepareProtectedSwap(deps: {
     return { trial: exact, sim };
   };
 
+  const failedInSwap = (s: Simulation, tx: Transaction, lookups: Record<string, string[]> | null) =>
+    programAt(tx, s.failedInstruction, lookups) === settings.jupiterProgram;
+  /**
+   * Did the simulation fail because the wallet itself is short of SOL (review BR-10)? The network
+   * fee, a new account's rent and the SOL being swapped all leave W before the swap runs. Blaming the
+   * route for that would exclude every DEX on it and tell the user that no route works.
+   */
+  const walletShortOfSol = (s: Simulation, tx: Transaction, lookups: Record<string, string[]> | null) => {
+    if (s.ok) return false;
+    const error = s.error ?? '';
+    if (/InsufficientFundsForFee|AccountNotFound/.test(error)) return true;
+    if (/InsufficientFundsForRent/.test(error) && /"account_index":"?0"?[,}]/.test(error)) return true;
+    return s.failedInstruction !== null && !failedInSwap(s, tx, lookups) && s.logs.some(l => l.includes('insufficient lamports'));
+  };
+  /** What the swap needs from W in SOL, as an upper estimate, and what W holds. */
+  const insufficientSol = async (intermediateCount: number, routeRent: bigint) => {
+    const [balance, reserve, temporaryRent] = await Promise.all([
+      rpc.getBalance(req.owner, { commitment: 'confirmed' }).send().then(r => BigInt(r.value)).catch(() => null),
+      rentFor(0),
+      rentFor(TOKEN_2022_ACCOUNT_SIZE),
+    ]);
+    const temporaryAccounts = BigInt(1 + (variant === 'A' ? 1 : 0) + intermediateCount);
+    const need = (variant === 'B' ? req.amountIn : 0n) + temporaryAccounts * temporaryRent
+      + (policy.accounts.wOut && !wOutBefore.exists ? newAccountRent : 0n) + routeRent + settings.maxNetworkFeeLamports + reserve;
+    return new BoundError(
+      'insufficient-sol',
+      `This swap needs about ${solText(need)} SOL in your wallet: ${variant === 'B' ? 'the SOL you swap, ' : ''}the network fee and account deposits, most of which come back in the same transaction.`
+      + `${balance !== null ? ` Your wallet has ${solText(balance)} SOL.` : ''} Add SOL or swap a smaller amount.`,
+    );
+  };
+
   const compile = (
     r: BuildResponse, lifetime: Lifetime, intermediates: IntermediateAta[], computeUnitLimit: number,
     outputBalanceBefore = wOutBefore.balance,
@@ -685,13 +739,20 @@ export async function prepareProtectedSwap(deps: {
     // Some routes open an account in the taker's name and make the taker pay its rent — both of
     // Pump.fun's markets do, once per buyer. E holds no SOL on purpose, so such a route fails for
     // want of lamports.
-    // Measure exactly what it needs and send E that and no more; see `measureTakerRent`.
-    if (!sim.ok && sim.logs.some(l => l.includes('insufficient lamports'))) {
+    // Measure exactly what it needs and send E that and no more; see `measureTakerRent`. Only a
+    // failure inside the swap is the route's: one before it is the wallet's own (review BR-10).
+    const lookups = chosen.r.addressesByLookupTableAddress;
+    let probedForRent = false;
+    if (!sim.ok && failedInSwap(sim, trial.transaction, lookups) && sim.logs.some(l => l.includes('insufficient lamports'))) {
+      probedForRent = true;
       const measured = await measureTakerRent(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS), rent => { takerRent = rent; });
       if (measured) {
         trial = measured.trial;
         sim = measured.sim;
       }
+    }
+    if (walletShortOfSol(sim, trial.transaction, lookups)) {
+      throw await insufficientSol(chosen.intermediates.length, probedForRent && takerRent === 0n ? MAX_TAKER_RENT_LAMPORTS : takerRent);
     }
     attempts.push({ excluded, route, simulation: sim.ok ? 'ok' : sim.error ?? 'failed', blamed: sim.blame ? labels[sim.blame] ?? sim.blame : null });
 

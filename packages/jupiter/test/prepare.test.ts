@@ -88,7 +88,7 @@ function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: b
  * The SOL a transaction sends the temporary key: the signer that is not the fee payer, credited by
  * a System transfer (instruction 2).
  */
-function lamportsSentToTaker(wire: string): { taker: string; lamports: bigint } {
+function lamportsSentToTaker(wire: string): { taker: string; lamports: bigint; swapIndex: number } {
   const tx = getTransactionDecoder().decode(Uint8Array.from(Buffer.from(wire, 'base64')));
   const compiled = getCompiledTransactionMessageDecoder().decode(tx.messageBytes);
   const message = decompileTransactionMessage(compiled as never);
@@ -99,12 +99,12 @@ function lamportsSentToTaker(wire: string): { taker: string; lamports: bigint } 
     if (ix.programAddress !== SYSTEM_PROGRAM || data[0] !== 2 || ix.accounts?.[1]?.address !== taker) continue;
     lamports += new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(4, true);
   }
-  return { taker, lamports };
+  return { taker, lamports, swapIndex: message.instructions.findIndex(ix => ix.programAddress === JUPITER_PROGRAM) };
 }
 
 function fakeRpc(
   accounts: Map<string, Account>,
-  opts: { feeFails?: boolean; epochFails?: boolean; takerRent?: bigint; priceMoves?: number } = {},
+  opts: { feeFails?: boolean; epochFails?: boolean; takerRent?: bigint; priceMoves?: number; walletShort?: boolean } = {},
 ): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
   let moved = 0;
@@ -121,16 +121,20 @@ function fakeRpc(
     // holds its rent; with it, the taker ends holding whatever it was sent beyond the rent.
     simulateTransaction: call((wire: string, config: { accounts?: { addresses: string[] } }) => {
       const need = opts.takerRent ?? 0n;
-      const { taker, lamports } = lamportsSentToTaker(wire);
+      const { taker, lamports, swapIndex } = lamportsSentToTaker(wire);
+      // The wallet cannot pay for its own part: the first instruction, a rent payment, fails.
+      if (opts.walletShort) {
+        return { value: { err: { InstructionError: [0, { Custom: 1 }] }, logs: ['Transfer: insufficient lamports 400000, need 2039280'], unitsConsumed: 5_000n } };
+      }
       if (lamports < need) {
-        return { value: { err: { InstructionError: [8, { Custom: 1 }] }, logs: [`Transfer: insufficient lamports ${lamports}, need ${need}`], unitsConsumed: 90_000n } };
+        return { value: { err: { InstructionError: [swapIndex, { Custom: 1 }] }, logs: [`Transfer: insufficient lamports ${lamports}, need ${need}`], unitsConsumed: 90_000n } };
       }
       // The price moves between the quote and the simulation, and Jupiter stops the route itself.
       if (moved < (opts.priceMoves ?? 0)) {
         moved++;
         return {
           value: {
-            err: { InstructionError: [8, { Custom: 6001 }] }, unitsConsumed: 150_000n,
+            err: { InstructionError: [swapIndex, { Custom: 6001 }] }, unitsConsumed: 150_000n,
             logs: [`Program ${JUPITER_PROGRAM} invoke [1]`, `Program ${JUPITER_PROGRAM} failed: custom program error: 0x1771`],
           },
         };
@@ -146,7 +150,8 @@ function fakeRpc(
       if (opts.feeFails) throw new Error('RPC unavailable');
       return { value: 15_000n };
     }),
-    getMinimumBalanceForRentExemption: call(() => 1_488_440n),
+    getMinimumBalanceForRentExemption: call((size: bigint) => (BigInt(size) === 0n ? 650_240n : 1_488_440n)),
+    getBalance: call(() => ({ value: 400_000n })),
     getEpochInfo: call(() => {
       if (opts.epochFails) throw new Error('RPC unavailable');
       return { epoch: 900n };
@@ -236,19 +241,24 @@ const settings = { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_
 async function prepare(output: Address, opts: {
   jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean;
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
-  chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number;
+  chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
+  input?: Address; treasury?: Address; amountIn?: bigint;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
   for (const [key, account] of opts.chain ?? []) accounts.set(key, account);
   return prepareProtectedSwap(
     {
-      rpc: fakeRpc(accounts, { feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent, priceMoves: opts.priceMoves }),
-      jupiter: opts.jupiter ?? fakeJupiter(), settings,
+      rpc: fakeRpc(accounts, {
+        feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent, priceMoves: opts.priceMoves,
+        walletShort: opts.walletShort,
+      }),
+      jupiter: opts.jupiter ?? fakeJupiter(), settings: { ...settings, treasury: opts.treasury ?? null },
     },
     {
-      owner: W, ephemeral: await generateKeyPairSigner(), inputMint: USDC, outputMint: output, amountIn: 1_000_000n,
-      inputDecimals: opts.inputDecimals ?? DECIMALS[USDC], outputDecimals: DECIMALS[output], version: 1,
+      owner: W, ephemeral: await generateKeyPairSigner(), inputMint: opts.input ?? USDC, outputMint: output,
+      amountIn: opts.amountIn ?? 1_000_000n,
+      inputDecimals: opts.inputDecimals ?? DECIMALS[opts.input ?? USDC], outputDecimals: DECIMALS[output], version: 1,
       acceptedMinOut: opts.acceptedMinOut, acceptedCostBps: opts.acceptedCostBps,
     },
   );
@@ -532,3 +542,36 @@ describe('slippage on a Pump.fun bonding curve', () => {
     expect(prepared.policy.minOut).toBe(accepted);
   });
 });
+
+describe('a wallet short of SOL (review BR-10)', () => {
+  it('is told how much SOL the swap needs, and no market is blamed for it', async () => {
+    const failure = await prepare(BONK, { walletShort: true }).catch((e: BoundError) => e);
+    expect(failure).toBeInstanceOf(BoundError);
+    expect((failure as BoundError).code).toBe('insufficient-sol');
+    expect((failure as BoundError).message).toMatch(/needs about \d+\.\d{4} SOL/);
+    expect((failure as BoundError).message).toContain('Your wallet has 0.0004 SOL');
+  });
+
+  it("a route short of the taker's rent is still measured and funded, not reported as the wallet's", async () => {
+    const prepared = await prepare(BONK, { takerRent: 1_346_200n });
+    expect(prepared.policy.takerRent).toBe(1_346_200n);
+  });
+});
+
+describe('a SOL fee into a treasury wallet that does not exist yet (review BR-06)', () => {
+  const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
+
+  it('is fee-free while the fee is below the rent minimum, instead of reverting', async () => {
+    const prepared = await prepare(BONK, { input: WSOL_MINT, treasury: TREASURY, amountIn: 100_000_000n });
+    expect(prepared.policy.fee).toBe(0n);
+    expect(prepared.policy.treasury).toBeNull();
+  });
+
+  it('charges the fee once the treasury wallet exists', async () => {
+    const funded: [string, Account] = [TREASURY, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }];
+    const prepared = await prepare(BONK, { input: WSOL_MINT, treasury: TREASURY, amountIn: 100_000_000n, chain: [funded] });
+    expect(prepared.policy.fee).toBe((100_000_000n * settings.feeBps) / 10_000n);
+    expect(prepared.policy.treasury).toBe(TREASURY);
+  });
+});
+
