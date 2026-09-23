@@ -310,7 +310,6 @@ async function latestLifetime(rpc: SolanaRpc): Promise<Lifetime> {
  */
 export async function prepareProtectedSwap(deps: {
   rpc: SolanaRpc;
-  secondaryRpc?: SolanaRpc;
   jupiter: JupiterClient;
   settings: SwapSettings;
 }, req: SwapRequest): Promise<PreparedSwap> {
@@ -677,7 +676,6 @@ export async function prepareProtectedSwap(deps: {
       const [snapshot, finalLifetime] = await Promise.all([
         fetchSnapshot({
           rpc,
-          secondaryRpc: deps.secondaryRpc,
           addresses: [
             ...swapAccounts, E, policy.accounts.eIn, ...(policy.accounts.eOut ? [policy.accounts.eOut] : []),
             // W_out explicitly, not only when Jupiter happens to list it (audit B-03).

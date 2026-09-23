@@ -112,7 +112,7 @@ try {
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
   check('page loads with USDC → SOL preselected', await page.getByRole('button', { name: /SOL/ }).first().isVisible());
   check('protection panel is shown', await page.getByText('Wallet authority protected').isVisible());
-  check('temporary key copy is exact', await page.getByText('Used once, never stored').isVisible());
+  check('protection is one plain line', await page.getByText('The swap can touch only the amount you swap.').isVisible());
   check('test mode banner without a treasury', await page.getByText('Test mode: no Bound fee is charged.').isVisible());
   await page.screenshot({ path: `${OUT}/1-start.png` });
 

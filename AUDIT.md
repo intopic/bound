@@ -45,7 +45,7 @@ Adopted from the answers and design feedback:
 - Jupiter's `/build` answers are validated: a malformed amount or instruction is a `JupiterError`,
   not a crash further down (answer 7).
 - The second RPC relays only the two reads that lookup tables need; an oversized body is refused
-  before parsing.
+  before parsing. (The second RPC was removed on 23 September 2026, section 0l.)
 
 Found by our own mainnet runs after the fixes (not in the review):
 
@@ -97,7 +97,8 @@ Also from the second review:
 - **B-12 now fails closed.** Without a price from the cluster for the final message (two tries),
   nothing goes to the wallet.
 - **Lookup tables (question 5).** With a second RPC, both must return every entry of every table;
-  a shorter answer is unconfirmed (`sameLookupTable`).
+  a shorter answer is unconfirmed (`sameLookupTable`). Removed on 23 September 2026 with the second
+  RPC itself (section 0l).
 - **Concurrent swaps (question 2), decision A.** The page allows one Bound swap at a time into the
   same output token, across tabs (`apps/web/lib/client/swapLock.ts`), and keeps the lock for 150 s
   when an outcome is unknown. The guarantee now states the check exactly: the output account ends
@@ -504,7 +505,8 @@ ceiling (0.005 SOL), reads from the simulation how much E spent, then funds E wi
 requires the simulation to show E ending with nothing. The measured amount becomes `takerRent` in
 the policy. The compiler adds one trusted instruction before the swap, a transfer of exactly that
 amount from W to E. The verifier accepts it only at exactly the policy's amount, only to E, only
-before the swap, and never above the ceiling (R2, R4). The certificate and the page state it.
+before the swap, and never above the ceiling (R2, R4). The certificate states it, and the page
+shows it as the market's account fee.
 
 Bound needs no knowledge of PumpSwap for this: every number comes from the chain. A route that
 wants more than the ceiling is not paying rent but spending, and is left to fail as before.
@@ -575,6 +577,27 @@ before signing states. Decision of 23 September 2026.
 - **T6** adds two cases in the real Solana VM: a route that pockets the rent and swaps honestly
   succeeds, and the wallet loses nothing beyond the network fee and the stated rent; a route that
   tries to take one lamport more reverts.
+
+---
+
+## 0l. Simpler: one RPC, and no certificate on the page
+
+Two things were removed on 23 September 2026 because they served the operator or the auditor, not
+the person swapping, and Bound's job is the protection, not the paperwork around it.
+
+**The second RPC.** It cross-checked v0 address lookup tables against a second provider
+(question 5 of the second review). It was optional, unset by default, and never ran in the setup
+Bound actually uses. It is gone: the option, `/api/rpc-secondary`, `RPC_URL_SECONDARY` and
+`sameLookupTable`. The one provider is now trusted for v0 lookup tables, as it already was whenever
+the option was unset; account contents are still read into the snapshot every rule checks, and a v1
+transaction carries no lookup tables at all (SECURITY.md, "One RPC provider").
+
+**The certificate card and the technical rows.** The page no longer shows the certificate (message
+hash, verifier version, the temporary authority's address, the programs invoked), the four
+"protection" rows, or the route. It shows one line, "Wallet authority protected", and the costs a
+person pays: Bound's fee, the network fee, a new account's deposit, a market's account fee. The
+verifier still certifies every transaction before the wallet opens, and the certificate stays in
+the prepared swap for a wallet, an agent or an auditor that wants to check it.
 
 ---
 
@@ -754,7 +777,7 @@ the rule the others depend on.
 | SPL Token / Token-2022 / ATA / System | Behave as specified, including the balance check on a self-transfer. |
 | Bound frontend code | Compiler, verifier and flow are correct and untampered (supply chain is the largest residual risk). |
 | Bound server | Serves the genuine page. It also supplies the kill switch, the alpha limit, the excluded DEXes and F_max (capped by the verifier), and relays RPC answers and token metadata. It does not supply the fee or the treasury; decimals are checked against the mint on chain (C-01). |
-| RPC | Returns true account state and lookup tables. An optional second RPC must return every lookup-table entry (`RPC_URL_SECONDARY`). v1 has no lookup tables, but account state (owners for R1, `b0`, decimals, delegate and close authority) still comes from the RPC. |
+| RPC | Returns true account state and lookup tables. One provider, trusted for v0 lookup tables (section 0l). v1 has no lookup tables, but account state (owners for R1, `b0`, decimals, delegate and close authority) still comes from the RPC. |
 | Wallet | Signs the bytes it is given. |
 | Jupiter | **Not trusted.** Its instruction is treated as adversarial; its lookup-table claims are only used to compress, never to verify. Its floor can only make `minOut` stricter: Bound computes the minimum from the quote and the accepted slippage and never goes below what the user accepted (C-02). Answers for another pair or amount are refused. |
 
@@ -869,7 +892,7 @@ npm run e2e                             # needs Microsoft Edge
   This is safe but may break UX; Phantom's behaviour with `signTransaction` and a second unsigned
   signer is untested with real funds.
 - Phantom declares no v1 support, so v0 (with lookup tables and RPC trust for them) is what users get
-  today. Set `RPC_URL_SECONDARY` to cross-check.
+  today.
 - There is no cap per swap: the guarantee does not depend on the amount. `BOUND_MAX_USD_PER_SWAP`
   remains as an operational valve, unset by default and enforced in the page only (the server
   cannot price a transaction without parsing it); it is a UX limit, not a security boundary.

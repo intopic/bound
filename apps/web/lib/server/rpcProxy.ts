@@ -8,8 +8,6 @@ const ALLOWED_METHODS = new Set([
   'getBlockHeight', 'getEpochInfo', 'simulateTransaction', 'sendTransaction', 'getSignatureStatuses', 'getFeeForMessage',
   'getMinimumBalanceForRentExemption',
 ]);
-/** The second RPC only cross-checks address lookup tables. */
-export const LOOKUP_METHODS = new Set(['getMultipleAccounts', 'getAccountInfo']);
 const MAX_BODY_BYTES = 64 * 1024;
 const LIMIT_PER_MINUTE = 300;
 // A swap re-broadcasts every 3 s for at most ~90 s, and a user may retry: 60 per minute leaves room
@@ -29,7 +27,7 @@ const rpcError = (id: unknown, code: number, message: string, status: number, no
     },
   );
 
-export async function proxyRpc(req: Request, target: string | null, methods: ReadonlySet<string> = ALLOWED_METHODS): Promise<Response> {
+export async function proxyRpc(req: Request, target: string | null): Promise<Response> {
   if (!target) return rpcError(null, -32601, 'Not configured', 404);
   const client = clientKey(req);
   if (rateLimited(`rpc:${client}`, LIMIT_PER_MINUTE)) return rpcError(null, -32005, 'Too many requests', 429);
@@ -44,7 +42,7 @@ export async function proxyRpc(req: Request, target: string | null, methods: Rea
   if (Array.isArray(body) || typeof body !== 'object' || body === null) {
     return rpcError(null, -32600, 'Batch requests are not allowed', 400);
   }
-  if (typeof body.method !== 'string' || !methods.has(body.method)) {
+  if (typeof body.method !== 'string' || !ALLOWED_METHODS.has(body.method)) {
     return rpcError(body.id, -32601, 'Method not allowed', 403);
   }
   if (body.method === 'sendTransaction') {

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { iconHostAllowed, proxyIcon, sniffImage } from '../lib/server/iconProxy.ts';
 import { proxyBuild } from '../lib/server/jupiterProxy.ts';
 import { clientKey, rateLimited } from '../lib/server/rateLimit.ts';
-import { LOOKUP_METHODS, proxyRpc } from '../lib/server/rpcProxy.ts';
+import { proxyRpc } from '../lib/server/rpcProxy.ts';
 
 let n = 0;
 const uniqueIp = () => `203.0.113.${++n % 250}-${n}`;
@@ -95,16 +95,6 @@ describe('RPC proxy', () => {
     const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }), 'https://rpc.test');
     expect(res.status).toBe(429);
     expect(res.headers.get('x-bound-not-forwarded')).toBeNull();
-  });
-
-  it('the second RPC answers only the reads that lookup tables need', async () => {
-    const upstream = upstreamOk();
-    vi.stubGlobal('fetch', upstream);
-    const call = (method: string) => proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method, params: [] }), 'https://rpc2.test', LOOKUP_METHODS);
-    expect((await call('getMultipleAccounts')).status).toBe(200);
-    expect((await call('sendTransaction')).status).toBe(403);
-    expect((await call('simulateTransaction')).status).toBe(403);
-    expect(upstream).toHaveBeenCalledOnce();
   });
 
   it('B-05: the kill switch refuses sendTransaction on the server, with a 4xx (never forwarded)', async () => {

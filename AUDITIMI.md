@@ -287,7 +287,7 @@ Kërkojmë një auditim të të gjithë repos, jo vetëm të verifier-it. Lista 
 ### E. Frontend dhe serveri (`apps/web`)
 
 - [ ] CSP në `proxy.ts`: nonce, `'strict-dynamic'`, dhe arsyeja pse `style-src` mban `'unsafe-inline'`.
-- [ ] Proxy-të: lista e metodave RPC, madhësia e body, RPC-ja e dytë vetëm për lexime, parametrat e Jupiter-it, proxy-ja e ikonave (SSRF, redirect-et, SVG).
+- [ ] Proxy-të: lista e metodave RPC, madhësia e body, parametrat e Jupiter-it, proxy-ja e ikonave (SSRF, redirect-et, SVG). RPC-ja e dytë u hoq më 23 shtator 2026 (AUDIT.md 0l).
 - [ ] Rate limit-i është në memorie për çdo instancë; në serverless nuk është global. A mjafton për alpha?
 - [ ] Asnjë sekret në bundle; `NEXT_PUBLIC_*` janë publike me qëllim (adresa e treasury-t dhe fee).
 - [ ] Supply chain: varësitë, lockfile, skriptet e instalimit. Si ta bëjmë build-in të riprodhueshëm dhe me SRI?
@@ -386,7 +386,7 @@ Gjithashtu: kontrolli i fee-së së rrjetit tani ndalon kur Solana nuk e jep çm
 
 **Korrigjime në këtë brief:** qiraja (ishte 0.00203928 SOL), koha e `test:fuzz` (~75 min, jo ~1 orë), CI (workflow-i ekziston, por nuk ka ekzekutuar), formulimi për v1 dhe RPC, shtrirja e rregullit B-10 (vetëm mint-et e llogarive të ndërmjetme që krijon Bound), dhe numrat e testeve.
 
-**Pas auditimit të dytë u morën edhe disa ide nga dokumenti i produktit:** verifier-i është paketë më vete (`packages/verifier`, `@bound/verifier`); pas çdo verifikimi të suksesshëm lëshon një certifikatë (debiti i aprovuar, fee, minimumi, programet, versioni, SHA-256 i mesazhit) që faqja e shfaq ndërsa wallet-i është i hapur; leximet nga RPC dhe Jupiter bëhen paralelisht (në testin në browser, nga klikimi te wallet-i < 1 s); çmimi rifreskohet çdo 20 s tri herë dhe pastaj pret butonin "Refresh price"; tekstet e UI-së janë më të sakta. Detajet: `AUDIT.md`, seksioni 0c.
+**Pas auditimit të dytë u morën edhe disa ide nga dokumenti i produktit:** verifier-i është paketë më vete (`packages/verifier`, `@bound/verifier`); pas çdo verifikimi të suksesshëm lëshon një certifikatë (debiti i aprovuar, fee, minimumi, programet, versioni, SHA-256 i mesazhit), që nga 23 shtatori 2026 nuk i shfaqet më klientit por mbetet për wallet-e, agjentë dhe auditues; leximet nga RPC dhe Jupiter bëhen paralelisht (në testin në browser, nga klikimi te wallet-i < 1 s); çmimi rifreskohet çdo 20 s tri herë dhe pastaj pret butonin "Refresh price"; tekstet e UI-së janë më të sakta. Detajet: `AUDIT.md`, seksioni 0c.
 
 **Për rishikimin e radhës:**
 

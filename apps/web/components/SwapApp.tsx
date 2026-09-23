@@ -10,11 +10,10 @@ import {
   BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, prepareProtectedSwap, requestSlippageBps, routeFloor, slippageFor,
 } from '@bound/jupiter';
 import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
-import type { Certificate } from '@bound/verifier';
 import { createEphemeral } from '@bound/solana';
 import type { SendOutcome } from '@bound/solana';
 import type { PublicStatus } from '@/lib/server/config';
-import { getJupiter, getRpc, getSecondaryRpc } from '@/lib/client/chain';
+import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import {
   connectWallet, disconnectWallet, onAccountChange, supportedVersions, useWallets, walletSign,
@@ -31,12 +30,11 @@ import { TokenIcon, TokenPicker } from './TokenPicker';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
 type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string };
-type Quote = { out: bigint; minOut: bigint; route: string[]; at: number };
+type Quote = { out: bigint; minOut: bigint; at: number };
 /** What the wallet is about to be asked to sign, shown while it is open. */
 type Pending = {
   minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
   tokenTax: string | null;
-  certificate: Certificate; inSymbol: string; outSymbol: string;
 };
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
 /** A question the page puts to the user mid-swap, with nothing signed yet. */
@@ -346,7 +344,7 @@ export function SwapApp() {
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
           setQuote(answersThis
-            ? { out: BigInt(r.outAmount), minOut: routeFloor(r, slippageFor(r, DEFAULT_SETTINGS)), route: r.routePlan.map(p => p.swapInfo.label), at: Date.now() }
+            ? { out: BigInt(r.outAmount), minOut: routeFloor(r, slippageFor(r, DEFAULT_SETTINGS)), at: Date.now() }
             : null);
         })
         .catch(() => !cancelled && setQuote(null))
@@ -451,7 +449,6 @@ export function SwapApp() {
         return await prepareProtectedSwap(
           {
             rpc: getRpc(),
-            secondaryRpc: args.status.secondaryRpc ? getSecondaryRpc() : undefined,
             jupiter: getJupiter(),
             settings: {
               ...DEFAULT_SETTINGS,
@@ -558,9 +555,6 @@ export function SwapApp() {
           ? `${inToken.symbol} charges ${prepared.tokenTax.inputBps / 100}% on every transfer. Moving your ${inToken.symbol} into the protected account costs `
             + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Bound.`
           : null,
-        certificate: prepared.certificate,
-        inSymbol: inToken.symbol,
-        outSymbol: outToken.symbol,
       });
       setPhase('wallet');
       const signed = await walletSign(wallet, account, new Uint8Array(getTransactionEncoder().encode(prepared.transaction)));
@@ -782,41 +776,10 @@ export function SwapApp() {
           <p className="protection-title">
             <ShieldIcon /> Wallet authority protected
           </p>
-          <div className="protection-row">
-            <span>Other tokens and NFTs</span>
-            <span>Not exposed</span>
-          </div>
-          <div className="protection-row">
-            <span>Wallet authority</span>
-            <span>Never shared</span>
-          </div>
-          <div className="protection-row">
-            <span>Persistent permissions</span>
-            <span>None created</span>
-          </div>
-          <div className="protection-row">
-            <span>Temporary key</span>
-            <span>Used once, never stored</span>
-          </div>
-          <details className="how">
-            <summary>How it works</summary>
-            <p>
-              Bound moves exactly the amount you swap into a temporary account controlled by a one-time key, and only that
-              account is given to the swap program. No spending authority is granted over your other wallet assets, and no
-              permission outlives the transaction. Before your wallet opens, 7 rules check the exact transaction; after you
-              sign, Bound checks it again and only then adds the temporary key&apos;s signature, the last one required. The
-              minimum output is enforced on successful execution: if less would arrive, the whole swap reverts.
-            </p>
-          </details>
+          <p className="protection-note">The swap can touch only the amount you swap. Nothing else in your wallet.</p>
         </div>
 
         <div className="details">
-          {quote && (
-            <div className="detail-row">
-              <span>Route</span>
-              <span>{quote.route.join(' → ')}</span>
-            </div>
-          )}
           {tokenIn && swapAmount !== null && swapAmount > 0n && inDecimals !== null && (
             <div className="detail-row">
               <span>Swap amount</span>
@@ -887,7 +850,6 @@ export function SwapApp() {
                 {pending.tokenTax && <> {pending.tokenTax}</>}
               </p>
             )}
-            {pending && <CertificateCard pending={pending} />}
             <p>
               {wallet?.name} will show the amounts and a second signer. That second signer is Bound&apos;s temporary key, which
               is normal.
@@ -957,37 +919,6 @@ export function SwapApp() {
         </p>
       </footer>
     </main>
-  );
-}
-
-/**
- * The certificate of the transaction the wallet is signing (idea 35): issued by the verifier only
- * after every rule held, and bound to the exact message by its SHA-256.
- */
-function CertificateCard({ pending }: { pending: Pending }) {
-  const c = pending.certificate;
-  const amount = (v: bigint, decimals: number, symbol: string) => `${formatExact(v, decimals)} ${symbol}`;
-  const rows: [string, string][] = [
-    ['Approved total debit', amount(c.input.totalDebit, c.input.decimals, pending.inSymbol)],
-    ['Swap amount', amount(c.input.swapAmount, c.input.decimals, pending.inSymbol)],
-    ['Bound fee', amount(c.input.boundFee, c.input.decimals, pending.inSymbol)],
-    ['Minimum output enforced', amount(c.output.minimumOutput, c.output.decimals, pending.outSymbol)],
-    ['Other tokens debited', 'None'],
-    ['Persistent permissions', 'None'],
-    ['Temporary authority', shortAddress(c.temporaryAuthority)],
-    ['Programs invoked directly', String(c.directPrograms.length)],
-    ['Verifier', `${c.verifierVersion} · message ${c.messageSha256.slice(0, 12)}…`],
-  ];
-  return (
-    <details className="certificate">
-      <summary>Bound certificate for this transaction</summary>
-      {rows.map(([label, value]) => (
-        <div className="detail-row" key={label}>
-          <span>{label}</span>
-          <span>{value}</span>
-        </div>
-      ))}
-    </details>
   );
 }
 

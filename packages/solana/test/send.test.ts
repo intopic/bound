@@ -10,7 +10,7 @@ import {
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { sameLookupTable, sendAndConfirm } from '../src/index.ts';
+import { sendAndConfirm } from '../src/index.ts';
 import type { SendStatus, SolanaRpc } from '../src/index.ts';
 
 const LAST_VALID = 100n;
@@ -131,13 +131,5 @@ describe('C-03: the outcome of a send', () => {
     const { result } = await run({ statuses: [failed] });
     expect(result.status).toBe('failed');
     expect(result.error).toContain('InstructionError');
-  });
-});
-
-describe('question 5: lookup tables must match in full between RPCs', () => {
-  it('a table the second RPC sees shorter is not confirmed', () => {
-    expect(sameLookupTable(['A', 'B'], ['A'])).toBe(false);
-    expect(sameLookupTable(['A', 'B'], ['A', 'C'])).toBe(false);
-    expect(sameLookupTable(['A', 'B'], ['A', 'B'])).toBe(true);
   });
 });

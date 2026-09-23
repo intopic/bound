@@ -79,7 +79,7 @@ The guarantee holds if these are correct and unmodified:
 | SPL Token and Token-2022 programs | Transfers respect owner and amount; a self-transfer checks the balance | Audited, widely used; the self-transfer behaviour is tested on mainnet state (T5) and both programs are exercised through hostile CPI (T6) |
 | Bound code in the browser | Compiler and verifier are correct and untampered | Independent verifier, mutation and property tests, nonce-based CSP, minimal dependencies |
 | Bound's server | Serves the genuine page, and relays RPC answers and token metadata | CI compares two builds and the page uses partial SRI (details below). The server cannot change the fee or the treasury (compiled into the page); F_max from the server is capped by the verifier; decimals are checked against the mint on chain |
-| RPC | Returns true lookup tables and account state | v1 has no lookup tables, but account state (owners, balances, decimals, authorities) still comes from the RPC; v0 tables must match in full on a second RPC when one is configured |
+| RPC | Returns true lookup tables and account state | v1 has no lookup tables, but account state (owners, balances, decimals, authorities) still comes from the RPC; v0 tables come from the same single provider (see "One RPC provider") |
 | Wallet | Signs what it is given | The returned message is re-verified byte for byte before E signs |
 
 The largest remaining risk is a modified frontend (compromised server or supply chain). Serve it
@@ -141,7 +141,8 @@ After a transaction passes every rule, the verifier (`@bound/verifier`) issues a
 to the SHA-256 of the exact message: approved total debit, swap amount, Bound fee, minimum output,
 signers, the programs the transaction invokes directly, "other tokens debited: none", "persistent
 permissions: none", the verifier's version and the slot of the chain state the rules were checked
-against. The page shows it while the wallet is open.
+against. The page does not show it: the person swapping is told the amounts, the minimum and the
+costs in plain words. The certificate travels with the prepared swap for whoever wants to check it.
 
 A certificate is a receipt, not a proof. It is not signed by anyone, and it is issued by the same
 code that verified the transaction, so a compromised page could show one that says anything. It is
@@ -241,15 +242,15 @@ Bound runs on a single RPC provider (Helius). That is an operational choice: two
 companies would remove one trust assumption, at the cost of a second account, a second bill and a
 second thing that can break.
 
-What the second provider bought was a cross-check of address lookup tables. In a v0 transaction the
+What a second provider would buy is a cross-check of address lookup tables. In a v0 transaction the
 account list is partly stored in those tables, so the verifier has to read them from somewhere, and
 an RPC that lied about a table could hide an account from rule R1. With one provider, Bound trusts
 that provider for exactly that. Everything else it returns is checked: account contents are read
 into a snapshot that every rule is applied to, and a transaction that does not match is refused.
 
-Two things bound this risk. A v1 transaction carries no lookup tables at all, so the assumption
-disappears as wallets adopt it. And setting `RPC_URL_SECONDARY` to a different company's endpoint
-turns the cross-check back on at any time, with no code change.
+A v1 transaction carries no lookup tables at all, so the assumption disappears as wallets adopt
+it. The optional cross-check against a second provider was removed on 23 September 2026 to keep
+Bound simple; it never ran in the setup Bound uses, and bringing it back would be a code change.
 
 ## Operational controls
 
@@ -265,8 +266,8 @@ turns the cross-check back on at any time, with no code change.
   it is enforced in the page only, and tokens without a USD price are blocked. A large swap is
   limited by the route, not by us: if no route fits inside one transaction, Bound refuses to build
   it rather than splitting the swap (section "What Bound does not protect").
-- API routes are stateless: allowlisted RPC methods and Jupiter parameters (`payer` is refused), a
-  second RPC that answers only lookup-table reads, request bodies counted in bytes and capped at
+- API routes are stateless: allowlisted RPC methods and Jupiter parameters (`payer` is refused),
+  request bodies counted in bytes and capped at
   64 KiB, 15 s timeouts upstream, and no request bodies are stored.
 - Rate limits are keyed on the one header the ingress overwrites (`BOUND_CLIENT_IP_HEADER`, default
   `x-vercel-forwarded-for`); no other header is read. They are per instance: set a rate-limit rule in

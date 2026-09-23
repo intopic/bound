@@ -8,7 +8,7 @@ import type { TxVersion } from '@bound/core';
 import { DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
 import { createEphemeral } from '@bound/solana';
 import type { PublicStatus } from '@/lib/server/config';
-import { getJupiter, getRpc, getSecondaryRpc } from '@/lib/client/chain';
+import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { connectWallet, supportedVersions, useWallets, walletSign } from '@/lib/client/wallets';
 import { readMint, SOL_MINT, USDC_MINT } from '@/lib/client/tokens';
@@ -77,7 +77,6 @@ export function Diagnostic() {
       const prepared = await prepareProtectedSwap(
         {
           rpc: getRpc(),
-          secondaryRpc: status.secondaryRpc ? getSecondaryRpc() : undefined,
           jupiter: getJupiter(),
           settings: {
             ...DEFAULT_SETTINGS,

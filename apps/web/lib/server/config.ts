@@ -10,7 +10,6 @@ export function serverConfig() {
   const maxFee = BigInt(process.env.BOUND_MAX_NETWORK_FEE_LAMPORTS ?? '200000');
   return {
     rpcUrl: process.env.RPC_URL || 'https://api.mainnet-beta.solana.com',
-    rpcUrlSecondary: process.env.RPC_URL_SECONDARY || null,
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
     // No limit unless one is configured: the protection does not depend on the amount, and a
     // limit would also block every token that has no USD price.
@@ -29,7 +28,6 @@ export type PublicStatus = {
   maxUsdPerSwap: number | null;
   excludeDexes: string[];
   maxNetworkFeeLamports: string;
-  secondaryRpc: boolean;
 };
 
 export function publicStatus(): PublicStatus {
@@ -39,6 +37,5 @@ export function publicStatus(): PublicStatus {
     maxUsdPerSwap: c.maxUsdPerSwap,
     excludeDexes: c.excludeDexes,
     maxNetworkFeeLamports: c.maxNetworkFeeLamports.toString(),
-    secondaryRpc: !!c.rpcUrlSecondary,
   };
 }

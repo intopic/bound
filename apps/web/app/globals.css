@@ -79,12 +79,8 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .warnings { margin: 10px 0 0; padding: 8px 12px 8px 28px; background: var(--warn-bg); color: var(--warn); border-radius: var(--radius); font-size: 13px; }
 
 .protection { margin-top: 12px; padding: 12px 14px; background: var(--ok-bg); border: 1px solid var(--ok-line); border-radius: 12px; }
-.protection-title { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-weight: 600; color: var(--ok); }
-.protection-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--ok-line); font-size: 14px; }
-.protection-row span:first-child { color: var(--muted); }
-.protection-row span:last-child { font-weight: 500; }
-.how { margin-top: 6px; font-size: 13px; color: var(--muted); }
-.how summary { cursor: pointer; }
+.protection-title { display: flex; align-items: center; gap: 8px; margin: 0 0 2px; font-weight: 600; color: var(--ok); }
+.protection-note { margin: 0; font-size: 13px; color: var(--muted); }
 
 .details { margin: 10px 2px; }
 .detail-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); padding: 2px 0; }
@@ -101,8 +97,6 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .banner-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .banner-actions .primary { width: auto; height: 40px; margin: 0; padding: 0 16px; font-size: 14px; }
 .banner-actions .ghost { color: inherit; }
-.certificate { margin-top: 8px; font-size: 13px; }
-.certificate summary { cursor: pointer; font-weight: 600; margin-bottom: 4px; }
 main > .banner { margin: 0 0 14px; }
 
 .picker { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px; margin-bottom: 14px; }

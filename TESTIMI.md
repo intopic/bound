@@ -31,7 +31,7 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar a
 | Tokenët nëpër të cilët kalon route-i: një hop që ekzekuton kod refuzohet, një i pastër kalon (AUDIT.md 0i) | 4/4 |
 | T11: çfarë shtojnë vërtet wallet-et, lexuar nga 90 transaksione reale në mainnet (AUDIT.md 0h) | asnjë handler kujtese, deri në 10 asertime, 0–1 llogari secila |
 | Diagnostika e wallet-it: mesazh identik, shtesë në fund, shtesë në fillim, instruksionet tona të ndryshuara, nënshkrues i ri, raporti | 6/6 |
-| E2E në Edge me wallet testimi: quote, ndërtim, verifikim, R6 ndalon kthimin e panënshkruar, CSP me nonce, ikonat vetëm nga Bound, Jupiter nuk merr adresën e wallet-it, ngjitja e adresës së coin-it | 17/17 |
+| E2E në Edge me wallet testimi: quote, ndërtim, verifikim, R6 ndalon kthimin e panënshkruar, CSP me nonce, ikonat vetëm nga Bound, Jupiter nuk merr adresën e wallet-it, ngjitja e adresës së coin-it, rreshti i vetëm i mbrojtjes | 17/18; kontrolli SRI (5 nga 8 skripte me hash) dështonte edhe para thjeshtimit të 23 shtatorit |
 
 ## Para se të fillosh
 
@@ -103,8 +103,8 @@ npm run start -w @bound/web
 ```
 
 3. Hap http://localhost:3000 dhe kliko **Connect wallet** → Phantom.
-4. Shkruaj **1** USDC → SOL. Nën "You receive" duhet të shfaqet **Minimum received … · checked by Bound**.
-5. Kliko **Protected swap**. Ndërsa hapet Phantom, faqja shfaq minimumin e saktë që do të kontrollohet, fee-n e saktë të rrjetit dhe **Bound certificate** (hape për të parë debitin e aprovuar, fee-n, minimumin dhe "Other assets debited: None"). Nëse çmimi ka lëvizur më shumë se 0.5% që kur e pe, faqja të pyet para se të hapet Phantom-i: **Continue with the new minimum** ose **Cancel**.
+4. Shkruaj **1** USDC → SOL. Nën "You receive" duhet të shfaqet **Minimum output … · enforced on successful execution**.
+5. Kliko **Protected swap**. Ndërsa hapet Phantom, faqja shfaq minimumin e saktë që do të kontrollohet dhe fee-n e saktë të rrjetit. Nëse çmimi ka lëvizur më shumë se toleranca (0.5%, ose 3% në bonding curve) që kur e pe, faqja të pyet para se të hapet Phantom-i: **Continue with the new minimum** ose **Cancel**.
 6. Në dritaren e Phantom-it kontrollo:
    - −1 USDC dhe +SOL;
    - që nuk ka asnjë ndryshim tjetër në asetet e tua;

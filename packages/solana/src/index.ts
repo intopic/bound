@@ -65,39 +65,19 @@ export async function readAccounts(
   return { accounts: out, slot };
 }
 
-export class LookupTableMismatchError extends Error {}
-
-/**
- * Both RPCs must return every entry of a table (second review, question 5). A table one of them
- * sees shorter is unconfirmed, not trusted: the caller builds again.
- */
-export function sameLookupTable(a: readonly string[] = [], b: readonly string[] = []): boolean {
-  return a.length === b.length && a.every((x, i) => x === b[i]);
-}
-
 /**
  * Everything the verifier needs, read from the chain. Lookup tables come from the RPC, never from
- * Jupiter; with a second RPC configured, both must agree on every table.
+ * Jupiter.
  */
 export async function fetchSnapshot(args: {
   rpc: SolanaRpc;
-  secondaryRpc?: SolanaRpc;
   addresses: readonly Address[];
   lookupTableAddresses: readonly Address[];
 }): Promise<ChainSnapshot> {
   const { accounts, slot } = await readAccounts(args.rpc, args.addresses);
-  let lookupTables: Record<string, readonly Address[]> = {};
-  if (args.lookupTableAddresses.length) {
-    lookupTables = await fetchAddressesForLookupTables([...args.lookupTableAddresses], args.rpc);
-    if (args.secondaryRpc) {
-      const second = await fetchAddressesForLookupTables([...args.lookupTableAddresses], args.secondaryRpc);
-      for (const table of args.lookupTableAddresses) {
-        if (!sameLookupTable(lookupTables[table], second[table])) {
-          throw new LookupTableMismatchError(`lookup table ${table} differs between RPCs`);
-        }
-      }
-    }
-  }
+  const lookupTables: Record<string, readonly Address[]> = args.lookupTableAddresses.length
+    ? await fetchAddressesForLookupTables([...args.lookupTableAddresses], args.rpc)
+    : {};
   return { accounts, lookupTables, slot };
 }
 
