@@ -629,8 +629,8 @@ export function SwapApp() {
     if (max > 0n) setAmountText(formatExact(max, inDecimals).replace(/,/g, ''));
   };
 
-  const inWarnings = tokenIn ? tokenWarnings(tokenIn) : [];
-  const outWarnings = tokenOut ? tokenWarnings(tokenOut) : [];
+  const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
+  const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
   // A token that taxes its own transfers costs more through Bound, because the protected account
   // is one extra transfer. Said before the swap, not after it.
   if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
@@ -644,11 +644,11 @@ export function SwapApp() {
     );
   }
   // An issuer that can move the token anywhere is the token's nature, not something Bound grants:
-  // inside the swap it cannot act at all (only an ordinary-key issuer is accepted), but outside it,
-  // it can, in this wallet as in any other. The user is told before they choose to hold it.
+  // it can, in this wallet as in any other. What protects this swap from it is the minimum output,
+  // which counts what reaches your account (review BR-05). The user is told before they hold it.
   for (const [token, f, list] of [[tokenIn, inFacts, inWarnings], [tokenOut, outFacts, outWarnings]] as const) {
     if (token && f && f !== 'missing' && f.issuerCanMove) {
-      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it; Bound neither adds nor changes it, and it cannot act inside this swap.`);
+      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it; Bound neither adds nor changes it, and your minimum output still holds in this swap.`);
     }
   }
   const deepLink = typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '';

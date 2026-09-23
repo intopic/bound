@@ -7,7 +7,7 @@
 import { address } from '@solana/kit';
 import { ataOf, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@bound/core';
 import { describe, expect, it } from 'vitest';
-import { amountReachingRoute, currentTransferFee, mintAta } from '../lib/client/tokens';
+import { amountReachingRoute, currentTransferFee, mintAta, tokenWarnings } from '../lib/client/tokens';
 
 describe('the selected mint decides its ATA program', () => {
   const owner = address('GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE');
@@ -62,3 +62,23 @@ describe('the active Token-2022 transfer fee', () => {
       .rejects.toThrow('RPC unavailable');
   });
 });
+
+describe('token warnings come from the chain for a token Jupiter does not vouch for (review BR-11)', () => {
+  const pasted = { id: 'x', symbol: 'ABCD…WXYZ', name: 'Not listed on Jupiter', decimals: 6, tokenProgram: TOKEN_PROGRAM, isVerified: false };
+  const verified = { ...pasted, symbol: 'USDC', name: 'USD Coin', isVerified: true };
+
+  it('a pasted mint with a freeze and a mint authority is warned about, though Jupiter has no audit for it', () => {
+    const w = tokenWarnings(pasted, { freezeAuthority: true, mintAuthority: true });
+    expect(w.some(x => x.includes('freeze authority'))).toBe(true);
+    expect(w.some(x => x.includes('can still be minted'))).toBe(true);
+  });
+
+  it('a pasted mint with neither authority is warned only that it is not verified', () => {
+    expect(tokenWarnings(pasted, { freezeAuthority: false, mintAuthority: false })).toHaveLength(1);
+  });
+
+  it("a verified token follows Jupiter's audit, so USDC's freeze authority is not a warning on every swap", () => {
+    expect(tokenWarnings(verified, { freezeAuthority: true, mintAuthority: true })).toHaveLength(0);
+  });
+});
+

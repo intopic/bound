@@ -53,6 +53,9 @@ export type MintFacts = {
   accountSize: number;
   /** The issuer can move or burn this token in any account, without its owner (Token-2022). */
   issuerCanMove: boolean;
+  /** The mint account names a freeze authority, or a mint authority (read from the chain). */
+  freezeAuthority: boolean;
+  mintAuthority: boolean;
 };
 
 /**
@@ -113,6 +116,9 @@ export function readMint(mint: string): Promise<MintFacts | null> {
           : null,
         accountSize: tokenAccountSizeFor(address(value.owner), data),
         issuerCanMove: value.owner === TOKEN_2022_PROGRAM && hasPermanentDelegate(data),
+        // COption tags: 1 when the authority is set.
+        mintAuthority: new DataView(data.buffer).getUint32(0, true) === 1,
+        freezeAuthority: new DataView(data.buffer).getUint32(46, true) === 1,
       };
     })();
     facts.catch(() => mintFacts.delete(mint)); // a failed read is retried next time
@@ -146,12 +152,22 @@ export async function searchTokens(query: string): Promise<TokenInfo[]> {
   return found;
 }
 
-/** Warnings about the token itself. Bound protects the wallet, not the value of what you buy. */
-export function tokenWarnings(t: TokenInfo): string[] {
+/**
+ * Warnings about the token itself. Bound protects the wallet, not the value of what you buy.
+ *
+ * For a token Jupiter has not verified, including a pasted one it does not list, the authorities
+ * come from the mint account, not from metadata (review BR-11). For a verified token Jupiter's audit
+ * decides, as before: the regulated stablecoins all keep a freeze authority, and a warning on every
+ * USDC swap would teach people to skip warnings.
+ */
+export function tokenWarnings(t: TokenInfo, facts?: Pick<MintFacts, 'freezeAuthority' | 'mintAuthority'> | null): string[] {
   const w: string[] = [];
   if (!t.isVerified) w.push(`${t.symbol} is not verified by Jupiter: check the address before you swap`);
-  if (t.audit && t.audit.freezeAuthorityDisabled === false) w.push(`${t.symbol} has a freeze authority: its issuer can freeze your balance`);
-  if (t.audit && t.audit.mintAuthorityDisabled === false) w.push(`${t.symbol} can still be minted by its issuer`);
+  const onChain = !t.isVerified && facts ? facts : null;
+  const freezes = onChain ? onChain.freezeAuthority : t.audit?.freezeAuthorityDisabled === false;
+  const mints = onChain ? onChain.mintAuthority : t.audit?.mintAuthorityDisabled === false;
+  if (freezes) w.push(`${t.symbol} has a freeze authority: its issuer can freeze your balance`);
+  if (mints) w.push(`${t.symbol} can still be minted by its issuer`);
   return w;
 }
 
