@@ -355,6 +355,17 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   const version = compiled.version;
   if (version !== 0 && version !== 1) fail('R5', `unsupported transaction version ${String(version)}`);
 
+  // R5: every account the message loads appears once. The runtime refuses a message that loads the
+  // same address twice (statically and through a lookup table, say), but the rules compare resolved
+  // addresses, so the verifier refuses it itself rather than leaning on the runtime (review BR-14).
+  const loaded: string[] = [...compiled.staticAccounts];
+  const lookups = (compiled as { addressTableLookups?: readonly { lookupTableAddress: string; writableIndexes: readonly number[]; readonlyIndexes: readonly number[] }[] }).addressTableLookups ?? [];
+  for (const l of lookups) {
+    const table = snapshot.lookupTables[l.lookupTableAddress] ?? [];
+    for (const i of [...l.writableIndexes, ...l.readonlyIndexes]) loaded.push(table[i]);
+  }
+  if (new Set(loaded).size !== loaded.length) fail('R5', 'the message loads the same account more than once');
+
   // R6: W pays, and the only signers are W and E.
   const numSigners = compiled.header.numSignerAccounts;
   const signers = compiled.staticAccounts.slice(0, numSigners);

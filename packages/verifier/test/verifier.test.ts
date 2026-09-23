@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { AccountRole, address, generateKeyPairSigner, getAddressEncoder } from '@solana/kit';
+import {
+  AccountRole, address, generateKeyPairSigner, getAddressEncoder, getCompiledTransactionMessageDecoder,
+  getCompiledTransactionMessageEncoder,
+} from '@solana/kit';
 import type { Address, Instruction } from '@solana/kit';
 import {
   AuthorityType, getApproveInstruction, getCloseAccountInstruction, getSetAuthorityInstruction,
@@ -184,6 +187,28 @@ describe('T2: mutation catalogue (plan, section 9)', () => {
     const s = await scenario();
     (s.snapshot.accounts as Map<string, unknown>).set(USDC, { owner: TOKEN_2022_PROGRAM, lamports: 1n, data: new Uint8Array(82) });
     expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R2');
+  });
+
+  it('M17: an account loaded twice, statically and through an ALT → R5 (review BR-14)', async () => {
+    const s = await scenario();
+    const honestTx = await compileHonest(s, 0);
+    const compiled = getCompiledTransactionMessageDecoder().decode(honestTx.messageBytes) as unknown as {
+      staticAccounts: Address[];
+      addressTableLookups?: { lookupTableAddress: Address; writableIndexes: number[]; readonlyIndexes: number[] }[];
+    };
+    // The last static account, loaded a second time as the very last lookup entry: no instruction
+    // refers to it, so nothing else in the message shifts and only the duplicate is wrong.
+    const dup = compiled.staticAccounts[compiled.staticAccounts.length - 1];
+    s.lookupTables[s.lookupTable].push(dup);
+    const index = s.lookupTables[s.lookupTable].length - 1;
+    const lookups = compiled.addressTableLookups ?? [];
+    const last = lookups[lookups.length - 1];
+    if (last && last.lookupTableAddress === s.lookupTable) last.readonlyIndexes = [...last.readonlyIndexes, index];
+    else lookups.push({ lookupTableAddress: s.lookupTable, writableIndexes: [], readonlyIndexes: [index] });
+    compiled.addressTableLookups = lookups;
+    const messageBytes = getCompiledTransactionMessageEncoder().encode(compiled as never);
+    const tx = { ...honestTx, messageBytes } as typeof honestTx;
+    expect(rules(await verify(tx, s.policy, s.snapshot))).toContain('R5');
   });
 });
 
