@@ -8,4 +8,4 @@ import type { Address } from '@solana/kit';
  */
 const rawTreasury = process.env.NEXT_PUBLIC_BOUND_TREASURY?.trim() ?? '';
 export const TREASURY: Address | null = rawTreasury && isAddress(rawTreasury) ? address(rawTreasury) : null;
-export const FEE_BPS: bigint = BigInt(process.env.NEXT_PUBLIC_BOUND_FEE_BPS ?? '30');
+export const FEE_BPS: bigint = BigInt(process.env.NEXT_PUBLIC_BOUND_FEE_BPS ?? '20');

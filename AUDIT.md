@@ -615,7 +615,7 @@ verified byte for byte.
 
 > For every transaction Bound produces, the single external instruction (Jupiter) can move at most
 > `q − f` of the input token, where `q` is the amount the user entered and `f` is the Bound fee
-> (fixed at build time, 0.3% by default, at most 1% by the verifier). It never receives W or any token
+> (fixed at build time, 0.2% by default, at most 1% by the verifier). It never receives W or any token
 > account of W except the output account, whose delegate is revoked before the swap, and the
 > transaction grants no new authority over W's assets. The user receives at least `minOut` — the
 > minimum they accepted before signing, never below the quote less the slippage (0.5%, or 3% on a

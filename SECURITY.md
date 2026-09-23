@@ -6,7 +6,7 @@ For every swap Bound builds:
 
 1. The external swap program (Jupiter's route) can move at most `q − f` of the input token, where `q`
    is the amount the user entered and `f` is the Bound fee. The fee is compiled into the page at
-   build time (0.3% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`). When
+   build time (0.2% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`). When
    the route opens an account in the temporary key's name and charges it the rent (both of
    Pump.fun's markets do, once per buyer), it can also reach exactly that rent, which is measured in simulation, capped at
    0.005 SOL (`MAX_TAKER_RENT_LAMPORTS`) and stated before signing. Nothing else in SOL.

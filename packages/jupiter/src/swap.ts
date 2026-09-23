@@ -47,7 +47,7 @@ export type SwapSettings = BoundConfig & {
 };
 
 export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'> = {
-  feeBps: 30n,
+  feeBps: 20n,
   maxNetworkFeeLamports: 200_000n,
   // HumidiFi opens a per-taker account whose rent (about 0.013 SOL) would be lost on every swap.
   // Pump.fun's two markets, PumpSwap and the bonding curve, do the same for about 0.0013–0.0015

@@ -14,7 +14,7 @@ Bound e ndan wallet-in e përdoruesit nga programi i swap-it: Jupiter merr vetë
 
 **Për kë.** Përdorues që bëjnë swap të çdo tokeni klasik SPL ose SOL, përfshirë memecoin-at, dhe duan që tokenët e tjerë, NFT-të dhe SOL-i të mos ekspozohen.
 
-**Modeli i biznesit.** Fee 0.3% në çdo swap, pa kufi sipër, e paguar në tokenin që jep përdoruesi dhe e përfshirë në sasinë e tij. Nëse treasury nuk ka llogari për atë token, swap-i bëhet pa fee, që përdoruesi të mos paguajë kurrë qira për llogarinë tonë.
+**Modeli i biznesit.** Fee 0.2% në çdo swap (0.3% deri më 23 shtator 2026), pa kufi sipër, e paguar në tokenin që jep përdoruesi dhe e përfshirë në sasinë e tij. Nëse treasury nuk ka llogari për atë token, swap-i bëhet pa fee, që përdoruesi të mos paguajë kurrë qira për llogarinë tonë.
 
 **Çfarë sheh përdoruesi.** Paneli "Wallet authority protected" me rreshtat "Other tokens and NFTs — Not exposed", "Wallet authority — Never shared" dhe "Temporary key — Used once, never stored". Nën sasinë që merr shfaqet "Minimum received … · checked by Bound".
 
