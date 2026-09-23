@@ -26,9 +26,11 @@ export async function proxyBuild(req: Request): Promise<Response> {
       cache: 'no-store',
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
+    // Jupiter's Retry-After reaches the page, which waits that long instead of guessing.
+    const retryAfter = upstream.headers.get('retry-after');
     return new Response(await upstream.text(), {
       status: upstream.status,
-      headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...(retryAfter ? { 'retry-after': retryAfter } : {}) },
     });
   } catch {
     return Response.json({ error: 'Jupiter did not answer' }, { status: 504 });

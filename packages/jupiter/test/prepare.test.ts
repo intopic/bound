@@ -12,7 +12,7 @@ import {
   ataOf, ATA_PROGRAM, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
 } from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
-import { BoundError, DEFAULT_SETTINGS, prepareProtectedSwap } from '../src/swap.ts';
+import { BoundError, DEFAULT_SETTINGS, prepareProtectedSwap, revertedOnPrice } from '../src/swap.ts';
 import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
 
@@ -251,7 +251,7 @@ async function prepare(output: Address, opts: {
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
   chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
   input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
-  expectCurve?: boolean;
+  expectCurve?: boolean; version?: 0 | 1;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
@@ -267,7 +267,7 @@ async function prepare(output: Address, opts: {
     {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: opts.input ?? USDC, outputMint: output,
       amountIn: opts.amountIn ?? 1_000_000n,
-      inputDecimals: opts.inputDecimals ?? DECIMALS[opts.input ?? USDC], outputDecimals: DECIMALS[output], version: 1,
+      inputDecimals: opts.inputDecimals ?? DECIMALS[opts.input ?? USDC], outputDecimals: DECIMALS[output], version: opts.version ?? 1,
       acceptedMinOut: opts.acceptedMinOut, acceptedCostBps: opts.acceptedCostBps, expectCurve: opts.expectCurve,
     },
   );
@@ -633,3 +633,55 @@ describe('latency without weaker protection', () => {
   });
 });
 
+describe('a Jupiter that is overloaded or silent', () => {
+  /** Jupiter answers the unrestricted baseline, and `status` for every protected route (or for all). */
+  const refusing = (status: number, message: string, baselineToo = true): JupiterClient => {
+    const honest = fakeJupiter();
+    return {
+      ...honest,
+      async build(p) {
+        if (baselineToo || p.excludeDexes?.length) throw new JupiterError(`Jupiter ${status}: ${message}`, status);
+        return honest.build(p);
+      },
+    };
+  };
+
+  it('a 429 is reported as busy, never as "no route fits, try another token"', async () => {
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(429, 'Too many requests') }))).toBe('busy');
+  });
+
+  it('the same when only the protected routes are refused', async () => {
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(429, 'Too many requests', false) }))).toBe('busy');
+  });
+
+  it('a Jupiter that does not answer is unavailable, not a broken market', async () => {
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(504, '{"error":"Jupiter did not answer"}') }))).toBe('unavailable');
+  });
+
+  it("the kill switch's own answer is passed on as it is", async () => {
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(503, '{"error":"Protected swaps are paused"}') }))).toMatch(/paused/);
+  });
+});
+
+describe('a swap that landed and reverted: was it the price?', () => {
+  for (const version of [0, 1] as const) it(`v${version}: Jupiter's own threshold (6001) and Bound's minimum check are the price; anything else is not`, async () => {
+    const prepared = await prepare(BONK, { version });
+    const message = decompileTransactionMessage(getCompiledTransactionMessageDecoder().decode(prepared.transaction.messageBytes) as never);
+    const instructions = message.instructions as unknown as { programAddress: string; accounts?: { address: string }[]; data?: Uint8Array }[];
+    const swap = instructions.findIndex(ix => ix.programAddress === JUPITER_PROGRAM);
+    const floor = instructions.findIndex(ix =>
+      ix.programAddress === TOKEN_PROGRAM && ix.data?.[0] === 12 && ix.accounts?.[0].address === ix.accounts?.[2].address);
+    expect(swap).toBeGreaterThanOrEqual(0);
+    expect(floor).toBeGreaterThan(swap);
+    const tx = prepared.transaction;
+    const onPrice = (err: unknown) => revertedOnPrice(tx, err, JUPITER_PROGRAM);
+    expect(onPrice({ InstructionError: [swap, { Custom: 6001 }] })).toBe(true);
+    // As the send path records it: JSON, with the chain's integers as strings.
+    expect(onPrice(JSON.stringify({ InstructionError: [String(swap), { Custom: '6001' }] }))).toBe(true);
+    expect(onPrice({ InstructionError: [floor, { Custom: 1 }] })).toBe(true);
+    expect(onPrice({ InstructionError: [swap, { Custom: 6000 }] })).toBe(false);
+    expect(onPrice({ InstructionError: [floor, { Custom: 17 }] })).toBe(false); // a frozen account
+    expect(onPrice({ InstructionError: [0, { Custom: 6001 }] })).toBe(false);
+    expect(onPrice('InsufficientFundsForFee')).toBe(false);
+  });
+});

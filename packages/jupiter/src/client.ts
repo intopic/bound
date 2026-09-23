@@ -58,6 +58,8 @@ export class JupiterError extends Error {
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+/** How long a page waits after Jupiter kept refusing with 429 before it asks again. */
+const COOL_DOWN_MS = 5_000;
 
 const UINT = /^\d{1,20}$/;
 
@@ -89,13 +91,20 @@ export function createJupiterClient(opts: {
   fetchImpl?: typeof fetch;
   /** Minimum gap between calls (keyless access is rate limited). */
   minIntervalMs?: number;
+  /** The first retry's wait; each later one doubles it. */
+  retryBaseMs?: number;
 }): JupiterClient {
   const doFetch = opts.fetchImpl ?? fetch.bind(globalThis);
+  const retryBaseMs = opts.retryBaseMs ?? 600;
   let lastCall = 0;
+  // Once Jupiter has refused every retry with 429, this page stops asking for a few seconds. The
+  // key is shared by every user of the site: asking again at once only prolongs the overload.
+  let coolUntil = 0;
   const headers: Record<string, string> = opts.apiKey ? { 'x-api-key': opts.apiKey } : {};
   let labels: Record<string, string> | null = null;
 
   async function get<T>(url: string): Promise<T> {
+    if (Date.now() < coolUntil) throw new JupiterError('Jupiter 429: still cooling down after too many requests', 429);
     for (let attempt = 0; ; attempt++) {
       const wait = lastCall + (opts.minIntervalMs ?? 0) - Date.now();
       if (wait > 0) await sleep(wait);
@@ -105,9 +114,13 @@ export function createJupiterClient(opts: {
       // Jupiter wraps transient upstream failures ("Pool has not been updated in a while") in a 400.
       const retryable = res.status === 429 || res.status >= 500 || (res.status === 400 && /quote failed|not been updated/i.test(body));
       if (retryable && attempt < 3) {
-        await sleep(600 * 2 ** attempt);
+        // Jittered, so pages refused together do not all retry at the same moment; a Retry-After
+        // from Jupiter is honoured up to a few seconds.
+        const after = Number(res.headers.get('retry-after'));
+        await sleep(after > 0 ? Math.min(after * 1000, COOL_DOWN_MS) : retryBaseMs * 2 ** attempt * (0.5 + Math.random()));
         continue;
       }
+      if (res.status === 429) coolUntil = Date.now() + COOL_DOWN_MS;
       if (!res.ok) throw new JupiterError(`Jupiter ${res.status}: ${body.slice(0, 240)}`, res.status);
       return JSON.parse(body) as T;
     }

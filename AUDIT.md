@@ -692,6 +692,38 @@ production values; deploy only tagged commits with Node 24; run the live check a
 
 ---
 
+## 0p. Under load: what the page says, and how much it asks
+
+Every user reaches Jupiter through one API key and the RPC through one provider, so a burst from
+some users is felt by all. Reviewed on 23 September 2026, situation by situation, from the price on
+screen to the confirmation. What was already right: the send path (rebroadcast until expiry, and
+"no funds moved" said only when the network proves it), the price and cost questions, the swap lock,
+and the wallet's refusal. What was not, and what changed:
+
+| Situation | Before | Now |
+| --- | --- | --- |
+| RPC answers 429, in the production build | Not retried at all: the retry matched "429" in the error text, and a production build of kit replaces the text with "Solana error #<code>". The page could show that code | Read from the error's HTTP status (`httpStatusOf`), retried with jitter; unit test builds the error as production does |
+| Jupiter answers 429 while building | Read as "no route" at every level: "No route fits… try a different amount or token" | `busy`: "Too many swaps are being priced right now. Wait a few seconds and try again. Nothing was signed." |
+| Jupiter does not answer (5xx, timeout) | Raw text: "Something went wrong: Jupiter 504: {…}" | `unavailable`, in plain words; any other unexpected error shows no raw text (it goes to the console) |
+| The price on screen is refused with 429 | Cleared: "No price for this pair right now" | Kept while fresh; "Prices are busy, retrying…" and retried 4 times, later each time (1–3 s up to 8–24 s) |
+| Retries | Every page retried at the same moments | Jittered; Jupiter's Retry-After is honoured (the relay passes it on); after 429 on every retry a page asks nothing for 5 s |
+| Build ahead of the click | Rebuilt on every automatic price refresh, for users who never click | Once per amount (and on a manual refresh), and not for 30 s after a busy answer |
+| The relay refuses a send (kill switch, send limit) | "Solana refused the swap… usually means the price moved" | "Protected swaps were paused" / "Too many requests right now"; `SendResult.refusal` says who refused |
+| A landed swap reverted on the price | "The swap failed on chain" | `revertedOnPrice`: Jupiter's 6001 or Bound's minimum check → "The price moved before the swap landed… Only the network fee was paid" |
+| `/api/status` unreachable | "Loading limits…" until a reload | Retried (2 s, 4 s … 30 s); the notice clears itself |
+
+Evidence: 15 new unit tests (295 in total), including the production-mode RPC error and the revert
+reason on v0 and v1 messages; `tests/e2e/busy.ts` in Edge against `next start`, which makes the
+refusals on the page's own requests, 10/10; the smoke test 18/18.
+
+Capacity, for operations: with the build ahead cut to once per amount, a user who types an amount
+and waits a minute costs about 6 Jupiter calls instead of 12, and a straightforward swap 3 to 6. At
+Jupiter's 10 requests per second (the $25 plan) that is roughly 100 users pricing at the same moment.
+The relay's own limits are per instance and per IP; a limit across instances, and one that keeps a
+single client from spending the shared key, belong in the hosting firewall (BR-09).
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

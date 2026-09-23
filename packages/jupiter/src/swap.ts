@@ -148,7 +148,13 @@ export type BoundErrorCode =
   | 'unsupported-token' | 'token-data-mismatch' | 'output-account-restricted' | 'no-route' | 'bad-quote' | 'price-moved'
   | 'insufficient-sol'
   | 'costs-more' | 'simulation-failed'
-  | 'verification-failed' | 'wallet-changed-transaction' | 'expired';
+  | 'verification-failed' | 'wallet-changed-transaction' | 'expired'
+  // Jupiter refused with 429 or did not answer: says nothing about the route or the token.
+  | 'busy' | 'unavailable';
+
+/** What the user reads when Jupiter is overloaded or silent; the swap itself was never at fault. */
+export const BUSY_MESSAGE = 'Too many swaps are being priced right now. Wait a few seconds and try again. Nothing was signed.';
+export const UNAVAILABLE_MESSAGE = "The price service didn't answer. Nothing was signed; try again in a moment.";
 
 /** For `price-moved`: what the market supports now, to show the user before asking again. */
 export type PriceMoved = { newMinOut: bigint; newOutAmount: bigint };
@@ -328,6 +334,49 @@ function failedAtFloorCheck(tx: Transaction, index: number | null, lookups: Reco
  */
 export function routeMissedItsThreshold(logs: readonly string[], jupiterProgram: string): boolean {
   return logs.includes(`Program ${jupiterProgram} failed: custom program error: 0x1771`);
+}
+
+/** Each instruction's program and account indices, from a compiled v0 or v1 message. */
+function compiledInstructions(tx: Transaction): { program: string | undefined; accounts: number[]; data?: ArrayLike<number> }[] {
+  const m = getCompiledTransactionMessageDecoder().decode(tx.messageBytes) as unknown as {
+    staticAccounts: string[];
+    instructions?: { programAddressIndex: number; accountIndices?: number[]; data?: ArrayLike<number> }[];
+    instructionHeaders?: { programAccountIndex: number }[];
+    instructionPayloads?: { instructionAccountIndices: number[]; instructionData: ArrayLike<number> }[];
+  };
+  if (m.instructions) {
+    return m.instructions.map(ix => ({ program: m.staticAccounts[ix.programAddressIndex], accounts: ix.accountIndices ?? [], data: ix.data }));
+  }
+  return (m.instructionHeaders ?? []).map((h, i) => ({
+    program: m.staticAccounts[h.programAccountIndex],
+    accounts: m.instructionPayloads?.[i]?.instructionAccountIndices ?? [],
+    data: m.instructionPayloads?.[i]?.instructionData,
+  }));
+}
+
+/**
+ * Did a transaction that landed and reverted revert on the price? Either Bound's minimum-output
+ * check refused what arrived, or Jupiter's own threshold did (6001, SlippageToleranceExceeded).
+ * Read from the compiled message alone: a program is always a static key, and R5 keeps every
+ * address unique, so two equal account indices are the same account. `err` is the status error as
+ * the chain reports it, or its JSON.
+ */
+export function revertedOnPrice(tx: Transaction, err: unknown, jupiterProgram: string): boolean {
+  try {
+    const parsed = typeof err === 'string' ? JSON.parse(err) : err;
+    const ie = (parsed as { InstructionError?: [unknown, unknown] } | null)?.InstructionError;
+    if (!ie) return false;
+    const index = Number(ie[0]);
+    const custom = Number((ie[1] as { Custom?: unknown } | null)?.Custom ?? NaN);
+    const ix = compiledInstructions(tx)[index];
+    if (!ix) return false;
+    if (ix.program === jupiterProgram) return custom === 6001;
+    const floorCheck = (ix.program === TOKEN_PROGRAM || ix.program === TOKEN_2022_PROGRAM) && ix.data?.[0] === 12
+      && ix.accounts.length >= 3 && ix.accounts[0] === ix.accounts[2];
+    return floorCheck && custom === 1; // the token program's InsufficientFunds
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -519,11 +568,18 @@ export async function prepareProtectedSwap(deps: {
   };
   // Individual quotes fail transiently ("pool has not been updated", "zero tradable amount"):
   // retry the baseline once and skip a failing maxAccounts level instead of giving up.
+  // A 429 or a Jupiter that does not answer is not a missing route: it ends the attempt with that
+  // reason, instead of reading as "no route fits, try another token".
   const buildOrNull = async (maxAccounts: number, excludeDexes?: readonly string[], slippageBps = buildBase.slippageBps) => {
     try {
       return await jupiter.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps });
     } catch (e) {
-      if (e instanceof JupiterError && e.status < 500) return null;
+      if (e instanceof JupiterError) {
+        if (e.status === 429) throw new BoundError('busy', BUSY_MESSAGE);
+        if (e.status < 500) return null;
+        // The kill switch answers 503 with its own words, which the page shows as they are.
+        if (!/paused/i.test(e.message)) throw new BoundError('unavailable', UNAVAILABLE_MESSAGE);
+      }
       throw e;
     }
   };

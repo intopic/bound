@@ -136,6 +136,13 @@ describe('Jupiter build proxy', () => {
     expect((await build('inputMint=a&wrapAndUnwrapSol=true')).status).toBe(400);
     expect(upstream).not.toHaveBeenCalled();
   });
+
+  it("passes Jupiter's 429 and its Retry-After on to the page, which waits that long", async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"Too many requests"}', { status: 429, headers: { 'retry-after': '2' } })));
+    const res = await build('inputMint=a&wrapAndUnwrapSol=false');
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('2');
+  });
 });
 
 describe('B-08: token icons are served from Bound, from listed hosts only', () => {

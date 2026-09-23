@@ -56,3 +56,34 @@ describe('Jupiter /build responses are validated', () => {
     ).rejects.toThrow('malformed quote');
   });
 });
+
+describe('a Jupiter under load', () => {
+  const params = {
+    inputMint: address(good.inputMint), outputMint: address(good.outputMint), amount: 100_000_000n,
+    taker: address('11111111111111111111111111111111'), slippageBps: 50, maxAccounts: 64,
+  };
+  const clientAnswering = (statuses: number[], counter: { calls: number }) => createJupiterClient({
+    buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels',
+    retryBaseMs: 1,
+    fetchImpl: (async () => {
+      const status = statuses[Math.min(counter.calls++, statuses.length - 1)];
+      return status === 200 ? new Response(JSON.stringify(good)) : new Response('{"error":"Too many requests"}', { status });
+    }) as unknown as typeof fetch,
+  });
+
+  it('a 429 is retried, and the answer that follows is used', async () => {
+    const counter = { calls: 0 };
+    expect((await clientAnswering([429, 429, 200], counter).build(params)).outAmount).toBe(good.outAmount);
+    expect(counter.calls).toBe(3);
+  });
+
+  it('after every retry was refused, the page stops asking for a few seconds instead of adding to the load', async () => {
+    const counter = { calls: 0 };
+    const client = clientAnswering([429], counter);
+    await expect(client.build(params)).rejects.toMatchObject({ status: 429 });
+    const asked = counter.calls;
+    expect(asked).toBe(4);
+    await expect(client.build(params)).rejects.toMatchObject({ status: 429 });
+    expect(counter.calls).toBe(asked);
+  });
+});

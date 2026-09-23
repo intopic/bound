@@ -15,23 +15,42 @@ import type { AccountState, ChainSnapshot } from '@bound/core';
 export type SolanaRpc = Rpc<SolanaRpcApi>;
 
 /**
- * An RPC client that retries rate-limited requests (HTTP 429) with exponential backoff. Every
- * method the pipeline uses is safe to repeat: reads, simulations, and re-sends of an already
- * signed transaction (the same signature can only land once).
+ * The HTTP status of a failed RPC call. Read from the error's context, never its text: a
+ * production build of kit replaces every message with "Solana error #<code>", so a test on the
+ * words "429" or "Too Many Requests" never matches in the page users actually load.
  */
-export function createRetryingRpc(url: string, maxRetries = 5): SolanaRpc {
-  const transport = createDefaultRpcTransport({ url: url as `https://${string}` });
-  const retrying: typeof transport = async config => {
+export function httpStatusOf(e: unknown): number | null {
+  if (!isSolanaError(e, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR)) return null;
+  return (e.context as { statusCode?: number }).statusCode ?? null;
+}
+
+type Transport = ReturnType<typeof createDefaultRpcTransport>;
+
+/**
+ * Retries rate-limited requests (HTTP 429) with exponential backoff. The wait is jittered, so the
+ * pages that were refused together do not all come back at the same moment and be refused again.
+ */
+export function retryingTransport(transport: Transport, maxRetries = 5, baseMs = 500): Transport {
+  return (async (config: Parameters<Transport>[0]) => {
     for (let attempt = 0; ; attempt++) {
       try {
         return await transport(config);
       } catch (e) {
-        if (attempt >= maxRetries || !/429|Too Many Requests/i.test(String((e as Error)?.message ?? e))) throw e;
-        await new Promise(r => setTimeout(r, 500 * 2 ** attempt));
+        if (attempt >= maxRetries || httpStatusOf(e) !== 429) throw e;
+        await new Promise(r => setTimeout(r, baseMs * 2 ** attempt * (0.5 + Math.random())));
       }
     }
-  };
-  return createSolanaRpcFromTransport(retrying) as unknown as SolanaRpc;
+  }) as Transport;
+}
+
+/**
+ * An RPC client that retries rate-limited requests. Every method the pipeline uses is safe to
+ * repeat: reads, simulations, and re-sends of an already signed transaction (the same signature
+ * can only land once).
+ */
+export function createRetryingRpc(url: string, maxRetries = 5): SolanaRpc {
+  const transport = createDefaultRpcTransport({ url: url as `https://${string}` });
+  return createSolanaRpcFromTransport(retryingTransport(transport, maxRetries)) as unknown as SolanaRpc;
 }
 
 const MAX_ACCOUNTS_PER_CALL = 100;
@@ -172,7 +191,12 @@ export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: 
  */
 export type SendOutcome = 'confirmed' | 'failed' | 'expired' | 'rejected' | 'unknown';
 export type SendStatus = 'sending' | 'sent' | SendOutcome;
-export type SendResult = { signature: string; status: SendOutcome; error: string | null };
+/**
+ * `refusal`, for `rejected` only: who refused. `paused` and `busy` are Bound's own relay (the kill
+ * switch, the send limit); `network` is the RPC's preflight, which usually means the price moved.
+ */
+export type SendRefusal = 'paused' | 'busy' | 'network';
+export type SendResult = { signature: string; status: SendOutcome; error: string | null; refusal?: SendRefusal };
 
 export type SendTiming = { pollMs: number; rebroadcastMs: number; giveUpMs: number; settleTries: number; settleMs: number };
 const TIMING: SendTiming = { pollMs: 1_000, rebroadcastMs: 3_000, giveUpMs: 150_000, settleTries: 5, settleMs: 2_000 };
@@ -211,9 +235,9 @@ export async function sendAndConfirm(args: {
   const t = { ...TIMING, ...args.timing };
   const signature = getSignatureFromTransaction(transaction);
   const wire = getBase64EncodedWireTransaction(transaction);
-  const done = (status: SendOutcome, error: string | null = null): SendResult => {
+  const done = (status: SendOutcome, error: string | null = null, refusal?: SendRefusal): SendResult => {
     args.onStatus?.(status, signature);
-    return { signature, status, error };
+    return { signature, status, error, ...(refusal ? { refusal } : {}) };
   };
   const rebroadcast = () =>
     void rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
@@ -225,7 +249,10 @@ export async function sendAndConfirm(args: {
     await rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0n }).send();
     args.onStatus?.('sent', signature);
   } catch (e) {
-    if (refusedBeforeBroadcast(e)) return done('rejected', String((e as Error)?.message ?? e));
+    if (refusedBeforeBroadcast(e)) {
+      const http = httpStatusOf(e);
+      return done('rejected', String((e as Error)?.message ?? e), http === 403 ? 'paused' : http === 429 ? 'busy' : 'network');
+    }
     // It may have been forwarded before the connection failed: keep watching. The re-broadcasts
     // send the same bytes, which can land at most once.
   }

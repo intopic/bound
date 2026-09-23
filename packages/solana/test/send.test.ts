@@ -10,7 +10,7 @@ import {
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { sendAndConfirm } from '../src/index.ts';
+import { httpStatusOf, retryingTransport, sendAndConfirm } from '../src/index.ts';
 import type { SendStatus, SolanaRpc } from '../src/index.ts';
 
 const LAST_VALID = 100n;
@@ -131,5 +131,61 @@ describe('C-03: the outcome of a send', () => {
     const { result } = await run({ statuses: [failed] });
     expect(result.status).toBe('failed');
     expect(result.error).toContain('InstructionError');
+  });
+});
+
+describe('who refused a send that was never broadcast', () => {
+  it("Bound's kill switch (403 from the relay) is told as a pause, not as a price move", async () => {
+    const { result } = await run({ firstSend: httpError(403, true) });
+    expect(result.status).toBe('rejected');
+    expect(result.refusal).toBe('paused');
+  });
+
+  it("the relay's send limit (429) is told as too many requests", async () => {
+    expect((await run({ firstSend: httpError(429, true) })).result.refusal).toBe('busy');
+  });
+
+  it("the RPC's preflight is the network's refusal", async () => {
+    const preflight = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
+    expect((await run({ firstSend: preflight })).result.refusal).toBe('network');
+  });
+});
+
+describe('a rate-limited RPC in the production build', () => {
+  /** Errors made as the page users load makes them: kit replaces the words with a code. */
+  const productionError = (statusCode: number) => {
+    const env = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      return httpError(statusCode);
+    } finally {
+      process.env.NODE_ENV = env;
+    }
+  };
+
+  it('has no "429" in its message, so the status must come from the context', () => {
+    const e = productionError(429);
+    expect(e.message).not.toMatch(/429|Too Many Requests/i);
+    expect(httpStatusOf(e)).toBe(429);
+  });
+
+  it('is retried, and the answer that follows is returned', async () => {
+    let calls = 0;
+    const transport = (async () => {
+      if (calls++ < 2) throw productionError(429);
+      return { ok: true };
+    }) as unknown as Parameters<typeof retryingTransport>[0];
+    expect(await retryingTransport(transport, 5, 1)({} as never)).toEqual({ ok: true });
+    expect(calls).toBe(3);
+  });
+
+  it('any other failure is not retried', async () => {
+    let calls = 0;
+    const transport = (async () => {
+      calls++;
+      throw productionError(502);
+    }) as unknown as Parameters<typeof retryingTransport>[0];
+    await expect(retryingTransport(transport, 5, 1)({} as never)).rejects.toThrow();
+    expect(calls).toBe(1);
   });
 });

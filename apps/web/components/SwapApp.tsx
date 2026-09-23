@@ -8,11 +8,12 @@ import type { Address, KeyPairSigner } from '@solana/kit';
 import { feeFor, JUPITER_PROGRAM, tokenAmountOf } from '@bound/core';
 import type { TxVersion } from '@bound/core';
 import {
-  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, prepareProtectedSwap, quotedMinimum,
+  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, prepareProtectedSwap, quotedMinimum,
+  revertedOnPrice,
 } from '@bound/jupiter';
 import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
-import { createEphemeral, fetchAccounts } from '@bound/solana';
-import type { SendOutcome } from '@bound/solana';
+import { createEphemeral, fetchAccounts, httpStatusOf } from '@bound/solana';
+import type { SendOutcome, SendRefusal } from '@bound/solana';
 import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY, V1_ENABLED } from '@/lib/client/config';
@@ -100,6 +101,18 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
 const STALE_AFTER_QUESTION_MS = 15_000;
 /** A swap built ahead of the click is used only this soon after its build started. */
 const AHEAD_MAX_AGE_MS = 20_000;
+/**
+ * Under load. A price Jupiter refused as busy is asked for again this many times, later each time;
+ * after a busy answer the page builds nothing ahead of the click for a while, because every user
+ * of the site shares one Jupiter key and the builds nobody clicks on are the first thing to cut.
+ */
+const QUOTE_BUSY_RETRIES = 4;
+const BUSY_BACKOFF_MS = 30_000;
+/** Jupiter overloaded or silent (not the kill switch, which answers 503 with its own words). */
+const jupiterBusy = (e: unknown) =>
+  e instanceof JupiterError && (e.status === 429 || (e.status >= 500 && !/paused/i.test(e.message)));
+const busyError = (e: unknown) => e instanceof BoundError && (e.code === 'busy' || e.code === 'unavailable');
+const UNREACHABLE = "Couldn't reach Bound";
 
 /**
  * Why a token cannot be swapped safely, in words rather than the name of a Token-2022 extension.
@@ -201,7 +214,11 @@ function explainError(e: unknown): Notice {
       'verification-failed': "We couldn't build a protected swap",
       'wallet-changed-transaction': 'Your wallet changed the transaction',
       expired: 'The swap expired',
+      busy: 'Too many requests right now',
+      unavailable: "The price service didn't answer",
     };
+    // Load, not the swap: the message already says that nothing was signed.
+    if (e.code === 'busy' || e.code === 'unavailable') return { kind: 'info', title: titles[e.code], body: e.message };
     const rules = e.violations.length ? ` (${[...new Set(e.violations.map(v => v.rule))].join(', ')})` : '';
     if (e.code === 'wallet-changed-transaction') {
       const details = e.violations.map(v => v.detail);
@@ -220,15 +237,28 @@ function explainError(e: unknown): Notice {
     return { kind: 'error', title, body: `${e.message}${rules} No funds moved.` };
   }
   const message = String((e as Error)?.message ?? e);
+  // An RPC failure is read from its HTTP status: a production build of kit replaces the message
+  // with "Solana error #<code>", so its words cannot be matched.
+  const http = httpStatusOf(e);
   if (/reject|denied|cancel|4001/i.test(message)) return { kind: 'info', title: 'Swap cancelled in your wallet', body: 'No funds moved.' };
   if (/paused/i.test(message)) return { kind: 'info', title: 'Protected swaps are paused', body: 'Nothing was sent. Your funds are not affected.' };
-  if (/429|too many requests/i.test(message)) return { kind: 'info', title: 'Too many requests', body: 'Wait a minute and try again. No funds moved.' };
+  if (http === 429 || (e instanceof JupiterError && e.status === 429)) {
+    return { kind: 'info', title: 'Too many requests right now', body: 'Wait a few seconds and try again. Nothing was sent and no funds moved.' };
+  }
   if (/ed25519/i.test(message)) {
     return { kind: 'error', title: "This browser can't create Bound's one-time key", body: "Update it, or open Bound in your wallet's browser. No funds moved." };
   }
+  if ((http !== null && http >= 500) || jupiterBusy(e) || /failed to fetch|fetch failed|networkerror|load failed/i.test(message)) {
+    return {
+      kind: 'info', title: "Couldn't reach the network",
+      body: 'The connection to Solana or the price service failed. Nothing was sent and no funds moved; try again in a moment.',
+    };
+  }
+  // The raw error is for the console, not the page: it is rarely readable, and never actionable.
+  console.error(e);
   return {
     kind: 'error', title: 'Something went wrong',
-    body: `${message.slice(0, 200)} Bound stopped before adding its signature, so this swap can never run. No funds moved.`,
+    body: 'Bound stopped before adding its signature, so this swap can never run. No funds moved. Try again.',
   };
 }
 
@@ -236,7 +266,9 @@ function explainError(e: unknown): Notice {
  * What happened, in words that only claim what the network proved (audit C-03): "no funds moved"
  * appears only when the transaction was refused before broadcast or can no longer execute.
  */
-function outcomeNotice(status: SendOutcome, signature: string, t: SwapTexts, error: string | null): Notice {
+function outcomeNotice(
+  status: SendOutcome, signature: string, t: SwapTexts, why: { refusal?: SendRefusal; onPrice?: boolean } = {},
+): Notice {
   const link = solscan(signature);
   switch (status) {
     case 'confirmed':
@@ -246,13 +278,26 @@ function outcomeNotice(status: SendOutcome, signature: string, t: SwapTexts, err
         link,
       };
     case 'failed':
-      return { kind: 'error', title: 'The swap failed on chain and was reverted', body: 'Only the network fee was paid.', link };
+      // The usual reason, and the one that needs no support: the market moved past the minimum.
+      return why.onPrice
+        ? {
+          kind: 'error', title: 'The price moved before the swap landed',
+          body: `Less than your minimum of ${t.minimum} would have arrived, so the swap reverted and nothing was swapped. Only the network fee was paid; you can try again.`,
+          link,
+        }
+        : { kind: 'error', title: 'The swap failed on chain and was reverted', body: 'Only the network fee was paid.', link };
     case 'expired':
       return { kind: 'info', title: "The swap didn't land in time", body: 'It expired without executing and can no longer execute. No funds moved.', link };
     case 'rejected':
+      if (why.refusal === 'paused') {
+        return { kind: 'info', title: 'Protected swaps were paused', body: 'Bound paused new swaps before this one was sent. It was never broadcast, so no funds moved.' };
+      }
+      if (why.refusal === 'busy') {
+        return { kind: 'info', title: 'Too many requests right now', body: 'This swap was never broadcast, so no funds moved. Wait a few seconds and try again.' };
+      }
       return {
         kind: 'info', title: 'Solana refused the swap before sending it',
-        body: `It was never broadcast, so no funds moved. This usually means the price moved; try again.${error ? ` (${error.slice(0, 120)})` : ''}`,
+        body: 'It was never broadcast, so no funds moved. This usually means the price moved; try again.',
       };
     default:
       return {
@@ -319,6 +364,9 @@ export function SwapApp() {
   const [outputAccountExists, setOutputAccountExists] = useState(true);
   const [clock, setClock] = useState(0);
   const [refreshes, setRefreshes] = useState(0);
+  // How many times in a row Jupiter refused the price as busy, and until when nothing is built ahead.
+  const [busyTries, setBusyTries] = useState(0);
+  const busyUntil = useRef(0);
   const balanceRequest = useRef(0);
   const decideOffer = useRef<((accept: boolean) => void) | null>(null);
 
@@ -329,11 +377,36 @@ export function SwapApp() {
   const outFacts = tokenOut ? facts[tokenOut.id] : undefined;
 
   // --- bootstrap
+  // The page's settings and the kill switch. Without them nothing can be swapped, so a failure is
+  // retried, later each time, instead of leaving the button on "Loading limits…" for good.
   useEffect(() => {
-    fetch('/api/status')
-      .then(r => r.json())
-      .then(setStatus)
-      .catch(() => setNotice({ kind: 'error', title: "Couldn't reach Bound", body: 'Check your connection and reload.' }));
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => {
+      fetch('/api/status')
+        .then(r => {
+          if (!r.ok) throw new Error(`status ${r.status}`);
+          return r.json() as Promise<PublicStatus>;
+        })
+        .then(s => {
+          if (stopped) return;
+          setStatus(s);
+          setNotice(n => (n?.title === UNREACHABLE ? null : n));
+        })
+        .catch(() => {
+          if (stopped) return;
+          if (attempt === 0) setNotice({ kind: 'error', title: UNREACHABLE, body: 'Check your connection. Trying again…' });
+          timer = setTimeout(() => load(attempt + 1), Math.min(30_000, 2_000 * 2 ** attempt));
+        });
+    };
+    load(0);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     loadTokens(POPULAR)
       .then(list => {
         setPopular(list);
@@ -451,6 +524,7 @@ export function SwapApp() {
   /** Asked for by the user, so the count starts again. */
   const refreshNow = () => {
     setRefreshes(0);
+    setBusyTries(0);
     setClock(c => c + 1);
   };
 
@@ -471,6 +545,7 @@ export function SwapApp() {
         })
         .then(r => {
           if (cancelled) return;
+          setBusyTries(0);
           // Shown only if it answers this exact trade; the minimum is computed by Bound (C-02), with
           // the wider tolerance when the route trades on a Pump.fun bonding curve.
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
@@ -482,7 +557,17 @@ export function SwapApp() {
             }
             : null);
         })
-        .catch(() => !cancelled && setQuote(null))
+        .catch(e => {
+          if (cancelled) return;
+          // Busy is not "no price": the price on screen stays while it is fresh, and it is asked
+          // for again shortly.
+          if (jupiterBusy(e)) {
+            busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
+            setBusyTries(n => n + 1);
+            return;
+          }
+          setQuote(null);
+        })
         .finally(() => !cancelled && setQuoting(false));
     }, 500);
     return () => {
@@ -497,7 +582,17 @@ export function SwapApp() {
   useEffect(() => {
     setQuote(null);
     setRefreshes(0);
+    setBusyTries(0);
   }, [tokenIn, tokenOut, swapAmount]);
+
+  // A price refused as busy is asked for again, later each time and at a random moment, so the pages
+  // refused together do not all come back together.
+  useEffect(() => {
+    if (busyTries === 0 || busyTries > QUOTE_BUSY_RETRIES || phase !== 'idle') return;
+    const wait = Math.min(30_000, 2_000 * 2 ** (busyTries - 1)) * (0.5 + Math.random());
+    const timer = setTimeout(() => setClock(c => c + 1), wait);
+    return () => clearTimeout(timer);
+  }, [busyTries, phase]);
 
   // --- what blocks the swap button
   const blocker = useMemo((): string | null => {
@@ -523,14 +618,18 @@ export function SwapApp() {
       if (usdValue > status.maxUsdPerSwap) return `Limit: ${formatUsd(status.maxUsdPerSwap)} per swap`;
     }
     // The user accepts a minimum they have seen; without a price there is nothing to accept (C-02).
-    if (!quote) return quoting ? 'Getting a price…' : 'No price for this pair right now';
+    if (!quote) {
+      if (quoting) return 'Getting a price…';
+      if (busyTries > QUOTE_BUSY_RETRIES) return 'Prices are busy right now';
+      return busyTries > 0 ? 'Prices are busy, retrying…' : 'No price for this pair right now';
+    }
     if (Date.now() - quote.at > QUOTE_MAX_AGE_MS) {
       return refreshes >= AUTO_REFRESHES ? 'Refresh the price to continue' : 'Refreshing price…';
     }
     return null;
     // `clock` re-evaluates the age of the quote.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes]);
+  }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes, busyTries]);
 
   // --- connect
   async function connect(w: Wallet) {
@@ -640,10 +739,14 @@ export function SwapApp() {
   // built and verified with its own one-time key, so the click opens the wallet at once. Nothing is
   // signed or sent: a build nobody clicks on expires with its blockhash. No question is asked here;
   // a build that would need one (price moved, costs more) is dropped, and the click asks as before.
+  // Built once per amount, for its first price (and again when the user refreshes it), not on every
+  // automatic refresh; and not while Jupiter is busy, since a build nobody clicks on still spends
+  // the site's shared quota.
   const ahead = useRef<{ key: string; startedAt: number; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
   useEffect(() => {
     if (phase !== 'idle' || blocker || !wallet || !W || !tokenIn || !tokenOut || !amountIn || !quote || !status) return;
     if (inDecimals === null || outDecimals === null) return;
+    if (refreshes !== 0 || Date.now() < busyUntil.current) return;
     const version = chooseVersion(supportedVersions(wallet), V1_ENABLED);
     if (version === null) return;
     const key = aheadKey(W, tokenIn.id, tokenOut.id, amountIn, quote.at, version);
@@ -655,9 +758,12 @@ export function SwapApp() {
     const task = (async () => {
       const E = await createEphemeral();
       return { prepared: await prepareProtectedSwap(swapDeps(status), { ...request, ephemeral: E }), E };
-    })().catch(() => null);
+    })().catch((e: unknown) => {
+      if (busyError(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
+      return null;
+    });
     ahead.current = { key, startedAt: Date.now(), task };
-  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals]);
+  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals, refreshes]);
 
   // --- the protected swap: build + verify → wallet signs first → re-verify → E signs last → send
   async function swap() {
@@ -771,15 +877,17 @@ export function SwapApp() {
       }
       setHistory(updateHistory(result.signature, result.status, texts.received || undefined));
       settled = result.status !== 'unknown';
-      setNotice(outcomeNotice(result.status, result.signature, texts, result.error));
+      const onPrice = result.status === 'failed' && revertedOnPrice(toSend.transaction, result.error, JUPITER_PROGRAM);
+      setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice }));
       if (result.status === 'confirmed') setAmountText('');
     } catch (e) {
       if (sent.signature) {
         // It may have been broadcast: never say that nothing moved (C-03).
         settled = false;
         setHistory(updateHistory(sent.signature, 'unknown'));
-        setNotice(outcomeNotice('unknown', sent.signature, texts, null));
+        setNotice(outcomeNotice('unknown', sent.signature, texts));
       } else {
+        if (busyError(e) || jupiterBusy(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
         setNotice(explainError(e));
       }
     } finally {
@@ -951,7 +1059,7 @@ export function SwapApp() {
               ? `Minimum received ${formatExact(quote.minOut, outDecimals)} ${tokenOut.symbol} · if less would arrive, the swap cancels itself`
                 + (quote.curve ? ' · 3% tolerance: this token is still on its Pump.fun launch curve and moves fast' : '')
               : ' '}
-            {quote && refreshes >= AUTO_REFRESHES && (
+            {((quote && refreshes >= AUTO_REFRESHES) || (!quote && busyTries > QUOTE_BUSY_RETRIES)) && (
               <>
                 {' · '}
                 <button type="button" className="link" onClick={refreshNow}>
