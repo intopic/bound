@@ -159,7 +159,13 @@ export type Simulation = {
   failedInstruction: number | null;
   /** Lamports each requested account holds after the transaction (0 when it no longer exists). */
   lamportsAfter: bigint[];
+  /** The size of each requested account's data after the transaction (0 when it no longer exists). */
+  sizesAfter: number[];
 };
+
+/** Bytes in a base64 string, without decoding it. */
+const base64Size = (s: string | undefined) =>
+  s ? (s.length * 3) / 4 - (s.endsWith('==') ? 2 : s.endsWith('=') ? 1 : 0) : 0;
 
 /** Simulation answers "will it execute?" — never "is it safe?" (plan, section 15). */
 export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: readonly Address[] = []): Promise<Simulation> {
@@ -170,6 +176,7 @@ export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: 
     })
     .send();
   const logs = [...(value.logs ?? [])];
+  const after = (value as { accounts?: readonly ({ lamports: bigint | number; data?: readonly string[] } | null)[] | null }).accounts;
   return {
     ok: value.err === null,
     error: value.err === null ? null : JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
@@ -177,9 +184,8 @@ export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: 
     logs,
     blame: value.err === null ? null : blameProgram(logs),
     failedInstruction: failedInstructionOf(value.err),
-    lamportsAfter: watch.map((_, i) => BigInt(
-      (value as { accounts?: readonly ({ lamports: bigint | number } | null)[] | null }).accounts?.[i]?.lamports ?? 0,
-    )),
+    lamportsAfter: watch.map((_, i) => BigInt(after?.[i]?.lamports ?? 0)),
+    sizesAfter: watch.map((_, i) => base64Size(after?.[i]?.data?.[0])),
   };
 }
 

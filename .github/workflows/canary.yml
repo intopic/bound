@@ -1,0 +1,34 @@
+name: Canary
+
+# Does a protected swap still build and execute? tools/canary.ts builds three swaps on mainnet
+# state (nothing is signed or sent) and fails when Jupiter's format, a Pump.fun program or a token
+# program changed under Bound (research audit F-07). A failed run makes GitHub tell the owner of
+# this workflow. Off until the repository variable BOUND_CANARY is set to 1.
+on:
+  schedule:
+    # Every 30 minutes. Each run is about two billed minutes: on a private repository that is some
+    # 2,900 minutes a month, more than the free plan's 2,000 and enough to stop CI. Set BOUND_CANARY
+    # once the repository is public (free) or the plan has room, or run the script by hand.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    if: vars.BOUND_CANARY == '1' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # A paid RPC and a Jupiter key make it steadier; without them the public ones are used.
+      - run: node tools/canary.ts
+        env:
+          RPC_URL: ${{ secrets.CANARY_RPC_URL }}
+          JUPITER_API_KEY: ${{ secrets.CANARY_JUPITER_API_KEY }}

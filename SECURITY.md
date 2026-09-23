@@ -21,8 +21,10 @@ For every swap Bound builds:
    was prepared, and that balance is read from the RPC: the check assumes the RPC reports it
    truthfully, and a transfer into that account from someone else at the same moment counts toward
    it. Jupiter's program also enforces the route's own tolerance on chain, a second floor that does
-   not depend on the RPC. Bound never runs two of its own swaps into the same token at once in the
-   same browser.
+   not depend on the RPC: it measures what its own instruction delivers, and the verifier requires
+   that instruction to deliver into the user's own account (or E's temporary one for SOL), so that
+   floor is always on the right account (research audit). Bound never runs two of its own swaps into
+   the same token at once in the same browser.
 
 Bound has one minimum-output model for every router: an exact base-unit amount enforced by a trusted
 instruction in the same transaction and checked independently by the verifier. A router's own
@@ -287,7 +289,7 @@ tables. What depends on it, from the v1 review (AUDIT.md section 0m):
 
 | Read | Used for | If the RPC lies |
 | --- | --- | --- |
-| Balance of the output account | The minimum-output check for a token output | The check can pass with less delivered. Jupiter's own threshold (0.5%, or 3% on a curve) still holds on an honest route |
+| Balance of the output account | The minimum-output check for a token output | The check can pass with less delivered. Jupiter's own threshold (0.5%, or 3% on a curve) still holds: the verifier requires Jupiter to deliver into that same account, and Jupiter measures what its instruction delivered, not the balance |
 | Lookup table contents | R1 | Together with a lying Jupiter, an account could be hidden. v1 transactions have no lookup tables |
 | Owners and data of the route's accounts | R1's test for W's own accounts | A W account with a delegate the user set up earlier could be hidden |
 | Mints: owner, decimals, extensions | R2, R7, amounts | A wrong decimals value reverts on chain (TransferChecked); a hidden extension falls back on the minimum |
@@ -323,7 +325,16 @@ Bound simple; it never ran in the setup Bound uses, and bringing it back would b
   one Jupiter route the verifier can read, otherwise only its trusted instruction shapes), so it is
   not a free broadcaster or simulator on Bound's RPC account (review FA-06). Also set a firewall rule
   per path, spend alerts on the RPC account, and separate keys for the agent API
-  (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`).
+  (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`). Jupiter counts its limits per organisation, not per
+  key: the API's Jupiter key has a quota of its own only if it comes from a separate Jupiter account
+  (research audit F-10).
+- Upstream changes: Jupiter, Pump.fun and Token-2022 are redeployed every few days, and a Jupiter
+  instruction the verifier cannot read stops every swap with `route-format` ("waiting for an
+  update"). `node tools/canary.ts` builds and simulates three swaps on mainnet state and fails on
+  such a change; `.github/workflows/canary.yml` runs it every 30 minutes once the repository
+  variable `BOUND_CANARY` is `1` (off by default: on a private repository it would use more than the
+  free Actions minutes). The page and the API also log Jupiter refusing Bound's key (401, 403) or
+  an endpoint that is gone (404, 410) (research audit F-07, F-08).
 - Releases: deploy only tagged commits, and only after CI is green. Actions are pinned by commit, and
   a second job builds on another runner image and must match the digest (review FA-10). A tag `v*` publishes the build's digest as a GitHub
   release, built with the public settings in the repository variables, which must match

@@ -17,7 +17,8 @@ import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
 
 import {
-  b64, BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, feeMint, hookMint, lamportsSentToTaker, mint, OUT, plain2022Mint, POOL, PUMP, tokenAccount, USDC,
+  b64, BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, feeMint, fundedAccounts, hookMint, lamportsSentToTaker, mint, OUT, plain2022Mint, POOL, PUMP,
+  tokenAccount, USDC,
 } from './fakes.ts';
 import type { Account } from './fakes.ts';
 
@@ -41,16 +42,20 @@ async function prepare(output: Address, opts: {
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
   chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
   input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
-  expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean;
+  expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
+  wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
+  // The wallet holds the input token, unless a test says otherwise through `chain`.
+  if ((opts.input ?? USDC) !== WSOL_MINT) for (const [key, account] of await fundedAccounts(W, opts.input ?? USDC, opts.wIn)) accounts.set(key, account);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
   for (const [key, account] of opts.chain ?? []) accounts.set(key, account);
   return prepareProtectedSwap(
     {
       rpc: fakeRpc(accounts, {
         feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent, priceMoves: opts.priceMoves,
-        walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations,
+        walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations, cashback: opts.cashback,
+        pumpSlippage: opts.pumpSlippage, failBeforeSwap: opts.failBeforeSwap,
       }),
       jupiter: opts.jupiter ?? fakeJupiter(), settings: { ...settings, treasury: opts.treasury ?? null },
     },
@@ -268,6 +273,12 @@ describe('a price that moves between the quote and the simulation', () => {
     expect(prepared.attempts.at(-1)!.excluded).not.toContain('Whirlpool');
   });
 
+  it("so is a refusal on price by a Pump.fun market inside the route: the curve is not left out (research audit)", async () => {
+    const prepared = await prepare(BONK, { pumpSlippage: 1, jupiter: fakeJupiter({ label: 'Pump.fun', curveProgram: true }), expectCurve: true });
+    expect(prepared.attempts[0].simulation).toBe('output below the minimum');
+    expect(prepared.attempts.at(-1)!.excluded).not.toContain('Pump.fun');
+  });
+
   it('that keeps moving is reported as a price move, not as a broken market', async () => {
     const failure = await prepare(BONK, { priceMoves: 10 }).catch((e: BoundError) => e);
     expect(failure).toBeInstanceOf(BoundError);
@@ -451,6 +462,13 @@ describe('a Jupiter that is overloaded or silent', () => {
     expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(504, '{"error":"Jupiter did not answer"}') }))).toBe('unavailable');
   });
 
+  it("a refused key or a path that is gone is Bound's to fix, not a missing route (research audit F-08)", async () => {
+    for (const status of [401, 403, 404, 410]) {
+      expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(status, 'Unauthorized') }))).toBe('unavailable');
+    }
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(400, '{"error":"No routes found"}') }))).toBe('no-route');
+  });
+
   it("the kill switch's own answer is passed on as it is", async () => {
     expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(503, '{"error":"Protected swaps are paused"}') }))).toMatch(/paused/);
   });
@@ -526,8 +544,63 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     expect(prepared.oneTimeCosts.routeRefund).toBe(0n);
   });
 
+  it("a cashback coin's account holds more than its rent: it is left alone, so the swap cannot revert on the refund (F-03)", async () => {
+    const simulations = { count: 0 };
+    const prepared = await prepare(BONK, {
+      input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, cashback: 1_234n, simulations,
+    });
+    expect(prepared.policy.takerRent).toBe(1_346_200n);
+    expect(prepared.policy.routeRefund).toBe(0n);
+    expect(prepared.oneTimeCosts.routeRefund).toBe(0n);
+    // No simulation with the close either: nothing was tried that could fail.
+    expect(simulations.count).toBe(2);
+  });
+
+  it('a route that fits only without the close is built without it, never sent to the RPC oversized', async () => {
+    // Pad a curve route until the close no longer fits in v0: the swap is built as before FA-05.
+    let droppedForSize = 0;
+    for (let n = 0; n <= 20; n++) {
+      const extraAccounts = await Promise.all(Array.from({ length: n }, async () => (await generateKeyPairSigner()).address));
+      const jupiter = fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true, extraAccounts });
+      const outcome = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter, takerRent: 1_346_200n, expectCurve: true, version: 0 })
+        .then(p => ({ p, code: 'ok' }), (e: unknown) => ({ p: null, code: e instanceof BoundError ? e.code : String(e) }));
+      // Never the RPC's raw refusal of an oversized transaction: a route that no longer fits with
+      // its rent is a route that does not fit, and the pipeline says so in its own words.
+      expect(['ok', 'no-route', 'simulation-failed'], `${n} extra accounts: ${outcome.code}`).toContain(outcome.code);
+      if (outcome.p && outcome.p.policy.takerRent > 0n && outcome.p.policy.routeRefund === 0n) droppedForSize++;
+    }
+    expect(droppedForSize).toBeGreaterThan(0);
+  });
+
   it('without rent to pay there is no account to close', async () => {
     const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), expectCurve: true });
     expect(prepared.policy.routeRefund).toBe(0n);
+  });
+});
+
+describe('the reason is named, not blamed on the market (research audit)', () => {
+  it('a Jupiter instruction of a new format is a format change, not a bad price (F-07)', async () => {
+    const failure = await prepare(BONK, { jupiter: fakeJupiter({ unknownFormat: true }) }).catch((e: BoundError) => e);
+    expect((failure as BoundError).code).toBe('route-format');
+    expect((failure as BoundError).message).toContain("can't read yet");
+  });
+
+  it("an input account frozen by the token's issuer is refused before anything is quoted (F-09)", async () => {
+    const failure = await prepare(BONK, { wIn: { frozen: true } }).catch((e: BoundError) => e);
+    expect((failure as BoundError).code).toBe('input-account-restricted');
+  });
+
+  it('an input balance short of the amount is named, with the numbers the user typed (F-09)', async () => {
+    const failure = await prepare(BONK, { wIn: { amount: 250_000n }, amountIn: 1_000_000n }).catch((e: BoundError) => e);
+    expect((failure as BoundError).code).toBe('insufficient-balance');
+    expect((failure as BoundError).message).toContain('holds 0.25 of the input token, less than the 1 this swap needs');
+  });
+
+  it("a failure in Bound's own steps before the swap stops at once, without blaming a market (F-09)", async () => {
+    const simulations = { count: 0 };
+    const failure = await prepare(BONK, { failBeforeSwap: true, simulations }).catch((e: BoundError) => e);
+    expect((failure as BoundError).code).toBe('simulation-failed');
+    expect((failure as BoundError).message).toContain('before it reaches the market');
+    expect(simulations.count).toBe(1);
   });
 });

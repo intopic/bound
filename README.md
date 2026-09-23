@@ -25,7 +25,9 @@ rest of your wallet.
 If anything fails, nothing is signed or the whole transaction reverts. There is no "continue anyway".
 
 Wallets: any wallet that signs a transaction and hands it back unsent (Wallet Standard
-`solana:signTransaction`) with a second signer left empty. Phantom's embedded wallets (sign-and-send
+`solana:signTransaction`) with a second signer left empty. Bound builds v0 transactions; with v1
+enabled, only a route too big for v0 is built as v1, because not every signer reads v1 yet (Ledger's
+Solana app does not). Phantom's embedded wallets (sign-and-send
 only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first, so they cannot use Bound
 (review FA-14). The real-wallet test with Phantom, Solflare and Backpack is still to be done.
 
@@ -33,11 +35,11 @@ only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first, so t
 | --- | --- |
 | R6 | Only W and E sign; W pays; what the wallet returns is exactly what was verified. Because W never appears in the swap, W's signature is never available to it: this is what makes the other rules sufficient |
 | R1 | W and W's token accounts (except the output account) never reach the external program, including through lookup tables; nor do Bound's fee accounts |
-| R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. The fee is at most 1% |
+| R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1% |
 | R3 | E and its accounts are fresh |
 | R4 | The network fee paid by W is capped (never above 0.001 SOL) |
 | R5 | One transaction within size limits; every temporary account is closed |
-| R7 | Input, output and intermediate mints are classic SPL, or Token-2022 carrying only extensions that cannot touch the swap (metadata, groups, close authority, confidential transfers, an unset transfer hook, and a transfer fee on the swap's own mints) |
+| R7 | Input, output and intermediate mints are classic SPL, or Token-2022 carrying only extensions that cannot touch the swap (metadata, groups, close authority, confidential transfers and their fee, an unset transfer hook, accounts initialized by default, a permanent delegate that is an ordinary key, and a transfer fee on the swap's own mints) |
 
 ## Repository
 
@@ -88,7 +90,8 @@ node tests/e2e/busy.ts    # the page when Jupiter or the RPC refuse with 429 (sa
 node tools/agent-key.ts <id>   # an API key for the agent API (AGENT-API.md)
 node skills/bound-protected-swap/examples/swap.ts   # the agent skill's example (SKILL.md); prints its usage
 node tools/build-skill.ts             # rebuild the verifier bundled in the skill (CI checks it)
-node tests/integration/jupiter-floor.ts   # Jupiter's on-chain floor, on mainnet state (FA-03)
+node tests/integration/jupiter-floor.ts   # Jupiter's on-chain floor and where it is measured, on mainnet state
+node tools/canary.ts                  # do three protected swaps still build and execute? (upstream changes)
 node tests/integration/pump-accumulator.ts   # the research behind closing Pump's per-buyer account (FA-05)
 node tests/e2e/pump-card.ts           # what a Pump.fun buy shows before the wallet opens (same server as e2e)
 npm run build:digest      # one hash over everything the browser loads, to compare with a release

@@ -28,7 +28,7 @@ const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1000000n;
 */
 const MAX_TAKER_RENT_LAMPORTS = 5000000n;
 /** Pump.fun's bonding-curve program: a route through it is priced on the curve. */
-const PUMP_CURVE_PROGRAM = address("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
+const PUMP_CURVE_PROGRAM$1 = address("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 /** PumpSwap, the market a Pump.fun token moves to after its curve. */
 const PUMP_AMM_PROGRAM = address("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
 /**
@@ -202,7 +202,7 @@ function parseInstruction(ix) {
 		}
 		return invalid(`System instruction ${data.length >= 4 ? view(data).getUint32(0, true) : "?"}`);
 	}
-	if (program === PUMP_CURVE_PROGRAM || program === PUMP_AMM_PROGRAM) {
+	if (program === PUMP_CURVE_PROGRAM$1 || program === PUMP_AMM_PROGRAM) {
 		if (data.length !== 8 || CLOSE_USER_VOLUME_ACCUMULATOR.some((b, i) => data[i] !== b) || acc.length !== 4) return invalid("a Pump instruction other than closing the per-buyer account");
 		const [user, account, eventAuthority, self] = acc;
 		if (!signerWritable(user) || !isWritableRole(account.role) || isSignerRole(account.role) || isWritableRole(eventAuthority.role) || isSignerRole(eventAuthority.role) || self.address !== program || isWritableRole(self.role) || isSignerRole(self.role)) return invalid("close_user_volume_accumulator with wrong accounts or roles");
@@ -381,6 +381,23 @@ function jupiterRouteArgs(data) {
 		positiveSlippageBps: v.getUint16(base + 20, true)
 	};
 }
+/**
+* The account Jupiter's route delivers to, which is the account its floor is measured on (research
+* audit, section I). From the program's IDL on chain:
+*
+*   route_v2:                 [0] authority, [1] source, [2] user destination, ..., [7] destination (optional)
+*   shared_accounts_route_v2: [0] program authority, [1] authority, [2] source, ..., [5] destination
+*
+* An optional account left out is passed as the program's own address, and route_v2 then delivers to
+* its user destination. Null for any other instruction, or too few accounts.
+*/
+function jupiterDestination(data, accounts) {
+	const d = Uint8Array.from(data);
+	const starts = (disc) => d.length >= 8 && disc.every((b, i) => d[i] === b);
+	if (starts(ROUTE_V2) && accounts.length >= 10) return accounts[7] === JUPITER_PROGRAM ? accounts[2] : accounts[7];
+	if (starts(SHARED_ACCOUNTS_ROUTE_V2) && accounts.length >= 12) return accounts[5];
+	return null;
+}
 const V1_ALLOWED_CONFIG = TRANSACTION_CONFIG_PRIORITY_FEE_LAMPORTS_BIT_MASK | TRANSACTION_CONFIG_COMPUTE_UNIT_LIMIT_BIT_MASK | TRANSACTION_CONFIG_LOADED_ACCOUNTS_DATA_SIZE_LIMIT_BIT_MASK;
 const BEFORE_SWAP = [
 	"createEIn",
@@ -462,10 +479,10 @@ async function verify(transaction, policy, snapshot) {
 		if (state && state.data.length >= 82 && state.data[44] !== decimals) fail("R2", `${side} decimals ${decimals} do not match the mint (${state.data[44]})`);
 	}
 	const refundProgram = p.routeRefundProgram;
-	if (refundProgram !== null && refundProgram !== PUMP_CURVE_PROGRAM && refundProgram !== PUMP_AMM_PROGRAM) fail("R2", `route refund from ${refundProgram}, which is not a Pump market`);
+	if (refundProgram !== null && refundProgram !== PUMP_CURVE_PROGRAM$1 && refundProgram !== PUMP_AMM_PROGRAM) fail("R2", `route refund from ${refundProgram}, which is not a Pump market`);
 	if (p.routeRefund > 0n !== (refundProgram !== null)) fail("R2", "policy route refund and its program disagree");
 	if (p.routeRefund < 0n || p.routeRefund > 5000000n) fail("R4", `route refund ${p.routeRefund} lamports is outside 0..${MAX_TAKER_RENT_LAMPORTS}`);
-	const refunds = refundProgram !== null && (refundProgram === PUMP_CURVE_PROGRAM || refundProgram === PUMP_AMM_PROGRAM);
+	const refunds = refundProgram !== null && (refundProgram === PUMP_CURVE_PROGRAM$1 || refundProgram === PUMP_AMM_PROGRAM);
 	const expected = {
 		routeAccount: refunds ? await routeAccountFor(refundProgram, E) : null,
 		routeEventAuthority: refunds ? await eventAuthorityFor(refundProgram) : null,
@@ -536,11 +553,13 @@ async function verify(transaction, policy, snapshot) {
 			fail("R2", "the Jupiter instruction is not a route Bound can read (route_v2 or shared_accounts_route_v2)");
 			continue;
 		}
-		const maxSlippage = x.accounts.some((a) => a.address === PUMP_CURVE_PROGRAM) ? 300 : 50;
+		const maxSlippage = x.accounts.some((a) => a.address === PUMP_CURVE_PROGRAM$1) ? 300 : 50;
 		if (args.platformFeeBps !== 0 || args.positiveSlippageBps !== 0) fail("R2", `the Jupiter route takes a platform fee (${args.platformFeeBps} bps) or positive slippage (${args.positiveSlippageBps} bps)`);
 		if (args.slippageBps > maxSlippage) fail("R2", `the Jupiter route tolerates ${args.slippageBps} bps, above ${maxSlippage}`);
 		if (args.quotedOutAmount < p.minOut) fail("R2", `the Jupiter route quotes ${args.quotedOutAmount}, below the minimum output ${p.minOut}`);
 		if (args.inAmount <= 0n || args.inAmount > p.swapAmount) fail("R2", `the Jupiter route spends ${args.inAmount}, outside the approved ${p.swapAmount}`);
+		const destination = jupiterDestination(x.data, x.accounts.map((a) => a.address));
+		if (destination !== (A ? eOut : wOut)) fail("R2", `the Jupiter route delivers to ${destination ?? "an unreadable account"}, not to ${A ? "the temporary output account" : "the wallet's output account"}`);
 	}
 	const intermediates = /* @__PURE__ */ new Map();
 	for (const x of parsed) {
@@ -788,6 +807,12 @@ async function verify(transaction, policy, snapshot) {
 * to its own intent and limits. A compromised server, relay, DNS or impostor URL can then refuse or
 * delay a swap, never make the agent sign one that moves anything but the approved amount.
 *
+* Two things the rules alone cannot settle are settled here too (research audit). The price: the
+* agent must bring a floor of its own (`minOut`, from `ownMinimum` or its own source), or a server
+* could sell the amount for almost nothing through a pool it controls (F-02). And the one-time key:
+* the swap is simulated on the agent's RPC and must leave it with nothing, so no lamports stay
+* where a server that derives the key could collect them (F-06).
+*
 * Bundled into ../lib/bound-verify.mjs by tools/build-skill.ts (only @solana/kit stays external), so
 * the skill works on its own; CI rebuilds it and fails if the committed file differs.
 */
@@ -840,7 +865,8 @@ async function verifyPrepared(prepared, limits, rpc) {
 	if (p.feeBps > BigInt(limits.maxFeeBps ?? 20)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
 	if (limits.treasury && p.treasury !== null && p.treasury !== limits.treasury) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
 	if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1e6)) problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
-	if (limits.minOut && p.minOut < BigInt(limits.minOut)) problems.push(`the minimum ${p.minOut} is below yours, ${limits.minOut}`);
+	if (!/^\d{1,20}$/.test(limits.minOut ?? "") || BigInt(limits.minOut) === 0n) problems.push("no minimum of your own: set minOut from a price you got yourself (ownMinimum asks Jupiter for one)");
+	else if (p.minOut < BigInt(limits.minOut)) problems.push(`the minimum ${p.minOut} is below yours, ${limits.minOut}`);
 	let snapshot;
 	try {
 		const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
@@ -867,7 +893,64 @@ async function verifyPrepared(prepared, limits, rpc) {
 	}
 	const verdict = await verify(transaction, p, snapshot);
 	for (const v of verdict.violations) problems.push(`${v.rule}: ${v.detail}`);
+	problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc));
 	return problems;
 }
+/**
+* What the one-time key holds after the swap, simulated on the agent's own RPC. Every lamport the
+* wallet sends it (a market's account rent) must be spent by the route or come back in the same
+* transaction; a server that stated more than the route needs, or a smaller refund, would otherwise
+* leave lamports under a key it can derive (research audit F-06).
+*/
+async function leftUnderKey(transaction, key, rpc) {
+	try {
+		const { value } = await rpc.simulateTransaction(transaction, {
+			encoding: "base64",
+			sigVerify: false,
+			replaceRecentBlockhash: true,
+			commitment: "confirmed",
+			accounts: {
+				addresses: [key],
+				encoding: "base64"
+			}
+		}).send();
+		if (value.err) return [`the swap fails in simulation on your RPC: ${JSON.stringify(value.err, (_, v) => typeof v === "bigint" ? v.toString() : v)}`];
+		const after = value.accounts;
+		const left = BigInt(after?.[0]?.lamports ?? 0);
+		return left === 0n ? [] : [`the one-time key would keep ${left} lamports after the swap`];
+	} catch (e) {
+		return [`the swap could not be simulated on your RPC: ${e.message}`];
+	}
+}
+/** The program of a Pump.fun bonding curve: a route through one is quoted at a wider tolerance. */
+const PUMP_CURVE_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
+/**
+* A floor of the agent's own, from a price it asks Jupiter for itself (research audit F-02): the
+* output for the amount Bound will route (after its fee), less `maxBelowBps`. By default 2%, or 5%
+* when the route trades on a Pump.fun bonding curve, which Bound quotes at 3%: enough for Bound's
+* tolerance, its narrower routes and a few seconds of movement, and far from "almost nothing".
+* Without `apiKey`, Jupiter allows a request every two seconds.
+*/
+async function ownMinimum(args) {
+	const amount = BigInt(args.amountIn);
+	const routed = amount - amount * BigInt(args.maxFeeBps ?? 20) / 10000n;
+	const url = new URL(args.jupiterUrl ?? "https://api.jup.ag/swap/v2/build");
+	const query = {
+		inputMint: args.inputMint,
+		outputMint: args.outputMint,
+		amount: routed.toString(),
+		taker: args.taker,
+		slippageBps: "50",
+		maxAccounts: "64"
+	};
+	for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
+	const res = await (args.fetchImpl ?? fetch)(url.toString(), { headers: args.apiKey ? { "x-api-key": args.apiKey } : {} });
+	if (!res.ok) throw new Error(`Jupiter answered ${res.status} when asked for your own price`);
+	const r = await res.json();
+	if (r.inputMint !== args.inputMint || r.outputMint !== args.outputMint || r.inAmount !== routed.toString() || !/^\d{1,20}$/.test(r.outAmount ?? "")) throw new Error("Jupiter answered for another trade when asked for your own price");
+	const curve = r.swapInstruction?.accounts?.some((a) => a.pubkey === PUMP_CURVE_PROGRAM) ?? false;
+	const below = BigInt(args.maxBelowBps ?? (curve ? 500 : 200));
+	return (BigInt(r.outAmount) * (10000n - below) / 10000n).toString();
+}
 //#endregion
-export { verifyPrepared };
+export { ownMinimum, verifyPrepared };

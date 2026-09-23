@@ -47,6 +47,8 @@ export function agentDeps(): AgentDeps | null {
   const previous = secretOf(process.env.BOUND_API_SECRET_PREVIOUS);
   const server = serverConfig();
   // The API may run on keys of its own, so that agents cannot use up the page's quota (FA-06).
+  // Jupiter counts its limits per organisation, not per key (research audit F-10): only a key from
+  // a separate Jupiter account gives the API a quota of its own.
   const rpcUrl = process.env.RPC_URL_AGENTS || server.rpcUrl;
   const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
   const feeBps = BigInt(/^\d{1,3}$/.test(process.env.BOUND_API_FEE_BPS ?? '') ? process.env.BOUND_API_FEE_BPS!

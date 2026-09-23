@@ -9,8 +9,11 @@ export type AgentLimits = {
   outputMint: string;
   /** Base units, as a string: everything that leaves the wallet in the input token, fee included. */
   amountIn: string;
-  /** The least the agent accepts, in base units of the output; Bound's floor may be stricter. */
-  minOut?: string;
+  /**
+   * The least the agent accepts, in base units of the output. Required, and from a price the agent
+   * got itself (`ownMinimum` asks Jupiter), never from Bound's answer. Bound's floor may be stricter.
+   */
+  minOut: string;
   /** The highest Bound fee accepted, in bps (Bound's is 20). */
   maxFeeBps?: number;
   /** The most the transaction may cost in network fees, in lamports (default 0.001 SOL). */
@@ -29,6 +32,16 @@ export type PreparedSwap = {
 
 /**
  * Runs Bound's full verifier on the prepared transaction, with chain state read from `rpc` (the
- * agent's own RPC) and the policy held to `limits`. Returns the problems found; sign only when empty.
+ * agent's own RPC) and the policy held to `limits`, then simulates it there: the one-time key must
+ * end with nothing. Returns the problems found; sign only when empty.
  */
 export function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>): Promise<string[]>;
+
+/**
+ * A floor of the agent's own: Jupiter's price for the amount Bound will route, asked for directly,
+ * less `maxBelowBps` (default 2%, or 5% on a Pump.fun bonding curve). In base units, as a string.
+ */
+export function ownMinimum(args: {
+  inputMint: string; outputMint: string; amountIn: string; taker: string;
+  maxFeeBps?: number; maxBelowBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
+}): Promise<string>;

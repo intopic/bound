@@ -18,7 +18,7 @@ import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY, V1_ENABLED } from '@/lib/client/config';
 import {
-  chooseVersion, connectWallet, disconnectWallet, onAccountChange, supportedVersions, useWallets, walletSign,
+  chooseVersion, connectWallet, disconnectWallet, onAccountChange, supportedVersions, useWallets, v1Fallback, walletSign,
 } from '@/lib/client/wallets';
 import { formatExact, formatUnits, formatUsd, parseUnits, shortAddress } from '@/lib/client/format';
 import {
@@ -79,7 +79,7 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
       };
     case 'cost':
       return {
-        title: `This route gives ${o.gap} less than the best price on the market`,
+        title: `This route gives ${o.gap} less than the best unprotected route`,
         body: <p>{o.severe ? 'A smaller amount often gets a better price. ' : ''}Nothing has been signed.</p>,
         go: 'Continue',
       };
@@ -97,9 +97,15 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
       };
   }
 }
-/** A transaction lives about a minute; one that waited longer than this on a question is rebuilt. */
-const STALE_AFTER_QUESTION_MS = 15_000;
-/** A swap built ahead of the click is used only this soon after its build started. */
+/**
+ * A transaction lives 150 blocks: about 41 s at the 272 ms blocks measured in September 2026, and
+ * less as slots get shorter. What the wallet is left with is therefore counted in blocks, not
+ * seconds (research audit F-05): a swap built ahead of the click, or one that waited on a question,
+ * is used only while at least this many blocks are left (about 27 s today), and is built again
+ * otherwise.
+ */
+const MIN_BLOCKS_FOR_WALLET = 100n;
+/** A swap built ahead of the click is used only this soon after its build started (its price). */
 const AHEAD_MAX_AGE_MS = 20_000;
 /**
  * Under load. A price Jupiter refused as busy is asked for again this many times, later each time;
@@ -171,6 +177,12 @@ async function outputBalanceUnchanged(p: PreparedSwap): Promise<boolean> {
   return now === p.outputBalanceBefore;
 }
 
+/** Blocks left in a prepared swap's lifetime, at the RPC's confirmed height; 0 when it cannot say. */
+async function blocksLeft(p: PreparedSwap): Promise<bigint> {
+  const height = await getRpc().getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
+  return height === null ? 0n : p.lifetime.lastValidBlockHeight - BigInt(height);
+}
+
 /** Does a rebuilt swap cost more than the one the user just accepted? */
 const costsMoreThan = (next: PreparedSwap, accepted: PreparedSwap) =>
   next.oneTimeCosts.routeRent > accepted.oneTimeCosts.routeRent
@@ -226,9 +238,12 @@ function explainError(e: unknown): Notice {
       expired: 'The swap expired',
       busy: 'Too many requests right now',
       unavailable: "The price service didn't answer",
+      'insufficient-balance': 'Not enough of this token',
+      'input-account-restricted': 'Your account for this token is restricted',
+      'route-format': 'Protected swaps are waiting for an update',
     };
-    // Load, not the swap: the message already says that nothing was signed.
-    if (e.code === 'busy' || e.code === 'unavailable') return { kind: 'info', title: titles[e.code], body: e.message };
+    // Load or an upstream change, not the swap: the message already says that nothing was signed.
+    if (e.code === 'busy' || e.code === 'unavailable' || e.code === 'route-format') return { kind: 'info', title: titles[e.code], body: e.message };
     const rules = e.violations.length ? ` (${[...new Set(e.violations.map(v => v.rule))].join(', ')})` : '';
     if (e.code === 'wallet-changed-transaction') {
       const details = e.violations.map(v => v.detail);
@@ -707,10 +722,11 @@ export function SwapApp() {
   async function prepareAccepted(args: {
     E: KeyPairSigner; owner: Address; inToken: TokenInfo; outToken: TokenInfo; amountIn: bigint;
     inDecimals: number; outDecimals: number; acceptedMinOut: bigint; version: TxVersion; status: PublicStatus;
-    expectCurve: boolean;
+    expectCurve: boolean; v1Fallback: boolean;
   }): Promise<PreparedSwap | null> {
     let accepted = args.acceptedMinOut;
     let acceptedCost: bigint | undefined;
+    let version = args.version;
     for (let round = 0; ; round++) {
       try {
         return await prepareProtectedSwap(
@@ -718,11 +734,16 @@ export function SwapApp() {
           {
             owner: args.owner, ephemeral: args.E, inputMint: address(args.inToken.id), outputMint: address(args.outToken.id),
             amountIn: args.amountIn, inputDecimals: args.inDecimals, outputDecimals: args.outDecimals,
-            acceptedMinOut: accepted, acceptedCostBps: acceptedCost, version: args.version, expectCurve: args.expectCurve,
+            acceptedMinOut: accepted, acceptedCostBps: acceptedCost, version, expectCurve: args.expectCurve,
           },
         );
       } catch (e) {
         if (!(e instanceof BoundError) || round >= 2) throw e;
+        // A route too big for v0 may fit in v1, for a wallet that signs it (research audit F-13).
+        if (e.code === 'no-route' && e.message.includes('does not fit') && version === 0 && args.v1Fallback) {
+          version = 1;
+          continue;
+        }
         if (e.code === 'price-moved' && e.priceMoved) {
           const symbol = args.outToken.symbol;
           const accept = await askAboutOffer({
@@ -819,6 +840,7 @@ export function SwapApp() {
     try {
       const build = (E: KeyPairSigner, acceptedMinOut: bigint) => prepareAccepted({
         E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinOut, version, status, expectCurve: quote.curve,
+        v1Fallback: v1Fallback(supportedVersions(wallet), V1_ENABLED),
       });
       // A large price impact is asked about before anything is built, as other swap pages do.
       if (quote.impact >= IMPACT_ASK) {
@@ -829,7 +851,11 @@ export function SwapApp() {
       // inputs and its output balance has not moved since; otherwise it is built now.
       const reused = early && early.key === aheadKey(W, inToken.id, outToken.id, amountIn, quote.at, version)
         && Date.now() - early.startedAt < AHEAD_MAX_AGE_MS ? await early.task : null;
-      const fresh = reused && (await outputBalanceUnchanged(reused.prepared)) ? reused : null;
+      // Its output balance and its time left, read together: one round trip.
+      const [unchanged, left] = reused
+        ? await Promise.all([outputBalanceUnchanged(reused.prepared), blocksLeft(reused.prepared)])
+        : [false, 0n];
+      const fresh = reused && unchanged && left >= MIN_BLOCKS_FOR_WALLET ? reused : null;
       const E = fresh ? fresh.E : await createEphemeral();
       let prepared = fresh ? fresh.prepared : await build(E, quote.minOut);
       if (!prepared) return cancelled();
@@ -837,11 +863,10 @@ export function SwapApp() {
       const facts = { inSymbol: inToken.symbol, outSymbol: outToken.symbol, inDecimals };
       const extras = extrasOf(prepared, facts);
       if (extras.length) {
-        const askedAt = Date.now();
         if (!(await askAboutOffer({ kind: 'extras', lines: extras }))) return cancelled();
-        // A swap that waited on the question is built again, and asked about again only if the new
-        // build costs more than what was just accepted.
-        if (Date.now() - askedAt > STALE_AFTER_QUESTION_MS) {
+        // A swap that waited on the question until too little of its life is left is built again,
+        // and asked about again only if the new build costs more than what was just accepted.
+        if ((await blocksLeft(prepared)) < MIN_BLOCKS_FOR_WALLET) {
           setPhase('checking');
           const again = await build(E, prepared.quote.minOut);
           if (!again) return cancelled();
@@ -876,7 +901,7 @@ export function SwapApp() {
       setPhase('wallet');
       lock.refresh();
       const toSend = prepared;
-      const signed = await walletSign(wallet, account, new Uint8Array(getTransactionEncoder().encode(toSend.transaction)));
+      const signed = await walletSign(wallet, account, new Uint8Array(getTransactionEncoder().encode(toSend.transaction)), toSend.contextSlot);
 
       // The minimum is checked on chain as W_out's balance before plus the minimum. If that balance
       // moved while the wallet was open (another swap into this token, from another device, or a

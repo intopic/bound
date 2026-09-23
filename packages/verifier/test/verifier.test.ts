@@ -556,16 +556,67 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
     return d;
   };
 
+  const sharedData = (s: Scenario) => {
+    const plain = routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n);
+    const d = new Uint8Array(plain.length + 1);
+    d.set([0xd1, 0x98, 0x53, 0x93, 0x7c, 0xfe, 0xd8, 0xe9, 7], 0);
+    d.set(plain.subarray(8), 9);
+    return d;
+  };
+  type Meta = { address: Address; role: AccountRole };
+  // shared_accounts_route_v2's own layout (Jupiter's IDL): the destination is account 5.
+  // Its program's own accounts are stood in for by pools the snapshot knows.
+  const sharedAccounts = (accounts: readonly Meta[], s: Scenario): Meta[] => {
+    const [authority, source, userDestination, inMint, outMint, inProgram, outProgram, destination, events, program, ...rest] = accounts;
+    return [
+      { address: s.pools[0], role: AccountRole.READONLY }, authority, source,
+      { address: s.pools[1], role: AccountRole.WRITABLE }, { address: s.pools[2], role: AccountRole.WRITABLE },
+      destination.address === JUPITER_PROGRAM ? userDestination : destination,
+      inMint, outMint, inProgram, outProgram, events, program, ...rest,
+    ];
+  };
+  /** The honest swap with its Jupiter accounts rearranged, and optionally its data replaced. */
+  const rearranged = async (
+    opts: Parameters<typeof scenario>[0],
+    arrange: (accounts: Meta[], s: Scenario) => Meta[] | Promise<Meta[]>,
+    data?: (s: Scenario) => Uint8Array,
+  ) => {
+    const s = await scenario(opts);
+    const ixs = honest(s);
+    const i = swapIndex(ixs);
+    ixs[i] = { ...ixs[i], accounts: await arrange([...(ixs[i].accounts ?? [])] as Meta[], s), ...(data ? { data: data(s) } : {}) };
+    return verify(mutated(s, ixs), s.policy, s.snapshot);
+  };
+  const TOKEN_OUT = { input: USDC, output: BONK };
+
   it('an honest route passes; so does the shared-accounts form of it', async () => {
     expect((await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n))).violations).toEqual([]);
-    const shared = (s: Scenario) => {
-      const plain = routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n);
-      const d = new Uint8Array(plain.length + 1);
-      d.set([0xd1, 0x98, 0x53, 0x93, 0x7c, 0xfe, 0xd8, 0xe9, 7], 0);
-      d.set(plain.subarray(8), 9);
-      return d;
+    expect((await rearranged({}, sharedAccounts, sharedData)).violations).toEqual([]);
+    expect((await rearranged(TOKEN_OUT, sharedAccounts, sharedData)).violations).toEqual([]);
+  });
+
+  it("the route must deliver to the wallet's own output account, where Jupiter measures its floor", async () => {
+    const elsewhere = async (a: Meta[]) => { a[7] = { address: await randomAddress(), role: AccountRole.WRITABLE }; return a; };
+    expect(details(await rearranged(TOKEN_OUT, elsewhere)).join()).toContain("not to the wallet's output account");
+    // Jupiter may also name the wallet's account as its user destination and leave the optional one out.
+    const asUserDestination = (a: Meta[]) => {
+      a[2] = a[7];
+      a[7] = { address: JUPITER_PROGRAM, role: AccountRole.READONLY };
+      return a;
     };
-    expect((await check(shared)).violations).toEqual([]);
+    expect((await rearranged(TOKEN_OUT, asUserDestination)).violations).toEqual([]);
+    const sharedElsewhere = async (a: Meta[], sc: Scenario) => { const x = sharedAccounts(a, sc); x[5] = { address: await randomAddress(), role: AccountRole.WRITABLE }; return x; };
+    expect(details(await rearranged(TOKEN_OUT, sharedElsewhere, sharedData)).join()).toContain("not to the wallet's output account");
+  });
+
+  it('for SOL, the route must deliver to the temporary output account', async () => {
+    const elsewhere = async (a: Meta[]) => { a[2] = { address: await randomAddress(), role: AccountRole.WRITABLE }; return a; };
+    expect(details(await rearranged({}, elsewhere)).join()).toContain('not to the temporary output account');
+    // The optional destination, when set, is where the output goes: E's account at index 2 is then not enough.
+    const optional = async (a: Meta[]) => { a[7] = { address: await randomAddress(), role: AccountRole.WRITABLE }; return a; };
+    expect(details(await rearranged({}, optional)).join()).toContain('not to the temporary output account');
+    const cut = (a: Meta[]) => a.slice(0, 9);
+    expect(details(await rearranged({}, cut)).join()).toContain('an unreadable account');
   });
 
   it('any other instruction of Jupiter is refused, so a new format stops swaps instead of passing unread', async () => {

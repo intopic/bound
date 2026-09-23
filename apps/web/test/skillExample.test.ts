@@ -18,35 +18,49 @@ import {
 } from '@solana-program/token';
 import { getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
 import { ataOf, WSOL_MINT } from '@bound/core';
-import { DEX, fakeJupiter, fakeRpc, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
+import { DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { checkPrepared, protectedSwap } from '../../../skills/bound-protected-swap/examples/swap.ts';
+import { ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
+import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
 import type { Intent, Prepared } from '../../../skills/bound-protected-swap/examples/swap.ts';
 
 const KEY = 'bnd_skill_example_test_key_0001';
 const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
-async function bound() {
+/** Jupiter as the agent reaches it itself, over HTTP: the honest market. */
+const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter()) => {
+  const q = new URL(url).searchParams;
+  const r = await market.build({
+    inputMint: address(q.get('inputMint')!), outputMint: address(q.get('outputMint')!), amount: BigInt(q.get('amount')!),
+    taker: address(q.get('taker')!), slippageBps: Number(q.get('slippageBps')), maxAccounts: Number(q.get('maxAccounts')),
+  });
+  return new Response(JSON.stringify(r), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+
+/** `market`: what Bound's server quotes from, which a compromised server chooses. */
+async function bound(opts: { market?: JupiterClient } = {}) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)],
     [DEX, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }],
     [POOL, { owner: DEX, data: new Uint8Array(300) }],
     [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)],
-    [await ataOf(wallet.address, USDC), tokenAccount(wallet.address, USDC)],
+    ...await fundedAccounts(wallet.address, USDC),
   ]);
   const sent: string[] = [];
   const rpc = fakeRpc(accounts, { sent });
   const deps: AgentDeps = {
-    rpc, jupiter: fakeJupiter(), secrets: [new Uint8Array(32).fill(3)],
+    rpc, jupiter: opts.market ?? fakeJupiter(), secrets: [new Uint8Array(32).fill(3)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'skill-test']]),
     feeBps: 20n, treasury: TREASURY, excludeDexes: ['HumidiFi'], maxNetworkFeeLamports: 200_000n,
     disabled: false, v1: false, perMinute: 1_000,
   };
   // The API as the agent reaches it over HTTP.
   const fetchImpl = (async (url: string, init: RequestInit) => {
+    if (url.startsWith('https://api.jup.ag/')) return jupiterAnswer(url);
     const req = new Request(url, init);
     return url.endsWith('/api/v1/prepare') ? agentPrepare(req, deps) : agentFinalize(req, deps);
   }) as unknown as typeof fetch;
@@ -58,7 +72,8 @@ async function bound() {
   return { wallet, deps, sent, fetchImpl, agentRpc, accounts };
 }
 
-const intentFor = (wallet: KeyPairSigner): Intent => ({ owner: wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' });
+// A floor of the agent's own is required (research audit F-02); 1 lets the other checks speak.
+const intentFor = (wallet: KeyPairSigner): Intent => ({ owner: wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1' });
 
 async function honestAnswer(b: Awaited<ReturnType<typeof bound>>): Promise<Prepared> {
   const res = await b.fetchImpl('http://bound.test/api/v1/prepare', {
@@ -196,5 +211,58 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
     for (const [name, prepared, change] of cases) {
       expect((await checkPrepared(prepared, { ...intent, ...change }, b.agentRpc)).length, name).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('what the rules cannot see, the agent checks itself (research audit)', () => {
+  it('without a floor of its own the agent does not sign: the price would be the server\'s word (F-02)', async () => {
+    const b = await bound();
+    const problems = await checkPrepared(await honestAnswer(b), { ...intentFor(b.wallet), minOut: undefined }, b.agentRpc);
+    expect(problems.join()).toContain('no minimum of your own');
+  });
+
+  it('a server that sells for almost nothing passes every rule, and is refused by the floor the agent got from Jupiter (F-02)', async () => {
+    // The compromised server quotes from a pool it controls: a thousandth of the market.
+    const b = await bound({ market: fakeJupiter({ out: 1_000_000n }) });
+    const cheap = await honestAnswer(b);
+    expect(await checkPrepared(cheap, intentFor(b.wallet), b.agentRpc)).toEqual([]);
+    const floor = await ownMinimum({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: b.wallet.address, fetchImpl: b.fetchImpl });
+    expect(BigInt(floor)).toBeGreaterThan(BigInt(cheap.amounts.minOut) * 100n);
+    const problems = await checkPrepared(cheap, { ...intentFor(b.wallet), minOut: floor }, b.agentRpc);
+    expect(problems.join()).toContain('is below yours');
+  });
+
+  it('the example asks Jupiter for its floor itself and sends it with prepare (F-02)', async () => {
+    const b = await bound();
+    const result = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' },
+    });
+    expect(result.outcome).toBe('confirmed');
+    const floor = await ownMinimum({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: b.wallet.address, fetchImpl: b.fetchImpl });
+    expect(BigInt(result.prepared.amounts.minOut)).toBeGreaterThanOrEqual(BigInt(floor));
+  });
+
+  it('route rent the server says the market needs, but that stays with the one-time key, is refused (F-06)', async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    const ixs = honestInstructions(honest);
+    const swap = ixs.findIndex(ix => ix.programAddress === 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+    ixs.splice(swap, 0, getTransferSolInstruction({
+      source: createNoopSigner(b.wallet.address), destination: honest.temporaryAuthority as Address, amount: 5_000_000n,
+    }));
+    const lie = await lyingAnswer(honest, b.wallet.address, ixs, { ...honest.policy, takerRent: '5000000' });
+    const problems = await checkPrepared(lie, intentFor(b.wallet), b.agentRpc);
+    expect(problems).toEqual(['the one-time key would keep 5000000 lamports after the swap']);
+  });
+
+  it('with too few blocks left to land, the example does not finalize (F-05)', async () => {
+    const b = await bound();
+    const late = { ...b.agentRpc, getBlockHeight: () => ({ send: async () => 990n }) } as unknown as Rpc<SolanaRpcApi>;
+    await expect(protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: late, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' },
+    })).rejects.toThrow('only 10 blocks are left');
+    expect(b.sent).toHaveLength(0);
   });
 });

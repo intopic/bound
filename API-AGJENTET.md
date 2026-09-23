@@ -98,7 +98,8 @@ ndryshme, dhe memoria nuk ndahet.
 
 **Pse rrjedhja nuk rrezikon paratë.** E nuk është e regjistruar kund në zinxhir dhe nuk zotëron
 asgjë jashtë transaksionit të vet. Nënshkrimi si E ka vlerë vetëm për një mesazh që W e ka nënshkruar
-tashmë. Pra sekreti mbron vetëm tarifën, jo fondet.
+tashmë. Pra sekreti mbron tarifën, dhe çdo lamport që do mbetej nën një E: një swap i Bound nuk lë
+asnjë, dhe skill-i e kontrollon me simulim para se W të nënshkruajë (F-06).
 
 **Detaje.**
 
@@ -125,8 +126,13 @@ Bound kontrollon nëse swap-i ndodh, jo çfarë ndodh me paratë. Kjo nuk ësht�
    Në rrugët e Pump.fun, llogarinë që Pump hap për çdo blerës Bound e mbyll në fund të të njëjtit
    transaksion dhe qiraja i kthehet W-së (FA-05); vetëm kur kjo nuk bëhet dot, llogaria mbetet nën E.
 4. **Besimi i vetëm ndaj nesh është disponueshmëria.** Mund të refuzojmë ose të vonojmë. Një
-   transaksion i nënshkruar i vonuar hyn vetëm brenda vlefshmërisë së blockhash-it (~60–90 s) dhe vetëm
-   ashtu siç u nënshkrua.
+   transaksion i nënshkruar i vonuar hyn vetëm brenda vlefshmërisë së blockhash-it (150 blloqe, rreth
+   40 s me blloqet e shtatorit 2026) dhe vetëm ashtu siç u nënshkrua.
+5. **Çmimi mbahet te minimumi i agjentit.** Rregullat nuk e shohin dot çmimin: pa një minimum të vetin,
+   një server i kompromentuar mund ta shesë shumën pothuajse falas përmes një pool-i të tij. Prandaj
+   kontrolli i skill-it nuk nënshkruan pa `minOut` të agjentit (`ownMinimum` e merr nga Jupiter-i
+   drejtpërdrejt), dhe e simulon transaksionin në RPC-në e agjentit: E duhet të mbetet me 0 lamports
+   (auditimi i kërkimit, F-02 dhe F-06).
 
 Një agjent që nuk verifikon lokalisht na beson po aq sa klienti i faqes sot: njësoj si faqja, jo më
 shumë.

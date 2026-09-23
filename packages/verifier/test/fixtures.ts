@@ -18,8 +18,8 @@ import {
 import type { Address, Blockhash, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
 import {
-  ataOf, buildPolicy, eventAuthorityOf, JUPITER_PROGRAM, protectedInstructions, routeAccountOf, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
-  withRouteRefund, withTakerRent, WSOL_MINT,
+  ataOf, buildPolicy, eventAuthorityOf, JUPITER_PROGRAM, protectedInstructions, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
+  TOKEN_PROGRAM, withRouteRefund, withTakerRent, WSOL_MINT,
 } from '@bound/core';
 import type { AccountState, ChainSnapshot, IntermediateAta, Policy, TxVersion } from '@bound/core';
 
@@ -30,6 +30,7 @@ export const JUP = address('JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN');
 export const WIF = address('EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm');
 const LOADER = address('BPFLoaderUpgradeab1e11111111111111111111111');
 const DEX = address('whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc');
+const JUPITER_EVENT_AUTHORITY = address('D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf');
 
 export const DECIMALS: Record<string, number> = {
   So11111111111111111111111111111111111111112: 9,
@@ -158,17 +159,23 @@ export async function scenario(opts: {
   }
   const pools = await Promise.all(Array.from({ length: opts.poolCount ?? 12 }, randomAddress));
   const a = policy.accounts;
-  const destination = policy.variant === 'A' ? a.eOut! : a.wOut!;
+  // Laid out like Jupiter's route_v2 (its IDL on chain): E's temporary account for SOL is the user
+  // destination; a token goes to the wallet's own account, passed as the optional destination.
+  const A = policy.variant === 'A';
   const swapIx: Instruction = {
     programAddress: JUPITER_PROGRAM,
     accounts: [
-      { address: TOKEN_PROGRAM, role: AccountRole.READONLY },
       { address: E.address, role: AccountRole.READONLY_SIGNER },
       { address: a.eIn, role: AccountRole.WRITABLE },
-      ...intermediates.map(x => ({ address: x.ata, role: AccountRole.WRITABLE })),
-      { address: destination, role: AccountRole.WRITABLE },
+      { address: A ? a.eOut! : await ataOf(E.address, output, outputProgram), role: AccountRole.WRITABLE },
       { address: input, role: AccountRole.READONLY },
       { address: output, role: AccountRole.READONLY },
+      { address: inputProgram, role: AccountRole.READONLY },
+      { address: outputProgram, role: AccountRole.READONLY },
+      A ? { address: JUPITER_PROGRAM, role: AccountRole.READONLY } : { address: a.wOut!, role: AccountRole.WRITABLE },
+      { address: JUPITER_EVENT_AUTHORITY, role: AccountRole.READONLY },
+      { address: JUPITER_PROGRAM, role: AccountRole.READONLY },
+      ...intermediates.map(x => ({ address: x.ata, role: AccountRole.WRITABLE })),
       { address: DEX, role: AccountRole.READONLY },
       ...pools.map(p => ({ address: p, role: AccountRole.WRITABLE })),
       // Jupiter passes a Pump market's program and the buyer's account to the route.
@@ -217,7 +224,11 @@ export async function scenario(opts: {
   }
   accounts.set(TOKEN_PROGRAM, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
   accounts.set(TOKEN_2022_PROGRAM, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
-  for (const x of [E.address, a.eIn, a.eOut, ...intermediates.map(i => i.ata)]) if (x) accounts.set(x, null);
+  accounts.set(JUPITER_PROGRAM, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
+  accounts.set(JUPITER_EVENT_AUTHORITY, { owner: SYSTEM_PROGRAM, lamports: 1_000_000n, data: new Uint8Array() });
+  // E's own account for a token output is named by the route but never created: the output goes to W's.
+  const eOutputAta = await ataOf(E.address, output, outputProgram);
+  for (const x of [E.address, a.eIn, a.eOut, eOutputAta, ...intermediates.map(i => i.ata)]) if (x && !accounts.has(x)) accounts.set(x, null);
   if (a.wIn) accounts.set(a.wIn, { owner: inputProgram, lamports: 2_039_280n, data: tokenAccountData(W, input) });
   const wOutBalance = opts.wOutBalance ?? 0n;
   if (a.wOut) {

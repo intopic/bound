@@ -8,8 +8,10 @@ import type { KeyPairSigner } from '@solana/kit';
  *
  * The one-time key E is not stored anywhere: it is derived from the server secret and the ticket's
  * nonce, so any instance holding the secret derives the same E. A leaked secret lets its holder
- * sign as E for Bound's own messages, which could drop the fee from them; it moves no user funds,
- * because E owns nothing outside the one transaction W has already signed.
+ * sign as E for Bound's own messages, which could drop the fee from them, and collect whatever is
+ * left under an E it derives. A Bound swap leaves nothing there: every lamport W sends E is spent by
+ * the route or returned in the same transaction, which the skill checks by simulation before the
+ * wallet signs (research audit F-06).
  */
 export type Ticket = {
   v: 1;

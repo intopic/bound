@@ -100,6 +100,9 @@ function explain(e: unknown): Response {
       case 'busy':
       case 'unavailable':
         return fail(503, e.code, e.message, {}, { 'retry-after': '5' });
+      // Jupiter's format changed: nothing builds until Bound is updated, so do not retry soon.
+      case 'route-format':
+        return fail(503, e.code, e.message, {}, { 'retry-after': '300' });
       case 'expired':
         return fail(410, e.code, e.message);
       case 'wallet-changed-transaction':
@@ -176,6 +179,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString() } : {}),
     });
     const p = prepared.policy;
+    // What the transaction has left to live, in blocks: 150 at most, about 40 s (research audit F-05).
+    const height = await deps.rpc.getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
     return json(200, {
       ticket,
       transaction: getBase64EncodedWireTransaction(prepared.transaction),
@@ -184,6 +189,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       temporaryAuthority: E.address,
       version,
       lastValidBlockHeight: prepared.lifetime.lastValidBlockHeight,
+      ...(height === null ? {} : { blocksLeft: prepared.lifetime.lastValidBlockHeight - BigInt(height) }),
       amounts: {
         amountIn: p.amountIn, fee: p.fee, feeBps: p.fee === 0n ? 0n : p.feeBps, swapAmount: p.swapAmount,
         quotedOut: prepared.quote.outAmount, minOut: p.minOut, priceImpactPct: prepared.quote.priceImpactPct,

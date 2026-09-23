@@ -12,7 +12,8 @@ with the one-time key, and sends it. Bound never holds your key or your funds.
 verifier on it, with chain state from your own RPC, before signing: the skill below does it
 (`checkPrepared`, verifier bundled in `lib/bound-verify.mjs`). With that check, a compromised server
 or impostor URL can refuse or delay a swap, not make you sign one that moves more than the approved
-amount. **Without it, you are trusting Bound's server with your whole wallet.**
+amount, or one whose minimum is below a floor you got yourself (`minOut`; the check asks Jupiter
+for one when you have none). **Without it, you are trusting Bound's server with your whole wallet.**
 
 Wallets that cannot sign first and hand back a partially signed transaction cannot use Bound:
 Phantom's embedded wallets (sign-and-send only) and multisig or smart-wallet vaults (Squads, Swig).
@@ -69,7 +70,7 @@ Authorization: Bearer bnd_...
 | `owner` | required | The wallet that pays and receives. It signs first. |
 | `inputMint`, `outputMint` | required | Mint addresses. SOL is `So11111111111111111111111111111111111111112`. |
 | `amountIn` | required | Base units, as a string (`"5000000"` is 5 USDC). The fee comes out of it. |
-| `minOut` | optional | Your own floor, in base units of the output. Bound never enforces less than this. Without it, the floor is the route's quote less 0.5% (3% on a Pump.fun bonding curve). |
+| `minOut` | optional | Your own floor, in base units of the output. Bound never enforces less than this. Without it, the floor is the route's quote less 0.5% (3% on a Pump.fun bonding curve), which is Bound's word: the skill's check refuses to sign without a floor of your own, and `ownMinimum` gets one from Jupiter directly. |
 | `acceptCostBps` | optional | Accept a protected route this many bps below the open market (see `costs-more`). |
 | `version` | optional | `0` (default). `1` only where the deployment enables it. |
 
@@ -83,6 +84,7 @@ Authorization: Bearer bnd_...
   "wallet": "<owner>",
   "temporaryAuthority": "<the one-time key E>",
   "lastValidBlockHeight": "312345678",
+  "blocksLeft": "148",
   "amounts": { "amountIn": "5000000", "fee": "10000", "feeBps": "20", "swapAmount": "4990000",
                "quotedOut": "42780667", "minOut": "42566764", "priceImpactPct": 0.0001 },
   "costs": { "networkFeeLamports": "124480", "outputAccountRentLamports": "0", "routeRentLamports": "0", "routeRefundLamports": "0", "tokenTax": null },
@@ -93,14 +95,17 @@ Authorization: Bearer bnd_...
 }
 ```
 
-All amounts are strings in base units. The transaction lives about a minute (until
-`lastValidBlockHeight`); sign and finalize it promptly, or prepare again.
+All amounts are strings in base units. The transaction lives 150 blocks, about 40 seconds at
+today's block times (until `lastValidBlockHeight`; `blocksLeft` is what was left when prepare
+answered). Verify, sign and finalize promptly; with fewer than 30 blocks left, prepare again instead.
 
 Before signing, run the verifier: `verifyPrepared(prepared, limits, yourRpc)` from the skill's
 `lib/bound-verify.mjs`, where `limits` is what you asked for and the most you accept (fee, network
-fee, minimum, optionally Bound's treasury address). It holds `policy` to those limits, reads every
-account the message names from your RPC, and runs the verifier's rules on the exact bytes. The
-`certificate` and `amounts` are Bound's statements; the check is what makes them evidence.
+fee, optionally Bound's treasury address) and your own minimum, which is required: a price you got
+yourself, never Bound's (`ownMinimum` asks Jupiter for one). It holds `policy` to those limits, reads
+every account the message names from your RPC, runs the verifier's rules on the exact bytes, and
+simulates the transaction there: the one-time key must end with nothing. The `certificate` and
+`amounts` are Bound's statements; the check is what makes them evidence.
 
 `notices.networkBusy` means the network fee is at its limit, so the swap may land late or expire.
 `amounts.feeBps` is 0 when the swap is fee-free.
@@ -169,10 +174,11 @@ sent unless the code says otherwise.
 | 409 | `costs-more` | The route that fits in one protected transaction is `gapBps` below the open market. Prepare again with `acceptCostBps` to accept. |
 | 409 | `output-balance-changed` | Your balance of the output token moved since prepare. Nothing was signed by Bound; prepare again. |
 | 410 | `expired` | The transaction's lifetime passed before finalize. Prepare again. |
-| 422 | `unsupported-token`, `no-route`, `bad-quote`, `insufficient-sol`, `simulation-failed`, `verification-failed`, `token-data-mismatch`, `output-account-restricted` | This swap cannot be built safely right now; `message` says why. |
+| 422 | `unsupported-token`, `no-route`, `bad-quote`, `insufficient-sol`, `insufficient-balance`, `simulation-failed`, `verification-failed`, `token-data-mismatch`, `output-account-restricted`, `input-account-restricted` | This swap cannot be built safely right now; `message` says why. |
 | 429 | `rate-limited` | Too many requests for this key. Wait `Retry-After` seconds. |
 | 503 | `busy`, `unavailable` | Jupiter or the network is overloaded or silent. Wait `Retry-After` seconds and retry. |
 | 503 | `paused` | Bound has paused protected swaps. Your funds are not affected. |
+| 503 | `route-format` | Jupiter changed its swap instruction and Bound refuses what it cannot read. Nothing builds until Bound is updated: wait `Retry-After` (300) seconds, not less. |
 
 ## What Bound can and cannot do with your swap
 
@@ -183,8 +189,10 @@ sent unless the code says otherwise.
   market opens a per-buyer account under that key; Bound closes it at the end of the same
   transaction and sends its rent back to your wallet (`costs.routeRefundLamports`). Only when that
   cannot be done does the account stay under the key. Bound's server can derive the key again from
-  its secret; it never does after finalize and never logs the nonces it derives from.
-- It can refuse or delay: a signed transaction it holds back simply expires in about a minute.
+  its secret, so whoever holds that secret could collect lamports left under it; a Bound swap
+  leaves none, and the skill's check simulates that before your wallet signs. Bound never derives
+  a key again after finalize and never logs the nonces it derives from.
+- It can refuse or delay: a signed transaction it holds back simply expires, in about 40 seconds.
 - It sees the addresses and amounts of the swaps you ask for, as any swap API does.
 
 ## For operators

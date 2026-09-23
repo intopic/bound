@@ -366,8 +366,9 @@ is how many pools a route needs and whether they fit in one transaction.
 ## 0h. T11 — what wallets actually append, read from the chain
 
 Bound refuses a transaction whose bytes changed after it verified them. Phantom's documentation says
-it may append Lighthouse assertions to a transaction it signs, which would break that equality and
-make every Phantom swap fail. The acceptance rule that follows cannot be written from a document,
+transactions going through it may come out different from what was submitted (Lighthouse
+assertions), without saying whether that applies to `signTransaction` (research audit). If it does,
+that breaks the equality and every Phantom swap fails. The acceptance rule that follows cannot be written from a document,
 and the decisive test — signing a real Bound transaction with the Phantom extension — needs a funded
 wallet. `apps/web/app/diagnostic` exists for exactly that and is waiting on one.
 
@@ -787,7 +788,7 @@ API was not ready for third parties. What changed:
 | FA-03 | Jupiter's route arguments were not read | The verifier reads route_v2 / shared_accounts_route_v2 and refuses any other form, a platform fee, positive slippage, a tolerance above 0.5% (3% with the curve program), a quote below the minimum, or more in than E_in holds; the pipeline requires them to equal Jupiter's JSON | `487ff4c`. `tests/integration/jupiter-floor.ts` 4/4: a thousandfold quote stopped with 6001 while the destination held 101M USDT. T4 10/12 (two keyless 429s), T14 18/18 |
 | FA-04 | A second swap into the same token keeps only Jupiter's floor | The page reads W_out again after the wallet signs; the API seals W_out's balance in the ticket and finalize refuses a moved one (`output-balance-changed`); the skill runs one swap per output token | `487ff4c`, `303d923`; tests with the balance moved in between |
 | FA-05 | Pump's per-buyer account stays under E; the API can re-derive E | Built at the user's request. The pipeline finds the account (PDA["user_volume_accumulator", E] of the curve or PumpSwap program) among the route's accounts, reads what it holds in the simulation that measures the rent, and adds Pump's `close_user_volume_accumulator` signed by E plus a transfer of that amount from E to W, after every close of E's token accounts; one more simulation must leave E with nothing, or the swap goes ahead without it. The verifier admits the close only in its exact IDL shape, for E's derived PDA and the program's event authority, for Pump's two programs, after Bound's own cleanup, with the transfer to W of exactly `routeRefund` (≤ 0.005 SOL) after it. The relay filter and the agent's verifier know the shape | Unit: 14 verifier cases (both markets, v0 and v1, a sale into SOL; refund elsewhere, another amount, another account, closed while E owns a token account, refund before close, close without refund, a close the policy does not state, another Pump instruction, a non-Pump program, above the ceiling), mutation run 9 of 10 caught (the tenth is covered by the policy-consistency rule); 4 pipeline tests. Mainnet: T14 27/27 (1,346,200 back on every curve buy and sale; the market keeps 132,080 when the curve grows), T13 30/30 (PumpSwap buys: all 1,346,200 back). Edge: the card says "0.0013462 SOL comes straight back to you"; with nothing kept, the wallet opens without a question. v0 size +94 bytes on a curve buy (1,159 of 1,232) |
-| FA-06 | Open relays on one shared quota | `/api/rpc` sends and simulates only Bound-shaped transactions (`boundShape.ts`); separate keys for the API | `303d923`; an ordinary transfer is refused unforwarded; a Bound swap passes in v0 and v1; Edge smoke 18/18 through the filtered relay |
+| FA-06 | Open relays on one shared quota | `/api/rpc` sends and simulates only Bound-shaped transactions (`boundShape.ts`); separate keys for the API (Jupiter counts per organisation, so a separate Jupiter account: section 0s, F-10) | `303d923`; an ordinary transfer is refused unforwarded; a Bound swap passes in v0 and v1; Edge smoke 18/18 through the filtered relay |
 | FA-07 | "Failed" and "expired" said too early | Failed only at confirmed; expired only when the finalized height is past too; page history and the skill's confirm follow | `487ff4c`, `f8d8e32`; send and history tests |
 | FA-08 | A refused finalize handed back a valid transaction | Not returned when rejected | `303d923` |
 | FA-09 | Three rule mutations survived | Tests of their own (W in the swap with W in the snapshot, E as fee payer, cleanup order); a mutation run of those three and the six new checks: each now fails a test | `487ff4c` |
@@ -803,6 +804,41 @@ Left for operations: the real-wallet test; paid Jupiter keys (one for the page, 
 firewall rules and RPC spend alerts; the paused deployment and one rehearsal; a treasury multisig with
 fee accounts checked not frozen; watching the upgrade authorities of Token-2022, Jupiter and both Pump
 programs; an independent human audit.
+
+---
+
+## 0s. The research and compatibility audit of 23 September 2026
+
+Run from the rewritten `AUDIT-PROMPT-FINAL.md` at `51788db`: research and reading only, nothing run.
+Its report (PDF, 45 pages) found no Critical issue and no path from the external instruction to the
+wallet beyond the stated bound. Before acting, the facts it could not reach were read from mainnet
+(nothing signed or sent): blocks are about 272 ms, so a transaction lives about 41 s, not the 60 s
+it assumed; Pump's curve program had been redeployed hours earlier and Jupiter's two days earlier;
+Jupiter's IDL on chain (`C88XWfp26heEmDkmfSzeXP7Fd7GQJ2j9dDTUsyiZbUTa`) matches the `route_v2`
+layout the verifier reads and names where the route delivers; xStocks are refused first for a
+permanent delegate that is a program address (then scaled UI amount and pausable); none of 22
+current Pump.fun coins is a cashback coin.
+
+| ID | Finding | Change | Evidence |
+| --- | --- | --- | --- |
+| F-02 (High) | Without a floor of the agent's own, a compromised server sets the price | The skill's check refuses to sign without `minOut`; `ownMinimum` asks Jupiter directly and takes 2% off (5% on a curve); the example uses it | A server quoting a thousandth of the market passes every rule and is refused by the agent's floor (`skillExample.test.ts`) |
+| F-06 | Route rent the server states could stay under an E it can derive | The skill's check simulates the transaction on the agent's RPC; E must end with 0 lamports | 0.005 SOL of stated rent left under E is refused, and nothing else is |
+| — (section I) | Jupiter's floor holds only if measured on the right account | R2: the Jupiter route must deliver into W_out (E_out for SOL): `route_v2` account 7, or 2 when 7 is left out; `shared_accounts_route_v2` account 5 | `jupiter-floor.ts` 11/11 on mainnet: both forms deliver where asked, and the floor still stops a raised quote when the destination holds far more |
+| F-07 | A Jupiter format change stops every swap as "bad prices" | Its own code, `route-format` (page: "waiting for an update"; API 503, Retry-After 300); `tools/canary.ts` and a scheduled workflow, off until `BOUND_CANARY=1` | The canary builds and executes USDC→SOL, SOL→USDC and a Pump curve buy with the refund on mainnet |
+| F-08 | 401/403/404/410 read as "no route" | Jupiter's key refused or an endpoint gone is `unavailable`, logged for the operator; its "No routes found" is 400 | Measured: no route 400, bad key 401, unknown path 404 |
+| F-05 | Deadlines in seconds; the lifetime is 150 blocks | The page reuses a build, or keeps one after a question, only with at least 100 blocks left, read with W_out in one round trip; the API returns `blocksLeft`; the example does not finalize with fewer than 30; documents say about 40 s | Fake-height tests |
+| F-03 | A cashback coin's account holds more than its rent, so an exact refund could revert | The close is added only when the account holds exactly its rent; otherwise it stays, as before FA-05 | Pipeline test; the canary's curve buy still refunds 1,346,200 |
+| — (section 5) | Pump's own slippage errors blamed on the market | Curve 6002, 6003, 6042 and PumpSwap 6004, 6040 are a price move: quote again, the curve is not left out | Pipeline test (fails without the change) |
+| — (found in testing) | FA-05's close could push a Pump route near the size limit over 1,232 bytes; the RPC refused to simulate it and prepare failed with a raw error (mainnet T4, SOL → W through PumpSwap) | Every trial is size-checked before it is simulated: the close is left out when it does not fit, and so is a rent probe | Pipeline test with an RPC that refuses oversized transactions; it reproduces the failure without the check |
+| F-09 | A frozen or short input account reads as every route failing | Read with the first reads and named (`input-account-restricted`, `insufficient-balance`); a failure before the swap stops at once | Pipeline tests |
+| F-13 | Ledger cannot sign v1 | v0 first; with v1 enabled, only a route too big for v0 is built as v1 | `wallets.test.ts` |
+| F-15 | The wallet's simulation may run on older state | `signTransaction` gets `preflightCommitment` and the blockhash's `minContextSlot` | For the real-wallet test: count Phantom's warnings |
+| F-10 | Jupiter's limits are per organisation | Documented: the API needs a separate Jupiter account for a quota of its own | SECURITY.md |
+| Documents | Nine statements | Corrected: the R7 list, E's lamports, the SOL debit, the lifetime, "the best price on the market" (now "the best unprotected route"), separate keys, the Phantom wording, and the prompt's blockhash | this commit |
+| F-01 (High) | Six Token-2022 features refused without an isolation reason; xStocks among the most traded | Not changed: the owner's decision. xStocks need three together: a program-address delegate (safe with the destination check above), scaled UI amounts shown right, and a pause check | Open |
+| F-14 | The skill cannot be installed while the repository is private, and is not pinned | At publication: public repository, a tag, the bundle's hash | Open |
+| F-04, F-11, F-12 | SIMD-0553 (draft), instruction-trace overflow, Alpenglow's commitment change | Watched; nothing scheduled on mainnet yet | Open |
+| Suggestion 14 | Most memecoin sales are fee-free (no treasury account for new Pump coins) | A fee in SOL on sales into SOL is the owner's decision | Open |
 
 ---
 
@@ -835,8 +871,11 @@ Delegate(W_out) = None           when the external instruction runs
 Balance(E_in) = q − f            when the external instruction runs
 Received ≥ minOut                (A: Balance(E_out) ≥ minOut, E_out is fresh;
                                   B, C: Balance(W_out) ≥ b0 + minOut, b0 read when the swap was prepared)
+Delivered(Jupiter → W_out or E_out) ≥ quoted × (1 − slippage), measured by Jupiter's program on what
+                                 its own instruction delivered, whatever b0 was (research audit)
 Debit(W, input token) = q        Debit(W, other tokens) = 0
-Debit(W, SOL) ≤ min(F_max, 0.001 SOL) + rent(W_out, if created; read from the cluster) (+ q if the input is SOL)
+Debit(W, SOL) ≤ min(F_max, 0.001 SOL) + rent(W_out, if created; read from the cluster)
+                 + route rent − route refund (≤ 0.005 SOL) (+ q if the input is SOL)
 ```
 
 For B and C, a transfer into `W_out` from someone else between prepare and execution counts toward
@@ -930,8 +969,11 @@ twice the quote fails exactly at the check.
 SPL output goes directly to W_out because SPL Token has no "transfer all". W_out is the only W-owned
 account the external instruction may see; it only receives, and it has no delegate at that point.
 
-E holds 0 lamports throughout. All rent is paid by W and returned by the closes in the same
-transaction, except `W_out` when the swap creates it (the user keeps that account).
+E ends with 0 lamports. During the transaction it holds only what the route spends (the market's
+account rent, sent by W and capped at 0.005 SOL) and what Pump's close returns before it goes on to
+W; the skill's check simulates that E ends at 0 (research audit F-06). All other rent is paid by W
+and returned by the closes in the same transaction, except `W_out` when the swap creates it (the
+user keeps that account).
 
 ---
 
@@ -970,7 +1012,7 @@ the rule the others depend on.
 | R4 | v0: exactly one `SetComputeUnitLimit` (≤ 1.4M) and one `SetComputeUnitPrice`. v1: no ComputeBudget instructions; the message config may hold only the CU limit, the priority fee and a loaded-accounts data size ≤ 64 MiB. Both: `5000 × signers + priority fee ≤ min(F_max, 0.001 SOL)`, and a policy F_max above 0.001 SOL is itself a violation. |
 | R5 | ≤ 1232 bytes (v0) or ≤ 4096 bytes and ≤ 64 static accounts (v1). The minimum-output check and the closes run after the swap; in variant A the check runs before E_out is closed. E_in, E_out and every intermediate (at most 4) are closed exactly once. |
 | R6 | Fee payer is W; the signer set is exactly {W, E}. `verifyWalletReturn`: the returned message is byte-identical, W's signature verifies over it, and E has not signed. |
-| R7 | Input and output mints exist and belong to the classic Token program or to Token-2022. A Token-2022 mint must carry only allowed extensions: metadata and group pointers, a mint close authority, confidential transfers, a transfer hook whose program id is unset, and — for the swap's own mints, whose temporary account is harvested before it is closed — a transfer fee. Anything else, including an extension the verifier does not know, is a violation. |
+| R7 | Input and output mints exist and belong to the classic Token program or to Token-2022. A Token-2022 mint must carry only allowed extensions: metadata and group pointers, a mint close authority, confidential transfers and their fee, a transfer hook whose program id is unset, accounts initialized by default, a permanent delegate that is an ordinary key, and — for the swap's own mints, whose temporary account is harvested before it is closed — a transfer fee. Anything else, including an extension the verifier does not know, is a violation. |
 
 ---
 

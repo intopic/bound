@@ -8,7 +8,10 @@ type ConnectFeature = { connect(input?: { silent?: boolean }): Promise<{ account
 type DisconnectFeature = { disconnect(): Promise<void> };
 type SignFeature = {
   supportedTransactionVersions?: readonly (string | number)[];
-  signTransaction(...inputs: { account: WalletAccount; transaction: Uint8Array; chain?: string }[]): Promise<readonly { signedTransaction: Uint8Array }[]>;
+  signTransaction(...inputs: {
+    account: WalletAccount; transaction: Uint8Array; chain?: string;
+    options?: { preflightCommitment?: 'processed' | 'confirmed' | 'finalized'; minContextSlot?: number };
+  }[]): Promise<readonly { signedTransaction: Uint8Array }[]>;
 };
 type EventsFeature = { on(event: 'change', listener: (props: { accounts?: readonly WalletAccount[] }) => void): () => void };
 
@@ -54,23 +57,38 @@ export function onAccountChange(wallet: Wallet, listener: (accounts: readonly Wa
 }
 
 /**
- * The transaction version to build for a wallet: v0, and v1 only when this build enables it. v1 is
- * live on mainnet, but no Bound v1 transaction has landed yet, so a wallet that advertises v1 must
- * not make every swap depend on it (review BR-12). Null when the wallet signs neither.
+ * The transaction version to build first for a wallet: v0 whenever it signs v0. v1 is live on
+ * mainnet, but no Bound v1 transaction has landed yet (review BR-12), and not every signer behind a
+ * wallet reads it: Ledger's Solana app parses a v1 message as v0 and fails (research audit F-13).
+ * So v1 is only for a wallet that signs nothing else, or for a route too big for v0 (`v1Fallback`).
+ * Null when the wallet signs neither.
  */
 export function chooseVersion(supported: readonly (string | number)[], v1Enabled: boolean): 0 | 1 | null {
   const versions = supported.map(String);
-  if (v1Enabled && versions.includes('1')) return 1;
-  return versions.includes('0') ? 0 : null;
+  if (versions.includes('0')) return 0;
+  return v1Enabled && versions.includes('1') ? 1 : null;
+}
+
+/** May a swap too big for v0 be built again as v1 for this wallet? */
+export function v1Fallback(supported: readonly (string | number)[], v1Enabled: boolean): boolean {
+  return v1Enabled && supported.map(String).includes('1');
 }
 
 export function supportedVersions(wallet: Wallet): readonly (string | number)[] {
   return (wallet.features['solana:signTransaction'] as SignFeature).supportedTransactionVersions ?? ['legacy', 0];
 }
 
-/** The wallet signs first, without sending (D4). Bound checks what comes back before E signs. */
-export async function walletSign(wallet: Wallet, account: WalletAccount, transaction: Uint8Array): Promise<Uint8Array> {
+/**
+ * The wallet signs first, without sending (D4). Bound checks what comes back before E signs. The
+ * wallet is told the commitment and slot the blockhash was read at, so that its own simulation is
+ * not run on older state, where the blockhash is unknown and the swap looks broken (research audit
+ * F-15). A wallet may ignore them.
+ */
+export async function walletSign(
+  wallet: Wallet, account: WalletAccount, transaction: Uint8Array, minContextSlot?: bigint,
+): Promise<Uint8Array> {
   const f = wallet.features['solana:signTransaction'] as SignFeature;
-  const [out] = await f.signTransaction({ account, transaction, chain: CHAIN });
+  const options = { preflightCommitment: 'confirmed' as const, ...(minContextSlot ? { minContextSlot: Number(minContextSlot) } : {}) };
+  const [out] = await f.signTransaction({ account, transaction, chain: CHAIN, options });
   return out.signedTransaction;
 }

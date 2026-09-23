@@ -8,8 +8,11 @@
  * simulated with the honest arguments and with the quote raised a thousandfold. If Jupiter measured
  * the account's balance, both would pass; it must stop the second with 6001 (SlippageToleranceExceeded).
  *
- * Also checks that /swap/v2/build still answers with an instruction the verifier can read, and that
- * its arguments equal the JSON. Nothing is signed or sent.
+ * Also checks that /swap/v2/build still answers with an instruction the verifier can read, that its
+ * arguments equal the JSON, and that the account the verifier reads as its destination is the one
+ * asked for: the destination is another wallet's account, not the taker's, so a floor measured
+ * anywhere else would stop the honest route too. Both forms, route_v2 and
+ * shared_accounts_route_v2, are asked for (research audit). Nothing is signed or sent.
  *
  *   node tests/integration/jupiter-floor.ts
  */
@@ -22,7 +25,7 @@ import type { Address, Instruction } from '@solana/kit';
 import { ataOf } from '@bound/core';
 import { createRetryingRpc } from '@bound/solana';
 import { createJupiterClient, toKitInstruction } from '@bound/jupiter';
-import { jupiterRouteArgs } from '@bound/verifier';
+import { jupiterDestination, jupiterRouteArgs } from '@bound/verifier';
 
 const RPC = process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const USDC = address('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
@@ -54,68 +57,79 @@ const EXCHANGES = [
   'GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE', 'H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS',
   'AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2', '2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm',
 ].map(a => address(a));
+// Never the taker's own: the destination must differ from the account Jupiter passes for the taker.
+const takersOwn = await ataOf(TAKER, USDT);
 const candidates = process.env.DESTINATION
   ? [address(process.env.DESTINATION)]
-  : await Promise.all(EXCHANGES.map(owner => ataOf(owner, USDT)));
+  : (await Promise.all(EXCHANGES.map(owner => ataOf(owner, USDT)))).filter(a => a !== takersOwn);
 const balances = await Promise.all(candidates.map(a =>
   rpc.getTokenAccountBalance(a).send().then(r => BigInt(r.value.amount)).catch(() => 0n)));
 const best = balances.indexOf(balances.reduce((m, b) => (b > m ? b : m), 0n));
 const destination = candidates[best] as Address;
 const held = balances[best];
 
-const r = await jupiter.build({
-  inputMint: USDC, outputMint: USDT, amount: AMOUNT, taker: TAKER, slippageBps: 50, maxAccounts: 64,
-  destinationTokenAccount: destination,
-});
-const swap = toKitInstruction(r.swapInstruction);
-const args = jupiterRouteArgs(swap.data ?? new Uint8Array());
-check('/swap/v2/build answers with an instruction the verifier can read', !!args, `route ${r.routePlan.map(p => p.swapInfo.label).join(' > ')}`);
-check(
-  'its arguments equal the JSON answer',
-  !!args && args.inAmount === BigInt(r.inAmount) && args.quotedOutAmount === BigInt(r.outAmount) && args.slippageBps === 50
-    && args.platformFeeBps === 0 && args.positiveSlippageBps === 0,
-  args ? `in ${args.inAmount}, quoted ${args.quotedOutAmount}, ${args.slippageBps} bps` : 'unreadable',
-);
-
-async function simulate(data: Uint8Array) {
-  const { value: lifetime } = await rpc.getLatestBlockhash().send();
-  const ixs: Instruction[] = [
-    ...r.computeBudgetInstructions.map(toKitInstruction),
-    ...r.setupInstructions.map(toKitInstruction),
-    { ...swap, data },
-    ...(r.cleanupInstruction ? [toKitInstruction(r.cleanupInstruction)] : []),
-  ];
-  const message = pipe(
-    createTransactionMessage({ version: 0 }),
-    m => setTransactionMessageFeePayer(TAKER, m),
-    m => setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
-    m => appendTransactionMessageInstructions(ixs, m),
-  );
-  const compressed = r.addressesByLookupTableAddress
-    ? compressTransactionMessageUsingAddressLookupTables(message, r.addressesByLookupTableAddress as never)
-    : message;
-  const wire = getBase64EncodedWireTransaction(compileTransaction(compressed));
-  const { value } = await rpc
-    .simulateTransaction(wire, { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' })
-    .send();
-  return { err: value.err, logs: value.logs ?? [] };
-}
-
-const honest = await simulate(swap.data as Uint8Array);
-check('the honest route executes', honest.err === null, json(honest.err));
-
-if (args) {
-  const inflated = Uint8Array.from(swap.data as Uint8Array);
-  const base = inflated[0] === 0xbb ? 8 : 9;
-  new DataView(inflated.buffer).setBigUint64(base + 8, args.quotedOutAmount * 1000n, true);
-  const raised = await simulate(inflated);
-  const stopped = json(raised.err ?? null).includes('6001') || raised.logs.some(l => l.includes('0x1771'));
+const kinds = new Set<string>();
+// 64 accounts usually gets the shared-accounts form, a tight limit (12) a single-pool route_v2.
+for (const maxAccounts of [64, 12]) {
+  const r = await jupiter.build({
+    inputMint: USDC, outputMint: USDT, amount: AMOUNT, taker: TAKER, slippageBps: 50, maxAccounts,
+    destinationTokenAccount: destination,
+  });
+  const swap = toKitInstruction(r.swapInstruction);
+  const args = jupiterRouteArgs(swap.data ?? new Uint8Array());
+  const kind = swap.data?.[0] === 0xbb ? 'route_v2' : swap.data?.[0] === 0xd1 ? 'shared_accounts_route_v2' : 'another instruction';
+  kinds.add(kind);
+  check(`${maxAccounts} accounts: /swap/v2/build answers with an instruction the verifier can read`, !!args, `${kind}, route ${r.routePlan.map(p => p.swapInfo.label).join(' > ')}`);
+  const delivered = jupiterDestination(swap.data ?? new Uint8Array(), (swap.accounts ?? []).map(a => a.address));
+  check(`${maxAccounts} accounts: it delivers to the destination asked for, not the taker's own account`, delivered === destination, `${delivered}`);
   check(
-    'with the quote raised a thousandfold, Jupiter stops it (6001) although the destination holds far more',
-    stopped && held > args.quotedOutAmount * 1000n,
-    `destination holds ${held}, the raised threshold is about ${(args.quotedOutAmount * 1000n * 9950n) / 10_000n}; ${json(raised.err)}`,
+    `${maxAccounts} accounts: its arguments equal the JSON answer`,
+    !!args && args.inAmount === BigInt(r.inAmount) && args.quotedOutAmount === BigInt(r.outAmount) && args.slippageBps === 50
+      && args.platformFeeBps === 0 && args.positiveSlippageBps === 0,
+    args ? `in ${args.inAmount}, quoted ${args.quotedOutAmount}, ${args.slippageBps} bps` : 'unreadable',
   );
+
+  async function simulate(data: Uint8Array) {
+    const { value: lifetime } = await rpc.getLatestBlockhash().send();
+    const ixs: Instruction[] = [
+      ...r.computeBudgetInstructions.map(toKitInstruction),
+      ...r.setupInstructions.map(toKitInstruction),
+      { ...swap, data },
+      ...(r.cleanupInstruction ? [toKitInstruction(r.cleanupInstruction)] : []),
+    ];
+    const message = pipe(
+      createTransactionMessage({ version: 0 }),
+      m => setTransactionMessageFeePayer(TAKER, m),
+      m => setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
+      m => appendTransactionMessageInstructions(ixs, m),
+    );
+    const compressed = r.addressesByLookupTableAddress
+      ? compressTransactionMessageUsingAddressLookupTables(message, r.addressesByLookupTableAddress as never)
+      : message;
+    const wire = getBase64EncodedWireTransaction(compileTransaction(compressed));
+    const { value } = await rpc
+      .simulateTransaction(wire, { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' })
+      .send();
+    return { err: value.err, logs: value.logs ?? [] };
+  }
+
+  const honest = await simulate(swap.data as Uint8Array);
+  check(`${maxAccounts} accounts: the honest route executes`, honest.err === null, json(honest.err));
+
+  if (args) {
+    const inflated = Uint8Array.from(swap.data as Uint8Array);
+    const base = inflated[0] === 0xbb ? 8 : 9;
+    new DataView(inflated.buffer).setBigUint64(base + 8, args.quotedOutAmount * 1000n, true);
+    const raised = await simulate(inflated);
+    const stopped = json(raised.err ?? null).includes('6001') || raised.logs.some(l => l.includes('0x1771'));
+    check(
+      `${maxAccounts} accounts: with the quote raised a thousandfold, Jupiter stops it (6001) although the destination holds far more`,
+      stopped && held > args.quotedOutAmount * 1000n,
+      `destination holds ${held}, the raised threshold is about ${(args.quotedOutAmount * 1000n * 9950n) / 10_000n}; ${json(raised.err)}`,
+    );
+  }
 }
+check('both route forms were seen', kinds.has('route_v2') && kinds.has('shared_accounts_route_v2'), [...kinds].join(', '));
 
 const failed = results.filter(x => !x[1]).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed.`);

@@ -1,5 +1,5 @@
 export {
-  hasPermanentDelegate, hasTransferFee, jupiterRouteArgs, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verify,
+  hasPermanentDelegate, hasTransferFee, jupiterDestination, jupiterRouteArgs, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verify,
 } from './verify.ts';
 export type { JupiterRouteArgs, TransferFee } from './verify.ts';
 export { verifyWalletReturn } from './wallet.ts';

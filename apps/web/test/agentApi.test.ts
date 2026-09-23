@@ -13,7 +13,7 @@ import {
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import { ataOf, feeFor, WSOL_MINT } from '@bound/core';
-import { fakeJupiter, fakeRpc, mint, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
+import { fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
@@ -34,6 +34,7 @@ async function world(opts: { height?: bigint; disabled?: boolean; jupiter?: Agen
     [POOL, { owner: DEX, data: new Uint8Array(300) }],
     // The treasury has an account for USDC, so the fee is charged.
     [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)],
+    ...await fundedAccounts(W.address, USDC),
   ]);
   const sent: string[] = [];
   const deps: AgentDeps = {
@@ -102,6 +103,16 @@ describe('prepare', () => {
     expect(opened?.ticket.msg).toBe(p.messageSha256);
     expect(opened?.ticket.key).toBe('agent-one');
     expect(Object.keys(tx.signatures).sort()).toEqual([w.W.address, p.temporaryAuthority].sort());
+    // What the transaction has left to live, in blocks (research audit F-05): the fake chain is at 1.
+    expect((p as unknown as { blocksLeft: string }).blocksLeft).toBe('999');
+  });
+
+  it("Jupiter's format changing is a 503 to retry much later, not a price (research audit F-07)", async () => {
+    const w = await world({ jupiter: fakeJupiter({ unknownFormat: true }) });
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('300');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('route-format');
   });
 
   it('refuses without a valid API key', async () => {

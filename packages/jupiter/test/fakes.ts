@@ -20,6 +20,9 @@ export const DEX = address('whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc');
 export const POOL = address('HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ');
 export const OUT = 1_000_000_000n;
 export const PUMP = address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
+/** Pump's per-buyer account on the curve: 137 bytes, 1,346,200 lamports of rent today. */
+const ROUTE_ACCOUNT_SIZE = 137;
+const JUPITER_EVENT_AUTHORITY = address('D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf');
 export const b64 = (d: Uint8Array) => Buffer.from(d).toString('base64');
 
 export type Account = { owner: Address; data: Uint8Array };
@@ -65,11 +68,14 @@ export function plain2022Mint(decimals: number): Account {
   return { owner: TOKEN_2022_PROGRAM, data };
 }
 
-export function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: boolean; memo?: boolean; frozen?: boolean } = {}): Account {
+export function tokenAccount(
+  owner: Address, mintAddress: Address, opts: { delegate?: boolean; memo?: boolean; frozen?: boolean; amount?: bigint } = {},
+): Account {
   // A Token-2022 account that requires a memo carries extension 8 after the account-type byte.
   const data = new Uint8Array(opts.memo ? 171 : 165);
   data.set(getAddressEncoder().encode(mintAddress), 0);
   data.set(getAddressEncoder().encode(owner), 32);
+  new DataView(data.buffer).setBigUint64(64, opts.amount ?? 0n, true);
   if (opts.delegate) data[72] = 1;
   data[108] = opts.frozen ? 2 : 1; // initialized, or frozen by the mint's freeze authority
   if (opts.memo) {
@@ -79,6 +85,14 @@ export function tokenAccount(owner: Address, mintAddress: Address, opts: { deleg
     data[170] = 1; // requireIncomingTransferMemos = true
   }
   return { owner: TOKEN_PROGRAM, data };
+}
+
+/** The wallet's accounts for a token under both token programs, holding plenty of it. */
+export async function fundedAccounts(
+  owner: Address, mintAddress: Address, opts: { amount?: bigint; frozen?: boolean } = {},
+): Promise<[string, Account][]> {
+  return Promise.all([TOKEN_PROGRAM, TOKEN_2022_PROGRAM].map(async tp =>
+    [await ataOf(owner, mintAddress, tp), tokenAccount(owner, mintAddress, { amount: opts.amount ?? 10n ** 15n, frozen: opts.frozen })] as [string, Account]));
 }
 
 /**
@@ -110,10 +124,17 @@ export function fakeRpc(
     sent?: string[];
     /** What sendTransaction throws instead of accepting (a preflight refusal, say). */
     sendError?: unknown;
+    /** Lamports a Pump cashback coin leaves in the buyer's account on top of its rent. */
+    cashback?: bigint;
+    /** How many simulations the Pump curve itself refuses on price (6003), inside Jupiter. */
+    pumpSlippage?: number;
+    /** Bound's own transfer from the wallet fails, before the swap (a balance that changed, say). */
+    failBeforeSwap?: boolean;
   } = {},
 ): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
   let moved = 0;
+  let pumpMoved = 0;
   return {
     getMultipleAccounts: call((addresses: string[]) => ({
       context: { slot: 300_000_000n },
@@ -133,6 +154,13 @@ export function fakeRpc(
     // A route that opens an account in the taker's name fails, as PumpSwap does, until the taker
     // holds its rent; with it, the taker ends holding whatever it was sent beyond the rent.
     simulateTransaction: call(async (wire: string, config: { accounts?: { addresses: string[] } }) => {
+      // Like the real RPC: a transaction over the size limit is not even simulated.
+      const raw = Buffer.from(wire, 'base64');
+      // A v1 transaction starts with its version byte (129); v0 starts with its signature count.
+      const v1 = raw[0] === 129 || raw[1 + 64 * raw[0]] === 129;
+      if (raw.length > (v1 ? 4096 : 1232)) {
+        throw new Error(`Invalid method parameter(s) (base64 encoded transaction too large: ${raw.length} bytes)`);
+      }
       const need = opts.takerRent ?? 0n;
       if (opts.simulations) opts.simulations.count++;
       const { taker, lamports, swapIndex } = lamportsSentToTaker(wire);
@@ -142,6 +170,27 @@ export function fakeRpc(
       }
       if (lamports < need) {
         return { value: { err: { InstructionError: [swapIndex, { Custom: 1 }] }, logs: [`Transfer: insufficient lamports ${lamports}, need ${need}`], unitsConsumed: 90_000n } };
+      }
+      if (opts.failBeforeSwap) {
+        return {
+          value: {
+            err: { InstructionError: [swapIndex - 1, { Custom: 1 }] }, unitsConsumed: 20_000n,
+            logs: [`Program ${TOKEN_PROGRAM} invoke [1]`, 'Program log: Error: insufficient funds', `Program ${TOKEN_PROGRAM} failed: custom program error: 0x1`],
+          },
+        };
+      }
+      // The price moves between the quote and the simulation, and the curve stops it inside Jupiter.
+      if (pumpMoved < (opts.pumpSlippage ?? 0)) {
+        pumpMoved++;
+        return {
+          value: {
+            err: { InstructionError: [swapIndex, { Custom: 6003 }] }, unitsConsumed: 150_000n,
+            logs: [
+              `Program ${JUPITER_PROGRAM} invoke [1]`, `Program ${PUMP} invoke [2]`,
+              `Program ${PUMP} failed: custom program error: 0x1773`, `Program ${JUPITER_PROGRAM} failed: custom program error: 0x1773`,
+            ],
+          },
+        };
       }
       // The price moves between the quote and the simulation, and Jupiter stops the route itself.
       if (moved < (opts.priceMoves ?? 0)) {
@@ -158,8 +207,12 @@ export function fakeRpc(
           err: null, logs: [], unitsConsumed: 200_000n,
           // E keeps what it was sent beyond the rent; the account the market opened for E (Pump's
           // per-buyer account) holds the rent.
+          // A cashback coin's account also holds the cashback the trade earned (FA-05, F-03).
           accounts: await Promise.all((config.accounts?.addresses ?? []).map(async a => (
-            a === taker ? { lamports: lamports - need } : a === (await routeAccountOf(PUMP, taker as Address)) && need > 0n ? { lamports: need } : null))),
+            a === taker ? { lamports: lamports - need }
+              : a === (await routeAccountOf(PUMP, taker as Address)) && need > 0n
+                ? { lamports: need + (opts.cashback ?? 0n), data: [b64(new Uint8Array(ROUTE_ACCOUNT_SIZE)), 'base64'] }
+                : null))),
         },
       };
     }),
@@ -167,7 +220,8 @@ export function fakeRpc(
       if (opts.feeFails) throw new Error('RPC unavailable');
       return { value: 15_000n };
     }),
-    getMinimumBalanceForRentExemption: call((size: bigint) => (BigInt(size) === 0n ? 650_240n : 1_488_440n)),
+    getMinimumBalanceForRentExemption: call((size: bigint) => (
+      BigInt(size) === 0n ? 650_240n : BigInt(size) === BigInt(ROUTE_ACCOUNT_SIZE) ? 1_346_200n : 1_488_440n)),
     getBalance: call(() => ({ value: 400_000n })),
     getRecentPrioritizationFees: call(() => {
       if (opts.feeLevels === 'fails') throw new Error('RPC unavailable');
@@ -184,10 +238,14 @@ export function fakeRpc(
 export function fakeJupiter(answer: {
   threshold?: bigint; inAmountFactor?: bigint; failFirst?: number; extraAccounts?: readonly Address[];
   worseByBps?: bigint; hop?: { mint: Address; tokenProgram: Address }; label?: string; asked?: BuildParams[];
+  /** What the whole market gives for the amount, instead of OUT: a pool a compromised server chose, say. */
+  out?: bigint;
   /** The route's swap instruction names the Pump.fun curve program, as a real curve route does. */
   curveProgram?: boolean;
   /** The route passes the account the curve opens for the buyer, as a real Pump route does (FA-05). */
   routeAccount?: boolean;
+  /** Jupiter answers with a swap instruction of a format nobody has seen yet. */
+  unknownFormat?: boolean;
 } = {}): JupiterClient {
   let calls = 0;
   return {
@@ -200,7 +258,8 @@ export function fakeJupiter(answer: {
       const meta = (pubkey: string, isSigner = false, isWritable = false) => ({ pubkey, isSigner, isWritable });
       // The baseline is asked for without exclusions and a protected route with them, so this is how
       // a route that costs more than the open market is simulated.
-      const outAmount = p.excludeDexes?.length ? (OUT * (10_000n - (answer.worseByBps ?? 0n))) / 10_000n : OUT;
+      const market = answer.out ?? OUT;
+      const outAmount = p.excludeDexes?.length ? (market * (10_000n - (answer.worseByBps ?? 0n))) / 10_000n : market;
       return {
         inputMint: p.inputMint,
         outputMint: p.outputMint,
@@ -222,17 +281,25 @@ export function fakeJupiter(answer: {
             data: b64(new Uint8Array([1])),
           }]
           : [],
+        // Laid out like route_v2 (Jupiter's IDL on chain): a requested destination is the optional
+        // account at index 7, and the taker's own account for the output is passed at index 2 anyway.
         swapInstruction: {
           programId: JUPITER_PROGRAM,
           accounts: [
-            meta(TOKEN_PROGRAM), meta(E, true), meta(eIn, false, true), meta(destination, false, true),
-            meta(p.inputMint), meta(p.outputMint), meta(DEX), meta(POOL, false, true),
+            meta(E, true), meta(eIn, false, true),
+            meta(p.destinationTokenAccount ? await ataOf(E, p.outputMint) : destination, false, true),
+            meta(p.inputMint), meta(p.outputMint), meta(TOKEN_PROGRAM), meta(TOKEN_PROGRAM),
+            p.destinationTokenAccount ? meta(p.destinationTokenAccount, false, true) : meta(JUPITER_PROGRAM),
+            meta(JUPITER_EVENT_AUTHORITY), meta(JUPITER_PROGRAM),
+            meta(DEX), meta(POOL, false, true),
             // A large swap splits over many pools; enough of them and nothing fits in one transaction.
             ...(answer.extraAccounts ?? []).map(a => meta(a, false, true)),
             ...(answer.curveProgram ? [meta(PUMP)] : []),
             ...(answer.routeAccount ? [meta(await routeAccountOf(PUMP, E), false, true)] : []),
           ],
-          data: b64(routeV2Data(p.amount * (answer.inAmountFactor ?? 1n), outAmount, p.slippageBps)),
+          data: b64(answer.unknownFormat
+            ? new Uint8Array([229, 23, 203, 151, 122, 227, 173, 42, 1, 2, 3, 4])
+            : routeV2Data(p.amount * (answer.inAmountFactor ?? 1n), outAmount, p.slippageBps)),
         },
         cleanupInstruction: null,
         otherInstructions: [],

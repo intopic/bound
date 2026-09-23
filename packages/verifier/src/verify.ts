@@ -270,8 +270,9 @@ export function memoRequired(data: Uint8Array): boolean {
  *   shared_accounts_route_v2: the same after a one-byte id
  *
  * Read off /swap/v2/build answers on 23 September 2026 (the amounts and tolerance at these offsets
- * matched the JSON for 0.5% and 3% routes). Any other instruction of Jupiter's is refused, so a
- * change of format stops swaps rather than letting an unread one through.
+ * matched the JSON for 0.5% and 3% routes), and confirmed the same day against the program's own
+ * IDL on chain (account C88XWfp26heEmDkmfSzeXP7Fd7GQJ2j9dDTUsyiZbUTa). Any other instruction of
+ * Jupiter's is refused, so a change of format stops swaps rather than letting an unread one through.
  */
 export type JupiterRouteArgs = {
   inAmount: bigint;
@@ -297,6 +298,24 @@ export function jupiterRouteArgs(data: ArrayLike<number>): JupiterRouteArgs | nu
     platformFeeBps: v.getUint16(base + 18, true),
     positiveSlippageBps: v.getUint16(base + 20, true),
   };
+}
+
+/**
+ * The account Jupiter's route delivers to, which is the account its floor is measured on (research
+ * audit, section I). From the program's IDL on chain:
+ *
+ *   route_v2:                 [0] authority, [1] source, [2] user destination, ..., [7] destination (optional)
+ *   shared_accounts_route_v2: [0] program authority, [1] authority, [2] source, ..., [5] destination
+ *
+ * An optional account left out is passed as the program's own address, and route_v2 then delivers to
+ * its user destination. Null for any other instruction, or too few accounts.
+ */
+export function jupiterDestination(data: ArrayLike<number>, accounts: readonly Address[]): Address | null {
+  const d = Uint8Array.from(data);
+  const starts = (disc: number[]) => d.length >= 8 && disc.every((b, i) => d[i] === b);
+  if (starts(ROUTE_V2) && accounts.length >= 10) return accounts[7] === JUPITER_PROGRAM ? accounts[2] : accounts[7];
+  if (starts(SHARED_ACCOUNTS_ROUTE_V2) && accounts.length >= 12) return accounts[5];
+  return null;
 }
 
 const V1_ALLOWED_CONFIG =
@@ -475,6 +494,14 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     if (args.quotedOutAmount < p.minOut) fail('R2', `the Jupiter route quotes ${args.quotedOutAmount}, below the minimum output ${p.minOut}`);
     if (args.inAmount <= 0n || args.inAmount > p.swapAmount) {
       fail('R2', `the Jupiter route spends ${args.inAmount}, outside the approved ${p.swapAmount}`);
+    }
+    // Jupiter's floor protects the user only if it is measured on the account the output must reach:
+    // the wallet's own output account, or E's temporary one for SOL. Then the floor holds whatever
+    // the RPC said that account held before (review BR-01).
+    const destination = jupiterDestination(x.data, x.accounts.map(a => a.address));
+    const expected = A ? eOut : wOut;
+    if (destination !== expected) {
+      fail('R2', `the Jupiter route delivers to ${destination ?? 'an unreadable account'}, not to ${A ? 'the temporary output account' : "the wallet's output account"}`);
     }
   }
 

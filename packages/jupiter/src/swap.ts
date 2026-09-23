@@ -112,6 +112,8 @@ export type PreparedSwap = {
   policy: Policy;
   version: TxVersion;
   transaction: Transaction;
+  /** The slot the blockhash was read at; a wallet's own simulation should not use older state (F-15). */
+  contextSlot: bigint;
   lifetime: Lifetime;
   size: number;
   computeUnits: number;
@@ -163,12 +165,18 @@ export type BoundErrorCode =
   | 'insufficient-sol'
   | 'costs-more' | 'simulation-failed'
   | 'verification-failed' | 'wallet-changed-transaction' | 'expired'
+  // The wallet's own account for the input token cannot send the amount (research audit F-09).
+  | 'insufficient-balance' | 'input-account-restricted'
   // Jupiter refused with 429 or did not answer: says nothing about the route or the token.
-  | 'busy' | 'unavailable';
+  | 'busy' | 'unavailable'
+  // Jupiter answered with an instruction Bound cannot read: its format changed (research audit F-07).
+  | 'route-format';
 
 /** What the user reads when Jupiter is overloaded or silent; the swap itself was never at fault. */
 export const BUSY_MESSAGE = 'Too many swaps are being priced right now. Wait a few seconds and try again. Nothing was signed.';
 export const UNAVAILABLE_MESSAGE = "The price service didn't answer. Nothing was signed; try again in a moment.";
+/** What the user reads when Jupiter's swap instruction changed: every route stops until Bound reads it. */
+export const ROUTE_FORMAT_MESSAGE = "Jupiter answered with a swap instruction Bound can't read yet, so nothing was built and nothing was signed. Protected swaps resume once Bound is updated for it.";
 
 /** For `price-moved`: what the market supports now, to show the user before asking again. */
 export type PriceMoved = { newMinOut: bigint; newOutAmount: bigint };
@@ -338,6 +346,13 @@ function programAt(tx: Transaction, index: number | null, lookups: Record<string
 
 /** Lamports as SOL for a message a person reads, to four decimals. */
 const solText = (lamports: bigint) => (Number(lamports) / 1e9).toFixed(4);
+/** An amount in base units as the decimal number the user typed, exactly. */
+const tokenText = (amount: bigint, decimals: number) => {
+  const digits = amount.toString().padStart(decimals + 1, '0');
+  const whole = digits.slice(0, digits.length - decimals);
+  const fraction = digits.slice(digits.length - decimals).replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole;
+};
 
 /** Did the simulation fail at Bound's own minimum-output check (a self-TransferChecked)? */
 function failedAtFloorCheck(tx: Transaction, index: number | null, lookups: Record<string, string[]> | null): boolean {
@@ -353,14 +368,27 @@ function failedAtFloorCheck(tx: Transaction, index: number | null, lookups: Reco
 }
 
 /**
+ * Pump.fun's own slippage errors, from both IDLs: the curve's TooMuchSolRequired (6002),
+ * TooLittleSolReceived (6003) and BuySlippageBelowMinTokensOut (6042); PumpSwap's ExceededSlippage
+ * (6004) and BuySlippageBelowMinBaseAmountOut (6040). Logged in hex.
+ */
+const PUMP_SLIPPAGE_ERRORS: readonly (readonly [string, readonly string[]])[] = [
+  [CURVE_PROGRAM, ['0x1772', '0x1773', '0x179a']],
+  [PUMP_AMM_PROGRAM, ['0x1774', '0x1798']],
+];
+
+/**
  * Did the route stop itself because it would deliver less than its own threshold? That is
- * Jupiter's error 6001, SlippageToleranceExceeded: the price moved between the quote and the
- * simulation. The market is working and the quote is stale, so like a miss at Bound's own minimum
- * it calls for a fresh quote, not for leaving the market out. On a token that trades in one place
- * only, a Pump.fun bonding curve, leaving it out means no route at all.
+ * Jupiter's error 6001, SlippageToleranceExceeded, or the same check inside a Pump.fun market
+ * (research audit): the price moved between the quote and the simulation. The market is working and
+ * the quote is stale, so like a miss at Bound's own minimum it calls for a fresh quote, not for
+ * leaving the market out. On a token that trades in one place only, a Pump.fun bonding curve,
+ * leaving it out means no route at all.
  */
 export function routeMissedItsThreshold(logs: readonly string[], jupiterProgram: string): boolean {
-  return logs.includes(`Program ${jupiterProgram} failed: custom program error: 0x1771`);
+  return logs.includes(`Program ${jupiterProgram} failed: custom program error: 0x1771`)
+    || PUMP_SLIPPAGE_ERRORS.some(([program, codes]) =>
+      codes.some(code => logs.includes(`Program ${program} failed: custom program error: ${code}`)));
 }
 
 /** Each instruction's program and account indices, from a compiled v0 or v1 message. */
@@ -435,8 +463,16 @@ const fits = (size: number, staticAccounts: number, version: TxVersion) =>
   version === 1 ? size <= V1_SIZE_LIMIT && staticAccounts <= V1_MAX_ACCOUNTS : size <= LEGACY_SIZE_LIMIT;
 
 async function latestLifetime(rpc: SolanaRpc): Promise<Lifetime> {
-  const { value } = await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
-  return value;
+  return (await latestLifetimeAt(rpc)).lifetime;
+}
+
+/** A fresh blockhash, and the slot the RPC read it at (for the wallet's own simulation, F-15). */
+async function latestLifetimeAt(rpc: SolanaRpc): Promise<{ lifetime: Lifetime; contextSlot: bigint }> {
+  const { context, value } = await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
+  return {
+    lifetime: { blockhash: value.blockhash, lastValidBlockHeight: value.lastValidBlockHeight },
+    contextSlot: BigInt((context as { slot?: bigint | number } | undefined)?.slot ?? 0),
+  };
 }
 
 /**
@@ -471,6 +507,7 @@ export async function prepareProtectedSwap(deps: {
     ? await Promise.all(bothPrograms.map(tp => ataOf(settings.treasury!, req.inputMint, tp)))
     : [];
   const wOutCandidates = variant === 'A' ? [] : await Promise.all(bothPrograms.map(tp => ataOf(req.owner, req.outputMint, tp)));
+  const wInCandidates = variant === 'B' ? [] : await Promise.all(bothPrograms.map(tp => ataOf(req.owner, req.inputMint, tp)));
   // From the cluster, since it changed in 2026 (audit C-09). If the RPC cannot answer, the
   // pre-2026 value is shown, which is an upper bound.
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
@@ -479,7 +516,7 @@ export async function prepareProtectedSwap(deps: {
   // SOL input pays the fee to the treasury wallet itself, so it is read too (BR-06, below).
   const treasuryWallet = variant === 'B' && settings.treasury ? [settings.treasury] : [];
   const [firstReads, classicRent, extendedRent] = await Promise.all([
-    fetchAccounts(rpc, [req.inputMint, req.outputMint, ...feeCandidates, ...wOutCandidates, ...treasuryWallet]),
+    fetchAccounts(rpc, [req.inputMint, req.outputMint, ...feeCandidates, ...wOutCandidates, ...wInCandidates, ...treasuryWallet]),
     wOutCandidates.length ? rentFor(TOKEN_ACCOUNT_SIZE) : Promise.resolve(0n),
     wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
   ]);
@@ -561,6 +598,26 @@ export async function prepareProtectedSwap(deps: {
   const arriving = policy.swapAmount - taxOnInput;
   if (arriving <= 0n) throw new BoundError('unsupported-token', 'The token keeps the whole amount as a transfer fee at this size.');
 
+  // W_in is the one account of W that Bound's own transfer draws on. Frozen or short, that transfer
+  // fails before the swap, which would read as a broken route and exclude every market on it; say
+  // what it is instead (research audit F-09).
+  if (policy.accounts.wIn) {
+    const state = firstReads.get(policy.accounts.wIn);
+    if (frozen(state)) {
+      throw new BoundError(
+        'input-account-restricted',
+        "Your account for the input token is frozen by the token's issuer, so it cannot send anything.",
+      );
+    }
+    const held = tokenAmountOf(state?.data);
+    if (held < req.amountIn) {
+      throw new BoundError(
+        'insufficient-balance',
+        `Your wallet holds ${tokenText(held, req.inputDecimals)} of the input token, less than the ${tokenText(req.amountIn, req.inputDecimals)} this swap needs.`,
+      );
+    }
+  }
+
   // W_out is the only account of W the swap sees. A delegate is revoked in the transaction, but a
   // close authority cannot be, so such an account is refused up front (audit B-03).
   let wOutBefore: { exists: boolean; balance: bigint } = { exists: false, balance: 0n };
@@ -612,6 +669,12 @@ export async function prepareProtectedSwap(deps: {
     } catch (e) {
       if (e instanceof JupiterError) {
         if (e.status === 429) throw new BoundError('busy', BUSY_MESSAGE);
+        // Jupiter answers "No routes found" with 400. A refused key or an endpoint that is gone is
+        // Bound's to fix, not the pair's, so it is not reported as a missing route (research audit F-08).
+        if ([401, 403, 404, 410].includes(e.status)) {
+          console.error(`Jupiter refused Bound's request with HTTP ${e.status}: ${e.message}`);
+          throw new BoundError('unavailable', UNAVAILABLE_MESSAGE);
+        }
         if (e.status < 500) return null;
         // The kill switch answers 503 with its own words, which the page shows as they are.
         if (!/paused/i.test(e.message)) throw new BoundError('unavailable', UNAVAILABLE_MESSAGE);
@@ -680,9 +743,12 @@ export async function prepareProtectedSwap(deps: {
     const attempt = (rent: bigint) => {
       set(rent);
       try {
-        return build();
+        // The funding instruction can push the route over a transaction limit: past 64 accounts
+        // compiling throws, past the size limit the RPC refuses even to simulate it.
+        const built = build();
+        return fits(built.size, built.staticAccounts, req.version) ? built : null;
       } catch {
-        return null; // the funding instruction pushed the route over a transaction limit
+        return null;
       }
     };
     const probe = attempt(MAX_TAKER_RENT_LAMPORTS);
@@ -788,6 +854,8 @@ export async function prepareProtectedSwap(deps: {
     let chosen: { r: BuildResponse; intermediates: IntermediateAta[] } | null = null;
     let chosenGapBps = 0n;
     let sawBadQuote = false;
+    /** Jupiter answered with an instruction Bound cannot read: its format changed (F-07). */
+    let sawUnknownFormat = false;
     // A route priced right but too big for one transaction is the usual outcome for a large
     // amount: Solana allows 64 accounts per transaction, and Bound's own instructions need a
     // dozen of them. That is a different failure from a broken quote, and it is reported as such.
@@ -812,7 +880,8 @@ export async function prepareProtectedSwap(deps: {
       // What Jupiter's program will enforce must be what its answer says (review FA-03): the amount
       // in, the quote and the tolerance this route was asked for. The verifier checks the ceilings.
       const args = jupiterRouteArgs(toKitInstruction(r.swapInstruction).data ?? new Uint8Array());
-      if (!args || args.inAmount !== BigInt(r.inAmount) || args.quotedOutAmount !== BigInt(r.outAmount) || args.slippageBps !== own) {
+      if (!args) { sawUnknownFormat = true; continue; }
+      if (args.inAmount !== BigInt(r.inAmount) || args.quotedOutAmount !== BigInt(r.outAmount) || args.slippageBps !== own) {
         sawBadQuote = true;
         continue;
       }
@@ -837,7 +906,7 @@ export async function prepareProtectedSwap(deps: {
       if (accepted === undefined || chosenGapBps > accepted + 50n) {
         throw new BoundError(
           'costs-more',
-          `This route gives ${percent(chosenGapBps)} less than the best price on the market.`
+          `This route gives ${percent(chosenGapBps)} less than the best unprotected route Jupiter found.`
           + (chosenGapBps > settings.warnAboveBps ? ' A smaller amount often gets a better price.' : ''),
           [], null,
           { gapBps: chosenGapBps, outAmount: BigInt(chosen.r.outAmount), baselineOut },
@@ -855,6 +924,10 @@ export async function prepareProtectedSwap(deps: {
           `Every route that fits failed in simulation, and what is left is far below the market price. No funds were moved. ${why(attempts)}`,
         );
       }
+      if (sawUnknownFormat) {
+        console.error('Jupiter answered with a swap instruction the verifier cannot read: its format changed.');
+        throw new BoundError('route-format', ROUTE_FORMAT_MESSAGE);
+      }
       throw sawUnsupportedHop
         ? new BoundError(
           'unsupported-token',
@@ -863,7 +936,7 @@ export async function prepareProtectedSwap(deps: {
         : sawTooBig
         ? new BoundError('no-route', 'The best route for this amount does not fit in a single protected transaction. Try a smaller amount, or split the swap.')
         : sawBadQuote
-          ? new BoundError('bad-quote', `Every route offered is at least ${percent(bestGapBps)} below the best price on the market. That is not a price, it is a broken answer, so nothing was built. Try again in a moment.`)
+          ? new BoundError('bad-quote', `Every route offered is at least ${percent(bestGapBps)} below the best unprotected route Jupiter found. That is not a price, it is a broken answer, so nothing was built. Try again in a moment.`)
           : new BoundError('no-route', 'No route fits in a single protected transaction. Try a different amount or token.');
     }
 
@@ -898,15 +971,21 @@ export async function prepareProtectedSwap(deps: {
     // once E owns no token account, and its lamports go on to W (review FA-05). What it holds comes
     // from the simulation that measured the rent; the swap with the close is simulated once more and
     // must leave E with nothing. If any of that fails, the swap goes ahead without it, as before.
+    // Only an account that holds exactly its rent is closed. One that also holds cashback (Pump's
+    // cashback coins) would make the exact refund depend on the price at landing, and the swap would
+    // revert whenever it moved (research audit F-03); it is left as before FA-05, the market's fee.
     if (sim.ok && takerRent > 0n && opened) {
       const held = sim.lamportsAfter[1] ?? 0n;
-      if (held > 0n && held <= MAX_TAKER_RENT_LAMPORTS) {
+      const rentOnly = held > 0n && held === await rentFor(sim.sizesAfter[1] ?? 0);
+      if (rentOnly && held <= MAX_TAKER_RENT_LAMPORTS) {
         routeRefund = { ...opened, lamports: held };
         let withClose: ReturnType<typeof compileProtectedSwap> | null = null;
         try {
           withClose = timed(buildTrial);
+          // Past the size limit the RPC refuses even to simulate it: the swap goes without the close.
+          if (!fits(withClose.size, withClose.staticAccounts, req.version)) withClose = null;
         } catch {
-          withClose = null; // the two instructions pushed it over a transaction limit
+          withClose = null; // the two instructions pushed it over the 64 accounts a transaction may name
         }
         const closed = withClose ? await simulate(rpc, withClose.transaction, [E]) : null;
         if (withClose && closed?.ok && closed.lamportsAfter[0] === 0n) {
@@ -924,7 +1003,7 @@ export async function prepareProtectedSwap(deps: {
       const swapAccounts = chosen.r.swapInstruction.accounts.map(a => address(a.pubkey));
       // The snapshot for the verifier and the fresh blockhash, together (idea 21).
       const writable = chosen.r.swapInstruction.accounts.filter(a => a.isWritable).map(a => address(a.pubkey)).slice(0, 128);
-      const [snapshot, finalLifetime, feeLevel] = await Promise.all([
+      const [snapshot, { lifetime: finalLifetime, contextSlot }, feeLevel] = await Promise.all([
         fetchSnapshot({
           rpc,
           addresses: [
@@ -935,7 +1014,7 @@ export async function prepareProtectedSwap(deps: {
           ],
           lookupTableAddresses: req.version === 0 ? Object.keys(chosen.r.addressesByLookupTableAddress ?? {}).map(a => address(a)) : [],
         }),
-        latestLifetime(rpc),
+        latestLifetimeAt(rpc),
         // What the pools this swap writes to are paying for priority now; the default when unknown.
         rpc.getRecentPrioritizationFees(writable).send().then(recentFeeLevel).catch(() => null),
       ]);
@@ -1020,6 +1099,7 @@ export async function prepareProtectedSwap(deps: {
         version: req.version,
         transaction: final.transaction,
         lifetime: finalLifetime,
+        contextSlot,
         size: final.size,
         computeUnits: units,
         quote: {
@@ -1052,6 +1132,16 @@ export async function prepareProtectedSwap(deps: {
         wOutBefore = { exists: !!state, balance: tokenAmountOf(state?.data) };
       }
       continue;
+    }
+
+    // A failure before the swap is in Bound's own instructions, which draw only on the wallet: no
+    // route is to blame and no other route would fare better (research audit F-09).
+    const swapAt = compiledInstructions(trial.transaction).findIndex(ix => ix.program === settings.jupiterProgram);
+    if (sim.failedInstruction !== null && swapAt >= 0 && sim.failedInstruction < swapAt) {
+      throw new BoundError(
+        'simulation-failed',
+        `The swap would fail in its first steps, before it reaches the market, so no other route would help (${sim.error}). Check your balance of the input token and try again.`,
+      );
     }
 
     // Route repair (D15): exclude the DEX to blame; if our own cleanup failed, the route left

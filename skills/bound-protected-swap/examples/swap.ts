@@ -6,13 +6,15 @@
  * The check before signing is the point. Bound's server builds the transaction, so the agent runs
  * Bound's full verifier on the exact bytes, against chain state from its own RPC, with the policy
  * held to its own intent and limits. A compromised server, relay or impostor URL can then refuse or
- * delay a swap, never make the wallet sign one that moves more than the approved amount.
+ * delay a swap, never make the wallet sign one that moves more than the approved amount. The price
+ * is held to a floor of the agent's own: `--min-out`, or one this script asks Jupiter for itself.
  *
  *   BOUND_API_URL=https://<bound host>  BOUND_API_KEY=bnd_...  SOLANA_RPC_URL=https://<your rpc>
  *   BOUND_WALLET_KEYPAIR=/path/to/keypair.json   (a solana-keygen file; never paste a key in a prompt)
  *   BOUND_TREASURY=<address>                     (optional: the fee may go only there)
+ *   JUPITER_API_KEY=...                          (optional: for your own price; keyless allows one call every 2 s)
  *
- *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-fee-bps 20]
+ *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 20]
  *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
  */
 import { readFileSync } from 'node:fs';
@@ -23,7 +25,7 @@ import {
   getTransactionEncoder, partiallySignTransaction,
 } from '@solana/kit';
 import type { KeyPairSigner, Rpc, SolanaRpcApi } from '@solana/kit';
-import { verifyPrepared } from '../lib/bound-verify.mjs';
+import { ownMinimum, verifyPrepared } from '../lib/bound-verify.mjs';
 
 export type Intent = {
   owner: string;
@@ -31,8 +33,13 @@ export type Intent = {
   outputMint: string;
   /** Base units, as a string. */
   amountIn: string;
-  /** Your own floor for the output, base units; Bound never enforces less. */
+  /**
+   * Your own floor for the output, base units; Bound never enforces less. Required by the check;
+   * `protectedSwap` asks Jupiter for one when it is missing (see `ownMinimum`).
+   */
   minOut?: string;
+  /** For the floor asked of Jupiter: how far below its price, in bps (default 2%, 5% on a Pump.fun curve). */
+  maxBelowBps?: number;
   /** The highest Bound fee you accept, in bps (Bound's is 20). */
   maxFeeBps?: number;
   /** The highest network fee you accept, in lamports. */
@@ -48,6 +55,8 @@ export type Prepared = {
   wallet: string;
   temporaryAuthority: string;
   lastValidBlockHeight: string;
+  /** Blocks left in the transaction's life when prepare answered (150 at most, about 40 s). */
+  blocksLeft?: string;
   amounts: { amountIn: string; fee: string; feeBps: string; swapAmount: string; quotedOut: string; minOut: string };
   costs: { networkFeeLamports: string; outputAccountRentLamports: string; routeRentLamports: string; routeRefundLamports: string };
   certificate: {
@@ -110,12 +119,20 @@ export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<Solana
   const maxFee = (BigInt(intent.amountIn) * BigInt(intent.maxFeeBps ?? 20)) / 10_000n;
   if (BigInt(p.amounts.fee) > maxFee || BigInt(p.certificate.input.boundFee) > maxFee) problems.push(`the Bound fee ${p.amounts.fee} is above ${maxFee}`);
   if (p.certificate.output.minimumOutput !== p.amounts.minOut) problems.push('the enforced minimum differs from the one stated');
-  if (intent.minOut && BigInt(p.amounts.minOut) < BigInt(intent.minOut)) problems.push(`the minimum ${p.amounts.minOut} is below yours, ${intent.minOut}`);
+  if (intent.minOut && /^\d{1,20}$/.test(intent.minOut) && BigInt(p.amounts.minOut) < BigInt(intent.minOut)) {
+    problems.push(`the minimum ${p.amounts.minOut} is below yours, ${intent.minOut}`);
+  }
   if (BigInt(p.costs.networkFeeLamports) > BigInt(intent.maxNetworkFeeLamports ?? 1_000_000)) problems.push(`the network fee ${p.costs.networkFeeLamports} is above your limit`);
   // The answer's own claims are not evidence: what the bytes do is decided by the verifier.
-  problems.push(...await verifyPrepared(p, intent, rpc));
+  problems.push(...await verifyPrepared(p, { ...intent, minOut: intent.minOut ?? '' }, rpc));
   return problems;
 }
+
+/**
+ * The transaction lives 150 blocks, about 40 s (research audit F-05). Finalize only with this many
+ * left, so that it can still land; otherwise prepare again.
+ */
+export const MIN_BLOCKS_TO_FINALIZE = 30n;
 
 export async function signAsWallet(wallet: KeyPairSigner, transaction: string): Promise<string> {
   const tx = getTransactionDecoder().decode(Buffer.from(transaction, 'base64'));
@@ -171,10 +188,16 @@ export async function confirm(rpc: Rpc<SolanaRpcApi>, signedTransaction: string,
 /** The whole flow. A price that moved or a costlier route is not accepted silently: it throws. */
 export async function protectedSwap(args: {
   apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; wallet: KeyPairSigner; intent: Omit<Intent, 'owner'>;
-  fetchImpl?: Fetch; pollMs?: number;
+  fetchImpl?: Fetch; pollMs?: number; jupiterApiKey?: string;
 }): Promise<{ signature: string; outcome: Outcome | 'rejected' | 'unknown'; prepared: Prepared }> {
   const fetchImpl = args.fetchImpl ?? fetch;
-  const intent: Intent = { ...args.intent, owner: args.wallet.address };
+  const owner = args.wallet.address;
+  // A floor of your own, from a price Bound did not give you (research audit F-02).
+  const minOut = args.intent.minOut ?? await ownMinimum({
+    inputMint: args.intent.inputMint, outputMint: args.intent.outputMint, amountIn: args.intent.amountIn, taker: owner,
+    maxFeeBps: args.intent.maxFeeBps, maxBelowBps: args.intent.maxBelowBps, apiKey: args.jupiterApiKey, fetchImpl,
+  });
+  const intent: Intent = { ...args.intent, owner, minOut };
   const prepared = await call<Prepared>(fetchImpl, `${args.apiUrl}/api/v1/prepare`, args.apiKey, {
     owner: intent.owner, inputMint: intent.inputMint, outputMint: intent.outputMint, amountIn: intent.amountIn,
     ...(intent.minOut ? { minOut: intent.minOut } : {}),
@@ -182,6 +205,10 @@ export async function protectedSwap(args: {
   const problems = await checkPrepared(prepared, intent, args.rpc);
   if (problems.length) throw new Error(`Not signing: ${problems.join('; ')}`);
   const signedTransaction = await signAsWallet(args.wallet, prepared.transaction);
+  const left = BigInt(prepared.lastValidBlockHeight) - BigInt(await args.rpc.getBlockHeight({ commitment: 'confirmed' }).send());
+  if (left < MIN_BLOCKS_TO_FINALIZE) {
+    throw new Error(`Not finalizing: only ${left} blocks are left before this swap expires, too few to land. Nothing was sent; prepare it again.`);
+  }
   const done = await call<{ signature: string; status: 'sent' | 'unknown' | 'rejected'; signedTransaction?: string; lastValidBlockHeight: string }>(
     fetchImpl, `${args.apiUrl}/api/v1/finalize`, args.apiKey, { ticket: prepared.ticket, signedTransaction },
   );
@@ -201,7 +228,7 @@ async function main() {
   const need = (name: string) => process.env[name] ?? (console.error(`Set ${name}.`), process.exit(2));
   const [inputMint, outputMint, amountIn] = [flag('in'), flag('out'), flag('amount')];
   if (!inputMint || !outputMint || !amountIn) {
-    console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out N] [--max-fee-bps N] [--owner <address> --dry-run]');
+    console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--owner <address> --dry-run]');
     process.exit(2);
   }
   const apiUrl = need('BOUND_API_URL').replace(/\/+$/, '');
@@ -209,21 +236,24 @@ async function main() {
   const intent = {
     inputMint, outputMint, amountIn, minOut: flag('min-out'), treasury: process.env.BOUND_TREASURY || undefined,
     maxFeeBps: flag('max-fee-bps') ? Number(flag('max-fee-bps')) : undefined,
+    maxBelowBps: flag('max-below-bps') ? Number(flag('max-below-bps')) : undefined,
   };
+  const jupiterApiKey = process.env.JUPITER_API_KEY || undefined;
   // Your own RPC: the verification is worth what the chain state it reads is worth.
   const rpc = createSolanaRpc(need('SOLANA_RPC_URL'));
 
   if (process.argv.includes('--dry-run')) {
     const owner = flag('owner') ?? (console.error('--dry-run needs --owner <address>.'), process.exit(2));
-    const prepared = await call<Prepared>(fetch, `${apiUrl}/api/v1/prepare`, apiKey, { owner, inputMint, outputMint, amountIn, ...(intent.minOut ? { minOut: intent.minOut } : {}) });
-    const problems = await checkPrepared(prepared, { ...intent, owner }, rpc);
-    console.log(JSON.stringify({ amounts: prepared.amounts, costs: prepared.costs, problems }, null, 2));
+    const minOut = intent.minOut ?? await ownMinimum({ inputMint, outputMint, amountIn, taker: owner, maxFeeBps: intent.maxFeeBps, maxBelowBps: intent.maxBelowBps, apiKey: jupiterApiKey });
+    const prepared = await call<Prepared>(fetch, `${apiUrl}/api/v1/prepare`, apiKey, { owner, inputMint, outputMint, amountIn, minOut });
+    const problems = await checkPrepared(prepared, { ...intent, owner, minOut }, rpc);
+    console.log(JSON.stringify({ yourFloor: minOut, amounts: prepared.amounts, costs: prepared.costs, blocksLeft: prepared.blocksLeft, problems }, null, 2));
     process.exitCode = problems.length ? 1 : 0;
     return;
   }
 
   const wallet = await createKeyPairSignerFromBytes(new Uint8Array(JSON.parse(readFileSync(need('BOUND_WALLET_KEYPAIR'), 'utf8'))));
-  const result = await protectedSwap({ apiUrl, apiKey, rpc, wallet, intent });
+  const result = await protectedSwap({ apiUrl, apiKey, rpc, wallet, intent, jupiterApiKey });
   console.log(JSON.stringify({ signature: result.signature, outcome: result.outcome, amounts: result.prepared.amounts }, null, 2));
 }
 

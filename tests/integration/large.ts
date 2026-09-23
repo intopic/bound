@@ -29,7 +29,8 @@ const jupiter = createJupiterClient({
   tokensUrl: 'https://lite-api.jup.ag/tokens/v2/search',
   labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
   apiKey: process.env.JUPITER_API_KEY,
-  minIntervalMs: 1100,
+  // Keyless Jupiter allows one request every two seconds; a key allows more.
+  minIntervalMs: process.env.JUPITER_API_KEY ? 1100 : 2_100,
 });
 
 const TREASURY = address('ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ');

@@ -86,8 +86,8 @@ of file):
 - If a question to the user (price moved, costs) stays open more than 15 s, the swap is rebuilt.
 - When Jupiter or the RPC answer "busy", the page waits 30 s before building ahead again.
 - The minimum is never lowered silently. If the market moved beyond the tolerance, the user is asked.
-- The blockhash comes from Jupiter's build. Its lifetime ends the swap; there is no re-send with a
-  new blockhash.
+- Bound reads the blockhash itself (`getLatestBlockhash` at confirmed) at the end of prepare. Its
+  lifetime ends the swap; there is no re-send with a new blockhash.
 - Agents get a ticket from `prepare` that is valid until the blockhash expires. They must verify,
   sign and `finalize` within that window.
 
