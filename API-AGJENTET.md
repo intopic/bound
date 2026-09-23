@@ -3,6 +3,14 @@
 23 shtator 2026 · kopje e dokumentit të gjallë:
 https://claude.ai/code/artifact/865587e9-3295-474a-b185-bdfae0153a53 (mbajini të dyja njësoj)
 
+**Gjendja (23 shtator 2026):** i ndërtuar sipas këtij dizajni, me opsionin (a) për E-në
+(`apps/web/lib/server/agent/`, `/api/v1/prepare` dhe `/api/v1/finalize`; përshkrimi për agjentët:
+`AGENT-API.md`; `AUDIT.md` seksioni 0q). Dy ndryshime nga seksioni 7: në vend të SDK-së do të ketë
+një skill (dokumentim për agjentët), dhe finalize dërgon një herë dhe i kthen agjentit transaksionin
+e nënshkruar plotësisht, që ta konfirmojë vetë, sepse një funksion serverless nuk mbahet hapur një
+minutë. Pyetjet e seksionit 9 mbeten të hapura për audituesin; API-ja është e fikur derisa të
+vendosen `BOUND_API_SECRET` dhe `BOUND_API_KEYS`.
+
 **Propozimi:** për agjentët dhe botët, Bound bëhet nënshkruesi i dytë. Çelësi njëpërdorimësh E mbahet
 në serverin e Bound-it, dhe tarifa detyrohet nga nënshkrimi i E-së, pa asnjë program në zinxhir.
 Kërkojmë mendimin tuaj para se të ndërtohet; ndërtimi vjen pas testit me Phantom.

@@ -221,6 +221,38 @@ export function refusedBeforeBroadcast(e: unknown): boolean {
 }
 
 /**
+ * `sent`: the RPC accepted it, so it may land; confirm it on chain. `unknown`: the connection failed
+ * after the request left, so it may have been forwarded. `rejected`: provably never broadcast.
+ */
+export type FirstSend = { signature: string; status: 'sent' | 'unknown' | 'rejected'; error: string | null; refusal?: SendRefusal };
+
+/**
+ * One send with preflight, for a caller that confirms and re-broadcasts on its own (the agent API,
+ * which cannot hold a request open for the minute a transaction may take to land). A preflight
+ * refusal of a signature the cluster already has, a second send of the same transaction, is `sent`.
+ */
+export async function sendOnce(rpc: SolanaRpc, transaction: Transaction): Promise<FirstSend> {
+  const signature = getSignatureFromTransaction(transaction);
+  const wire = getBase64EncodedWireTransaction(transaction);
+  try {
+    await rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0n }).send();
+    return { signature, status: 'sent', error: null };
+  } catch (e) {
+    if (!refusedBeforeBroadcast(e)) return { signature, status: 'unknown', error: String((e as Error)?.message ?? e) };
+    const http = httpStatusOf(e);
+    if (http === null) {
+      const known = await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()
+        .then(r => !!r.value[0]).catch(() => false);
+      if (known) return { signature, status: 'sent', error: null };
+    }
+    return {
+      signature, status: 'rejected', error: String((e as Error)?.message ?? e),
+      refusal: http === 403 ? 'paused' : http === 429 ? 'busy' : 'network',
+    };
+  }
+}
+
+/**
  * Sends, re-broadcasts every few seconds, and settles the outcome. The signature is reported
  * before the first request, so a caller never loses track of a transaction that may have landed.
  */

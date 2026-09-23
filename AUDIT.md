@@ -724,6 +724,43 @@ single client from spending the shared key, belong in the hosting firewall (BR-0
 
 ---
 
+## 0q. The agent API: Bound signs last, server side
+
+Built on 23 September 2026 from the design in `API-AGJENTET.md` (option (a) for E), before the
+auditor's answers to its section 9, at the user's request; it is off unless a deployment sets
+`BOUND_API_SECRET` and `BOUND_API_KEYS`. Reference for agents: `AGENT-API.md`.
+
+- **`POST /api/v1/prepare`**: API key → `prepareProtectedSwap`, unchanged, with E derived as
+  Ed25519 from HMAC-SHA256(secret, nonce) → the unsigned transaction, the certificate and policy,
+  and a ticket `{kid, nonce, key id, owner, SHA-256 of the message, lastValidBlockHeight}` sealed
+  with an HMAC of the server secret. Nothing is stored.
+- **`POST /api/v1/finalize`**: the ticket must open with a current or previous secret and belong to
+  the calling key; the signed transaction's message must hash to the sealed value; then
+  `countersignProtectedSwap` (the page's `finalizeProtectedSwap` without the wait: R6's
+  `verifyWalletReturn` and the lifetime check) signs as E, and `sendOnce` sends once with preflight.
+  The fully signed transaction is returned so the agent confirms and re-broadcasts it itself.
+- **Why the fee holds**: Bound signs as E only a message whose hash it sealed after building and
+  verifying it with the fee inside. Removing the fee, or changing any byte, is another hash.
+- API keys are stored as SHA-256 hashes (`tools/agent-key.ts`); limits per key and endpoint; the kill
+  switch stops both endpoints; errors carry the codes the page uses, with `newMinOut` / `gapBps` so
+  an agent can accept a moved price or a costlier route explicitly.
+
+Evidence: 21 tests in `apps/web/test/agentApi.test.ts` against the real pipeline with the fake RPC
+and Jupiter (shared now as `packages/jupiter/test/fakes.ts`): an agent that removes the fee transfer,
+rebuilds and signs is refused; so is a byte changed at the start, middle or end, an unsigned or
+forged W signature, a forged ticket, one resealed with another secret, another key's ticket, an
+expired one, and any finalize while paused; in all of them nothing is sent. Twice the same ticket
+gives the same signature; a rotated secret opens its tickets only while listed as previous; E is the
+same for the same secret and nonce and non-exportable. `sendOnce`: 4 tests. On mainnet, through
+`next start` with a throwaway key and the public RPC and keyless Jupiter: USDC→SOL, SOL→USDC and
+USDC→BONK were built and verified with the 0.2% fee inside, 1.3–1.6 s each; a finalize of the
+unsigned transaction was refused by R6; keyless Jupiter's 429 came back as `busy` with Retry-After.
+
+Open, for the auditor (`API-AGJENTET.md` section 9): custody wording, the choice of (a), local
+verification by the agent, a minimum-fee rule, and the free-template limit (API keys and limits only).
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

@@ -10,7 +10,7 @@ import {
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { httpStatusOf, retryingTransport, sendAndConfirm } from '../src/index.ts';
+import { httpStatusOf, retryingTransport, sendAndConfirm, sendOnce } from '../src/index.ts';
 import type { SendStatus, SolanaRpc } from '../src/index.ts';
 
 const LAST_VALID = 100n;
@@ -187,5 +187,28 @@ describe('a rate-limited RPC in the production build', () => {
     }) as unknown as Parameters<typeof retryingTransport>[0];
     await expect(retryingTransport(transport, 5, 1)({} as never)).rejects.toThrow();
     expect(calls).toBe(1);
+  });
+});
+
+describe('one send, for a caller that confirms on its own (the agent API)', () => {
+  const once = async (script: Parameters<typeof fakeRpc>[0]) => sendOnce(fakeRpc(script).rpc, await signedTransaction());
+  const preflight = () => new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
+
+  it('accepted by the RPC is sent', async () => {
+    expect((await once({})).status).toBe('sent');
+  });
+
+  it('a preflight refusal is rejected: never broadcast', async () => {
+    const r = await once({ firstSend: preflight(), statuses: [null] });
+    expect(r.status).toBe('rejected');
+    expect(r.refusal).toBe('network');
+  });
+
+  it('a preflight refusal of a signature the cluster already has is a second send, not a rejection', async () => {
+    expect((await once({ firstSend: preflight(), statuses: [confirmed] })).status).toBe('sent');
+  });
+
+  it('a lost connection is unknown: it may have been forwarded', async () => {
+    expect((await once({ firstSend: new Error('fetch failed') })).status).toBe('unknown');
   });
 });

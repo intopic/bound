@@ -3,7 +3,7 @@ import {
   getCompiledTransactionMessageDecoder, isSolanaError, partiallySignTransaction,
   SOLANA_ERROR__TRANSACTION__TOO_MANY_ACCOUNT_ADDRESSES,
 } from '@solana/kit';
-import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
+import type { Address, FullySignedTransaction, KeyPairSigner, Transaction } from '@solana/kit';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, feeFor, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
@@ -989,17 +989,24 @@ export async function prepareProtectedSwap(deps: {
   throw new BoundError('simulation-failed', `Every route failed in simulation. No funds were moved. ${why(attempts)}`);
 }
 
+/** What signing last needs from a prepared swap: the verified message, whose it is, and how long it lives. */
+export type Countersignable = {
+  transaction: Transaction;
+  lifetime: { lastValidBlockHeight: bigint };
+  policy: { owner: Address };
+};
+
 /**
- * The wallet has signed first. Check that it signed exactly the verified message, then E signs
- * last and the transaction is sent (D4). Without E's signature it can never execute.
+ * The wallet has signed first. Check that it signed exactly the verified message, still in its
+ * lifetime, then E signs last (D4). Without E's signature the transaction can never execute, so
+ * this is the only place a Bound transaction becomes sendable.
  */
-export async function finalizeProtectedSwap(args: {
+export async function countersignProtectedSwap(args: {
   rpc: SolanaRpc;
-  prepared: PreparedSwap;
+  prepared: Countersignable;
   walletSignedBytes: Uint8Array;
   ephemeral: KeyPairSigner;
-  onStatus?: (status: SendStatus, signature: string) => void;
-}): Promise<SendResult> {
+}): Promise<FullySignedTransaction & Transaction> {
   const { rpc, prepared, ephemeral } = args;
   const check = await verifyWalletReturn(prepared.transaction, args.walletSignedBytes, prepared.policy.owner, ephemeral.address);
   if (!check.ok || !check.transaction) {
@@ -1011,5 +1018,19 @@ export async function finalizeProtectedSwap(args: {
   }
   const signed = await partiallySignTransaction([ephemeral.keyPair], check.transaction);
   assertIsFullySignedTransaction(signed);
-  return sendAndConfirm({ rpc, transaction: signed, lastValidBlockHeight: prepared.lifetime.lastValidBlockHeight, onStatus: args.onStatus });
+  return signed;
+}
+
+/** Signs last and sends, then settles the outcome (the page's flow). */
+export async function finalizeProtectedSwap(args: {
+  rpc: SolanaRpc;
+  prepared: Countersignable;
+  walletSignedBytes: Uint8Array;
+  ephemeral: KeyPairSigner;
+  onStatus?: (status: SendStatus, signature: string) => void;
+}): Promise<SendResult> {
+  const signed = await countersignProtectedSwap(args);
+  return sendAndConfirm({
+    rpc: args.rpc, transaction: signed, lastValidBlockHeight: args.prepared.lifetime.lastValidBlockHeight, onStatus: args.onStatus,
+  });
 }
