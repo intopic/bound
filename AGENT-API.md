@@ -8,8 +8,18 @@ the whole transaction reverts.
 Two calls. Bound builds and verifies the transaction; your wallet signs it first; Bound signs last,
 with the one-time key, and sends it. Bound never holds your key or your funds.
 
+**Verify before you sign.** Bound's server builds the transaction your wallet signs. Run Bound's
+verifier on it, with chain state from your own RPC, before signing: the skill below does it
+(`checkPrepared`, verifier bundled in `lib/bound-verify.mjs`). With that check, a compromised server
+or impostor URL can refuse or delay a swap, not make you sign one that moves more than the approved
+amount. **Without it, you are trusting Bound's server with your whole wallet.**
+
+Wallets that cannot sign first and hand back a partially signed transaction cannot use Bound:
+Phantom's embedded wallets (sign-and-send only) and multisig or smart-wallet vaults (Squads, Swig).
+A local keypair or a remote signer that signs one key (Turnkey, for one) works.
+
 For coding agents there is a skill, `skills/bound-protected-swap/` (`SKILL.md` and a working
-example, `examples/swap.ts`, that needs only `@solana/kit`):
+example, `examples/swap.ts`, that needs only `@solana/kit` 8):
 
 ```bash
 npx skills add intopic/bound --skill bound-protected-swap
@@ -86,9 +96,14 @@ Authorization: Bearer bnd_...
 All amounts are strings in base units. The transaction lives about a minute (until
 `lastValidBlockHeight`); sign and finalize it promptly, or prepare again.
 
-Before signing, check what matters to you: `amounts.amountIn`, `amounts.fee`, `amounts.minOut`,
-that the transaction's message hashes to `messageSha256`, and that its only signers are your wallet
-and `temporaryAuthority`. The `certificate` states the same for that exact message.
+Before signing, run the verifier: `verifyPrepared(prepared, limits, yourRpc)` from the skill's
+`lib/bound-verify.mjs`, where `limits` is what you asked for and the most you accept (fee, network
+fee, minimum, optionally Bound's treasury address). It holds `policy` to those limits, reads every
+account the message names from your RPC, and runs the verifier's rules on the exact bytes. The
+`certificate` and `amounts` are Bound's statements; the check is what makes them evidence.
+
+`notices.networkBusy` means the network fee is at its limit, so the swap may land late or expire.
+`amounts.feeBps` is 0 when the swap is fee-free.
 
 ## 2. Sign as your wallet
 
@@ -116,8 +131,9 @@ Authorization: Bearer bnd_...
 ```
 
 Bound checks that the message is byte for byte the one it built, that your wallet's signature is
-valid, and that the transaction has not expired; then it signs as the one-time key and sends it
-once.
+valid, that the transaction has not expired, and that your output account holds what it held at
+prepare (another swap or a transfer in between would count toward the minimum); then it signs as the
+one-time key and sends it once. Run one swap per output token at a time.
 
 ```json
 {
@@ -132,7 +148,7 @@ once.
 | --- | --- |
 | `sent` | The RPC accepted it. Confirm it on chain; re-broadcast `signedTransaction` until it confirms or `lastValidBlockHeight` passes. It can land only once. |
 | `unknown` | The connection failed after the request left. It may have been forwarded: check the signature before doing anything else. |
-| `rejected` | Provably never broadcast (`refusal`: `network` is the RPC's preflight, usually a price that moved). Prepare again. |
+| `rejected` | Provably never broadcast (`refusal`: `network` is the RPC's preflight, usually a price that moved). No `signedTransaction` is returned: prepare again. |
 
 Finalizing the same ticket twice returns the same transaction and signature.
 
@@ -151,6 +167,7 @@ sent unless the code says otherwise.
 | 404 | `not-enabled` | The deployment has no agent API. |
 | 409 | `price-moved` | The market cannot meet your `minOut`. `newMinOut` is what it supports now: prepare again with it to accept, or not. |
 | 409 | `costs-more` | The route that fits in one protected transaction is `gapBps` below the open market. Prepare again with `acceptCostBps` to accept. |
+| 409 | `output-balance-changed` | Your balance of the output token moved since prepare. Nothing was signed by Bound; prepare again. |
 | 410 | `expired` | The transaction's lifetime passed before finalize. Prepare again. |
 | 422 | `unsupported-token`, `no-route`, `bad-quote`, `insufficient-sol`, `simulation-failed`, `verification-failed`, `token-data-mismatch`, `output-account-restricted` | This swap cannot be built safely right now; `message` says why. |
 | 429 | `rate-limited` | Too many requests for this key. Wait `Retry-After` seconds. |
@@ -159,9 +176,13 @@ sent unless the code says otherwise.
 
 ## What Bound can and cannot do with your swap
 
-- It cannot move your funds: it never has your key, and after your wallet signs, no byte of the
-  message can change without breaking that signature.
-- The one-time key it signs with owns nothing outside this one transaction.
+- It never has your key, and after your wallet signs, no byte of the message can change without
+  breaking that signature. What you sign is what the verifier approved, if you ran it on your own
+  RPC; if you did not, you signed what Bound's server built.
+- The one-time key it signs with owns nothing outside this one transaction, with one exception: on
+  Pump.fun routes, the per-buyer account Pump opens (its rent, about 0.0013 SOL, is stated before
+  you sign) stays under that key. Bound's server can derive the key again from its secret; it never
+  does after finalize and never logs the nonces it derives from.
 - It can refuse or delay: a signed transaction it holds back simply expires in about a minute.
 - It sees the addresses and amounts of the swaps you ask for, as any swap API does.
 

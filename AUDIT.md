@@ -108,8 +108,8 @@ Also from the second review:
 - **Revoke disclosure.** When the output account has a delegate, the page says before signing that
   Bound will remove it.
 - **Wallet versions.** A wallet that supports neither `0` nor `1` is refused with a clear message.
-- **Neutral taker.** Live quotes are asked for a neutral address; Jupiter never receives the user's
-  address before a swap (e2e checks every build request).
+- **Neutral taker.** Live quotes are asked for a neutral address (e2e checks every quote request).
+  The build ahead of the click, added later, does send the user's output account (section 0r, FA-11).
 - **Pasted addresses.** A token Jupiter's list does not know is read from the chain and marked as
   not listed.
 - **Fuzz time limit.** The property tests' limit grows with the number of cases, so
@@ -567,8 +567,8 @@ before signing states. Decision of 23 September 2026.
   market kept, also when it happens with E funded; a price that keeps moving is reported as such.
   Without the change all three fail.
 - Slippage tests: a curve route is enforced at 3%, any other route (PumpSwap included) at 0.5%,
-  Jupiter is always asked for 3% without lowering a 0.5% floor, and a stricter accepted minimum
-  still wins. Removing the rule fails three of them.
+  a stricter accepted minimum still wins. Removing the rule fails three of them. (At first Jupiter
+  was asked for 3% on every route; since `2eb5a41` each route is asked at its own tolerance, BR-01.)
 - **T13** (`tests/integration/pump.ts --market amm`) runs the real pipeline on mainnet state:
   **45/45** on five trending Pump.fun tokens that route through PumpSwap. Buys: built, verified
   and certified, rent 1,346,200 lamports, executed, at least the minimum arrived, and E ended with
@@ -773,6 +773,39 @@ refused a fee above `--max-fee-bps 10`.
 
 ---
 
+## 0r. The full audit of 23 September 2026 (research first)
+
+Run from `AUDIT-PROMPT.md` at `774de76` by a separate session of the same model, so not independent:
+an external human audit is still wanted before large volumes. Report:
+https://claude.ai/artifact/WCdaZCkDh4fPVS3c2J3oFV. Verdict: the page's guarantee holds; the agent
+API was not ready for third parties. What changed:
+
+| ID | Finding | Change | Evidence |
+| --- | --- | --- | --- |
+| FA-01 (High) | The skill's check never looked at the instructions; a drain passed it | The skill ships Bound's full verifier (`lib/bound-verify.mjs`, built by `tools/build-skill.ts`, checked in CI). `checkPrepared` holds the server's policy to the agent's intent and limits, reads the chain from the agent's own RPC and runs `verify()` on the bytes. SKILL.md says that without it the agent trusts Bound's server with its wallet | `f8d8e32`. The audit's drain and seven variants are refused; with the verification switched off all nine pass. Mainnet dry runs (USDC→SOL, SOL→USDC, USDC→BONK) verified with no problems |
+| FA-02 | Environment changes reach only new Vercel deployments | Runbook in SECURITY.md (a paused deployment ready to promote); the code comments corrected | Operations: rehearse it once |
+| FA-03 | Jupiter's route arguments were not read | The verifier reads route_v2 / shared_accounts_route_v2 and refuses any other form, a platform fee, positive slippage, a tolerance above 0.5% (3% with the curve program), a quote below the minimum, or more in than E_in holds; the pipeline requires them to equal Jupiter's JSON | `487ff4c`. `tests/integration/jupiter-floor.ts` 4/4: a thousandfold quote stopped with 6001 while the destination held 101M USDT. T4 10/12 (two keyless 429s), T14 18/18 |
+| FA-04 | A second swap into the same token keeps only Jupiter's floor | The page reads W_out again after the wallet signs; the API seals W_out's balance in the ticket and finalize refuses a moved one (`output-balance-changed`); the skill runs one swap per output token | `487ff4c`, `303d923`; tests with the balance moved in between |
+| FA-05 | Pump's per-buyer account stays under E; the API can re-derive E | Documented (never re-derive E after finalize, never log nonces). `tests/integration/pump-accumulator.ts`: `close_user_volume_accumulator` signed by E in the same transaction, then E's lamports sent back to W, executes on two curve buys; E ends with 0 and about 0.00135 SOL returns to the user, for 34 more bytes | Not built: it adds a Pump instruction, from an upgradeable program, to the verifier's trusted set, which should be reviewed first |
+| FA-06 | Open relays on one shared quota | `/api/rpc` sends and simulates only Bound-shaped transactions (`boundShape.ts`); separate keys for the API | `303d923`; an ordinary transfer is refused unforwarded; a Bound swap passes in v0 and v1; Edge smoke 18/18 through the filtered relay |
+| FA-07 | "Failed" and "expired" said too early | Failed only at confirmed; expired only when the finalized height is past too; page history and the skill's confirm follow | `487ff4c`, `f8d8e32`; send and history tests |
+| FA-08 | A refused finalize handed back a valid transaction | Not returned when rejected | `303d923` |
+| FA-09 | Three rule mutations survived | Tests of their own (W in the swap with W in the snapshot, E as fee payer, cleanup order); a mutation run of those three and the six new checks: each now fails a test | `487ff4c` |
+| FA-10 | Actions by tag, T6 on some paths, one build environment | Pinned by commit; T6 on every push to main; a second runner image must match the digest | `f8d8e32`; `reproducible-elsewhere` green |
+| FA-11 | Build-ahead reveals W_out to Jupiter | Documents corrected | this section, SECURITY.md |
+| FA-12 | Frozen accounts misreported | A frozen fee account makes the swap fee-free; a frozen W_out is refused as frozen | `487ff4c` |
+| FA-13 | New Token-2022 extensions unnamed | 24, 27, 28 named, still refused | `487ff4c` |
+| FA-14 | Wallets Bound cannot serve | Stated: Phantom's embedded wallets (sign-and-send only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first | README, AGENT-API.md |
+| FA-15 | The fee cap binds under load | Default network-fee limit 0.0005 SOL (was 0.0002); the page and the API say when the priority fee is capped | `487ff4c` |
+| FA-16 | Smaller items | Jupiter timeout on the server; `feeBps` 0 when fee-free; one id per key; Bound's own accounts never from a lookup table (verifier rule, compiler masks them) | `487ff4c`, `303d923` |
+
+Left for operations: the real-wallet test; paid Jupiter keys (one for the page, one for the API),
+firewall rules and RPC spend alerts; the paused deployment and one rehearsal; a treasury multisig with
+fee accounts checked not frozen; watching the upgrade authorities of Token-2022, Jupiter and both Pump
+programs; an independent human audit.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
@@ -974,7 +1007,7 @@ the rule the others depend on.
 | D17 | Token icons are fetched by Bound's server | Keeps `img-src 'self' data:` and hides users' IP addresses from hosts chosen by token creators (B-08). |
 | D18 | Fee and treasury are fixed at build time (`NEXT_PUBLIC_BOUND_*`) | The server has no live channel to change them (B-01). |
 | D19 | The minimum the user saw is the minimum enforced; a worse market is a question, never a silent change | Binds the policy to the accepted intent without an extra click in the common case (C-02). |
-| D20 | Live quotes use a neutral taker | Jupiter never receives the user's address before a swap. |
+| D20 | Live quotes use a neutral taker | Jupiter does not receive the user's address with a quote. The build ahead of the click does send the user's output account (FA-11). |
 | D21 | One Bound swap at a time per output token, across tabs, without an on-chain program | Keeps Bound's own swaps from masking each other's minimum (question 2, decision A). |
 
 ---
@@ -1043,8 +1076,8 @@ npm run e2e                             # needs Microsoft Edge
 4. **CPI attacks**: now tested in T6 (section 0d). Does the case list miss an attack you would
    run, in particular around re-creating a closed account from a PDA or a Token-2022 transfer hook?
 5. **Token-2022** (section 0f): is the allowlist right? In particular, is it sound to accept a mint
-   that declares a transfer hook whose program id is the zero address, and to refuse a mint with a
-   transfer fee rather than harvesting the withheld amount before the close?
+   that declares a transfer hook whose program id is the zero address? (A transfer fee is now
+   harvested before the close, section 0f, so that half of the question is answered.)
 6. **Anything in section 0b** that closes a finding only in the case the test covers.
 7. **The issuer-delegate rule** (section 0j, `unsupportedExtension` in `verify.ts`). This one
    *relaxes* a rule. It is on `main` since 2026-09-22, tested (T12 33/33, T6 32/32), and we want
@@ -1074,7 +1107,9 @@ npm run e2e                             # needs Microsoft Edge
 - The app's own rate limit is per instance. A limit across instances belongs in the hosting
   firewall, together with `BOUND_CLIENT_IP_HEADER` set for the real ingress.
 - For B and C, a transfer into `W_out` from someone else before execution counts toward the minimum
-  (section 1). Bound's own swaps into the same token do not overlap.
+  (section 1). Bound's own swaps into the same token do not overlap in one browser; from two
+  devices, or two agent calls, the balance is read again before E signs and a moved one stops the
+  swap (section 0r, FA-04).
 - Tokens that trade only on excluded DEXes (D13, HumidiFi) may find no protected route.
 - The slippage is 0.5%, and 3% on a route through a Pump.fun bonding curve (section 0k). A price
   that moves more than that between signing and landing reverts the swap on chain, which costs

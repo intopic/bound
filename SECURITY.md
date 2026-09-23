@@ -36,15 +36,21 @@ SOL leaving W in one swap is at most:
 network fee (≤ F_max, and never above 0.001 SOL)
 + q, when SOL is the input
 + rent, only when the swap opens W's account for the output token
-  (1,488,440 lamports ≈ 0.0015 SOL on 19 September 2026, read from the cluster)
+  (1,488,440 lamports ≈ 0.0015 SOL on 23 September 2026, read from the cluster; the rent per byte
+  falls again in November 2026 under SIMD-0437, and Bound shows whatever the cluster says)
 + route rent, only when the route opens an account in E's name
   (1,346,200 or 1,478,280 lamports ≈ 0.0013–0.0015 SOL on Pump.fun's markets, September 2026;
   at most 0.005 SOL)
 ```
 
-The route rent does not come back: the account it pays for stays with a key that is discarded. It
-is the market's charge to a new buyer, and with Bound every swap is a new buyer. The page states it
-as the market's account fee.
+The route rent does not come back: the account it pays for (Pump.fun's per-buyer volume
+accumulator) stays under E. On the page E's key is discarded, so the rent is simply lost. Through
+the agent API, E is derived from Bound's server secret and the ticket's nonce, so whoever holds that
+secret could re-derive E and close that account or claim its cashback (review FA-05): Bound never
+re-derives E after finalize and never logs nonces. The rent is the market's charge to a new buyer,
+and with Bound every swap is a new buyer; the page states it as the market's account fee. Closing
+the account in the same transaction works in simulation and would return about 0.00135 SOL to the
+user on every curve buy (AUDIT.md section 0r); it is not built yet.
 
 The rent stays in the user's own new token account and is shown before signing. Bound never makes the
 user pay rent for Bound's own fee account: if the treasury has no account for the input token, that
@@ -99,7 +105,9 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   bad price, or a route label, is not something the verifier can detect.
 - Changes after verification (wallet, extension, network): rejected by the wallet-return check (R6).
 - A compromised Bound server that still serves the genuine page: it sees mints, amounts, E's public
-  key and the user's address, never a private key. It can pause swaps, change the alpha limit and
+  key and the user's address, never the wallet's key. (The agent API is different: its server holds
+  the secret E is derived from, and an agent that skips the verification in the skill trusts the
+  server with its whole wallet; see AGENT-API.md.) It can pause swaps, change the alpha limit and
   the excluded DEXes, and lower F_max, but it cannot raise the fee above 1%, the network fee above
   0.001 SOL, or send the fee anywhere else. It also relays RPC answers, Jupiter's answers and token
   metadata. Wrong decimals are caught against the chain, but a relay that under-reports the balance
@@ -128,7 +136,7 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   an unprotected one. The page says so before the swap and again while the wallet is open. That
   money goes to the token, never to Bound.
 - A price that is worse than the open market: a protected route must fit in one transaction and
-  leaves out pools that would leave an account behind. Above 1% the page shows the difference and
+  leaves out pools that would leave an account behind. From 0.5% the page shows the difference and
   asks, with a stronger warning past 5%; the swap is never blocked over it, because a person who
   understands the cost and still wants the guarantee is entitled to it. Bound refuses on its own
   only past 50%, where the answer is not a price but a broken one. Note that this difference is not
@@ -171,8 +179,10 @@ compare. For an automated signer that is the intended use — run the verifier n
 - This closes direct channels out of the page, not every channel: same-origin endpoints that relay a
   query to Jupiter (`/api/jupiter/tokens`, `/api/token-icon`) remain. The CSP is a mitigation, not a
   guarantee.
-- Live quotes are asked for a neutral address, so Jupiter never receives the user's address before a
-  swap.
+- Live quotes are asked for a neutral address. The swap built ahead of the click, while the user
+  reads the quote, is asked for with the user's output account (an associated account, so the user's
+  address follows from it): Jupiter can learn who is about to swap before they click (review FA-11),
+  a trade made for latency.
 
 ## Data
 
@@ -288,11 +298,27 @@ Bound simple; it never ran in the setup Bound uses, and bringing it back would b
 
 ## Operational controls
 
-- Kill switch `BOUND_DISABLED=1`: enforced by the server (`/api/jupiter/build` and `sendTransaction`
-  on `/api/rpc` are refused), not only hidden in the UI.
+- Kill switch `BOUND_DISABLED=1`: enforced by the server (`/api/jupiter/build`, `sendTransaction`
+  on `/api/rpc` and both agent endpoints are refused), not only hidden in the UI. **On Vercel an
+  environment change reaches only new deployments** (review FA-02), so flipping it in the dashboard
+  does nothing until a redeploy. The runbook:
+  1. Keep a paused deployment ready: deploy the current release once more with `BOUND_DISABLED=1`
+     and leave it unpromoted. Rebuild it with every release.
+  2. To pause: promote that deployment (dashboard, "Promote to Production", or `vercel promote <url>`),
+     which takes seconds. To resume: promote the normal deployment back ("Instant Rollback").
+  3. Revoking an API key or rotating `BOUND_API_SECRET` is a redeploy; for an urgent revocation,
+     pause first (step 2), then redeploy with the key removed.
+  4. Rehearse it once on a preview: promote, check `/api/status` says paused and a
+     `sendTransaction` is refused, promote back, and write down how long each step took.
 - The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
   or a multisig (e.g. Squads).
-- Releases: deploy only tagged commits. A tag `v*` publishes the build's digest as a GitHub
+- Relays: `/api/rpc` sends and simulates only transactions shaped like a Bound swap (two signers,
+  one Jupiter route the verifier can read, otherwise only its trusted instruction shapes), so it is
+  not a free broadcaster or simulator on Bound's RPC account (review FA-06). Also set a firewall rule
+  per path, spend alerts on the RPC account, and separate keys for the agent API
+  (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`).
+- Releases: deploy only tagged commits, and only after CI is green. Actions are pinned by commit, and
+  a second job builds on another runner image and must match the digest (review FA-10). A tag `v*` publishes the build's digest as a GitHub
   release, built with the public settings in the repository variables, which must match
   production's; the live check compares the site with it every three hours and needs
   `BOUND_SITE_URL`. The build is deterministic: CI builds every commit twice and fails if the two

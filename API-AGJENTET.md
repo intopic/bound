@@ -118,9 +118,11 @@ Bound kontrollon nëse swap-i ndodh, jo çfarë ndodh me paratë. Kjo nuk ësht�
    snapshot; R5: mbyllen).
 2. **W nënshkruan byte-t e sakta.** Pasi W nënshkruan, Bound nuk mund të ndryshojë asgjë pa e prishë
    atë nënshkrim.
-3. **Agjenti verifikon vetë.** SDK-ja ekzekuton `@bound/verifier` mbi të njëjtat byte, policy dhe
-   snapshot të lexuar nga RPC-ja e agjentit, jo nga e jona. Pastaj e krahason me certifikatën:
-   `messageSha256`, debiti total, tarifa, minimumi, nënshkruesit.
+3. **Agjenti verifikon vetë.** Skill-i (jo SDK) ekzekuton `@bound/verifier` mbi të njëjtat byte, me
+   policy-n e kontrolluar kundrejt qëllimit të agjentit dhe me gjendjen e lexuar nga RPC-ja e agjentit,
+   jo nga e jona (`skills/bound-protected-swap/lib/bound-verify.mjs`, AUDIT.md 0r, FA-01). Pa këtë
+   kontroll, agjenti i beson serverit tonë gjithë portofolin.
+   Përjashtim: në rrugët e Pump.fun, llogaria që Pump hap për çdo blerës mbetet nën E (FA-05).
 4. **Besimi i vetëm ndaj nesh është disponueshmëria.** Mund të refuzojmë ose të vonojmë. Një
    transaksion i nënshkruar i vonuar hyn vetëm brenda vlefshmërisë së blockhash-it (~60–90 s) dhe vetëm
    ashtu siç u nënshkrua.
@@ -163,15 +165,14 @@ e hollë.
 
 **Testet.**
 
-- [ ] Agjenti heq tarifën → finalize refuzon, E nuk nënshkruan.
-- [ ] Një byte i ndryshuar kudo në mesazh → refuzohet.
-- [ ] Biletë e skaduar, e falsifikuar ose e një çelësi tjetër API → refuzohet.
-- [ ] Dy finalize të së njëjtës biletë → një transaksion në zinxhir.
-- [ ] Verifikimi lokal i SDK-së kap një server që ndërton transaksion të dëmshëm (ripërdoren sulmet
-      nga testet e verifikuesit).
-- [ ] E derivuar: e njëjta biletë jep të njëjtin E në dy instanca; bileta të ndryshme japin E të
-      ndryshme.
-- [ ] Mainnet: T4, T13 dhe T14 të përsëritura përmes API-së.
+- [x] Agjenti heq tarifën → finalize refuzon, E nuk nënshkruan.
+- [x] Një byte i ndryshuar kudo në mesazh → refuzohet.
+- [x] Biletë e skaduar, e falsifikuar ose e një çelësi tjetër API → refuzohet.
+- [x] Dy finalize të së njëjtës biletë → i njëjti transaksion.
+- [x] Verifikimi lokal i skill-it kap një server që ndërton transaksion të dëmshëm (sulmi i auditimit
+      dhe shtatë variante).
+- [x] E derivuar: e njëjta biletë jep të njëjtin E; bileta të ndryshme japin E të ndryshme.
+- [ ] Mainnet: T4, T13 dhe T14 të përsëritura përmes API-së (u bënë vetëm dry-run-e me skill-in).
 
 ## 8. Kufijtë e njohur
 

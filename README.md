@@ -24,6 +24,11 @@ rest of your wallet.
 
 If anything fails, nothing is signed or the whole transaction reverts. There is no "continue anyway".
 
+Wallets: any wallet that signs a transaction and hands it back unsent (Wallet Standard
+`solana:signTransaction`) with a second signer left empty. Phantom's embedded wallets (sign-and-send
+only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first, so they cannot use Bound
+(review FA-14). The real-wallet test with Phantom, Solflare and Backpack is still to be done.
+
 | Rule | Guarantee |
 | --- | --- |
 | R6 | Only W and E sign; W pays; what the wallet returns is exactly what was verified. Because W never appears in the swap, W's signature is never available to it: this is what makes the other rules sufficient |
@@ -82,6 +87,9 @@ npm run e2e               # browser smoke test against http://localhost:3000
 node tests/e2e/busy.ts    # the page when Jupiter or the RPC refuse with 429 (same server)
 node tools/agent-key.ts <id>   # an API key for the agent API (AGENT-API.md)
 node skills/bound-protected-swap/examples/swap.ts   # the agent skill's example (SKILL.md); prints its usage
+node tools/build-skill.ts             # rebuild the verifier bundled in the skill (CI checks it)
+node tests/integration/jupiter-floor.ts   # Jupiter's on-chain floor, on mainnet state (FA-03)
+node tests/integration/pump-accumulator.ts   # closing Pump's per-buyer account in the swap (FA-05 research)
 npm run build:digest      # one hash over everything the browser loads, to compare with a release
 node tools/check-live.ts --site <url> --manifest build-digest.txt   # is a site serving that release?
 ```
