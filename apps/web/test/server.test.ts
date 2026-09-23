@@ -298,3 +298,21 @@ describe('the RPC relay sends and simulates only Bound transactions (review FA-0
     expect((await call('sendTransaction', 'AA==', 'base58')).status).toBe(422);
   });
 });
+
+describe("the relay passes Bound's close of a Pump market's account (FA-05)", () => {
+  it('a swap that closes the account the market opened for E is relayed', async () => {
+    const upstream = upstreamOk();
+    vi.stubGlobal('fetch', upstream);
+    const { PUMP_CURVE_PROGRAM, WSOL_MINT } = await import('@bound/core');
+    const { BONK } = await import('../../../packages/verifier/test/fixtures.ts');
+    const s = await scenario({ input: WSOL_MINT, output: BONK, routeRefund: { program: PUMP_CURVE_PROGRAM, lamports: 1_346_200n } });
+    const { transaction } = compileProtectedSwap({
+      policy: s.policy, swapInstruction: s.swapIx, intermediates: s.intermediates, version: 0, lifetime: LIFETIME,
+      computeUnitLimit: 400_000, microLamportsPerComputeUnit: 50_000n, lookupTables: s.lookupTables, outputBalanceBefore: s.wOutBalance,
+    });
+    const res = await proxyRpc(rpcRequest({
+      jsonrpc: '2.0', id: 1, method: 'simulateTransaction', params: [getBase64EncodedWireTransaction(transaction), { encoding: 'base64' }],
+    }), 'https://rpc.test');
+    expect(res.status).toBe(200);
+  });
+});

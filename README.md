@@ -89,7 +89,8 @@ node tools/agent-key.ts <id>   # an API key for the agent API (AGENT-API.md)
 node skills/bound-protected-swap/examples/swap.ts   # the agent skill's example (SKILL.md); prints its usage
 node tools/build-skill.ts             # rebuild the verifier bundled in the skill (CI checks it)
 node tests/integration/jupiter-floor.ts   # Jupiter's on-chain floor, on mainnet state (FA-03)
-node tests/integration/pump-accumulator.ts   # closing Pump's per-buyer account in the swap (FA-05 research)
+node tests/integration/pump-accumulator.ts   # the research behind closing Pump's per-buyer account (FA-05)
+node tests/e2e/pump-card.ts           # what a Pump.fun buy shows before the wallet opens (same server as e2e)
 npm run build:digest      # one hash over everything the browser loads, to compare with a release
 node tools/check-live.ts --site <url> --manifest build-digest.txt   # is a site serving that release?
 ```

@@ -1,7 +1,9 @@
 import { findAssociatedTokenPda } from '@solana-program/token';
+import { getAddressEncoder, getProgramDerivedAddress } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import {
-  BPS_DENOMINATOR, MAX_TAKER_RENT_LAMPORTS, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, WSOL_MINT,
+  BPS_DENOMINATOR, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE,
+  TOKEN_PROGRAM, WSOL_MINT,
 } from './constants.ts';
 import type { BoundConfig, Intent, Policy, Variant } from './types.ts';
 
@@ -66,6 +68,36 @@ export function withTakerRent(policy: Policy, takerRent: bigint): Policy {
   return { ...policy, takerRent };
 }
 
+const seed = (s: string) => new TextEncoder().encode(s);
+
+/** The account a Pump market opens for a buyer: PDA["user_volume_accumulator", buyer] of that program. */
+export async function routeAccountOf(program: Address, buyer: Address): Promise<Address> {
+  return (await getProgramDerivedAddress({ programAddress: program, seeds: [seed('user_volume_accumulator'), getAddressEncoder().encode(buyer)] }))[0];
+}
+
+/** An Anchor program's event authority, PDA["__event_authority"], which its instructions pass to themselves. */
+export async function eventAuthorityOf(program: Address): Promise<Address> {
+  return (await getProgramDerivedAddress({ programAddress: program, seeds: [seed('__event_authority')] }))[0];
+}
+
+export type RouteRefund = { program: Address; account: Address; eventAuthority: Address; lamports: bigint };
+
+/**
+ * The policy with the route's account under E closed after the swap and `lamports` sent on to W
+ * (review FA-05), or with none. Only Pump's two programs open such an account.
+ */
+export function withRouteRefund(policy: Policy, refund: RouteRefund | null): Policy {
+  if (!refund) {
+    return { ...policy, routeRefund: 0n, routeRefundProgram: null, accounts: { ...policy.accounts, routeAccount: null, routeEventAuthority: null } };
+  }
+  if (refund.program !== PUMP_CURVE_PROGRAM && refund.program !== PUMP_AMM_PROGRAM) throw new PolicyError('Only a Pump market opens an account Bound closes');
+  if (refund.lamports <= 0n || refund.lamports > MAX_TAKER_RENT_LAMPORTS) throw new PolicyError('Route refund outside the allowed range');
+  return {
+    ...policy, routeRefund: refund.lamports, routeRefundProgram: refund.program,
+    accounts: { ...policy.accounts, routeAccount: refund.account, routeEventAuthority: refund.eventAuthority },
+  };
+}
+
 /** Turns an intent into the exact policy the compiler builds and the verifier enforces (plan, section 1). */
 export async function buildPolicy(args: {
   intent: Intent;
@@ -116,6 +148,8 @@ export async function buildPolicy(args: {
     outputDecimals: args.outputDecimals,
     minOut: args.minOut ?? 0n,
     takerRent: 0n,
+    routeRefund: 0n,
+    routeRefundProgram: null,
     amountIn: intent.amountIn,
     feeBps: config.feeBps,
     fee,
@@ -130,6 +164,8 @@ export async function buildPolicy(args: {
       wIn: variant === 'B' ? null : await ataOf(intent.owner, intent.inputMint, inProgram),
       wOut: variant === 'A' ? null : await ataOf(intent.owner, intent.outputMint, outProgram),
       feeDestination,
+      routeAccount: null,
+      routeEventAuthority: null,
     },
   };
 }

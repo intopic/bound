@@ -10,8 +10,8 @@ import {
 import { getAssignInstruction, getTransferSolInstruction } from '@solana-program/system';
 import { createNoopSigner } from '@solana/kit';
 import {
-  compileProtectedSwap, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, protectedInstructions, PUMP_CURVE_PROGRAM, SYSTEM_PROGRAM,
-  TOKEN_2022_PROGRAM, TOKEN_PROGRAM, withTakerRent, WSOL_MINT,
+  compileProtectedSwap, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, protectedInstructions, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
+  routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, withTakerRent, WSOL_MINT,
 } from '@bound/core';
 import type { AccountState, RuleId, TxVersion } from '@bound/core';
 import { verify } from '../src/index.ts';
@@ -615,5 +615,106 @@ describe("Bound's own accounts are never loaded from a lookup table (review FA-1
     s.lookupTables[s.lookupTable].push(s.policy.accounts.wOut!, s.policy.accounts.eIn, s.policy.accounts.feeDestination!);
     const v = await verify(await compileHonest(s, 0), s.policy, s.snapshot);
     expect(v.violations).toEqual([]);
+  });
+});
+
+describe("the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05)", () => {
+  const RENT = 1_346_200n;
+  const refunded = (program: Address = PUMP_CURVE_PROGRAM, input: Address = WSOL_MINT, output: Address = BONK) =>
+    scenario({ input, output, routeRefund: { program, lamports: RENT } });
+  /** The close of the route's account and the transfer of its lamports to W: the last two instructions. */
+  const tail = (ixs: Instruction[]) => ({ close: ixs.length - 2, refund: ixs.length - 1 });
+
+  for (const [market, program] of [['the bonding curve', PUMP_CURVE_PROGRAM], ['PumpSwap', PUMP_AMM_PROGRAM]] as const) {
+    for (const version of [0, 1] as const) {
+      it(`an honest swap through ${market} passes, v${version}`, async () => {
+        const s = await refunded(program);
+        const v = await verify(await compileHonest(s, version), s.policy, s.snapshot);
+        expect(v.violations).toEqual([]);
+      });
+    }
+  }
+
+  it('also on a sale into SOL, where E_out is closed before it', async () => {
+    const s = await refunded(PUMP_CURVE_PROGRAM, BONK, WSOL_MINT);
+    expect((await verify(await compileHonest(s, 0), s.policy, s.snapshot)).violations).toEqual([]);
+  });
+
+  it('the lamports sent to anyone but W are refused', async () => {
+    const s = await refunded();
+    const ixs = honest(s);
+    const attacker = await randomAddress();
+    ixs[tail(ixs).refund] = getTransferSolInstruction({ source: createNoopSigner(s.E.address), destination: attacker, amount: RENT });
+    expect(details(await verify(mutated(s, ixs), s.policy, s.snapshot)).join()).toContain('unexpected SOL transfer');
+  });
+
+  it('another amount is refused', async () => {
+    const s = await refunded();
+    const ixs = honest(s);
+    ixs[tail(ixs).refund] = getTransferSolInstruction({ source: createNoopSigner(s.E.address), destination: s.W, amount: RENT - 1n });
+    expect(details(await verify(mutated(s, ixs), s.policy, s.snapshot)).join()).toContain('unexpected SOL transfer');
+  });
+
+  it("an account that is not E's own for that market is refused", async () => {
+    const s = await refunded();
+    const ixs = honest(s);
+    const { close } = tail(ixs);
+    const other = await routeAccountOf(PUMP_CURVE_PROGRAM, await randomAddress());
+    ixs[close] = { ...ixs[close], accounts: ixs[close].accounts!.map((x, i) => (i === 1 ? { ...x, address: other } : x)) };
+    expect(details(await verify(mutated(s, ixs), s.policy, s.snapshot)).join()).toContain('a Pump account closed that the policy does not name');
+  });
+
+  it('closed while E still owns a token account (before E_in is closed) is refused', async () => {
+    const s = await refunded();
+    const ixs = honest(s);
+    const [close, refund] = ixs.splice(ixs.length - 2, 2);
+    const closeEIn = ixs.findIndex(ix => ix.programAddress === TOKEN_PROGRAM && ix.data?.[0] === 9 && ix.accounts?.[0].address === s.policy.accounts.eIn);
+    ixs.splice(closeEIn, 0, close, refund);
+    expect(details(await verify(mutated(s, ixs), s.policy, s.snapshot)).join()).toContain('while E still owns a token account');
+  });
+
+  it('the lamports sent on before the account is closed are refused', async () => {
+    const s = await refunded();
+    const ixs = honest(s);
+    const { close, refund } = tail(ixs);
+    [ixs[close], ixs[refund]] = [ixs[refund], ixs[close]];
+    expect(details(await verify(mutated(s, ixs), s.policy, s.snapshot)).join()).toContain('sent on before its account is closed');
+  });
+
+  it('the close without the refund is refused', async () => {
+    const s = await refunded();
+    const ixs = honest(s);
+    ixs.pop();
+    expect(details(await verify(mutated(s, ixs), s.policy, s.snapshot)).join()).toContain('routeRefund');
+  });
+
+  it('a Pump close the policy does not state is refused', async () => {
+    const withIt = await refunded();
+    const s = await scenario({ input: WSOL_MINT, output: BONK });
+    const extra = honest(withIt).at(-2)!;
+    // The same close, for this swap's E.
+    const account = await routeAccountOf(PUMP_CURVE_PROGRAM, s.E.address);
+    const ixs = [...honest(s), {
+      ...extra,
+      accounts: extra.accounts!.map((x, i) => (i === 0 ? { ...x, address: s.E.address } : i === 1 ? { ...x, address: account } : x)),
+    }];
+    expect(details(await verify(mutated(s, ixs), s.policy, s.snapshot)).join()).toContain('a Pump account closed that the policy does not name');
+  });
+
+  it('any other Pump instruction outside the route is refused', async () => {
+    const s = await refunded();
+    const ixs = honest(s);
+    const { close } = tail(ixs);
+    ixs[close] = { ...ixs[close], data: new Uint8Array([...ixs[close].data!, 0]) };
+    expect(details(await verify(mutated(s, ixs), s.policy, s.snapshot)).join()).toContain('a Pump instruction other than closing');
+  });
+
+  it('a refund from a program that is not a Pump market, or above the rent ceiling, is refused', async () => {
+    const s = await refunded();
+    const tx = await compileHonest(s, 0);
+    const notPump = { ...s.policy, routeRefundProgram: await randomAddress() };
+    expect(details(await verify(tx, notPump, s.snapshot)).join()).toContain('not a Pump market');
+    const tooMuch = { ...s.policy, routeRefund: MAX_TAKER_RENT_LAMPORTS + 1n };
+    expect(rules(await verify(tx, tooMuch, s.snapshot))).toContain('R4');
   });
 });

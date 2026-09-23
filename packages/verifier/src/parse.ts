@@ -1,6 +1,9 @@
 import { isSignerRole, isWritableRole } from '@solana/kit';
 import type { AccountRole, Address } from '@solana/kit';
-import { ATA_PROGRAM, COMPUTE_BUDGET_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@bound/core/constants';
+import {
+  ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, COMPUTE_BUDGET_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, SYSTEM_PROGRAM,
+  TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
+} from '@bound/core/constants';
 
 export type Account = { address: Address; role: AccountRole };
 export type RawInstruction = {
@@ -23,6 +26,7 @@ export type Parsed =
   | { kind: 'revoke'; program: Address; source: Address; owner: Address }
   | { kind: 'close'; program: Address; account: Address; destination: Address; owner: Address }
   | { kind: 'harvest'; program: Address; mint: Address; sources: readonly Address[] }
+  | { kind: 'closeRouteAccount'; program: Address; user: Address; account: Address; eventAuthority: Address }
   | { kind: 'external'; program: Address; accounts: readonly Account[]; data: Uint8Array }
   | { kind: 'invalid'; program: Address; reason: string };
 
@@ -103,6 +107,24 @@ export function parseInstruction(ix: RawInstruction): Parsed {
       return { kind: 'systemTransfer', from: from.address, to: to.address, lamports: view(data).getBigUint64(4, true) };
     }
     return invalid(`System instruction ${data.length >= 4 ? view(data).getUint32(0, true) : '?'}`);
+  }
+
+  // Pump's close_user_volume_accumulator, the one instruction of a market's program Bound itself
+  // places (review FA-05). Exactly its IDL shape; any other Pump instruction outside the route is
+  // not one Bound would write.
+  if (program === PUMP_CURVE_PROGRAM || program === PUMP_AMM_PROGRAM) {
+    if (data.length !== 8 || CLOSE_USER_VOLUME_ACCUMULATOR.some((b, i) => data[i] !== b) || acc.length !== 4) {
+      return invalid('a Pump instruction other than closing the per-buyer account');
+    }
+    const [user, account, eventAuthority, self] = acc;
+    if (
+      !signerWritable(user) || !isWritableRole(account.role) || isSignerRole(account.role)
+      || isWritableRole(eventAuthority.role) || isSignerRole(eventAuthority.role)
+      || self.address !== program || isWritableRole(self.role) || isSignerRole(self.role)
+    ) {
+      return invalid('close_user_volume_accumulator with wrong accounts or roles');
+    }
+    return { kind: 'closeRouteAccount', program, user: user.address, account: account.address, eventAuthority: eventAuthority.address };
   }
 
   return { kind: 'external', program, accounts: acc, data };

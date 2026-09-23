@@ -29,6 +29,23 @@ const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1000000n;
 const MAX_TAKER_RENT_LAMPORTS = 5000000n;
 /** Pump.fun's bonding-curve program: a route through it is priced on the curve. */
 const PUMP_CURVE_PROGRAM = address("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
+/** PumpSwap, the market a Pump.fun token moves to after its curve. */
+const PUMP_AMM_PROGRAM = address("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
+/**
+* close_user_volume_accumulator, the same Anchor discriminator in both Pump programs' IDLs: closes
+* the account a Pump market opens for every buyer and returns its lamports to the buyer, who in a
+* Bound swap is E (review FA-05). Accounts: [user (signer), account, event authority, program].
+*/
+const CLOSE_USER_VOLUME_ACCUMULATOR = [
+	249,
+	69,
+	164,
+	218,
+	150,
+	103,
+	84,
+	138
+];
 //#endregion
 //#region packages/solana/src/index.ts
 const MAX_ACCOUNTS_PER_CALL = 100;
@@ -185,6 +202,18 @@ function parseInstruction(ix) {
 		}
 		return invalid(`System instruction ${data.length >= 4 ? view(data).getUint32(0, true) : "?"}`);
 	}
+	if (program === PUMP_CURVE_PROGRAM || program === PUMP_AMM_PROGRAM) {
+		if (data.length !== 8 || CLOSE_USER_VOLUME_ACCUMULATOR.some((b, i) => data[i] !== b) || acc.length !== 4) return invalid("a Pump instruction other than closing the per-buyer account");
+		const [user, account, eventAuthority, self] = acc;
+		if (!signerWritable(user) || !isWritableRole(account.role) || isSignerRole(account.role) || isWritableRole(eventAuthority.role) || isSignerRole(eventAuthority.role) || self.address !== program || isWritableRole(self.role) || isSignerRole(self.role)) return invalid("close_user_volume_accumulator with wrong accounts or roles");
+		return {
+			kind: "closeRouteAccount",
+			program,
+			user: user.address,
+			account: account.address,
+			eventAuthority: eventAuthority.address
+		};
+	}
 	return {
 		kind: "external",
 		program,
@@ -200,6 +229,16 @@ const ata = async (owner, mint, tokenProgram = TOKEN_PROGRAM) => (await findAsso
 	tokenProgram
 }))[0];
 const addressBytes = (a) => getAddressEncoder().encode(a);
+const seed = (s) => new TextEncoder().encode(s);
+/** The account a Pump market opens for E, and the program's event authority, derived here, not read. */
+const routeAccountFor = async (program, E) => (await getProgramDerivedAddress({
+	programAddress: program,
+	seeds: [seed("user_volume_accumulator"), addressBytes(E)]
+}))[0];
+const eventAuthorityFor = async (program) => (await getProgramDerivedAddress({
+	programAddress: program,
+	seeds: [seed("__event_authority")]
+}))[0];
 function isTokenAccountOwnedBy(state, owner) {
 	if (state.owner !== TOKEN_PROGRAM && state.owner !== TOKEN_2022_PROGRAM) return false;
 	if (state.data.length < 165) return false;
@@ -360,6 +399,17 @@ const AFTER_SWAP = [
 	"harvestIntermediate",
 	"closeEIn",
 	"closeEOut",
+	"closeIntermediate",
+	"closeRouteAccount",
+	"routeRefund"
+];
+/** Bound's own cleanup of E's token accounts, all of which must be done before the route's account is closed. */
+const OWN_CLEANUP = [
+	"minOutCheck",
+	"harvestEIn",
+	"harvestIntermediate",
+	"closeEIn",
+	"closeEOut",
 	"closeIntermediate"
 ];
 /**
@@ -411,7 +461,14 @@ async function verify(transaction, policy, snapshot) {
 		const state = snapshot.accounts.get(mint);
 		if (state && state.data.length >= 82 && state.data[44] !== decimals) fail("R2", `${side} decimals ${decimals} do not match the mint (${state.data[44]})`);
 	}
+	const refundProgram = p.routeRefundProgram;
+	if (refundProgram !== null && refundProgram !== PUMP_CURVE_PROGRAM && refundProgram !== PUMP_AMM_PROGRAM) fail("R2", `route refund from ${refundProgram}, which is not a Pump market`);
+	if (p.routeRefund > 0n !== (refundProgram !== null)) fail("R2", "policy route refund and its program disagree");
+	if (p.routeRefund < 0n || p.routeRefund > 5000000n) fail("R4", `route refund ${p.routeRefund} lamports is outside 0..${MAX_TAKER_RENT_LAMPORTS}`);
+	const refunds = refundProgram !== null && (refundProgram === PUMP_CURVE_PROGRAM || refundProgram === PUMP_AMM_PROGRAM);
 	const expected = {
+		routeAccount: refunds ? await routeAccountFor(refundProgram, E) : null,
+		routeEventAuthority: refunds ? await eventAuthorityFor(refundProgram) : null,
 		eIn: await ata(E, p.inputMint, inputProgram),
 		eOut: A ? await ata(E, WSOL_MINT) : null,
 		wIn: B ? null : await ata(W, p.inputMint, inputProgram),
@@ -419,7 +476,7 @@ async function verify(transaction, policy, snapshot) {
 		feeDestination: p.fee === 0n ? null : B ? p.treasury : await ata(p.treasury, p.inputMint, inputProgram)
 	};
 	const acc = p.accounts;
-	if (acc.eIn !== expected.eIn || acc.eOut !== expected.eOut || acc.wIn !== expected.wIn || acc.wOut !== expected.wOut || acc.feeDestination !== expected.feeDestination) fail("R2", "policy accounts do not match their derivation");
+	if (acc.eIn !== expected.eIn || acc.eOut !== expected.eOut || acc.wIn !== expected.wIn || acc.wOut !== expected.wOut || acc.feeDestination !== expected.feeDestination || (acc.routeAccount ?? null) !== expected.routeAccount || (acc.routeEventAuthority ?? null) !== expected.routeEventAuthority) fail("R2", "policy accounts do not match their derivation");
 	const { eIn, eOut, wIn, wOut, feeDestination } = expected;
 	const minOut = A ? {
 		account: eOut,
@@ -540,6 +597,7 @@ async function verify(transaction, policy, snapshot) {
 			if (B && x.from === W && x.to === eIn && x.lamports === p.swapAmount) put("transferIn", i);
 			else if (B && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put("feeTransfer", i);
 			else if (p.takerRent > 0n && x.from === W && x.to === E && x.lamports === p.takerRent) put("takerRent", i);
+			else if (p.routeRefund > 0n && x.from === E && x.to === W && x.lamports === p.routeRefund) put("routeRefund", i);
 			else fail("R2", `instruction ${i}: unexpected SOL transfer of ${x.lamports} lamports`);
 			break;
 		case "syncNative":
@@ -573,6 +631,8 @@ async function verify(transaction, policy, snapshot) {
 			} else fail("R2", `instruction ${i}: unexpected CloseAccount`);
 			break;
 		}
+		case "closeRouteAccount": if (p.routeRefund > 0n && x.program === refundProgram && x.user === E && x.account === expected.routeAccount && x.eventAuthority === expected.routeEventAuthority) put("closeRouteAccount", i);
+		else fail("R2", `instruction ${i}: a Pump account closed that the policy does not name`);
 	}
 	const count = (s) => slots.get(s)?.length ?? 0;
 	const need = (s, n, rule = "R2") => {
@@ -593,6 +653,8 @@ async function verify(transaction, policy, snapshot) {
 	if (B) need("sync", 1);
 	need("feeTransfer", p.fee > 0n ? 1 : 0);
 	need("takerRent", p.takerRent > 0n ? 1 : 0, "R4");
+	need("closeRouteAccount", p.routeRefund > 0n ? 1 : 0, "R5");
+	need("routeRefund", p.routeRefund > 0n ? 1 : 0, "R5");
 	if (p.takerRent < 0n || p.takerRent > 5000000n) fail("R4", `route rent ${p.takerRent} lamports is outside 0..${MAX_TAKER_RENT_LAMPORTS}`);
 	if (version === 0) {
 		need("cuLimit", 1, "R4");
@@ -613,6 +675,11 @@ async function verify(transaction, policy, snapshot) {
 	if (!A && first("createWOut") > first("revokeWOut")) fail("R2", "W_out is revoked before it is created");
 	if (A && first("minOutCheck") > first("closeEOut")) fail("R5", "the minimum-output check runs after E_out is closed");
 	if (p.inputTransferFee && first("harvestEIn") > first("closeEIn")) fail("R5", "withheld fees are harvested after E_in is closed");
+	if (count("closeRouteAccount")) {
+		const at = first("closeRouteAccount");
+		if (at < Math.max(-1, ...OWN_CLEANUP.flatMap((s) => slots.get(s) ?? []))) fail("R5", "the route's account is closed while E still owns a token account");
+		if (first("routeRefund") < at) fail("R5", "the route's lamports are sent on before its account is closed");
+	}
 	for (const { x } of externals) {
 		if (x.kind !== "external") continue;
 		for (const a of x.accounts) {
@@ -649,6 +716,7 @@ async function verify(transaction, policy, snapshot) {
 		["E_out", eOut],
 		["Bound's fee account", feeDestination],
 		["the treasury", p.treasury],
+		["the route's account", expected.routeAccount],
 		...[...intermediates.keys()].map((k) => ["an intermediate account", k])
 	];
 	for (const [label, address] of own) if (address && fromTables.has(address)) fail("R1", `${label} is loaded from a lookup table`);
@@ -726,6 +794,7 @@ async function verify(transaction, policy, snapshot) {
 const BIGINT_FIELDS = [
 	"minOut",
 	"takerRent",
+	"routeRefund",
 	"amountIn",
 	"feeBps",
 	"fee",

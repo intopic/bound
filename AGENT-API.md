@@ -85,7 +85,7 @@ Authorization: Bearer bnd_...
   "lastValidBlockHeight": "312345678",
   "amounts": { "amountIn": "5000000", "fee": "10000", "feeBps": "20", "swapAmount": "4990000",
                "quotedOut": "42780667", "minOut": "42566764", "priceImpactPct": 0.0001 },
-  "costs": { "networkFeeLamports": "124480", "outputAccountRentLamports": "0", "routeRentLamports": "0", "tokenTax": null },
+  "costs": { "networkFeeLamports": "124480", "outputAccountRentLamports": "0", "routeRentLamports": "0", "routeRefundLamports": "0", "tokenTax": null },
   "notices": { "removesDelegate": false },
   "route": ["Kipseli", "AlphaQ"],
   "certificate": { "...": "what this exact transaction does, bound to messageSha256" },
@@ -179,10 +179,11 @@ sent unless the code says otherwise.
 - It never has your key, and after your wallet signs, no byte of the message can change without
   breaking that signature. What you sign is what the verifier approved, if you ran it on your own
   RPC; if you did not, you signed what Bound's server built.
-- The one-time key it signs with owns nothing outside this one transaction, with one exception: on
-  Pump.fun routes, the per-buyer account Pump opens (its rent, about 0.0013 SOL, is stated before
-  you sign) stays under that key. Bound's server can derive the key again from its secret; it never
-  does after finalize and never logs the nonces it derives from.
+- The one-time key it signs with owns nothing outside this one transaction. On Pump.fun routes the
+  market opens a per-buyer account under that key; Bound closes it at the end of the same
+  transaction and sends its rent back to your wallet (`costs.routeRefundLamports`). Only when that
+  cannot be done does the account stay under the key. Bound's server can derive the key again from
+  its secret; it never does after finalize and never logs the nonces it derives from.
 - It can refuse or delay: a signed transaction it holds back simply expires in about a minute.
 - It sees the addresses and amounts of the swaps you ask for, as any swap API does.
 

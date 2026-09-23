@@ -138,8 +138,15 @@ const plainRefusal = (reason: string) => PLAIN_REFUSAL[reason] ?? `it uses ${rea
  */
 function extrasOf(p: PreparedSwap, t: { inSymbol: string; outSymbol: string; inDecimals: number }): string[] {
   const lines: string[] = [];
-  if (p.oneTimeCosts.routeRent > 0n) {
-    lines.push(`Market account fee: ${formatExact(p.oneTimeCosts.routeRent, 9)} SOL. This market charges it to every new buyer, and it does not come back.`);
+  const { routeRent, routeRefund } = p.oneTimeCosts;
+  // When closing the account returns all of it (PumpSwap), the market keeps nothing: nothing to ask.
+  if (routeRent > 0n && routeRefund > 0n && routeRefund < routeRent) {
+    lines.push(
+      `Market account fee: ${formatExact(routeRent - routeRefund, 9)} SOL. This market takes ${formatExact(routeRent, 9)} SOL from every new buyer for an account; `
+      + `Bound closes that account in the same swap, so ${formatExact(routeRefund, 9)} SOL comes straight back to you.`,
+    );
+  } else if (routeRent > 0n && routeRefund === 0n) {
+    lines.push(`Market account fee: ${formatExact(routeRent, 9)} SOL. This market charges it to every new buyer, and it does not come back.`);
   }
   if (p.tokenTax) {
     lines.push(`Token tax: ${formatExact(p.tokenTax.extraOnInput, t.inDecimals)} ${t.inSymbol} goes to the token's issuer, not to Bound.`);
@@ -845,7 +852,8 @@ export function SwapApp() {
       texts.minimum = `${formatExact(prepared.quote.minOut, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
       const newAccountRent = prepared.oneTimeCosts.outputAccountRent;
-      const routeRent = prepared.oneTimeCosts.routeRent;
+      // What the market keeps: the rent it takes, less what closing its account returns (FA-05).
+      const routeRent = prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund;
       setPending({
         minReceived: `${formatExact(prepared.quote.minOut, outDecimals)} ${outToken.symbol}`,
         networkFee: `${formatExact(prepared.networkFeeLamports, 9)} SOL`,

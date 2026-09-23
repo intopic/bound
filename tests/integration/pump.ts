@@ -155,7 +155,9 @@ for (const t of candidates) {
   const E = prepared.policy.ephemeral;
   const wOut = prepared.policy.accounts.wOut!;
   const before = tokenAmountOf((await fetchAccounts(rpc, [wOut])).get(wOut)?.data);
-  let run = await execute(prepared.transaction, [E, prepared.policy.accounts.eIn, wOut]);
+  // E, E_in, W_out, and the account the market opens for E when Bound closes it (FA-05).
+  const watchBuy = (p: Awaited<ReturnType<typeof prepareProtectedSwap>>) => [p.policy.ephemeral, p.policy.accounts.eIn, wOut, ...(p.policy.accounts.routeAccount ? [p.policy.accounts.routeAccount] : [])];
+  let run = await execute(prepared.transaction, watchBuy(prepared));
   if (!run.ok && priceMoved(run.failure)) {
     // The price moved between building and executing, and a minimum reverted the swap as it should.
     // Build once more on the current price.
@@ -168,7 +170,7 @@ for (const t of candidates) {
       check(t.symbol, 'buy: the final transaction executes', null, 'çmimi lëvizi përtej tolerancës edhe në ndërtimin e dytë');
       continue;
     }
-    run = await execute(prepared.transaction, [prepared.policy.ephemeral, prepared.policy.accounts.eIn, wOut]);
+    run = await execute(prepared.transaction, watchBuy(prepared));
   }
   if (!run.ok && priceMoved(run.failure)) {
     // The market outran the tolerance twice in a row; the minimum reverted the swap both times.
@@ -179,6 +181,15 @@ for (const t of candidates) {
   if (run.ok) {
     check(t.symbol, 'buy: the temporary key ends with nothing', gone(run.after[0]), run.after[0] ? `${run.after[0].lamports} lamports left` : '');
     check(t.symbol, 'buy: the temporary account is gone', gone(run.after[1]));
+    // The account the market opened for E is closed in the same swap and its rent goes back to the
+    // wallet (review FA-05); what the market keeps is the rest (the curve's own growth, when any).
+    const refund = prepared.policy.routeRefund;
+    check(
+      t.symbol, "buy: the market's account under the temporary key is closed and its rent returned",
+      refund > 0n && refund <= rent && prepared.oneTimeCosts.routeRefund === refund && prepared.certificate.routeRefundLamports === refund
+        && !!prepared.policy.accounts.routeAccount && gone(run.after[3] ?? null),
+      `${refund} of ${rent} lamports back; the market keeps ${rent - refund}`,
+    );
     const arrived = run.after[2] ? tokenAmountOf(run.after[2].data) - before : 0n;
     check(t.symbol, 'buy: at least the minimum arrived', arrived >= prepared.policy.minOut, `arritën ${arrived}, minimumi ${prepared.policy.minOut}`);
   }
@@ -205,7 +216,7 @@ for (const t of candidates) {
       log(`     ${t.symbol.padEnd(10)} the price moved past the tolerance; building the sell again`);
       ({ sell, done } = await sellOnce());
     }
-    check(t.symbol, 'sell: built, verified and certified', true, `${sell.quote.route.join(' → ')}, rent ${sell.policy.takerRent}`);
+    check(t.symbol, 'sell: built, verified and certified', true, `${sell.quote.route.join(' → ')}, rent ${sell.policy.takerRent}, ${sell.policy.routeRefund} back`);
     if (!done.ok && priceMoved(done.failure)) {
       check(t.symbol, 'sell: the final transaction executes', null, `çmimi lëvizi përtej tolerancës dy herë: ${done.failure.slice(0, 80)}`);
       continue;

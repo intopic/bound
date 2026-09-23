@@ -52,6 +52,14 @@ export const MAX_ROUTE_SLIPPAGE_BPS = 50;
 export const MAX_CURVE_SLIPPAGE_BPS = 300;
 /** Pump.fun's bonding-curve program: a route through it is priced on the curve. */
 export const PUMP_CURVE_PROGRAM = address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
+/** PumpSwap, the market a Pump.fun token moves to after its curve. */
+export const PUMP_AMM_PROGRAM = address('pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA');
+/**
+ * close_user_volume_accumulator, the same Anchor discriminator in both Pump programs' IDLs: closes
+ * the account a Pump market opens for every buyer and returns its lamports to the buyer, who in a
+ * Bound swap is E (review FA-05). Accounts: [user (signer), account, event authority, program].
+ */
+export const CLOSE_USER_VOLUME_ACCUMULATOR = [249, 69, 164, 218, 150, 103, 84, 138] as const;
 export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
 
 /**

@@ -24,7 +24,7 @@ import {
 import { TOKEN_2022_PROGRAM } from './constants.ts';
 import { getTransferSolInstruction } from '@solana-program/system';
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
-import { MAX_LOADED_ACCOUNTS_DATA_SIZE, TOKEN_PROGRAM, WSOL_MINT } from './constants.ts';
+import { CLOSE_USER_VOLUME_ACCUMULATOR, MAX_LOADED_ACCOUNTS_DATA_SIZE, TOKEN_PROGRAM, WSOL_MINT } from './constants.ts';
 import type { IntermediateAta, Policy, TxVersion } from './types.ts';
 
 export type Lifetime = { blockhash: Blockhash; lastValidBlockHeight: bigint };
@@ -152,6 +152,24 @@ export function protectedInstructions(
   for (const x of intermediates) {
     if (x.transferFee) post.push(harvestWithheld(x.mint, x.ata));
     post.push(getCloseAccountInstruction({ account: x.ata, destination: p.owner, owner: E }, { programAddress: x.tokenProgram }));
+  }
+  // The account a Pump market opened in E's name, closed last (review FA-05): by now E owns no token
+  // account, so the market's program, given E's signature, reaches nothing but the lamports it
+  // returns, and those go straight on to W.
+  if (p.routeRefund > 0n) {
+    post.push(
+      {
+        programAddress: p.routeRefundProgram!,
+        accounts: [
+          { address: p.ephemeral, role: AccountRole.WRITABLE_SIGNER },
+          { address: a.routeAccount!, role: AccountRole.WRITABLE },
+          { address: a.routeEventAuthority!, role: AccountRole.READONLY },
+          { address: p.routeRefundProgram!, role: AccountRole.READONLY },
+        ],
+        data: new Uint8Array(CLOSE_USER_VOLUME_ACCUMULATOR),
+      },
+      getTransferSolInstruction({ source: E, destination: p.owner, amount: p.routeRefund }),
+    );
   }
   return [...pre, swapInstruction, ...post];
 }

@@ -122,7 +122,8 @@ Bound kontrollon nëse swap-i ndodh, jo çfarë ndodh me paratë. Kjo nuk ësht�
    policy-n e kontrolluar kundrejt qëllimit të agjentit dhe me gjendjen e lexuar nga RPC-ja e agjentit,
    jo nga e jona (`skills/bound-protected-swap/lib/bound-verify.mjs`, AUDIT.md 0r, FA-01). Pa këtë
    kontroll, agjenti i beson serverit tonë gjithë portofolin.
-   Përjashtim: në rrugët e Pump.fun, llogaria që Pump hap për çdo blerës mbetet nën E (FA-05).
+   Në rrugët e Pump.fun, llogarinë që Pump hap për çdo blerës Bound e mbyll në fund të të njëjtit
+   transaksion dhe qiraja i kthehet W-së (FA-05); vetëm kur kjo nuk bëhet dot, llogaria mbetet nën E.
 4. **Besimi i vetëm ndaj nesh është disponueshmëria.** Mund të refuzojmë ose të vonojmë. Një
    transaksion i nënshkruar i vonuar hyn vetëm brenda vlefshmërisë së blockhash-it (~60–90 s) dhe vetëm
    ashtu siç u nënshkrua.

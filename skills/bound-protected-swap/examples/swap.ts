@@ -49,7 +49,7 @@ export type Prepared = {
   temporaryAuthority: string;
   lastValidBlockHeight: string;
   amounts: { amountIn: string; fee: string; feeBps: string; swapAmount: string; quotedOut: string; minOut: string };
-  costs: { networkFeeLamports: string; outputAccountRentLamports: string; routeRentLamports: string };
+  costs: { networkFeeLamports: string; outputAccountRentLamports: string; routeRentLamports: string; routeRefundLamports: string };
   certificate: {
     messageSha256: string; wallet: string; temporaryAuthority: string;
     input: { mint: string; totalDebit: string; boundFee: string };

@@ -35,6 +35,12 @@ export type PolicyAccounts = {
   wOut: Address | null;
   /** ATA(treasury, inputMint) for SPL input, the treasury wallet for SOL input; null when fee = 0. */
   feeDestination: Address | null;
+  /**
+   * The account a Pump.fun market opens in E's name (PDA["user_volume_accumulator", E]) and that
+   * program's event authority, when Bound closes it after the swap (review FA-05); null otherwise.
+   */
+  routeAccount: Address | null;
+  routeEventAuthority: Address | null;
 };
 
 export type Policy = {
@@ -68,6 +74,13 @@ export type Policy = {
    * almost every route. The external program can reach this on top of the approved amount.
    */
   takerRent: bigint;
+  /**
+   * Lamports the route's account under E returns when Bound closes it after the swap, sent on to W
+   * in the same transaction (review FA-05): most of `takerRent` comes back. 0 when there is none.
+   */
+  routeRefund: bigint;
+  /** The Pump program that owns that account; null when there is none. */
+  routeRefundProgram: Address | null;
   amountIn: bigint;
   feeBps: bigint;
   fee: bigint;

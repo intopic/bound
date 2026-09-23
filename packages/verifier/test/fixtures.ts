@@ -18,7 +18,8 @@ import {
 import type { Address, Blockhash, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
 import {
-  ataOf, buildPolicy, JUPITER_PROGRAM, protectedInstructions, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
+  ataOf, buildPolicy, eventAuthorityOf, JUPITER_PROGRAM, protectedInstructions, routeAccountOf, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
+  withRouteRefund, withTakerRent, WSOL_MINT,
 } from '@bound/core';
 import type { AccountState, ChainSnapshot, IntermediateAta, Policy, TxVersion } from '@bound/core';
 
@@ -103,6 +104,8 @@ export async function scenario(opts: {
   owner?: KeyPairSigner;
   minOut?: bigint;
   wOutBalance?: bigint;
+  /** A Pump market's account opened in E's name, closed after the swap and its rent sent on to W (FA-05). */
+  routeRefund?: { program: Address; lamports: bigint };
   /** Token program of each mint; classic SPL unless a test asks for Token-2022. */
   inputProgram?: Address;
   outputProgram?: Address;
@@ -117,7 +120,7 @@ export async function scenario(opts: {
   const output = opts.output ?? WSOL_MINT;
   const inputProgram = input === WSOL_MINT ? TOKEN_PROGRAM : opts.inputProgram ?? TOKEN_PROGRAM;
   const outputProgram = output === WSOL_MINT ? TOKEN_PROGRAM : opts.outputProgram ?? TOKEN_PROGRAM;
-  const policy = await buildPolicy({
+  let policy = await buildPolicy({
     intent: { owner: W, inputMint: input, outputMint: output, amountIn: input === WSOL_MINT ? 900_000_000n : 100_000_000n },
     ephemeral: E.address,
     inputDecimals: DECIMALS[input],
@@ -145,6 +148,14 @@ export async function scenario(opts: {
     intermediates.push({ ata: await ataOf(E.address, mint, tokenProgram), mint, tokenProgram, transferFee: taxes(mint) });
   }
 
+  // The market charges E the account's rent before the swap and Bound returns it after.
+  const routeAccount = opts.routeRefund ? await routeAccountOf(opts.routeRefund.program, E.address) : null;
+  if (opts.routeRefund) {
+    policy = withRouteRefund(withTakerRent(policy, opts.routeRefund.lamports), {
+      program: opts.routeRefund.program, account: routeAccount!, eventAuthority: await eventAuthorityOf(opts.routeRefund.program),
+      lamports: opts.routeRefund.lamports,
+    });
+  }
   const pools = await Promise.all(Array.from({ length: opts.poolCount ?? 12 }, randomAddress));
   const a = policy.accounts;
   const destination = policy.variant === 'A' ? a.eOut! : a.wOut!;
@@ -160,6 +171,10 @@ export async function scenario(opts: {
       { address: output, role: AccountRole.READONLY },
       { address: DEX, role: AccountRole.READONLY },
       ...pools.map(p => ({ address: p, role: AccountRole.WRITABLE })),
+      // Jupiter passes a Pump market's program and the buyer's account to the route.
+      ...(opts.routeRefund
+        ? [{ address: opts.routeRefund.program, role: AccountRole.READONLY }, { address: routeAccount!, role: AccountRole.WRITABLE }]
+        : []),
     ],
     // Quoted at twice the minimum, at 0.5%: what an honest route carries.
     data: routeV2Data(policy.swapAmount, policy.minOut * 2n),
@@ -196,6 +211,10 @@ export async function scenario(opts: {
   for (const m of hopMints) if (!accounts.has(m)) accounts.set(m, mintState(TOKEN_PROGRAM, DECIMALS[m]));
   for (const p of pools) accounts.set(p, { owner: DEX, lamports: 5_000_000n, data: new Uint8Array(300) });
   accounts.set(DEX, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
+  if (opts.routeRefund) {
+    accounts.set(opts.routeRefund.program, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
+    accounts.set(routeAccount!, null); // opened by the swap itself
+  }
   accounts.set(TOKEN_PROGRAM, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
   accounts.set(TOKEN_2022_PROGRAM, { owner: LOADER, lamports: 1n, data: new Uint8Array(36) });
   for (const x of [E.address, a.eIn, a.eOut, ...intermediates.map(i => i.ata)]) if (x) accounts.set(x, null);

@@ -41,6 +41,8 @@ export type Certificate = {
   networkFeeLimitLamports: bigint;
   /** Rent W sends the temporary key for an account the route opens in its name; usually 0. */
   routeRentLamports: bigint;
+  /** What closing that account returns to the wallet in the same transaction (review FA-05); usually 0. */
+  routeRefundLamports: bigint;
   /**
    * No token other than the input leaves the wallet. The network fee and the rent of a new account
    * are separate and are stated above; this field is about tokens, not about lamports.
@@ -93,6 +95,7 @@ export async function certify(transaction: Transaction, policy: Policy, snapshot
       output: { mint: policy.outputMint, decimals: policy.outputDecimals, minimumOutput: policy.minOut },
       networkFeeLimitLamports: feeLimit,
       routeRentLamports: policy.takerRent,
+      routeRefundLamports: policy.routeRefund,
       otherTokenDebit: 0,
       persistentPermissions: 0,
       signers: [policy.owner, policy.ephemeral],

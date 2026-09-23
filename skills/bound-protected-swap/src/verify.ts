@@ -43,7 +43,7 @@ export type PreparedSwap = {
   policy: Record<string, unknown>;
 };
 
-const BIGINT_FIELDS = ['minOut', 'takerRent', 'amountIn', 'feeBps', 'fee', 'swapAmount', 'maxNetworkFeeLamports'] as const;
+const BIGINT_FIELDS = ['minOut', 'takerRent', 'routeRefund', 'amountIn', 'feeBps', 'fee', 'swapAmount', 'maxNetworkFeeLamports'] as const;
 
 function policyOf(json: Record<string, unknown>): Policy | null {
   try {

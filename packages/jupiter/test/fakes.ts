@@ -6,7 +6,9 @@ import {
   address, decompileTransactionMessage, getAddressEncoder, getCompiledTransactionMessageDecoder, getTransactionDecoder,
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ataOf, ATA_PROGRAM, JUPITER_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
+import {
+  ataOf, ATA_PROGRAM, JUPITER_PROGRAM, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
+} from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
 import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
@@ -130,7 +132,7 @@ export function fakeRpc(
     getSignatureStatuses: call(() => ({ value: [null] })),
     // A route that opens an account in the taker's name fails, as PumpSwap does, until the taker
     // holds its rent; with it, the taker ends holding whatever it was sent beyond the rent.
-    simulateTransaction: call((wire: string, config: { accounts?: { addresses: string[] } }) => {
+    simulateTransaction: call(async (wire: string, config: { accounts?: { addresses: string[] } }) => {
       const need = opts.takerRent ?? 0n;
       if (opts.simulations) opts.simulations.count++;
       const { taker, lamports, swapIndex } = lamportsSentToTaker(wire);
@@ -154,7 +156,10 @@ export function fakeRpc(
       return {
         value: {
           err: null, logs: [], unitsConsumed: 200_000n,
-          accounts: config.accounts?.addresses.map(a => (a === taker ? { lamports: lamports - need } : null)) ?? null,
+          // E keeps what it was sent beyond the rent; the account the market opened for E (Pump's
+          // per-buyer account) holds the rent.
+          accounts: await Promise.all((config.accounts?.addresses ?? []).map(async a => (
+            a === taker ? { lamports: lamports - need } : a === (await routeAccountOf(PUMP, taker as Address)) && need > 0n ? { lamports: need } : null))),
         },
       };
     }),
@@ -181,6 +186,8 @@ export function fakeJupiter(answer: {
   worseByBps?: bigint; hop?: { mint: Address; tokenProgram: Address }; label?: string; asked?: BuildParams[];
   /** The route's swap instruction names the Pump.fun curve program, as a real curve route does. */
   curveProgram?: boolean;
+  /** The route passes the account the curve opens for the buyer, as a real Pump route does (FA-05). */
+  routeAccount?: boolean;
 } = {}): JupiterClient {
   let calls = 0;
   return {
@@ -223,6 +230,7 @@ export function fakeJupiter(answer: {
             // A large swap splits over many pools; enough of them and nothing fits in one transaction.
             ...(answer.extraAccounts ?? []).map(a => meta(a, false, true)),
             ...(answer.curveProgram ? [meta(PUMP)] : []),
+            ...(answer.routeAccount ? [meta(await routeAccountOf(PUMP, E), false, true)] : []),
           ],
           data: b64(routeV2Data(p.amount * (answer.inAmountFactor ?? 1n), outAmount, p.slippageBps)),
         },

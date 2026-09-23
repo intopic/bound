@@ -2,6 +2,7 @@ import {
   decompileTransactionMessage,
   getAddressDecoder,
   getAddressEncoder,
+  getProgramDerivedAddress,
   getCompiledTransactionMessageDecoder,
   getTransactionMessageComputeUnitLimit,
   getTransactionMessageLoadedAccountsDataSizeLimit,
@@ -16,7 +17,7 @@ import type { Address, Transaction } from '@solana/kit';
 import { findAssociatedTokenPda } from '@solana-program/token';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, BPS_DENOMINATOR, JUPITER_PROGRAM, LAMPORTS_PER_SIGNATURE, LEGACY_SIZE_LIMIT,
-  MAX_COMPUTE_UNITS, MAX_CURVE_SLIPPAGE_BPS, MAX_ROUTE_SLIPPAGE_BPS, MAX_TAKER_RENT_LAMPORTS, PUMP_CURVE_PROGRAM,
+  MAX_COMPUTE_UNITS, MAX_CURVE_SLIPPAGE_BPS, MAX_ROUTE_SLIPPAGE_BPS, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
   MAX_FEE_BPS, MAX_INTERMEDIATE_ACCOUNTS, MAX_LOADED_ACCOUNTS_DATA_SIZE, MINT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, V1_MAX_ACCOUNTS,
   V1_SIZE_LIMIT, WSOL_MINT,
 } from '@bound/core/constants';
@@ -39,6 +40,12 @@ const ata = async (owner: Address, mint: Address, tokenProgram: Address = TOKEN_
   (await findAssociatedTokenPda({ owner, mint, tokenProgram }))[0];
 
 const addressBytes = (a: Address) => getAddressEncoder().encode(a);
+const seed = (s: string) => new TextEncoder().encode(s);
+/** The account a Pump market opens for E, and the program's event authority, derived here, not read. */
+const routeAccountFor = async (program: Address, E: Address) =>
+  (await getProgramDerivedAddress({ programAddress: program, seeds: [seed('user_volume_accumulator'), addressBytes(E)] }))[0];
+const eventAuthorityFor = async (program: Address) =>
+  (await getProgramDerivedAddress({ programAddress: program, seeds: [seed('__event_authority')] }))[0];
 
 function isTokenAccountOwnedBy(state: AccountState, owner: Address): boolean {
   if (state.owner !== TOKEN_PROGRAM && state.owner !== TOKEN_2022_PROGRAM) return false;
@@ -301,12 +308,16 @@ type Slot =
   | 'cuLimit' | 'cuPrice' | 'createEIn' | 'createEOut' | 'createWOut' | 'revokeWOut'
   | 'createIntermediate' | 'transferIn' | 'feeTransfer' | 'takerRent' | 'sync' | 'minOutCheck' | 'harvestEIn' | 'harvestIntermediate'
   | 'closeEIn' | 'closeEOut'
-  | 'closeIntermediate';
+  | 'closeIntermediate' | 'closeRouteAccount' | 'routeRefund';
 
 const BEFORE_SWAP: Slot[] = [
   'createEIn', 'createEOut', 'createWOut', 'revokeWOut', 'createIntermediate', 'transferIn', 'feeTransfer', 'takerRent', 'sync',
 ];
-const AFTER_SWAP: Slot[] = ['minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate'];
+const AFTER_SWAP: Slot[] = [
+  'minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate', 'closeRouteAccount', 'routeRefund',
+];
+/** Bound's own cleanup of E's token accounts, all of which must be done before the route's account is closed. */
+const OWN_CLEANUP: Slot[] = ['minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate'];
 
 /**
  * The 7 rules of the plan (section 6), checked on the exact bytes the wallet will sign.
@@ -361,7 +372,22 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
       fail('R2', `${side} decimals ${decimals} do not match the mint (${state.data[44]})`);
     }
   }
+  // The account a Pump market opened in E's name, closed after the swap with its lamports sent on to
+  // W (review FA-05). Only Pump's two programs, only in the amount the policy states, never above the
+  // rent ceiling. Handing E's signature to Pump's program is safe only because, when it runs, E owns
+  // no token account any more (checked below): it can reach the lamports it returns, nothing of W's.
+  const refundProgram = p.routeRefundProgram;
+  if (refundProgram !== null && refundProgram !== PUMP_CURVE_PROGRAM && refundProgram !== PUMP_AMM_PROGRAM) {
+    fail('R2', `route refund from ${refundProgram}, which is not a Pump market`);
+  }
+  if ((p.routeRefund > 0n) !== (refundProgram !== null)) fail('R2', 'policy route refund and its program disagree');
+  if (p.routeRefund < 0n || p.routeRefund > MAX_TAKER_RENT_LAMPORTS) {
+    fail('R4', `route refund ${p.routeRefund} lamports is outside 0..${MAX_TAKER_RENT_LAMPORTS}`);
+  }
+  const refunds = refundProgram !== null && (refundProgram === PUMP_CURVE_PROGRAM || refundProgram === PUMP_AMM_PROGRAM);
   const expected = {
+    routeAccount: refunds ? await routeAccountFor(refundProgram!, E) : null,
+    routeEventAuthority: refunds ? await eventAuthorityFor(refundProgram!) : null,
     eIn: await ata(E, p.inputMint, inputProgram),
     eOut: A ? await ata(E, WSOL_MINT) : null,
     wIn: B ? null : await ata(W, p.inputMint, inputProgram),
@@ -372,6 +398,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (
     acc.eIn !== expected.eIn || acc.eOut !== expected.eOut || acc.wIn !== expected.wIn ||
     acc.wOut !== expected.wOut || acc.feeDestination !== expected.feeDestination
+    || (acc.routeAccount ?? null) !== expected.routeAccount || (acc.routeEventAuthority ?? null) !== expected.routeEventAuthority
   ) {
     fail('R2', 'policy accounts do not match their derivation');
   }
@@ -502,6 +529,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
         if (B && x.from === W && x.to === eIn && x.lamports === p.swapAmount) put('transferIn', i);
         else if (B && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put('feeTransfer', i);
         else if (p.takerRent > 0n && x.from === W && x.to === E && x.lamports === p.takerRent) put('takerRent', i);
+        else if (p.routeRefund > 0n && x.from === E && x.to === W && x.lamports === p.routeRefund) put('routeRefund', i);
         else fail('R2', `instruction ${i}: unexpected SOL transfer of ${x.lamports} lamports`);
         break;
       case 'syncNative':
@@ -533,6 +561,13 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
         else fail('R2', `instruction ${i}: unexpected CloseAccount`);
         break;
       }
+      case 'closeRouteAccount':
+        if (
+          p.routeRefund > 0n && x.program === refundProgram && x.user === E
+          && x.account === expected.routeAccount && x.eventAuthority === expected.routeEventAuthority
+        ) put('closeRouteAccount', i);
+        else fail('R2', `instruction ${i}: a Pump account closed that the policy does not name`);
+        break;
       default:
         break;
     }
@@ -559,6 +594,8 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   // SOL for E is rent for an account the route opens in E's name, never money to swap with: it is
   // capped, and the external program can take at most this on top of the approved amount.
   need('takerRent', p.takerRent > 0n ? 1 : 0, 'R4');
+  need('closeRouteAccount', p.routeRefund > 0n ? 1 : 0, 'R5');
+  need('routeRefund', p.routeRefund > 0n ? 1 : 0, 'R5');
   if (p.takerRent < 0n || p.takerRent > MAX_TAKER_RENT_LAMPORTS) {
     fail('R4', `route rent ${p.takerRent} lamports is outside 0..${MAX_TAKER_RENT_LAMPORTS}`);
   }
@@ -583,6 +620,12 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (!A && first('createWOut') > first('revokeWOut')) fail('R2', 'W_out is revoked before it is created');
   if (A && first('minOutCheck') > first('closeEOut')) fail('R5', 'the minimum-output check runs after E_out is closed');
   if (p.inputTransferFee && first('harvestEIn') > first('closeEIn')) fail('R5', 'withheld fees are harvested after E_in is closed');
+  if (count('closeRouteAccount')) {
+    const at = first('closeRouteAccount');
+    const lastOwn = Math.max(-1, ...OWN_CLEANUP.flatMap(s => slots.get(s) ?? []));
+    if (at < lastOwn) fail('R5', "the route's account is closed while E still owns a token account");
+    if (first('routeRefund') < at) fail('R5', "the route's lamports are sent on before its account is closed");
+  }
 
   // R1: the external program never receives W or any of W's token accounts except W_out.
   // (Sufficient only together with R6: see the note at the top of this file.)
@@ -615,7 +658,8 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   const fromTables = new Set(loaded.slice(compiled.staticAccounts.length));
   const own: [string, Address | null][] = [
     ['W_in', wIn], ['W_out', wOut], ['E_in', eIn], ['E_out', eOut], ["Bound's fee account", feeDestination],
-    ['the treasury', p.treasury], ...[...intermediates.keys()].map(k => ['an intermediate account', k as Address] as [string, Address]),
+    ['the treasury', p.treasury], ["the route's account", expected.routeAccount],
+    ...[...intermediates.keys()].map(k => ['an intermediate account', k as Address] as [string, Address]),
   ];
   for (const [label, address] of own) {
     if (address && fromTables.has(address)) fail('R1', `${label} is loaded from a lookup table`);

@@ -496,3 +496,38 @@ describe('accounts frozen by the token issuer (review FA-12)', () => {
     expect(error?.message).toContain('frozen');
   });
 });
+
+describe("Pump's per-buyer account under E is closed after the swap and its rent returned (review FA-05)", () => {
+  const curve = () => fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true });
+
+  it('the rent the market takes comes back to the wallet in the same transaction', async () => {
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true });
+    expect(prepared.policy.takerRent).toBe(1_346_200n);
+    expect(prepared.policy.routeRefund).toBe(1_346_200n);
+    expect(prepared.oneTimeCosts.routeRefund).toBe(1_346_200n);
+    // The close and the transfer to W are the last two instructions, and the verifier passed them.
+    const message = decompileTransactionMessage(getCompiledTransactionMessageDecoder().decode(prepared.transaction.messageBytes) as never);
+    const [close, refund] = message.instructions.slice(-2);
+    expect(close.programAddress).toBe(PUMP);
+    expect(refund.programAddress).toBe(SYSTEM_PROGRAM);
+    expect(refund.accounts?.[1].address).toBe(prepared.policy.owner);
+    expect(prepared.certificate.routeRefundLamports).toBe(1_346_200n);
+  });
+
+  it('one more simulation than before, to check E ends with nothing', async () => {
+    const simulations = { count: 0 };
+    await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, simulations });
+    expect(simulations.count).toBe(3);
+  });
+
+  it('a route that opens no such account returns nothing and adds nothing', async () => {
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, takerRent: 1_346_200n, jupiter: fakeJupiter({ label: 'Pump.fun Amm' }) });
+    expect(prepared.policy.routeRefund).toBe(0n);
+    expect(prepared.oneTimeCosts.routeRefund).toBe(0n);
+  });
+
+  it('without rent to pay there is no account to close', async () => {
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), expectCurve: true });
+    expect(prepared.policy.routeRefund).toBe(0n);
+  });
+});

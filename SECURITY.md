@@ -40,17 +40,24 @@ network fee (≤ F_max, and never above 0.001 SOL)
   falls again in November 2026 under SIMD-0437, and Bound shows whatever the cluster says)
 + route rent, only when the route opens an account in E's name
   (1,346,200 or 1,478,280 lamports ≈ 0.0013–0.0015 SOL on Pump.fun's markets, September 2026;
-  at most 0.005 SOL)
+  at most 0.005 SOL), of which the account's own rent comes back in the same transaction
+  (1,346,200 lamports: all of it on PumpSwap, all but 132,080 on a bonding curve that grows)
 ```
 
-The route rent does not come back: the account it pays for (Pump.fun's per-buyer volume
-accumulator) stays under E. On the page E's key is discarded, so the rent is simply lost. Through
-the agent API, E is derived from Bound's server secret and the ticket's nonce, so whoever holds that
-secret could re-derive E and close that account or claim its cashback (review FA-05): Bound never
-re-derives E after finalize and never logs nonces. The rent is the market's charge to a new buyer,
-and with Bound every swap is a new buyer; the page states it as the market's account fee. Closing
-the account in the same transaction works in simulation and would return about 0.00135 SOL to the
-user on every curve buy (AUDIT.md section 0r); it is not built yet.
+The account the route rent pays for, Pump.fun's per-buyer volume accumulator, is closed at the end of
+the same transaction and its lamports go straight back to W (review FA-05): Bound adds Pump's own
+`close_user_volume_accumulator`, signed by E, and a transfer of what it returned from E to W. What
+the market keeps is only what it spent elsewhere (132,080 lamports when a bonding curve grows its
+own account; nothing on PumpSwap), and that is what the page shows as the market's account fee.
+This is the one instruction of a market's program that Bound itself places, and the verifier admits
+it only in its exact IDL shape, for E's own account (the PDA is derived, not read), for Pump's two
+programs, and only **after E's last token account is closed**: when it runs, E's signature reaches
+nothing but the lamports it returns. A Pump program changed by its upgrade authority could keep
+those lamports; the transfer to W would then fail and the whole swap revert, costing the network
+fee. When closing is not possible (the transaction would not fit, or the simulation says no), the
+swap goes ahead without it, as before, and that rent stays under a discarded key. Through the agent
+API, E is derived from Bound's server secret and the ticket's nonce; Bound never re-derives it after
+finalize and never logs nonces.
 
 The rent stays in the user's own new token account and is shown before signing. Bound never makes the
 user pay rent for Bound's own fee account: if the treasury has no account for the input token, that

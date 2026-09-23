@@ -192,6 +192,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         networkFeeLamports: prepared.networkFeeLamports,
         outputAccountRentLamports: prepared.oneTimeCosts.outputAccountRent,
         routeRentLamports: prepared.oneTimeCosts.routeRent,
+        // Returned to the wallet in the same transaction when Bound closes the market's account (FA-05).
+        routeRefundLamports: prepared.oneTimeCosts.routeRefund,
         tokenTax: prepared.tokenTax,
       },
       // networkBusy: the priority fee is at its limit, so the swap may land late or expire (FA-15).

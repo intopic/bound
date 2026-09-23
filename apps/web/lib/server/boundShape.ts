@@ -1,5 +1,8 @@
 import { getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@solana/kit';
-import { ATA_PROGRAM, COMPUTE_BUDGET_PROGRAM, JUPITER_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@bound/core';
+import {
+  ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, COMPUTE_BUDGET_PROGRAM, JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
+  SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
+} from '@bound/core';
 import { jupiterRouteArgs } from '@bound/verifier';
 
 type Ix = { program: string | undefined; accounts: number; data: Uint8Array };
@@ -42,6 +45,10 @@ function trusted(ix: Ix): boolean {
         || (d[0] === 5 && d.length === 1 && ix.accounts === 2)
         || (d[0] === 17 && d.length === 1 && ix.accounts === 1 && ix.program === TOKEN_PROGRAM)
         || (d[0] === 26 && d[1] === 4 && d.length === 2 && ix.accounts >= 2 && ix.program === TOKEN_2022_PROGRAM);
+    // Closing the account a Pump market opened for the one-time key (FA-05).
+    case PUMP_CURVE_PROGRAM:
+    case PUMP_AMM_PROGRAM:
+      return ix.accounts === 4 && d.length === 8 && CLOSE_USER_VOLUME_ACCUMULATOR.every((b, i) => d[i] === b);
     default:
       return false;
   }
