@@ -11,7 +11,8 @@ import {
 import type { Address, Blockhash } from '@solana/kit';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, tokenAccountSizeFor } from '@bound/core';
 import {
-  compileIfFits, DEFAULT_SETTINGS, isMinimumOutputCheckInstruction, requestSlippageBps, slippageFor, strictMinimumOutput,
+  compileIfFits, DEFAULT_SETTINGS, isMinimumOutputCheckInstruction, PUMP_CURVE_PROGRAM, quotedMinimum, slippageFor,
+  strictMinimumOutput,
 } from '../src/swap.ts';
 
 describe('the strict on-chain minimum model', () => {
@@ -114,16 +115,26 @@ describe('the size of a new token account, which decides the rent shown before s
 });
 
 describe('which slippage a route gets', () => {
-  const route = (...labels: string[]) => ({ routePlan: labels.map(label => ({ percent: 100, swapInfo: { label, ammKey: '' } })) });
-
-  it('3% when any leg trades on a Pump.fun bonding curve, 0.5% otherwise', () => {
-    expect(slippageFor(route('Pump.fun'), DEFAULT_SETTINGS)).toBe(300);
-    expect(slippageFor(route('Whirlpool', 'Pump.fun'), DEFAULT_SETTINGS)).toBe(300);
-    expect(slippageFor(route('Pump.fun Amm'), DEFAULT_SETTINGS)).toBe(50);
-    expect(slippageFor(route('Whirlpool', 'Raydium CLMM'), DEFAULT_SETTINGS)).toBe(50);
+  const route = (labels: string[], programs: string[] = []) => ({
+    routePlan: labels.map(label => ({ percent: 100, swapInfo: { label, ammKey: '' } })),
+    swapInstruction: { programId: '', data: '', accounts: programs.map(pubkey => ({ pubkey, isSigner: false, isWritable: false })) },
   });
 
-  it('Jupiter is always asked for the wider of the two', () => {
-    expect(requestSlippageBps(DEFAULT_SETTINGS)).toBe(300);
+  it('3% when a leg trades on a Pump.fun bonding curve and the route invokes the curve program', () => {
+    expect(slippageFor(route(['Pump.fun'], [PUMP_CURVE_PROGRAM]), DEFAULT_SETTINGS)).toBe(300);
+    expect(slippageFor(route(['Whirlpool', 'Pump.fun'], [PUMP_CURVE_PROGRAM]), DEFAULT_SETTINGS)).toBe(300);
+  });
+
+  it('0.5% otherwise, including a curve label on a route without the curve program (BR-04)', () => {
+    expect(slippageFor(route(['Pump.fun']), DEFAULT_SETTINGS)).toBe(50);
+    expect(slippageFor(route(['Whirlpool'], [PUMP_CURVE_PROGRAM]), DEFAULT_SETTINGS)).toBe(50);
+    expect(slippageFor(route(['Pump.fun Amm']), DEFAULT_SETTINGS)).toBe(50);
+    expect(slippageFor(route(['Whirlpool', 'Raydium CLMM']), DEFAULT_SETTINGS)).toBe(50);
+  });
+
+  it('a quote shows the minimum of the tolerance its route will be built at', () => {
+    const q = (labels: string[], programs: string[] = []) => ({ ...route(labels, programs), outAmount: '1000000', otherAmountThreshold: '995000' });
+    expect(quotedMinimum(q(['Pump.fun'], [PUMP_CURVE_PROGRAM]), DEFAULT_SETTINGS)).toBe(970_000n);
+    expect(quotedMinimum(q(['Whirlpool']), DEFAULT_SETTINGS)).toBe(995_000n);
   });
 });

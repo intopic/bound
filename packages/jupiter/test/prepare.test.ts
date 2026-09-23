@@ -22,6 +22,7 @@ const DECIMALS: Record<string, number> = { [USDC]: 6, [WSOL_MINT]: 9, [BONK]: 5 
 const DEX = address('whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc');
 const POOL = address('HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ');
 const OUT = 1_000_000_000n;
+const PUMP = address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
 const b64 = (d: Uint8Array) => Buffer.from(d).toString('base64');
 
 type Account = { owner: Address; data: Uint8Array };
@@ -157,6 +158,8 @@ function fakeRpc(
 function fakeJupiter(answer: {
   threshold?: bigint; inAmountFactor?: bigint; failFirst?: number; extraAccounts?: readonly Address[];
   worseByBps?: bigint; hop?: { mint: Address; tokenProgram: Address }; label?: string; asked?: BuildParams[];
+  /** The route's swap instruction names the Pump.fun curve program, as a real curve route does. */
+  curveProgram?: boolean;
 } = {}): JupiterClient {
   let calls = 0;
   return {
@@ -197,6 +200,7 @@ function fakeJupiter(answer: {
             meta(p.inputMint), meta(p.outputMint), meta(DEX), meta(POOL, false, true),
             // A large swap splits over many pools; enough of them and nothing fits in one transaction.
             ...(answer.extraAccounts ?? []).map(a => meta(a, false, true)),
+            ...(answer.curveProgram ? [meta(PUMP)] : []),
           ],
           data: b64(new Uint8Array([229, 23, 203, 151, 122, 227, 173, 42, 1])),
         },
@@ -492,31 +496,39 @@ describe("a route that opens an account in the taker's name (PumpSwap, the Pump.
 
 describe('slippage on a Pump.fun bonding curve', () => {
   const floor = (bps: number) => (OUT * BigInt(10_000 - bps)) / 10_000n;
+  const curve = (extra: Parameters<typeof fakeJupiter>[0] = {}) =>
+    fakeJupiter({ label: 'Pump.fun', curveProgram: true, ...extra });
+  const onChain: [string, Account][] = [[PUMP, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }]];
 
-  it('a route through the bonding curve is enforced at 3% below the quote', async () => {
-    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Pump.fun' }) });
+  it('a route through the bonding curve is enforced at 3% below the quote, by Bound and by Jupiter', async () => {
+    const asked: BuildParams[] = [];
+    const prepared = await prepare(BONK, { jupiter: curve({ asked }), chain: onChain });
     expect(settings.curveSlippageBps).toBe(300);
     expect(prepared.policy.minOut).toBe(floor(300));
     expect(prepared.certificate.output.minimumOutput).toBe(floor(300));
+    // Asked at the usual tolerance first, then again at the curve's once it was seen to be one.
+    expect(asked.some(p => p.slippageBps === 300 && p.excludeDexes?.length)).toBe(true);
   });
 
-  it('every other route, PumpSwap included, stays at 0.5%', async () => {
+  it('every other route, PumpSwap included, is built at 0.5%, so Jupiter enforces 0.5% on chain too (BR-01)', async () => {
     for (const label of ['Whirlpool', 'Pump.fun Amm']) {
-      const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label }) });
+      const asked: BuildParams[] = [];
+      const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label, asked }) });
       expect(prepared.policy.minOut).toBe(floor(50));
+      expect(asked.every(p => p.slippageBps === 50)).toBe(true);
     }
   });
 
-  it('Jupiter is asked for the wider tolerance, and its looser threshold does not lower Bound\'s floor', async () => {
+  it('the label alone does not widen the tolerance: the curve program must be in the route (BR-04)', async () => {
     const asked: BuildParams[] = [];
-    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ asked }) });
-    expect(asked.every(p => p.slippageBps === 300)).toBe(true);
+    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Pump.fun', asked }) });
     expect(prepared.policy.minOut).toBe(floor(50));
+    expect(asked.every(p => p.slippageBps === 50)).toBe(true);
   });
 
   it('a minimum the user accepted still wins on the bonding curve when it is stricter', async () => {
     const accepted = floor(100);
-    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Pump.fun' }), acceptedMinOut: accepted });
+    const prepared = await prepare(BONK, { jupiter: curve(), chain: onChain, acceptedMinOut: accepted });
     expect(prepared.policy.minOut).toBe(accepted);
   });
 });

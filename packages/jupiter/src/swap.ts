@@ -181,24 +181,41 @@ export function intermediatesFromSetup(setup: readonly ApiInstruction[], policy:
 
 /** Jupiter's label for the Pump.fun bonding curve; PumpSwap, after it, is `Pump.fun Amm`. */
 export const BONDING_CURVE_LABEL = 'Pump.fun';
+/** The Pump.fun bonding-curve program, which a route through the curve invokes. */
+export const PUMP_CURVE_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 
 type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps'>;
 
 /**
- * The slippage Bound accepts on a route: the bonding-curve one when any leg of the route trades on
- * a Pump.fun bonding curve, the usual one otherwise. Either way Bound computes the floor itself and
- * enforces it on chain.
+ * Does this route trade on a Pump.fun bonding curve? Jupiter's label says so, and the curve program
+ * must also be among the swap instruction's accounts: a label alone is Jupiter's word, unchecked,
+ * and it would widen the tolerance of any route it was put on (review BR-04).
  */
-export function slippageFor(r: Pick<BuildResponse, 'routePlan'>, settings: Slippages): number {
-  return r.routePlan.some(p => p.swapInfo.label === BONDING_CURVE_LABEL) ? settings.curveSlippageBps : settings.slippageBps;
+export function isCurveRoute(r: Pick<BuildResponse, 'routePlan' | 'swapInstruction'>): boolean {
+  return r.routePlan.some(p => p.swapInfo.label === BONDING_CURVE_LABEL)
+    && r.swapInstruction.accounts.some(a => a.pubkey === PUMP_CURVE_PROGRAM);
 }
 
 /**
- * The slippage Jupiter is asked for, before anyone knows the route: the widest Bound may accept, so
- * that Jupiter's own threshold never stops a route before Bound's floor would. It cannot weaken
- * that floor: Jupiter's threshold only ever makes it stricter (`strictMinimumOutput`).
+ * The slippage Bound accepts on a route: the bonding-curve one when the route trades on a Pump.fun
+ * bonding curve, the usual one otherwise. Either way Bound computes the floor itself and enforces it
+ * on chain.
  */
-export const requestSlippageBps = (settings: Slippages): number => Math.max(settings.slippageBps, settings.curveSlippageBps);
+export function slippageFor(r: Pick<BuildResponse, 'routePlan' | 'swapInstruction'>, settings: Slippages): number {
+  return isCurveRoute(r) ? settings.curveSlippageBps : settings.slippageBps;
+}
+
+/**
+ * The minimum to show for a quote Jupiter gave at the usual tolerance. A curve route is built at the
+ * curve tolerance, so its minimum is computed at that tolerance here, and the stricter threshold of
+ * this quote is not the one that will be enforced.
+ */
+export function quotedMinimum(
+  r: Pick<BuildResponse, 'routePlan' | 'swapInstruction' | 'outAmount' | 'otherAmountThreshold'>,
+  settings: Slippages,
+): bigint {
+  return isCurveRoute(r) ? minimumOutput(BigInt(r.outAmount), settings.curveSlippageBps) : routeFloor(r, settings.slippageBps);
+}
 
 /**
  * The minimum Bound enforces for a route (audit C-02): the quoted output less the slippage the user
@@ -445,14 +462,17 @@ export async function prepareProtectedSwap(deps: {
     outputMint: req.outputMint,
     amount: arriving,
     taker: E,
-    slippageBps: requestSlippageBps(settings),
+    // Each route is built at its own tolerance, so that Jupiter's program enforces a second floor on
+    // chain that does not depend on the balance Bound read from the RPC (review BR-01). A curve route
+    // is asked for again at the curve tolerance once it is known to be one.
+    slippageBps: settings.slippageBps,
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
   };
   // Individual quotes fail transiently ("pool has not been updated", "zero tradable amount"):
   // retry the baseline once and skip a failing maxAccounts level instead of giving up.
-  const buildOrNull = async (maxAccounts: number, excludeDexes?: readonly string[]) => {
+  const buildOrNull = async (maxAccounts: number, excludeDexes?: readonly string[], slippageBps = buildBase.slippageBps) => {
     try {
-      return await jupiter.build({ ...buildBase, maxAccounts, excludeDexes });
+      return await jupiter.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps });
     } catch (e) {
       if (e instanceof JupiterError && e.status < 500) return null;
       throw e;
@@ -599,8 +619,14 @@ export async function prepareProtectedSwap(deps: {
     /** How far the best route offered was below the unrestricted price, in bps. */
     let bestGapBps: bigint | null = null;
     for (const [level, maxAccounts] of MAX_ACCOUNTS_LEVELS.entries()) {
-      const r = attempt === 0 && level === 0 ? await firstRouteTask : await buildOrNull(maxAccounts, excluded);
+      let r = attempt === 0 && level === 0 ? await firstRouteTask : await buildOrNull(maxAccounts, excluded);
       if (!r) continue;
+      // A curve route is built again at the curve tolerance, so Jupiter's threshold matches Bound's
+      // floor. If the new answer is no longer a curve route, the first one stands.
+      if (isCurveRoute(r) && settings.curveSlippageBps !== settings.slippageBps) {
+        const wide = await buildOrNull(maxAccounts, excluded, settings.curveSlippageBps);
+        if (wide && isCurveRoute(wide)) r = wide;
+      }
       if (!answersThisRequest(r)) { sawBadQuote = true; continue; }
       const out = BigInt(r.outAmount);
       const gap = baselineOut > 0n ? ((baselineOut - out) * 10_000n) / baselineOut : 0n;

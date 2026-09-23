@@ -7,7 +7,7 @@ import type { Address, KeyPairSigner } from '@solana/kit';
 import { feeFor, JUPITER_PROGRAM } from '@bound/core';
 import type { TxVersion } from '@bound/core';
 import {
-  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, prepareProtectedSwap, requestSlippageBps, routeFloor, slippageFor,
+  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, prepareProtectedSwap, quotedMinimum,
 } from '@bound/jupiter';
 import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
 import { createEphemeral } from '@bound/solana';
@@ -334,7 +334,7 @@ export function SwapApp() {
           // The same amount the swap itself will route: what is left after the token's own tax.
           inputMint: address(tokenIn.id), outputMint: address(tokenOut.id),
           amount: amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts),
-          taker: address(QUOTE_TAKER), slippageBps: requestSlippageBps(DEFAULT_SETTINGS), maxAccounts: 64,
+          taker: address(QUOTE_TAKER), slippageBps: DEFAULT_SETTINGS.slippageBps, maxAccounts: 64,
           excludeDexes: status?.excludeDexes ?? DEFAULT_SETTINGS.excludeDexes,
         })
         .then(r => {
@@ -344,7 +344,7 @@ export function SwapApp() {
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
           setQuote(answersThis
-            ? { out: BigInt(r.outAmount), minOut: routeFloor(r, slippageFor(r, DEFAULT_SETTINGS)), at: Date.now() }
+            ? { out: BigInt(r.outAmount), minOut: quotedMinimum(r, DEFAULT_SETTINGS), at: Date.now() }
             : null);
         })
         .catch(() => !cancelled && setQuote(null))
