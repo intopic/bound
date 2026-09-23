@@ -53,6 +53,17 @@ export function onAccountChange(wallet: Wallet, listener: (accounts: readonly Wa
   return f ? f.on('change', props => props.accounts && listener(mainnetAccounts(props.accounts))) : () => {};
 }
 
+/**
+ * The transaction version to build for a wallet: v0, and v1 only when this build enables it. v1 is
+ * live on mainnet, but no Bound v1 transaction has landed yet, so a wallet that advertises v1 must
+ * not make every swap depend on it (review BR-12). Null when the wallet signs neither.
+ */
+export function chooseVersion(supported: readonly (string | number)[], v1Enabled: boolean): 0 | 1 | null {
+  const versions = supported.map(String);
+  if (v1Enabled && versions.includes('1')) return 1;
+  return versions.includes('0') ? 0 : null;
+}
+
 export function supportedVersions(wallet: Wallet): readonly (string | number)[] {
   return (wallet.features['solana:signTransaction'] as SignFeature).supportedTransactionVersions ?? ['legacy', 0];
 }

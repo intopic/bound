@@ -90,6 +90,7 @@ Fixed at build time (compiled into the page, so the server cannot change them af
 | --- | --- | --- |
 | `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. Pre-create its token accounts for the tokens you charge in: a swap whose input token has no treasury account is fee-free |
 | `NEXT_PUBLIC_BOUND_FEE_BPS` | 20 | 0.2%. The verifier refuses more than 100 (1%) |
+| `NEXT_PUBLIC_BOUND_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Bound v1 swap has landed on mainnet |
 
 Server only (never sent to the browser):
 

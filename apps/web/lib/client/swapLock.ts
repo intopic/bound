@@ -17,7 +17,7 @@ const ACTIVE_MS = 180_000; // prepare, wallet and send; refreshed on release
 const UNSETTLED_MS = 150_000; // an unknown outcome: until the transaction can no longer land
 
 type Stored = { token: string; until: number };
-export type SwapLock = { release(settled: boolean): void };
+export type SwapLock = { refresh(): void; release(settled: boolean): void };
 
 const read = (key: string): Stored | null => {
   const raw = window.localStorage.getItem(key);
@@ -33,9 +33,22 @@ export function acquireSwapLock(owner: string, outputMint: string): SwapLock | n
     window.localStorage.setItem(key, JSON.stringify({ token, until: Date.now() + ACTIVE_MS }));
     if (read(key)?.token !== token) return null; // another tab won the race
   } catch {
-    return { release() {} };
+    return { refresh() {}, release() {} };
   }
   return {
+    /**
+     * Keeps the lock for another full period. Called when the wallet opens and when the swap is sent:
+     * two price questions, the builds and a wallet left open can outlast one period, and a lock that
+     * lapsed while its transaction could still land would let a second swap count the first one's
+     * tokens toward its minimum (review BR-02).
+     */
+    refresh() {
+      try {
+        if (read(key)?.token === token) window.localStorage.setItem(key, JSON.stringify({ token, until: Date.now() + ACTIVE_MS }));
+      } catch {
+        // nothing to refresh
+      }
+    },
     /** `settled`: the outcome is final. Otherwise the lock is kept while the swap could still land. */
     release(settled) {
       try {

@@ -14,9 +14,9 @@ import { createEphemeral } from '@bound/solana';
 import type { SendOutcome } from '@bound/solana';
 import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
-import { FEE_BPS, TREASURY } from '@/lib/client/config';
+import { FEE_BPS, TREASURY, V1_ENABLED } from '@/lib/client/config';
 import {
-  connectWallet, disconnectWallet, onAccountChange, supportedVersions, useWallets, walletSign,
+  chooseVersion, connectWallet, disconnectWallet, onAccountChange, supportedVersions, useWallets, walletSign,
 } from '@/lib/client/wallets';
 import { formatExact, formatUnits, formatUsd, parseUnits, shortAddress } from '@/lib/client/format';
 import {
@@ -504,8 +504,7 @@ export function SwapApp() {
     if (inDecimals === null || outDecimals === null) return;
     const inToken = tokenIn;
     const outToken = tokenOut;
-    const versions = supportedVersions(wallet).map(String);
-    const version: TxVersion | null = versions.includes('1') ? 1 : versions.includes('0') ? 0 : null;
+    const version: TxVersion | null = chooseVersion(supportedVersions(wallet), V1_ENABLED);
     if (version === null) {
       setNotice({
         kind: 'error', title: `${wallet.name} can't sign this kind of transaction`,
@@ -558,9 +557,11 @@ export function SwapApp() {
           : null,
       });
       setPhase('wallet');
+      lock.refresh();
       const signed = await walletSign(wallet, account, new Uint8Array(getTransactionEncoder().encode(prepared.transaction)));
 
       setPhase('sending');
+      lock.refresh();
       const result = await finalizeProtectedSwap({
         rpc: getRpc(), prepared, walletSignedBytes: signed, ephemeral: E,
         onStatus: (s, signature) => {
