@@ -15,8 +15,8 @@ import {
 import type { Address, Transaction } from '@solana/kit';
 import { findAssociatedTokenPda } from '@solana-program/token';
 import {
-  ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, BPS_DENOMINATOR, LAMPORTS_PER_SIGNATURE, LEGACY_SIZE_LIMIT, MAX_COMPUTE_UNITS,
-  MAX_TAKER_RENT_LAMPORTS,
+  ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, BPS_DENOMINATOR, JUPITER_PROGRAM, LAMPORTS_PER_SIGNATURE, LEGACY_SIZE_LIMIT,
+  MAX_COMPUTE_UNITS, MAX_CURVE_SLIPPAGE_BPS, MAX_ROUTE_SLIPPAGE_BPS, MAX_TAKER_RENT_LAMPORTS, PUMP_CURVE_PROGRAM,
   MAX_FEE_BPS, MAX_INTERMEDIATE_ACCOUNTS, MAX_LOADED_ACCOUNTS_DATA_SIZE, MINT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, V1_MAX_ACCOUNTS,
   V1_SIZE_LIMIT, WSOL_MINT,
 } from '@bound/core/constants';
@@ -102,6 +102,9 @@ const EXTENSION_NAMES: Record<number, string> = {
   1: 'transfer fee', 6: 'accounts frozen by default', 8: 'memo required on transfer',
   9: 'non-transferable', 10: 'interest-bearing', 12: 'permanent delegate', 25: 'scaled UI amount',
   26: 'pausable',
+  // Added to Token-2022 in 2025–2026 (review FA-13). Refused like any extension not reviewed yet;
+  // 24 and 28 do not act on public transfers and may be allowed after a review of their code.
+  24: 'confidential mint and burn', 27: 'pausable accounts', 28: 'permissioned burn',
 };
 
 /**
@@ -250,6 +253,45 @@ export function memoRequired(data: Uint8Array): boolean {
   return false;
 }
 
+/**
+ * The arguments of Jupiter's route instruction that decide what Jupiter enforces on chain (review
+ * FA-03). Its program stops the swap when this instruction's output is below `quotedOutAmount` less
+ * `slippageBps`, whatever the destination held before: a second floor that does not depend on the
+ * balance Bound read from the RPC. Read here so that a forged answer cannot switch it off.
+ *
+ *   route_v2:                 [8 discriminator][in u64][quoted out u64][slippage u16][platform fee u16][positive slippage u16][route plan]
+ *   shared_accounts_route_v2: the same after a one-byte id
+ *
+ * Read off /swap/v2/build answers on 23 September 2026 (the amounts and tolerance at these offsets
+ * matched the JSON for 0.5% and 3% routes). Any other instruction of Jupiter's is refused, so a
+ * change of format stops swaps rather than letting an unread one through.
+ */
+export type JupiterRouteArgs = {
+  inAmount: bigint;
+  quotedOutAmount: bigint;
+  slippageBps: number;
+  platformFeeBps: number;
+  positiveSlippageBps: number;
+};
+const ROUTE_V2 = [0xbb, 0x64, 0xfa, 0xcc, 0x31, 0xc4, 0xaf, 0x14];
+const SHARED_ACCOUNTS_ROUTE_V2 = [0xd1, 0x98, 0x53, 0x93, 0x7c, 0xfe, 0xd8, 0xe9];
+
+export function jupiterRouteArgs(data: ArrayLike<number>): JupiterRouteArgs | null {
+  const d = Uint8Array.from(data);
+  const starts = (disc: number[]) => d.length >= 8 && disc.every((b, i) => d[i] === b);
+  const base = starts(ROUTE_V2) ? 8 : starts(SHARED_ACCOUNTS_ROUTE_V2) ? 9 : -1;
+  // The fixed arguments, then at least the length of the route plan.
+  if (base < 0 || d.length < base + 22 + 4) return null;
+  const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  return {
+    inAmount: v.getBigUint64(base, true),
+    quotedOutAmount: v.getBigUint64(base + 8, true),
+    slippageBps: v.getUint16(base + 16, true),
+    platformFeeBps: v.getUint16(base + 18, true),
+    positiveSlippageBps: v.getUint16(base + 20, true),
+  };
+}
+
 const V1_ALLOWED_CONFIG =
   TRANSACTION_CONFIG_PRIORITY_FEE_LAMPORTS_BIT_MASK |
   TRANSACTION_CONFIG_COMPUTE_UNIT_LIMIT_BIT_MASK |
@@ -387,6 +429,27 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     if (x.program !== p.jupiterProgram) fail('R2', `external program ${x.program} is not Jupiter`);
   }
   const swapIndex = externals.length ? externals[0].i : -1;
+
+  // Jupiter's own floor, read from its instruction rather than trusted (review FA-03). Applied to
+  // Jupiter's program only: tests that stand a hostile program in its place (T6) have no such format.
+  for (const { x } of externals) {
+    if (x.kind !== 'external' || x.program !== JUPITER_PROGRAM) continue;
+    const args = jupiterRouteArgs(x.data);
+    if (!args) {
+      fail('R2', 'the Jupiter instruction is not a route Bound can read (route_v2 or shared_accounts_route_v2)');
+      continue;
+    }
+    const curve = x.accounts.some(a => a.address === PUMP_CURVE_PROGRAM);
+    const maxSlippage = curve ? MAX_CURVE_SLIPPAGE_BPS : MAX_ROUTE_SLIPPAGE_BPS;
+    if (args.platformFeeBps !== 0 || args.positiveSlippageBps !== 0) {
+      fail('R2', `the Jupiter route takes a platform fee (${args.platformFeeBps} bps) or positive slippage (${args.positiveSlippageBps} bps)`);
+    }
+    if (args.slippageBps > maxSlippage) fail('R2', `the Jupiter route tolerates ${args.slippageBps} bps, above ${maxSlippage}`);
+    if (args.quotedOutAmount < p.minOut) fail('R2', `the Jupiter route quotes ${args.quotedOutAmount}, below the minimum output ${p.minOut}`);
+    if (args.inAmount <= 0n || args.inAmount > p.swapAmount) {
+      fail('R2', `the Jupiter route spends ${args.inAmount}, outside the approved ${p.swapAmount}`);
+    }
+  }
 
   // Intermediate ATA(E, m) accounts: allowed only as matched create + close pairs (D14).
   const intermediates = new Map<string, { tokenProgram: Address; mint: Address; created: number; closed: number; fee: boolean; harvested?: number }>();
@@ -544,6 +607,18 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (wOut) {
     if (!snapshot.accounts.has(wOut)) fail('R1', 'W_out missing from the snapshot');
     else if (hasCloseAuthority(snapshot.accounts.get(wOut))) fail('R1', 'W_out has a close authority set');
+  }
+
+  // Bound's own accounts are named in the message itself, never loaded from a lookup table (review
+  // FA-16): a table is read from the RPC, and an address that resolves differently on chain than in
+  // the snapshot would redirect a trusted transfer. Jupiter's tables hold pools, never these.
+  const fromTables = new Set(loaded.slice(compiled.staticAccounts.length));
+  const own: [string, Address | null][] = [
+    ['W_in', wIn], ['W_out', wOut], ['E_in', eIn], ['E_out', eOut], ["Bound's fee account", feeDestination],
+    ['the treasury', p.treasury], ...[...intermediates.keys()].map(k => ['an intermediate account', k as Address] as [string, Address]),
+  ];
+  for (const [label, address] of own) {
+    if (address && fromTables.has(address)) fail('R1', `${label} is loaded from a lookup table`);
   }
 
   // R3: E and its accounts are fresh.

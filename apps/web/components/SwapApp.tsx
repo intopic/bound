@@ -43,7 +43,7 @@ type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number; at: 
 /** What the wallet is about to be asked to sign, shown while it is open. */
 type Pending = {
   minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
-  tokenTax: string | null;
+  tokenTax: string | null; busyNetwork: string | null;
 };
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
 /** A question the page puts to the user mid-swap, with nothing signed yet. */
@@ -126,6 +126,9 @@ const PLAIN_REFUSAL: Record<string, string> = {
   'interest-bearing': 'the balance a wallet shows differs from the amount on chain',
   'scaled UI amount': 'the balance a wallet shows differs from the amount on chain',
   'memo required on transfer': 'it requires a note on every transfer',
+  'confidential mint and burn': 'its supply can change in ways the chain does not show',
+  'pausable accounts': 'its issuer can pause transfers',
+  'permissioned burn': 'it uses a burn rule Bound has not reviewed yet',
 };
 const plainRefusal = (reason: string) => PLAIN_REFUSAL[reason] ?? `it uses ${reason}`;
 
@@ -317,7 +320,8 @@ async function settleHistory(): Promise<HistoryEntry[] | null> {
     .send();
   const needsHeight = open.some((h, i) => !value[i] && h.lastValidBlockHeight !== undefined);
   const blockHeight = needsHeight
-    ? await rpc.getBlockHeight({ commitment: 'confirmed' }).send().then(BigInt).catch(() => null)
+    // Finalized: a lagging status node must not make a landed swap look expired (FA-07).
+    ? await rpc.getBlockHeight({ commitment: 'finalized' }).send().then(BigInt).catch(() => null)
     : null;
   // Once the recorded lifetime is over, ask full history again. A status read made just before the
   // height read may have lagged a transaction that landed near the boundary; one empty read is not
@@ -475,8 +479,15 @@ export function SwapApp() {
   const refreshAccounts = useCallback(async () => {
     const exists = async (a: Address) =>
       (await getRpc().getAccountInfo(a, { encoding: 'base64', commitment: 'confirmed' }).send()).value !== null;
+    // A fee account frozen by the token's issuer cannot receive, so that swap is fee-free (FA-12).
+    const receives = async (a: Address) => {
+      const { value } = await getRpc().getAccountInfo(a, { encoding: 'base64', commitment: 'confirmed' }).send();
+      if (!value) return false;
+      const data = Uint8Array.from(atob((value.data as unknown as [string, string])[0]), c => c.charCodeAt(0));
+      return !(data.length > 108 && data[108] === 2);
+    };
     const fee = TREASURY && tokenIn && tokenIn.id !== SOL_MINT && inFacts && inFacts !== 'missing'
-      ? await exists(await mintAta(TREASURY, tokenIn.id, inFacts))
+      ? await receives(await mintAta(TREASURY, tokenIn.id, inFacts))
       : true;
     const out = W && tokenOut && tokenOut.id !== SOL_MINT && outFacts && outFacts !== 'missing'
       ? await exists(await mintAta(W, tokenOut.id, outFacts))
@@ -843,6 +854,9 @@ export function SwapApp() {
           // Pump.fun charges every new buyer a small account deposit, and it does not come back.
           routeRent > 0n ? `${formatExact(routeRent, 9)} SOL account fee charged by this market` : '',
         ].filter(Boolean).join('; ') || null,
+        busyNetwork: prepared.priorityFeeCapped
+          ? 'The network is busy and the network fee is at its limit, so this swap may take longer to land, or expire without executing. An expired swap costs nothing.'
+          : null,
         removesDelegate: prepared.notices.removesDelegate
           ? `It also removes an existing spending permission (delegate) on your ${outToken.symbol} account.`
           : null,
@@ -856,6 +870,16 @@ export function SwapApp() {
       const toSend = prepared;
       const signed = await walletSign(wallet, account, new Uint8Array(getTransactionEncoder().encode(toSend.transaction)));
 
+      // The minimum is checked on chain as W_out's balance before plus the minimum. If that balance
+      // moved while the wallet was open (another swap into this token, from another device, or a
+      // transfer), the check could count those tokens: stop before E signs (review FA-04).
+      if (!(await outputBalanceUnchanged(toSend))) {
+        setNotice({
+          kind: 'info', title: `Your ${outToken.symbol} balance changed while the wallet was open`,
+          body: 'Another swap or a transfer arrived. Bound stopped before adding its signature, so this swap can never run. No funds moved; try again.',
+        });
+        return;
+      }
       setPhase('sending');
       lock.refresh();
       const result = await finalizeProtectedSwap({
@@ -1141,6 +1165,7 @@ export function SwapApp() {
                 {pending.oneTimeCost && <> Also: {pending.oneTimeCost}.</>}
                 {pending.removesDelegate && <> {pending.removesDelegate}</>}
                 {pending.tokenTax && <> {pending.tokenTax}</>}
+                {pending.busyNetwork && <> {pending.busyNetwork}</>}
               </p>
             )}
             <p>

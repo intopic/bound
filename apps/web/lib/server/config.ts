@@ -7,7 +7,7 @@ import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@bound/core';
  * compromised server cannot change where fees go or how large they are (audit B-01).
  */
 export function serverConfig() {
-  const maxFee = BigInt(process.env.BOUND_MAX_NETWORK_FEE_LAMPORTS ?? '200000');
+  const maxFee = BigInt(process.env.BOUND_MAX_NETWORK_FEE_LAMPORTS ?? '500000');
   return {
     rpcUrl: process.env.RPC_URL || 'https://api.mainnet-beta.solana.com',
     jupiterApiKey: process.env.JUPITER_API_KEY || null,

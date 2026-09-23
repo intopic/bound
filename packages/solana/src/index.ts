@@ -199,7 +199,13 @@ export type SendRefusal = 'paused' | 'busy' | 'network';
 export type SendResult = { signature: string; status: SendOutcome; error: string | null; refusal?: SendRefusal };
 
 export type SendTiming = { pollMs: number; rebroadcastMs: number; giveUpMs: number; settleTries: number; settleMs: number };
-const TIMING: SendTiming = { pollMs: 1_000, rebroadcastMs: 3_000, giveUpMs: 150_000, settleTries: 5, settleMs: 2_000 };
+// Settling waits up to 30 s: expiry is proven against the finalized height, which trails the
+// confirmed one by about 13 s.
+const TIMING: SendTiming = { pollMs: 1_000, rebroadcastMs: 3_000, giveUpMs: 150_000, settleTries: 15, settleMs: 2_000 };
+
+/** An outcome only once the cluster has confirmed it: an error seen at `processed` may be on a fork. */
+const settled = (s: { confirmationStatus?: string | null } | null | undefined) =>
+  !!s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized');
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const stringify = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? x.toString() : x));
@@ -295,8 +301,7 @@ export async function sendAndConfirm(args: {
     await sleep(t.pollMs);
     try {
       const s = await lookup(false);
-      if (s?.err) return done('failed', stringify(s.err));
-      if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return done('confirmed');
+      if (settled(s)) return s!.err ? done('failed', stringify(s!.err)) : done('confirmed');
       const height = await rpc.getBlockHeight({ commitment: 'confirmed' }).send();
       if (height > lastValidBlockHeight) return settleAfterExpiry();
     } catch {
@@ -310,21 +315,27 @@ export async function sendAndConfirm(args: {
   return done('unknown', 'the outcome could not be read from the network');
 
   // The blockhash has expired, so the transaction can no longer be included. Stop re-broadcasting
-  // and read the full status history: seen but only `processed` is not an outcome yet.
+  // and read the full status history: seen but only `processed` is not an outcome yet. "Expired" is
+  // said only when the finalized height is past the lifetime too, so that a status node lagging
+  // behind the node that answered the height cannot make a landed swap look expired (FA-07).
   async function settleAfterExpiry(): Promise<SendResult> {
     let notFound = 0;
+    let seen = false;
     for (let i = 0; i < t.settleTries; i++) {
       try {
         const s = await lookup(true);
-        if (s?.err) return done('failed', stringify(s.err));
-        if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return done('confirmed');
-        if (!s && ++notFound >= 2) return done('expired');
+        if (settled(s)) return s!.err ? done('failed', stringify(s!.err)) : done('confirmed');
+        seen ||= !!s;
+        if (!s) {
+          const finalized = await rpc.getBlockHeight({ commitment: 'finalized' }).send();
+          if (finalized > lastValidBlockHeight && ++notFound >= 2) return done('expired');
+        }
       } catch {
         // keep settling
       }
       await sleep(t.settleMs);
     }
-    return done('unknown', 'seen by the network but not confirmed');
+    return done('unknown', seen ? 'seen by the network but not confirmed' : 'the outcome could not be proven');
   }
 }
 

@@ -42,6 +42,16 @@ export const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1_000_000n; // 0.001 SOL
  * wants SOL to spend, not to rent with, cannot fit under it.
  */
 export const MAX_TAKER_RENT_LAMPORTS = 5_000_000n; // 0.005 SOL
+/**
+ * The most tolerance a Jupiter route may carry on chain (review FA-03). Jupiter's program stops the
+ * swap when this instruction delivers less than its quoted amount less this tolerance, whatever the
+ * destination held before, so it is a floor independent of the RPC. The verifier reads it from the
+ * instruction: 0.5%, or 3% when the route trades on a Pump.fun bonding curve.
+ */
+export const MAX_ROUTE_SLIPPAGE_BPS = 50;
+export const MAX_CURVE_SLIPPAGE_BPS = 300;
+/** Pump.fun's bonding-curve program: a route through it is priced on the curve. */
+export const PUMP_CURVE_PROGRAM = address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
 export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
 
 /**

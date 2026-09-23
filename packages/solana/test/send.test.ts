@@ -29,10 +29,11 @@ async function signedTransaction() {
 
 type Status = { confirmationStatus: 'processed' | 'confirmed' | 'finalized'; err: unknown } | null;
 /** Each read takes the next scripted value; the last one repeats. 'throw' simulates a failed read. */
-function fakeRpc(script: { firstSend?: 'ok' | Error; statuses?: (Status | 'throw')[]; heights?: bigint[] }) {
+function fakeRpc(script: { firstSend?: 'ok' | Error; statuses?: (Status | 'throw')[]; heights?: bigint[]; finalizedHeights?: bigint[] }) {
   let sends = 0;
   let statusReads = 0;
   let heightReads = 0;
+  let finalizedReads = 0;
   const next = <T>(list: T[], i: number) => list[Math.min(i, list.length - 1)];
   const rpc = {
     sendTransaction: () => ({
@@ -48,7 +49,11 @@ function fakeRpc(script: { firstSend?: 'ok' | Error; statuses?: (Status | 'throw
         return { value: [s] };
       },
     }),
-    getBlockHeight: () => ({ send: async () => next(script.heights ?? [1n], heightReads++) }),
+    getBlockHeight: (config?: { commitment?: string }) => ({
+      send: async () => (config?.commitment === 'finalized' && script.finalizedHeights
+        ? next(script.finalizedHeights, finalizedReads++)
+        : next(script.heights ?? [1n], heightReads++)),
+    }),
   } as unknown as SolanaRpc;
   return { rpc, reads: () => statusReads };
 }
@@ -210,5 +215,22 @@ describe('one send, for a caller that confirms on its own (the agent API)', () =
 
   it('a lost connection is unknown: it may have been forwarded', async () => {
     expect((await once({ firstSend: new Error('fetch failed') })).status).toBe('unknown');
+  });
+});
+
+describe('outcomes are said only once the chain proves them (review FA-07)', () => {
+  it('an error seen only at processed (a fork, perhaps) is not a failure: the swap lands confirmed later', async () => {
+    const processedError: Status = { confirmationStatus: 'processed', err: { InstructionError: [3, { Custom: 1 }] } };
+    expect((await run({ statuses: [processedError, confirmed] })).result.status).toBe('confirmed');
+  });
+
+  it('expiry needs the finalized height past the lifetime too, so a lagging node cannot make it expired', async () => {
+    const { result } = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID] });
+    expect(result.status).toBe('unknown');
+  });
+
+  it('a failure confirmed by the chain is a failure', async () => {
+    const failed: Status = { confirmationStatus: 'confirmed', err: { InstructionError: [3, { Custom: 1 }] } };
+    expect((await run({ statuses: [failed] })).result.status).toBe('failed');
   });
 });

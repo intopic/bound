@@ -44,6 +44,23 @@ export const LIFETIME = {
 
 export const randomAddress = async () => (await generateKeyPairSigner()).address;
 
+/**
+ * Jupiter's route_v2 data as /swap/v2/build returns it: discriminator, amount in, quoted amount out,
+ * tolerance, platform fee and positive slippage (both 0), then a one-step route plan.
+ */
+export function routeV2Data(inAmount: bigint, quotedOut: bigint, slippageBps = 50): Uint8Array {
+  const d = new Uint8Array(8 + 22 + 4 + 6);
+  d.set([0xbb, 0x64, 0xfa, 0xcc, 0x31, 0xc4, 0xaf, 0x14], 0);
+  const v = new DataView(d.buffer);
+  v.setBigUint64(8, inAmount, true);
+  v.setBigUint64(16, quotedOut, true);
+  v.setUint16(24, slippageBps, true);
+  v.setUint32(30, 1, true);
+  d.set([0x97, 0x01, 0x10, 0x27, 0x00, 0x01], 34);
+  return d;
+}
+
+
 export const CONFIG = (treasury: Address | null) => ({
   feeBps: 50n,
   treasury,
@@ -144,7 +161,8 @@ export async function scenario(opts: {
       { address: DEX, role: AccountRole.READONLY },
       ...pools.map(p => ({ address: p, role: AccountRole.WRITABLE })),
     ],
-    data: new Uint8Array([229, 23, 203, 151, 122, 227, 173, 42, 1, 2, 3, 4]),
+    // Quoted at twice the minimum, at 0.5%: what an honest route carries.
+    data: routeV2Data(policy.swapAmount, policy.minOut * 2n),
   };
 
   const lookupTable = await randomAddress();

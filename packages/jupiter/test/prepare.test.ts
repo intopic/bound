@@ -21,15 +21,15 @@ import {
 } from './fakes.ts';
 import type { Account } from './fakes.ts';
 
-async function setup(output: Address, opts: { delegate?: boolean; wOutExists?: boolean; memo?: boolean } = {}) {
+async function setup(output: Address, opts: { delegate?: boolean; wOutExists?: boolean; memo?: boolean; frozenWOut?: boolean } = {}) {
   const W = (await generateKeyPairSigner()).address;
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
     [DEX, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }],
     [POOL, { owner: DEX, data: new Uint8Array(300) }],
   ]);
-  if (output !== WSOL_MINT && (opts.wOutExists || opts.delegate || opts.memo)) {
-    accounts.set(await ataOf(W, output), tokenAccount(W, output, { delegate: opts.delegate, memo: opts.memo }));
+  if (output !== WSOL_MINT && (opts.wOutExists || opts.delegate || opts.memo || opts.frozenWOut)) {
+    accounts.set(await ataOf(W, output), tokenAccount(W, output, { delegate: opts.delegate, memo: opts.memo, frozen: opts.frozenWOut }));
   }
   return { W, accounts };
 }
@@ -41,7 +41,7 @@ async function prepare(output: Address, opts: {
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
   chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
   input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
-  expectCurve?: boolean; version?: 0 | 1;
+  expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
@@ -420,6 +420,9 @@ describe('latency without weaker protection', () => {
   it('a runaway fee level is capped so the whole fee stays within R4', async () => {
     const prepared = await prepare(BONK, { feeLevels: [10n ** 15n] });
     expect(prepared.priorityFeeLamports + 10_000n).toBeLessThanOrEqual(settings.maxNetworkFeeLamports);
+    // Said before signing: the swap may land late or expire (review FA-15).
+    expect(prepared.priorityFeeCapped).toBe(true);
+    expect((await prepare(BONK, { feeLevels: [60_000n] })).priorityFeeCapped).toBe(false);
   });
 });
 
@@ -473,5 +476,23 @@ describe('a swap that landed and reverted: was it the price?', () => {
     expect(onPrice({ InstructionError: [floor, { Custom: 17 }] })).toBe(false); // a frozen account
     expect(onPrice({ InstructionError: [0, { Custom: 6001 }] })).toBe(false);
     expect(onPrice('InsufficientFundsForFee')).toBe(false);
+  });
+});
+
+describe('accounts frozen by the token issuer (review FA-12)', () => {
+  const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
+
+  it("a frozen fee account makes the swap fee-free instead of impossible (a stablecoin's blacklist, say)", async () => {
+    const feeAccount = await ataOf(TREASURY, USDC);
+    const frozen = await prepare(WSOL_MINT, { treasury: TREASURY, chain: [[feeAccount, tokenAccount(TREASURY, USDC, { frozen: true })]] });
+    expect(frozen.policy.fee).toBe(0n);
+    const open = await prepare(WSOL_MINT, { treasury: TREASURY, chain: [[feeAccount, tokenAccount(TREASURY, USDC)]] });
+    expect(open.policy.fee).toBeGreaterThan(0n);
+  });
+
+  it('a frozen output account is refused with its real reason, not as a failed route', async () => {
+    const error = await prepare(BONK, { frozenWOut: true }).then(() => null, (e: unknown) => e as BoundError);
+    expect(error?.code).toBe('output-account-restricted');
+    expect(error?.message).toContain('frozen');
   });
 });

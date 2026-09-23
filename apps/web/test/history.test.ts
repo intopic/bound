@@ -15,7 +15,9 @@ const entry = (lastValidBlockHeight?: string): HistoryEntry => ({
 describe('persisted swap settlement', () => {
   it('uses the signature status for confirmed and failed outcomes', () => {
     expect(settledHistoryStatus(entry('100'), { confirmationStatus: 'confirmed', err: null }, 50n)).toBe('confirmed');
-    expect(settledHistoryStatus(entry('100'), { confirmationStatus: 'processed', err: { InstructionError: [] } }, 50n)).toBe('failed');
+    expect(settledHistoryStatus(entry('100'), { confirmationStatus: 'confirmed', err: { InstructionError: [] } }, 50n)).toBe('failed');
+    // An error seen only at processed may be on a fork: not an outcome yet (review FA-07).
+    expect(settledHistoryStatus(entry('100'), { confirmationStatus: 'processed', err: { InstructionError: [] } }, 50n)).toBeNull();
   });
 
   it('expires only after the recorded last valid block height', () => {

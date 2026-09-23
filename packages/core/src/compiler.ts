@@ -185,9 +185,17 @@ export function compileProtectedSwap(input: CompileInput): CompiledSwap {
         m,
       ),
     );
-    const msg = input.lookupTables
-      ? compressTransactionMessageUsingAddressLookupTables(base, input.lookupTables as never)
-      : base;
+    // Bound's own accounts stay in the message itself (review FA-16): each is replaced by the
+    // table's own address, which never appears in the message, so its index is kept but unused.
+    const own = new Set<string>([
+      ...Object.values(input.policy.accounts).filter((a): a is Address => !!a),
+      ...(input.policy.treasury ? [input.policy.treasury] : []),
+      ...input.intermediates.map(x => x.ata),
+    ]);
+    const tables = input.lookupTables
+      ? Object.fromEntries(Object.entries(input.lookupTables).map(([table, list]) => [table, list.map(a => (own.has(a) ? table : a))]))
+      : null;
+    const msg = tables ? compressTransactionMessageUsingAddressLookupTables(base, tables as never) : base;
     transaction = compileTransaction(msg);
   }
   const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);

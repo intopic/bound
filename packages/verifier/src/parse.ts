@@ -23,7 +23,7 @@ export type Parsed =
   | { kind: 'revoke'; program: Address; source: Address; owner: Address }
   | { kind: 'close'; program: Address; account: Address; destination: Address; owner: Address }
   | { kind: 'harvest'; program: Address; mint: Address; sources: readonly Address[] }
-  | { kind: 'external'; program: Address; accounts: readonly Account[] }
+  | { kind: 'external'; program: Address; accounts: readonly Account[]; data: Uint8Array }
   | { kind: 'invalid'; program: Address; reason: string };
 
 const bytes = (d: RawInstruction['data']): Uint8Array => (d ? Uint8Array.from(d as ArrayLike<number>) : new Uint8Array());
@@ -105,5 +105,5 @@ export function parseInstruction(ix: RawInstruction): Parsed {
     return invalid(`System instruction ${data.length >= 4 ? view(data).getUint32(0, true) : '?'}`);
   }
 
-  return { kind: 'external', program, accounts: acc };
+  return { kind: 'external', program, accounts: acc, data };
 }

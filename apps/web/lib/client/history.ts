@@ -32,8 +32,9 @@ export function settledHistoryStatus(
   state: SignatureState,
   blockHeight: bigint | null,
 ): HistoryStatus | null {
-  if (state?.err) return 'failed';
-  if (state && (state.confirmationStatus === 'confirmed' || state.confirmationStatus === 'finalized')) return 'confirmed';
+  // Only a confirmed status is an outcome: an error seen at `processed` may be on a fork (FA-07).
+  const confirmed = !!state && (state.confirmationStatus === 'confirmed' || state.confirmationStatus === 'finalized');
+  if (confirmed) return state!.err ? 'failed' : 'confirmed';
   if (state || blockHeight === null || entry.lastValidBlockHeight === undefined) return null;
   try {
     return blockHeight > BigInt(entry.lastValidBlockHeight) ? 'expired' : null;

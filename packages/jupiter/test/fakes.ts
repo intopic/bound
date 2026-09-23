@@ -63,13 +63,13 @@ export function plain2022Mint(decimals: number): Account {
   return { owner: TOKEN_2022_PROGRAM, data };
 }
 
-export function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: boolean; memo?: boolean } = {}): Account {
+export function tokenAccount(owner: Address, mintAddress: Address, opts: { delegate?: boolean; memo?: boolean; frozen?: boolean } = {}): Account {
   // A Token-2022 account that requires a memo carries extension 8 after the account-type byte.
   const data = new Uint8Array(opts.memo ? 171 : 165);
   data.set(getAddressEncoder().encode(mintAddress), 0);
   data.set(getAddressEncoder().encode(owner), 32);
   if (opts.delegate) data[72] = 1;
-  data[108] = 1; // initialized
+  data[108] = opts.frozen ? 2 : 1; // initialized, or frozen by the mint's freeze authority
   if (opts.memo) {
     data[165] = 2; // AccountType::Account
     new DataView(data.buffer).setUint16(166, 8, true); // MemoTransfer
@@ -188,15 +188,16 @@ export function fakeJupiter(answer: {
       const eIn = await ataOf(E, p.inputMint);
       const destination = p.destinationTokenAccount ?? (await ataOf(E, WSOL_MINT));
       const meta = (pubkey: string, isSigner = false, isWritable = false) => ({ pubkey, isSigner, isWritable });
+      // The baseline is asked for without exclusions and a protected route with them, so this is how
+      // a route that costs more than the open market is simulated.
+      const outAmount = p.excludeDexes?.length ? (OUT * (10_000n - (answer.worseByBps ?? 0n))) / 10_000n : OUT;
       return {
         inputMint: p.inputMint,
         outputMint: p.outputMint,
         inAmount: (p.amount * (answer.inAmountFactor ?? 1n)).toString(),
-        // The baseline is asked for without exclusions and a protected route with them, so this
-        // is how a route that costs more than the open market is simulated.
-        outAmount: (p.excludeDexes?.length ? (OUT * (10_000n - (answer.worseByBps ?? 0n))) / 10_000n : OUT).toString(),
-        // Like Jupiter, the threshold is the quote less the slippage it was asked for.
-        otherAmountThreshold: (answer.threshold ?? (OUT * BigInt(10_000 - p.slippageBps)) / 10_000n).toString(),
+        outAmount: outAmount.toString(),
+        // Like Jupiter, the threshold is this route's quote less the slippage it was asked for.
+        otherAmountThreshold: (answer.threshold ?? (outAmount * BigInt(10_000 - p.slippageBps)) / 10_000n).toString(),
         routePlan: [{ percent: 100, swapInfo: { label: answer.label ?? 'Whirlpool', ammKey: POOL } }],
         computeBudgetInstructions: [],
         // Jupiter asks for an ATA of the taker for every token the route passes through. Bound
@@ -220,7 +221,7 @@ export function fakeJupiter(answer: {
             ...(answer.extraAccounts ?? []).map(a => meta(a, false, true)),
             ...(answer.curveProgram ? [meta(PUMP)] : []),
           ],
-          data: b64(new Uint8Array([229, 23, 203, 151, 122, 227, 173, 42, 1])),
+          data: b64(routeV2Data(p.amount * (answer.inAmountFactor ?? 1n), outAmount, p.slippageBps)),
         },
         cleanupInstruction: null,
         otherInstructions: [],
@@ -234,4 +235,20 @@ export function fakeJupiter(answer: {
       return {};
     },
   };
+}
+
+/**
+ * Jupiter's route_v2 data as /swap/v2/build returns it: discriminator, amount in, quoted amount out,
+ * tolerance, platform fee and positive slippage (both 0), then a one-step route plan.
+ */
+export function routeV2Data(inAmount: bigint, quotedOut: bigint, slippageBps = 50): Uint8Array {
+  const d = new Uint8Array(8 + 22 + 4 + 6);
+  d.set([0xbb, 0x64, 0xfa, 0xcc, 0x31, 0xc4, 0xaf, 0x14], 0);
+  const v = new DataView(d.buffer);
+  v.setBigUint64(8, inAmount, true);
+  v.setBigUint64(16, quotedOut, true);
+  v.setUint16(24, slippageBps, true);
+  v.setUint32(30, 1, true);
+  d.set([0x97, 0x01, 0x10, 0x27, 0x00, 0x01], 34);
+  return d;
 }

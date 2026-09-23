@@ -10,12 +10,12 @@ import {
 import { getAssignInstruction, getTransferSolInstruction } from '@solana-program/system';
 import { createNoopSigner } from '@solana/kit';
 import {
-  compileProtectedSwap, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, protectedInstructions, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
-  withTakerRent, WSOL_MINT,
+  compileProtectedSwap, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, protectedInstructions, PUMP_CURVE_PROGRAM, SYSTEM_PROGRAM,
+  TOKEN_2022_PROGRAM, TOKEN_PROGRAM, withTakerRent, WSOL_MINT,
 } from '@bound/core';
-import type { RuleId, TxVersion } from '@bound/core';
+import type { AccountState, RuleId, TxVersion } from '@bound/core';
 import { verify } from '../src/index.ts';
-import { BONK, compileRaw, cuIxs, honest, LIFETIME, randomAddress, scenario, USDC } from './fixtures.ts';
+import { BONK, compileRaw, cuIxs, honest, LIFETIME, randomAddress, routeV2Data, scenario, USDC } from './fixtures.ts';
 import type { Scenario } from './fixtures.ts';
 
 const rules = (v: { violations: { rule: RuleId }[] }) => [...new Set(v.violations.map(x => x.rule))];
@@ -506,5 +506,114 @@ describe('rent a route needs the temporary key to pay (PumpSwap)', () => {
     const { certify } = await import('../src/index.ts');
     const c = await certify(await compileHonest(s, 0), s.policy, s.snapshot);
     expect(c.ok && c.certificate.routeRentLamports).toBe(RENT);
+  });
+});
+
+const details = (v: { violations: { detail: string }[] }) => v.violations.map(x => x.detail);
+
+describe('each load-bearing check has a test of its own (review FA-09)', () => {
+  it('W in the swap is refused by its own check, also when W is in the snapshot as it is in production', async () => {
+    const s = await scenario();
+    (s.snapshot.accounts as Map<string, AccountState | null>).set(s.W, { owner: SYSTEM_PROGRAM, lamports: 5_000_000_000n, data: new Uint8Array() });
+    const v = await verify(mutated(s, withSwapAccounts(s, [{ address: s.W, role: AccountRole.READONLY }])), s.policy, s.snapshot);
+    expect(details(v)).toContain('the wallet is passed to the external program');
+  });
+
+  it('E as the fee payer is refused by the fee-payer check (the signer set alone would pass)', async () => {
+    const s = await scenario();
+    const v = await verify(compileRaw(s.E.address, [...cuIxs(), ...honest(s)], 0, s.lookupTables), s.policy, s.snapshot);
+    expect(details(v)).toContain('the fee payer is not the wallet');
+  });
+
+  it('the minimum-output check placed before the swap is refused', async () => {
+    const s = await scenario({ input: USDC, output: BONK });
+    const ixs = honest(s);
+    const floor = ixs.findIndex(ix => ix.programAddress === TOKEN_PROGRAM && ix.data?.[0] === 12
+      && ix.accounts?.[0].address === s.policy.accounts.wOut && ix.accounts?.[2].address === s.policy.accounts.wOut);
+    const [check] = ixs.splice(floor, 1);
+    ixs.splice(swapIndex(ixs), 0, check);
+    const v = await verify(mutated(s, ixs), s.policy, s.snapshot);
+    expect(details(v)).toContain('minOutCheck must run after the swap');
+  });
+});
+
+describe("Jupiter's own floor is read from its instruction (review FA-03)", () => {
+  const withData = (s: Scenario, data: Uint8Array, extra: { address: Address; role: AccountRole }[] = []) => {
+    const ixs = withSwapAccounts(s, extra);
+    const i = swapIndex(ixs);
+    ixs[i] = { ...ixs[i], data };
+    return ixs;
+  };
+  const check = async (make: (s: Scenario) => Uint8Array, opts: { curve?: boolean } = {}) => {
+    const s = await scenario();
+    const extra = opts.curve ? [{ address: PUMP_CURVE_PROGRAM, role: AccountRole.READONLY }] : [];
+    if (opts.curve) (s.snapshot.accounts as Map<string, AccountState | null>).set(PUMP_CURVE_PROGRAM, { owner: SYSTEM_PROGRAM, lamports: 1n, data: new Uint8Array(36) });
+    return verify(mutated(s, withData(s, make(s), extra)), s.policy, s.snapshot);
+  };
+  const set = (d: Uint8Array, at: number, bytes: number, value: number) => {
+    const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
+    if (bytes === 2) v.setUint16(at, value, true);
+    return d;
+  };
+
+  it('an honest route passes; so does the shared-accounts form of it', async () => {
+    expect((await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n))).violations).toEqual([]);
+    const shared = (s: Scenario) => {
+      const plain = routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n);
+      const d = new Uint8Array(plain.length + 1);
+      d.set([0xd1, 0x98, 0x53, 0x93, 0x7c, 0xfe, 0xd8, 0xe9, 7], 0);
+      d.set(plain.subarray(8), 9);
+      return d;
+    };
+    expect((await check(shared)).violations).toEqual([]);
+  });
+
+  it('any other instruction of Jupiter is refused, so a new format stops swaps instead of passing unread', async () => {
+    const v = await check(() => new Uint8Array([229, 23, 203, 151, 122, 227, 173, 42, 1, 2, 3, 4]));
+    expect(details(v).join()).toContain('not a route Bound can read');
+  });
+
+  it('a tolerance above 0.5% is refused, and above 3% on a bonding curve', async () => {
+    expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, 51))).join()).toContain('tolerates 51 bps');
+    expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, 10_000))).join()).toContain('tolerates 10000 bps');
+    expect((await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, 300), { curve: true })).violations).toEqual([]);
+    expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, 301), { curve: true })).join()).toContain('tolerates 301 bps');
+  });
+
+  it('a quote below the minimum output is refused: Jupiter would enforce less than Bound promised', async () => {
+    const v = await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut - 1n));
+    expect(details(v).join()).toContain('below the minimum output');
+  });
+
+  it('a platform fee or positive slippage taken by the route is refused', async () => {
+    expect(details(await check(s => set(routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n), 26, 2, 5))).join()).toContain('platform fee');
+    expect(details(await check(s => set(routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n), 28, 2, 5))).join()).toContain('positive slippage');
+  });
+
+  it('an amount in above what the temporary account holds, or zero, is refused', async () => {
+    expect(details(await check(s => routeV2Data(s.policy.swapAmount + 1n, s.policy.minOut * 2n))).join()).toContain('outside the approved');
+    expect(details(await check(s => routeV2Data(0n, s.policy.minOut * 2n))).join()).toContain('outside the approved');
+  });
+});
+
+describe("Bound's own accounts are never loaded from a lookup table (review FA-16)", () => {
+  for (const [name, pick] of [
+    ['W_out', (s: Scenario) => s.policy.accounts.wOut!],
+    ['E_in', (s: Scenario) => s.policy.accounts.eIn],
+    ["Bound's fee account", (s: Scenario) => s.policy.accounts.feeDestination!],
+  ] as const) {
+    it(`${name} in a table the message uses is refused`, async () => {
+      const s = await scenario({ input: USDC, output: BONK });
+      s.lookupTables[s.lookupTable].push(pick(s));
+      const v = await verify(mutated(s, honest(s)), s.policy, s.snapshot);
+      expect(details(v).join()).toContain('is loaded from a lookup table');
+    });
+  }
+
+  it('the compiler keeps them in the message even when a table lists them, and the result passes', async () => {
+    const s = await scenario({ input: USDC, output: BONK });
+    s.lookupTables[s.lookupTable].push(s.policy.accounts.wOut!, s.policy.accounts.eIn, s.policy.accounts.feeDestination!);
+    const v = await verify(await compileHonest(s, 0), s.policy, s.snapshot);
+    expect(v.violations).toEqual([]);
   });
 });

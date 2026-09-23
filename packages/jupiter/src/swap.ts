@@ -8,11 +8,13 @@ import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, feeFor, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
   LAMPORTS_PER_SIGNATURE, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
-  V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf,
+  V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, TxVersion, Violation } from '@bound/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
-import { certify, hasTransferFee, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn } from '@bound/verifier';
+import {
+  certify, hasTransferFee, jupiterRouteArgs, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn,
+} from '@bound/verifier';
 import type { Certificate } from '@bound/verifier';
 import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@bound/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
@@ -48,7 +50,9 @@ export type SwapSettings = BoundConfig & {
 
 export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'> = {
   feeBps: 20n,
-  maxNetworkFeeLamports: 200_000n,
+  // 0.0005 SOL. Under congestion 0.0002 SOL clipped the priority fee and swaps expired more often
+  // than elsewhere (review FA-15); the verifier's own ceiling stays 0.001 SOL.
+  maxNetworkFeeLamports: 500_000n,
   // HumidiFi opens a per-taker account whose rent (about 0.013 SOL) would be lost on every swap.
   // Pump.fun's two markets, PumpSwap and the bonding curve, do the same for about 0.0013–0.0015
   // SOL, which Bound pays through `takerRent` and shows.
@@ -126,6 +130,11 @@ export type PreparedSwap = {
   outputBalanceBefore: bigint;
   /** The priority fee this message pays, in lamports, chosen from recent fees (within R4). */
   priorityFeeLamports: bigint;
+  /**
+   * The network asked for a higher priority fee than the limit allows, so this one was capped: the
+   * swap may take longer to land, or expire without executing (review FA-15).
+   */
+  priorityFeeCapped: boolean;
   /** The network fee of this exact message, as the cluster prices it (audit B-12). */
   networkFeeLamports: bigint;
   /** Side effects the user should be told about before signing. */
@@ -215,7 +224,7 @@ export function recentFeeLevel(fees: readonly { prioritizationFee: bigint | numb
 /** Jupiter's label for the Pump.fun bonding curve; PumpSwap, after it, is `Pump.fun Amm`. */
 export const BONDING_CURVE_LABEL = 'Pump.fun';
 /** The Pump.fun bonding-curve program, which a route through the curve invokes. */
-export const PUMP_CURVE_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+export { PUMP_CURVE_PROGRAM } from '@bound/core';
 
 type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps'>;
 
@@ -226,7 +235,7 @@ type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps'>;
  */
 export function isCurveRoute(r: Pick<BuildResponse, 'routePlan' | 'swapInstruction'>): boolean {
   return r.routePlan.some(p => p.swapInfo.label === BONDING_CURVE_LABEL)
-    && r.swapInstruction.accounts.some(a => a.pubkey === PUMP_CURVE_PROGRAM);
+    && r.swapInstruction.accounts.some(a => a.pubkey === CURVE_PROGRAM);
 }
 
 /**
@@ -505,7 +514,10 @@ export async function prepareProtectedSwap(deps: {
     }
   }
 
-  const feeAccountExists = feeAccount ? !!firstReads.get(feeAccount) : true;
+  // A token account frozen by its issuer (a stablecoin's blacklist, say) cannot receive: a frozen fee
+  // account is treated like a missing one, so the swap is fee-free rather than impossible (FA-12).
+  const frozen = (s: { data: Uint8Array } | null | undefined) => !!s && s.data.length >= TOKEN_ACCOUNT_SIZE && s.data[108] === 2;
+  const feeAccountExists = feeAccount ? !!firstReads.get(feeAccount) && !frozen(firstReads.get(feeAccount)) : true;
   // A SOL fee into a treasury wallet that does not exist yet would open it below the rent minimum,
   // which the runtime refuses, and every small SOL swap would revert. Such a swap is fee-free, the
   // same as a token the treasury has no account for (review BR-06; audit B-09).
@@ -542,6 +554,12 @@ export async function prepareProtectedSwap(deps: {
       throw new BoundError(
         'output-account-restricted',
         'Your account for the output token has a close authority set, so Bound will not send the output there.',
+      );
+    }
+    if (frozen(state)) {
+      throw new BoundError(
+        'output-account-restricted',
+        "Your account for the output token is frozen by the token's issuer, so nothing can be sent to it.",
       );
     }
     if (state && memoRequired(state.data)) {
@@ -768,6 +786,13 @@ export async function prepareProtectedSwap(deps: {
         r = again;
       }
       if (!answersThisRequest(r)) { sawBadQuote = true; continue; }
+      // What Jupiter's program will enforce must be what its answer says (review FA-03): the amount
+      // in, the quote and the tolerance this route was asked for. The verifier checks the ceilings.
+      const args = jupiterRouteArgs(toKitInstruction(r.swapInstruction).data ?? new Uint8Array());
+      if (!args || args.inAmount !== BigInt(r.inAmount) || args.quotedOutAmount !== BigInt(r.outAmount) || args.slippageBps !== own) {
+        sawBadQuote = true;
+        continue;
+      }
       const out = BigInt(r.outAmount);
       const gap = baselineOut > 0n ? ((baselineOut - out) * 10_000n) / baselineOut : 0n;
       if (bestGapBps === null || gap < bestGapBps) bestGapBps = gap;
@@ -882,6 +907,7 @@ export async function prepareProtectedSwap(deps: {
       const v1Wanted = (microLamports * BigInt(units) + 999_999n) / 1_000_000n;
       const v1Priority = v1Wanted > settings.priorityFeeLamports ? v1Wanted : settings.priorityFeeLamports;
       const priorityFeeLamports = req.version === 1 ? (v1Priority < feeRoom ? v1Priority : feeRoom) : v1Wanted;
+      const priorityFeeCapped = wantedPrice > maxPrice || (req.version === 1 && v1Priority > feeRoom);
       const final = timed(() => compile(chosen.r, finalLifetime, chosen.intermediates, units, outputBalanceBefore, {
         microLamportsPerComputeUnit: microLamports, priorityFeeLamports,
       }));
@@ -936,6 +962,7 @@ export async function prepareProtectedSwap(deps: {
         networkFeeLamports: BigInt(clusterFee),
         outputBalanceBefore,
         priorityFeeLamports,
+        priorityFeeCapped,
         notices: { removesDelegate },
         tokenTax: inputFee ? { inputBps: inputFee.bps, extraOnInput: taxOnInput } : null,
         intermediates: chosen.intermediates,
