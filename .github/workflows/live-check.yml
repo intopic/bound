@@ -1,0 +1,30 @@
+name: Live check
+
+# Is the site serving the latest release? tools/check-live.ts compares every file under
+# /_next/static with the release's build-digest.txt and fails on any difference, so GitHub tells
+# the owner of this workflow. Off until the repository variable BOUND_SITE_URL is set.
+on:
+  schedule:
+    # Every three hours. On a private repository each run counts against the plan's Actions
+    # minutes; on a public one it is free and can run more often.
+    - cron: '17 */3 * * *'
+  # Run it by hand once the tagged deploy is live.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: vars.BOUND_SITE_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: The latest release's digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download --pattern build-digest.txt --dir release
+      - run: node tools/check-live.ts --site "${{ vars.BOUND_SITE_URL }}" --manifest release/build-digest.txt

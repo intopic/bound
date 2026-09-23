@@ -630,9 +630,9 @@ What was done, commit by commit:
 Left for operations, not code: the real-wallet test with Phantom and at least one other wallet; a
 treasury holding at least 0.01 SOL, with its fee accounts; deploying only from tags and a pause
 drill; branch protection (not available for a private repository on the current GitHub plan);
-confirming that a token pasted into an earlier chat was revoked; a published, monitored release
-digest (BR-07); firewall rate limits for the relays (BR-09); monitoring upgrades of the token
-programs and Jupiter (BR-13).
+confirming that a token pasted into an earlier chat was revoked; firewall rate limits for the relays
+(BR-09); monitoring upgrades of the token programs and Jupiter (BR-13). The release digest (BR-07)
+is now published and checked by workflows (section 0o); what remains of it is operational.
 
 ---
 
@@ -661,6 +661,34 @@ Cost: building ahead roughly triples the build calls per visitor who does not cl
 Jupiter (30 requests a minute for the whole site) that runs into its limit quickly, and a build
 ahead that fails falls back to building at the click; the paid Jupiter key is required for launch
 anyway.
+
+---
+
+## 0o. The release digest, published and checked (BR-07)
+
+The build was already reproducible (`tools/build-digest.ts`, CI builds every commit twice), but
+nothing published the digest or compared the live site with it. Now:
+
+- **`release.yml`**: pushing a tag `v*` builds that commit with `BOUND_BUILD_ID` set to it and the
+  public build settings from the repository variables (`NEXT_PUBLIC_BOUND_TREASURY`, `_FEE_BPS`,
+  `_ENABLE_V1`), and publishes a GitHub release with `build-digest.txt` (the hash of every file
+  under `/_next/static`) and the exact command to rebuild it.
+- **`live-check.yml`**: every three hours, and by hand after a deploy, `tools/check-live.ts` fetches
+  every file of the latest release from the site (`BOUND_SITE_URL`) and fails if any byte differs,
+  if a page refers to a static file the release does not have, or if a page loads a script from
+  anywhere else. A failed scheduled run is reported to the workflow's owner by GitHub.
+- **`next.config.ts`**: without `BOUND_BUILD_ID`, a Vercel build takes the commit from
+  `VERCEL_GIT_COMMIT_SHA`, so a deploy of the tagged commit produces the published files.
+
+Checked locally against `next start`: the healthy build passes; a release missing a chunk the page
+loads, a chunk with one byte appended, and an unreachable site each fail with the file named.
+
+What it does not see: the inline HTML (the CSP nonce changes it on every request), and a server
+that serves one thing to the check and another to users. Its value to users depends on the source
+being readable: while the repository is private, the digest protects the operator, not the user.
+
+Operational, not code: set `BOUND_SITE_URL` and the three `NEXT_PUBLIC_*` repository variables to the
+production values; deploy only tagged commits with Node 24; run the live check after each deploy.
 
 ---
 
@@ -972,7 +1000,8 @@ npm run e2e                             # needs Microsoft Edge
   only the network fee.
 - T6 runs against litesvm (the Agave runtime with real SPL programs), not a validator, and its
   attacker is our own program rather than a real DEX.
-- Not done yet: a reproducible build with SRI, and a dependency supply-chain review (section 0).
+- The build is reproducible and its digest is published with each release and compared with the
+  live site (section 0o); the inline HTML is outside it.
 
 ---
 

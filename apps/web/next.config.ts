@@ -11,8 +11,9 @@ const config: NextConfig = {
   // writes (lib/server/scriptIntegrity.ts); the browser test checks the coverage (SECURITY.md).
   experimental: { sri: { algorithm: 'sha384' } },
   // A build id that depends on the commit, not on the clock: two builds of the same source produce
-  // the same output, which is what makes `tools/build-digest.ts` worth publishing.
-  generateBuildId: () => process.env.BOUND_BUILD_ID ?? 'bound',
+  // the same output, which is what makes `tools/build-digest.ts` worth publishing. Vercel names the
+  // commit itself, so a deploy of a tag builds what release.yml published for it.
+  generateBuildId: () => process.env.BOUND_BUILD_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'bound',
   async headers() {
     return [
       {

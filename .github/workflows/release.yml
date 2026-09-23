@@ -1,0 +1,53 @@
+name: Release
+
+# A tag v* publishes the digest of what the browser loads for that commit, with the public build
+# settings compiled into it, so the live site can be checked against it (live-check.yml) and
+# anyone with the source can rebuild and compare (SECURITY.md, "Verifying the code you are running").
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      # The same values the production build uses; they are compiled into the page and so into
+      # the digest. Set them as repository variables (Settings → Secrets and variables → Actions).
+      NEXT_PUBLIC_BOUND_TREASURY: ${{ vars.NEXT_PUBLIC_BOUND_TREASURY }}
+      NEXT_PUBLIC_BOUND_FEE_BPS: ${{ vars.NEXT_PUBLIC_BOUND_FEE_BPS || '20' }}
+      NEXT_PUBLIC_BOUND_ENABLE_V1: ${{ vars.NEXT_PUBLIC_BOUND_ENABLE_V1 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: BOUND_BUILD_ID=$GITHUB_SHA npm run build
+      - run: npm run build:digest
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          digest=$(sed -n 's/^digest: //p' apps/web/.next/build-digest.txt)
+          cat > notes.md <<EOF
+          Build digest: \`$digest\`
+
+          Everything the browser loads from \`/_next/static\`, hashed file by file in \`build-digest.txt\`.
+          The live site is checked against it on a schedule (\`live-check.yml\`).
+
+          Rebuild and compare (Node 24):
+
+          \`\`\`
+          git checkout $GITHUB_REF_NAME
+          npm ci
+          NEXT_PUBLIC_BOUND_TREASURY=$NEXT_PUBLIC_BOUND_TREASURY NEXT_PUBLIC_BOUND_FEE_BPS=$NEXT_PUBLIC_BOUND_FEE_BPS NEXT_PUBLIC_BOUND_ENABLE_V1=$NEXT_PUBLIC_BOUND_ENABLE_V1 BOUND_BUILD_ID=$GITHUB_SHA npm run build
+          node tools/build-digest.ts
+          \`\`\`
+          EOF
+          gh release create "$GITHUB_REF_NAME" apps/web/.next/build-digest.txt \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+          echo "digest=$digest" >> "$GITHUB_STEP_SUMMARY"

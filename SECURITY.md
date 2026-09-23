@@ -199,8 +199,17 @@ tags carry one. The eighth is Next's layout chunk (router and error boundaries),
 before any page code runs; the browser test names it and fails if a second tag loses its hash. It
 is still covered by the digest above, which is over every file.
 
-Neither of these protects against a backend that serves a different page on purpose. What they do
-is make that visible to anyone who looks, instead of impossible to tell.
+**The live site is compared with the release.** A tag `v*` publishes a GitHub release with
+`build-digest.txt`, the hash of every file for that commit (`.github/workflows/release.yml`). Every
+three hours `tools/check-live.ts` fetches each of those files from the site and fails if one
+differs, if a page refers to a static file the release does not have, or if a page loads a script
+from anywhere else (`.github/workflows/live-check.yml`). Anyone can run the same check:
+`node tools/check-live.ts --site <url> --manifest build-digest.txt`.
+
+Neither of these protects against a backend that serves a different page on purpose, or a
+different page to some visitors only; the inline HTML is also outside the digest, since its nonce
+changes on every request. What they do is make a changed deploy visible to anyone who looks,
+instead of impossible to tell. For a user to rebuild and compare, the source must be readable.
 
 ## The dependencies that run in your browser
 
@@ -283,9 +292,11 @@ Bound simple; it never ran in the setup Bound uses, and bringing it back would b
   on `/api/rpc` are refused), not only hidden in the UI.
 - The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
   or a multisig (e.g. Squads).
-- Releases: build from a clean checkout of a signed tag and publish the build's digest
-  (`npm run build:digest`), so anyone can check that the page served is the one reviewed. The build
-  is deterministic: CI builds every commit twice and fails if the two digests differ.
+- Releases: deploy only tagged commits. A tag `v*` publishes the build's digest as a GitHub
+  release, built with the public settings in the repository variables, which must match
+  production's; the live check compares the site with it every three hours and needs
+  `BOUND_SITE_URL`. The build is deterministic: CI builds every commit twice and fails if the two
+  digests differ, and a Vercel build takes its build id from the commit.
 - No limit per swap: the guarantee is the same for any amount, and nothing in Bound holds funds.
   `BOUND_MAX_USD_PER_SWAP` exists as an operational valve and is unset by default; while it applies
   it is enforced in the page only, and tokens without a USD price are blocked. A large swap is
