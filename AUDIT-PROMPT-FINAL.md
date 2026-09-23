@@ -1,442 +1,408 @@
-# Master prompt: final engineering audit of Bound Protected Swap
+# Master prompt: research and compatibility audit of Bound Protected Swap
 
-You are a senior engineer auditing **Bound Protected Swap** before it meets real users and real
-agents. Your job has three parts, and all three matter equally:
+You are a senior Solana engineer. Before Bound Protected Swap meets real users and real agents, we
+want a **research audit, not a test run**. We have already tested our code heavily (the list is in
+section 2). What we have not done well enough is look outward: at how Solana, wallets, tokens,
+Jupiter, Pump.fun, RPC providers and agents actually work today (September 2026), and then read our
+code against that and ask: **will this work, for everyone it should work for, and did we leave
+anything out?**
 
-1. **Verify.** Prove, with research and experiments, that what Bound has built is correct: that
-   every assumption it makes about Solana, the token programs, Jupiter, Pump.fun, wallets, RPC
-   providers, hosting and agent frameworks is true today (September 2026), and that the code does
-   what its documents say.
-2. **Audit deeply.** Swaps, the agent API and skill, speed, load, parallel use, security,
-   reliability, cost, and the quality of the code. Measure where you can.
-3. **Suggest.** Wherever research shows a simpler, faster, cheaper or safer way to do the same
-   thing, propose it, with the evidence, the cost of changing and the risk of not changing.
+Your job, in this order:
 
-A previous research-first audit (FA-01 to FA-16) was run by a session of the same model that wrote
-the code, so it was not independent, and all of its findings have since been fixed. **Treat those
-fixes as new, unreviewed code**: that is where new bugs are most likely to be.
-
-Our documents are claims to test, not facts: `AUDIT.md` (section 0r lists the latest fixes),
-`SECURITY.md`, `AGENT-API.md`, `API-AGJENTET.md`, `README.md`, `skills/bound-protected-swap/SKILL.md`.
-Where a document and the code disagree, the code is what runs: report the disagreement.
-
----
-
-## 0. How to work
-
-- **Evidence first.** Every finding and every "this is correct" needs one of these:
-  - a test or proof of concept you ran;
-  - a simulation on mainnet state;
-  - a measurement;
-  - a quoted line of our code together with a quoted primary source;
-  - an argument a reader can check step by step.
-
-  Label each statement **verified** (you ran or read it), **sourced** (a primary source says so)
-  or **inferred** (reasoning only).
-- **Primary sources.** On-chain program data and deployed source, official docs, SIMDs, IDLs,
-  changelogs, explorers. Blogs and forums are leads, not evidence. Give a URL and a date for every
-  external fact, and say plainly what you could not confirm.
-- **Measure, don't estimate.** For speed, load and cost, report numbers with how you got them:
-  - where: local, public RPC or a paid provider, keyless or keyed Jupiter;
-  - how many runs;
-  - the median and the worst case.
-- **Safety.**
-  - No mainnet transaction with real funds, and no load against Jupiter, RPC providers or wallets
-    beyond ordinary use.
-  - Simulation on mainnet state (`sigVerify: false`) and local validators or litesvm are fine.
-  - Throwaway API keys only (`node tools/agent-key.ts`), deleted afterwards.
-  - Never put a key or a secret in a report.
-- **Don't stop at the first answer.** Every check that passes rests on an assumption; name it and
-  test that too. Do this across:
-  - variants A/B/C;
-  - v0 and v1 transactions;
-  - both token programs;
-  - both Pump markets;
-  - the page and the API.
+1. **Study the outside world.** How a swap transaction is built, signed, landed and confirmed today.
+   How wallets treat a transaction with two signers. Which tokens and token features exist and are
+   traded. How Jupiter and Pump.fun behave and change. How prices and blockhashes go stale, and how
+   good products refresh them. How agents trade and hold their keys. How others solve the problem
+   Bound solves.
+2. **Read our code against what you learned.** For each area, is Bound compatible? Will it work
+   reliably? Where will it break, refuse, or lose a user or a fee?
+3. **Find what we missed.** Situations, tokens, wallets, behaviours or upcoming changes that the code
+   and the documents do not account for.
+4. **Suggest.** Better and simpler ways to do what we do, where your research supports them.
 
 ---
 
-## 1. What Bound is, now
+## 0. Rules
+
+- **Do not run anything.** No `npm install`, no tests, no builds, no scripts, no local servers, no
+  simulations, no API keys, no transactions. Do not write test files. Reading the repository
+  (cloning it is fine) and reading public sources is the whole job.
+- **If you think something needs a test,** describe the test precisely: what to run, on what state,
+  and what result would prove or disprove your concern. We will run it.
+- **Primary sources first:** official documentation, SIMDs and the Solana repositories, program
+  source and IDLs, changelogs and release notes, wallet and SDK repositories and their issues,
+  explorers (looking up an account or a transaction counts as reading). Blogs, forums and social
+  posts are leads, not evidence.
+- **Label every statement:**
+  - **sourced:** a primary source says so; give the URL and the date you read it;
+  - **in the code:** give `file:line`;
+  - **inferred:** your reasoning only; say what would confirm it.
+- **Say plainly what you could not confirm.** An honest "unknown" is more useful to us than a guess.
+- **Our documents are claims, not facts:** `SECURITY.md`, `AUDIT.md` (section 0r lists the latest
+  changes), `AGENT-API.md`, `API-AGJENTET.md`, `README.md`,
+  `skills/bound-protected-swap/SKILL.md`. Where a document and the code disagree, the code is what
+  runs: report the disagreement.
+- Earlier audits were run by a session of the same model that wrote the code, so they were not
+  independent. Do not assume they were right.
+
+---
+
+## 1. What Bound is
 
 Jupiter chooses where to trade; Bound decides what authority that trade gets.
 
 - The swap instruction receives a one-time key **E** and temporary token accounts holding exactly
   the approved amount, never the wallet **W**.
-- W signs first. Bound verifies what W returned byte for byte, and E signs last.
-- There is no Bound program on chain.
-- The fee is 0.2% of the input, in the input token.
+- W signs first with `signTransaction` (no send). Bound checks that what W returned is byte for byte
+  what it verified, and E signs last.
+- There is no Bound program on chain. The fee is 0.2% of the input, paid in the input token, inside
+  the same transaction.
+- The guarantee is in `SECURITY.md` ("Guarantee"). The verifier's seven rules are in `README.md`;
+  the load-bearing ones are R6 (the signers are exactly W and E) and R1 (W never inside the external
+  instruction), in `packages/verifier/src/verify.ts`.
+- Three shapes: A (token → SOL), B (SOL → token), C (token → token). Transactions are v0, or v1
+  behind a flag.
+- Two ways in: the page (`apps/web`), and the agent API with its skill (`/api/v1/prepare` and
+  `/api/v1/finalize`; the agent's own verifier in `skills/bound-protected-swap`).
 
-The guarantee is in `SECURITY.md` ("Guarantee"). The load-bearing rules are R6 (signers are
-exactly W and E) and R1 (W never inside the external instruction), `packages/verifier/src/verify.ts`.
-
-**Changes since the last audit** (`AUDIT.md` section 0r), each one to be verified and attacked:
+**Recent changes** (`AUDIT.md` section 0r), each one worth reading closely:
 
 | Area | What changed |
 | --- | --- |
-| Jupiter | The verifier reads Jupiter's `route_v2` / `shared_accounts_route_v2` arguments. It refuses any other Jupiter instruction, a platform fee, positive slippage, a tolerance above 0.5% (3% with the curve program), a quote below the minimum, or more in than E_in holds |
-| Pump.fun | The account each Pump market opens for the buyer (PDA `["user_volume_accumulator", E]`) is closed at the end of the swap with Pump's `close_user_volume_accumulator`, signed by E, and its lamports go on to W. This is the one instruction of a market's program that Bound itself places |
-| Agents | The skill bundles the full verifier (`skills/bound-protected-swap/lib/bound-verify.mjs`, built by `tools/build-skill.ts`, checked in CI). The agent verifies on its own RPC before signing. The API seals W_out's balance in the ticket and re-checks it at finalize |
-| Relays | `/api/rpc` sends and simulates only Bound-shaped transactions (`apps/web/lib/server/boundShape.ts`) |
-| Outcomes | "Failed" only at confirmed; "expired" only against the finalized height; frozen accounts reported as such |
-| Fees | Default network-fee limit 0.0005 SOL; the page and the API say when the priority fee is capped |
+| Jupiter | The verifier reads the arguments of Jupiter's `route_v2` and `shared_accounts_route_v2` and refuses any other Jupiter instruction, a platform fee, positive slippage, a tolerance above 0.5% (3% with the Pump curve program), a quote below the minimum, or more input than E's account holds |
+| Pump.fun | The per-buyer account each Pump market opens (PDA `["user_volume_accumulator", E]`) is closed at the end with Pump's `close_user_volume_accumulator`, and its lamports go on to W |
+| Agents | The skill bundles the full verifier and checks every swap on the agent's own RPC before signing. The API seals W's output balance in the ticket and re-checks it at finalize |
+| Relays | `/api/rpc` sends and simulates only Bound-shaped transactions |
+| Outcomes | "Failed" only at confirmed; "expired" only against the finalized block height |
+| Fees | Network-fee limit 0.0005 SOL by default, never above 0.001 SOL |
 | Lookup tables | Bound's own accounts are never loaded from a lookup table |
-| CI | Actions pinned by commit; T6 on every push to main; a second runner image must reproduce the digest |
 
-**Decisions made on purpose** (challenge them only with a new argument):
+**How the page keeps prices and transactions fresh today** (`apps/web/components/SwapApp.tsx`, top
+of file):
+- The quote refreshes every 20 s, 3 times on its own; after that the user must ask. A quote older
+  than 45 s cannot be used.
+- The swap is built ahead of the click. That build is used only if it is less than 20 s old and
+  nothing changed.
+- If a question to the user (price moved, costs) stays open more than 15 s, the swap is rebuilt.
+- When Jupiter or the RPC answer "busy", the page waits 30 s before building ahead again.
+- The minimum is never lowered silently. If the market moved beyond the tolerance, the user is asked.
+- The blockhash comes from Jupiter's build. Its lifetime ends the swap; there is no re-send with a
+  new blockhash.
+- Agents get a ticket from `prepare` that is valid until the blockhash expires. They must verify,
+  sign and `finalize` within that window.
+
+**Decisions made on purpose.** Challenge them only with a new argument from your research:
 - no on-chain program;
-- the fee inside the transaction, fee-free when the treasury has no account for the input token,
-  never waived to make a route fit;
+- the fee inside the transaction. The swap is fee-free when the treasury has no account for the
+  input token, and the fee is never waived to make a route fit;
 - no cap per swap, never split across transactions;
 - one RPC provider;
 - slippage 0.5%, and 3% on a Pump.fun bonding curve;
-- ask the user from a 0.5% gap to the open market;
 - HumidiFi excluded;
 - v1 transactions behind a flag;
-- a swap built ahead of the click;
-- E derived server-side for the API;
-- a skill, not an SDK or MCP.
+- a skill for agents, not an SDK or an MCP server.
 
-**Known and open** (verify, but these are not new findings):
+**Rules the owner has set:**
+- every Solana token should be swappable, unless Bound cannot isolate it safely;
+- the page stays simple;
+- Bound is authority protection, not a DEX or a router.
+
+**Known and open.** Not new findings, but tell us if your research changes them:
 - no real-wallet test yet;
 - Jupiter and Helius on keyless or public tiers during development;
-- operations still to do: treasury multisig, firewall rules, the paused-deployment runbook
-  rehearsal, upgrade watching;
-- the repository is private.
+- treasury multisig, firewall rules and upgrade watching not done yet.
 
 ---
 
 ## 2. The repository
 
-`github.com/intopic/bound` at `main`: TypeScript, Node 24, `@solana/kit` 8, Next.js 16, deployed on
-Vercel.
+`github.com/intopic/bound` at `main`: TypeScript, `@solana/kit`, Next.js 16, deployed on Vercel.
 
 | Path | What |
 | --- | --- |
-| `packages/core` | Constants and ceilings; policy (intent → accounts, fee, variant, route rent and refund); compiler (v0/v1) |
-| `packages/verifier` | `parse.ts` (exact instruction shapes), `verify.ts` (R1–R7, Jupiter arguments, the Pump close), `wallet.ts`, `certificate.ts` |
-| `packages/solana` | Snapshot reads, simulation, `sendAndConfirm`, `sendOnce`, retrying transport, `createEphemeral` |
-| `packages/jupiter` | Jupiter client; `swap.ts`, the pipeline: quote levels, rent probe, route refund, repair, verify, fee, countersign |
-| `apps/web/components/SwapApp.tsx` | The page's whole flow and every message a user reads |
-| `apps/web/lib/server/*` | Relays (RPC with the shape filter, Jupiter, icons), rate limits, the agent API (`agent/api.ts`, `ticket.ts`, `config.ts`) |
-| `skills/bound-protected-swap` | `SKILL.md`, `examples/swap.ts` (`checkPrepared`, `confirm`), `src/verify.ts` → `lib/bound-verify.mjs` |
-| `tests/cpi` | T6: a malicious swap program in litesvm (CI only) |
-| `tests/integration` | `mainnet.ts` (T4/T1/T5), `pump.ts --market curve` or `amm` (T14/T13), `jupiter-floor.ts`, `pump-accumulator.ts`, `large.ts`, `transfer-fee.ts`, `thresholds.ts` |
-| `tests/e2e` | Edge: `smoke.ts`, `busy.ts`, `pump-card.ts` |
-| `tools` | Build digest, live check, agent keys, skill bundle |
-| `.github/workflows` | CI, T6, release digest, live check |
+| `packages/core` | Constants and limits; policy (intent → accounts, fee, shape, route rent and refund); compiler (v0/v1) |
+| `packages/verifier` | `parse.ts` (exact instruction shapes), `verify.ts` (the rules, Jupiter arguments, the Pump close), `wallet.ts`, `certificate.ts` |
+| `packages/solana` | Chain reads, simulation, send and confirm, retries, the one-time key |
+| `packages/jupiter` | Jupiter client; `swap.ts`, the whole pipeline from quote to countersign |
+| `apps/web/components/SwapApp.tsx` | The page's flow, refresh logic and every message a user reads |
+| `apps/web/lib/server/*` | Relays, rate limits, the agent API (`agent/api.ts`, `ticket.ts`, `config.ts`) |
+| `skills/bound-protected-swap` | `SKILL.md`, `examples/swap.ts`, `src/verify.ts` (bundled into `lib/bound-verify.mjs`) |
 
-**Run:**
-- `npm ci && npm run typecheck && npm test`, and `npm run test:fuzz`;
-- `node tests/integration/<file>.ts` for each integration test;
-- `npm run build && npm run start -w @bound/web`, then each file in `tests/e2e`;
-- the agent API locally: set `BOUND_API_SECRET` and `BOUND_API_KEYS` from `tools/agent-key.ts`,
-  then `node skills/bound-protected-swap/examples/swap.ts ... --dry-run`.
+**Already tested by us. Do not repeat these; read them if useful:**
+- about 380 unit, property and mutation tests, plus fuzzing;
+- mainnet simulations: 30 token pairs on v0 and v1, runtime attacks, minimum-output checks, large
+  amounts, Token-2022 transfer-fee tokens, issuer stablecoins, Pump curve and PumpSwap buys and
+  sales, Jupiter's on-chain floor;
+- a malicious swap program executed against the real transaction in a Solana VM (CI);
+- browser tests of the page, including Jupiter and RPC refusing with 429;
+- agent dry runs against the API.
+
+What we have not tested is the outside world we have not thought of. That is what we want from you.
 
 ---
 
-## 3. Phase 1: verify by research and experiment
+## 3. Part 1: study the outside world
 
-Build a **verification ledger**: one row for each claim Bound depends on, with its source or
-experiment and a verdict (holds, broken, unproven). At least the claims below; add every one you
-find in the code.
+For each topic, learn how it works today and answer the questions. Keep the notes short: what we
+need to know, with the source.
 
-**Solana and the token programs**
-- Signer and writable privileges in CPI.
-- Duplicate account loading.
-- v0 lookup-table stability.
-- v1 transactions:
-  - the message config and its limits;
-  - that ComputeBudget instructions are no-ops in v1.
-- Blockhash lifetime, and whether durable nonces can be used against Bound.
-- Current rent, and the SIMD-0437 steps still to come.
-- The self-transfer balance check in the classic Token program (p-token) and in Token-2022. Who
-  can upgrade each, and when they last did.
-- Every Token-2022 extension, including those added in 2025–2026, against Bound's allowlist.
-- CPI Guard and memo-required accounts; frozen accounts.
+### A. The Solana transaction today
 
-**Jupiter**
-- The exact layout of `route_v2` and `shared_accounts_route_v2`, from the deployed program's IDL or
-  source, not only from observed data.
-- Whether `/swap/v2/build` ever answers with another instruction: exact-out, token ledger,
-  Token-2022 routes, multi-hop through taxed mints, large amounts.
-- That its slippage check measures this instruction's output, whatever the destination held
-  (`tests/integration/jupiter-floor.ts` shows it once; repeat it on other routes and variants).
-- What `otherInstructions`, `tipInstruction` and `setupInstructions` can carry that Bound drops.
-- How often the program is upgraded, and how Bound would notice a format change. The verifier now
-  refuses unknown formats, so a change stops every swap.
+- How a swap transaction should be built today:
+  - v0 and v1 formats;
+  - lookup tables;
+  - size, account and compute limits;
+  - compute budget and priority fees (and how v1 changes them);
+  - signer order and the fee payer.
+- How transactions land today: leaders, staked connections, Jito and other relays, re-broadcasting,
+  what makes a transaction drop.
+- Blockhash lifetime in practice, and durable nonces.
+- Rent today and the rent changes still to come.
+- Every SIMD or feature activated in 2025–2026, or scheduled, that changes how a transaction like
+  Bound's behaves: account locking, CPI privileges, duplicate accounts, size, fees, the classic
+  Token program's rewrite (p-token), Token-2022 upgrades.
 
-**Pump.fun (curve and PumpSwap)**
-- `close_user_volume_accumulator` from both IDLs and from the deployed programs:
-  - the accounts it takes and the checks it makes;
+### B. Freshness: how to refresh so neither the user nor Bound loses
+
+This is one of the most important questions for us.
+
+- How long is a Jupiter quote and a built transaction good for, in practice, for different kinds of
+  tokens (majors, stablecoins, long-tail, Pump.fun curves)?
+- How fast do prices move relative to the refresh intervals in section 1?
+- How do Jupiter's own interface, Phantom's swap, Solflare, and other well-built swap products:
+  - refresh quotes;
+  - handle "price moved";
+  - rebuild before blockhash expiry;
+  - retry or re-send after expiry?
+- What does each way of losing cost, and who pays it?
+  - **The user loses:** a failed swap that still pays fees, a stale minimum, too many questions, a
+    swap that expires while the wallet is open.
+  - **Bound loses:** a swap that never lands (no fee), wasted Jupiter and RPC calls against rate
+    limits and credits, a user who leaves.
+- What is the right refresh and rebuild strategy for:
+  - the page;
+  - the build ahead of the click;
+  - an agent between `prepare` and `finalize`?
+- Should Bound ever re-send with a new blockhash? What is safe, given that W signs a specific
+  message?
+
+### C. Tokens
+
+- The classic Token program today, including the p-token rewrite: anything that changes the
+  behaviour Bound relies on (transfers, closes, self-transfers, revokes).
+- Every Token-2022 extension that exists today, including those added in 2025–2026. For each, what
+  it can do during a swap, and whether Bound's allowlist (`AUDIT.md` section 0f, `verify.ts`)
+  handles it correctly.
+- The tokens people actually trade on Solana today, by volume and by count: majors, stablecoins
+  (USDC, USDT, PYUSD, USDG and others), LSTs, memecoins, Pump.fun tokens, tokenized stocks and
+  other RWAs, Token-2022 launches. Which of them would Bound refuse, and why? The owner's rule is
+  that every token should be swappable, so every refusal needs a reason.
+- Account states that matter: frozen, delegated, close authority, memo-required, CPI Guard,
+  permanent delegate, default-frozen, pausable, scaled UI amount.
+
+### D. Jupiter
+
+- Swap API v2 `/build` today:
+  - what it returns;
+  - which instructions and formats it can return (routes, shared accounts, exact-out, token ledger,
+    Token-2022 routes, multi-hop);
+  - what the fields Bound drops (`otherInstructions`, `setupInstructions`, tips) can carry.
+- The on-chain program:
+  - the layouts of `route_v2` and `shared_accounts_route_v2` from the deployed IDL or source;
+  - how the slippage check is measured;
+  - who can upgrade the program and how often it changes.
+- The API's direction:
+  - deprecations announced;
+  - Ultra against the Swap API;
+  - rate limits and plans;
+  - how Jupiter recommends third parties integrate;
+  - whether anything announced would break Bound.
+- How Bound would notice a format change before users do. The verifier refuses unknown formats, so
+  a change stops every swap.
+
+### E. Pump.fun
+
+- The bonding curve and PumpSwap today:
+  - buy and sell instructions;
+  - fees;
+  - cashback and creator rewards;
+  - the fee programs added in 2026;
+  - migration from curve to PumpSwap.
+- `close_user_volume_accumulator` in both programs:
+  - the accounts it takes and what it checks;
   - where the lamports go;
-  - whether it can fail or be blocked (cashback coins, unclaimed rewards, an account created
-    earlier by someone else for E);
-  - whether an upgrade authority can change it.
-- Whether the per-buyer rent and the curve's growth (132,080 lamports) are still what Bound
-  measures.
-- Buys and sells on both markets.
-- Migration mid-route.
-- The Pump fee and cashback programs that appeared in 2026.
+  - whether it can fail or be blocked (an account created earlier by someone else for E, unclaimed
+    rewards, cashback coins);
+  - whether the upgrade authority can change it.
+- Other launchpads with similar per-buyer accounts (Bonk.fun, Raydium LaunchLab, Moonshot, Meteora
+  DBC and the like). Does Bound pay or leave behind a similar cost there?
 
-**Wallets**
-- `solana:signTransaction` with a second, unsigned signer: behaviour of Phantom (extension and
-  mobile), Solflare, Backpack and Ledger through them.
-- Lighthouse or other changes to the message; warnings; v0/v1 support.
-- Embedded wallets, smart and multisig wallets (Squads, Swig), and Mobile Wallet Adapter.
+### F. Wallets
 
-**RPC**
-- The semantics Bound's outcome proofs rely on: preflight refusals, `getSignatureStatuses` with
-  and without history, commitment levels, `minContextSlot`, lagging nodes behind load balancers.
-- The Helius specifics: sending, rate-limit answers, credits per method.
+- The Wallet Standard today: `solana:signTransaction`, `solana:signAndSendTransaction`, versions,
+  v0 and v1 support.
+- For each of Phantom (extension and mobile), Solflare, Backpack, Ledger (through a wallet), OKX,
+  Glow, Coinbase Wallet and any wallet with real Solana share:
+  - Does it sign a transaction that needs a second signature it does not hold, and return it
+    unsent?
+  - Does it change the message (Lighthouse assertions, added priority fees, reordered
+    instructions)? If it does, Bound refuses the swap.
+  - What warnings does it show for such a transaction?
+- Mobile: Mobile Wallet Adapter, in-app browsers, deep links.
+- Embedded wallets (Phantom embedded, Privy, Dynamic, Magic, Web3Auth) and smart or multisig
+  wallets (Squads, Swig): which can use Bound, which cannot, and what the page should say.
 
-**Hosting**
-- Vercel and Next.js 16:
-  - environment changes only on redeploy;
-  - function duration and concurrency, fluid compute;
-  - per-instance memory;
-  - `x-vercel-forwarded-for`;
-  - the firewall;
-  - instant rollback and promotion (the runbook in SECURITY.md relies on them).
-- CSP and SRI in this Next version.
-- The reproducible build.
+### G. RPC and confirmation
 
-**Agents**
-- How agents are built today: frameworks, the Agent Skills format, `npx skills`, Jupiter's own agent
-  tooling.
-- How their keys are held: local keypairs, and remote signers with policy engines (Turnkey,
-  Privy, Crossmint, Fireblocks, KMS). Can those signers sign one key of a transaction with two
-  signers and return it unsent?
-- Whether an agent following `SKILL.md` can actually use Bound end to end. Try it with at least
-  one real agent setup.
+- What Bound's outcome messages rely on:
+  - preflight refusals;
+  - `getSignatureStatuses` with and without history;
+  - commitment levels and `minContextSlot`;
+  - nodes lagging behind load balancers;
+  - re-broadcasting.
+- Helius specifically: sending, rate limits, credits per method, staked sending.
+- What well-built products do to land swaps under congestion, within a fee cap.
 
-**Build and supply chain**
-- Whether rolldown's bundle is deterministic across machines and versions.
-- What `lib/bound-verify.mjs` contains, and whether an agent can check it against the source.
-- Dependency risk in everything that runs in the page, the server and the skill.
+### H. Agents
 
----
+- How agents trade on Solana today: Solana Agent Kit, GOAT, ElizaOS, Coinbase AgentKit, Jupiter's
+  agent tooling, Agent Skills and `npx skills`, and others you find.
+- How agents hold keys:
+  - local keypairs;
+  - remote signers and policy engines (Turnkey, Privy server wallets, Crossmint, Fireblocks, cloud
+    KMS);
+  - agent wallets from wallet companies.
 
-## 4. Phase 2: the engineering audit
+  Can each of them sign one of two signers and return the transaction unsent? Can their policy
+  engines express "only sign Bound-shaped transactions"?
+- What agent developers expect from a swap API: request and response shapes, idempotency, errors,
+  timing.
+- Agent-specific risks: prompt injection through token names or metadata, a compromised skill
+  bundle, an agent that skips verification.
 
-### A. Swap correctness (the page)
+### I. How others solve the same problem
 
-Walk the full flow in `SwapApp.tsx` and `swap.ts` for every variant and token type:
-- the quote;
-- the build ahead of the click and when it is reused;
-- the questions asked (price moved, route gap, price impact, costs before the wallet);
-- the wallet;
-- the balance re-check after signing;
-- countersigning, sending and confirming;
-- the history.
-
-Establish:
-- whether any path lets the enforced minimum fall below what the user saw;
-- whether any path lets a cost appear that was not shown;
-- whether any message can be false.
-
-Check the new route-refund path: what the user is told, and what happens in the fallback.
-
-### B. The agent API and the skill
-
-- **The protocol:** authentication, the ticket, E's derivation and rotation, idempotency, the
-  balance re-check, the error codes, the rate limits, and the JSON every field is serialised to.
-- **The skill's verification:** list every policy field and say which ones the agent pins to its
-  own intent, which ones the verifier re-derives from the chain, and which ones remain the
-  server's word.
-  - Try to build an answer that passes `checkPrepared` and still harms the agent. Use every field
-    of the policy, lookup tables served by the agent's own RPC, the Pump close, the route refund,
-    the Jupiter arguments, and the treasury when it is not pinned.
-- **The confirm loop and outcome reporting:** errors, retries, re-broadcast, expiry.
-- **Documentation against behaviour:** does `AGENT-API.md` describe exactly what the API does?
-- **Usability:** could a developer or an agent integrate from `SKILL.md` alone? What is missing?
-
-### C. Speed
-
-Measure, with numbers, for the page and for the API, on the public tiers and, if you can, on a
-paid RPC and a keyed Jupiter:
-- time to the first quote;
-- the build ahead of the click;
-- click to wallet (with and without the build ahead);
-- prepare and finalize;
-- send to confirmation.
-
-Also:
-- Count the Jupiter calls, RPC calls and simulations per swap, by kind of route. Pump routes now
-  run up to four simulations.
-- Find the critical path and say what could be cut, parallelised or cached **without weakening a
-  check**.
-- Report how close transactions come to their size limits (a v0 curve buy with the refund is about
-  1,159 of 1,232 bytes), and what that means for route availability.
-
-### D. Load and parallel use
-
-Analyse, and where possible simulate, what happens:
-- **Many users at once:**
-  - the shared Jupiter key and RPC account;
-  - per-instance rate limits and Jupiter cool-downs on Vercel;
-  - cold starts;
-  - the cost of the relay's shape filter.
-- **Many swaps from one user or agent at once:**
-  - into the same token (the page's lock, the API's balance re-check, the window between the
-    re-check and landing);
-  - into different tokens;
-  - from several devices.
-- **Many agents at once:** prepare and finalize interleaved across instances; tickets finalized on
-  other instances; secret rotation mid-flight; a key revoked mid-flight.
-- **Changes during traffic:**
-  - the kill switch;
-  - a Jupiter program or API change;
-  - a Pump upgrade;
-  - a Token-2022 upgrade;
-  - an RPC provider degrading.
-
-  For each, what users and agents see, and whether it fails closed.
-
-### E. Security: hunt the regressions
-
-For each change in section 1, try to break it. At least:
-- **A lying server against the agent:** policy fields, lookup tables, the route refund, the
-  Jupiter arguments.
-- **The route refund:**
-  - an attacker who learns E's address (the page's build ahead, or the API's `temporaryAuthority`)
-    and pre-creates or funds E's Pump account before the swap lands;
-  - cashback accruing into it;
-  - a Pump program upgrade.
-- **The Jupiter arguments:** a format Bound misreads; a legitimate route Bound now refuses.
-- **The relay filter:** a Bound-shaped transaction that is useful to an attacker; one that
-  makes the page fail.
-- **The ticket's balance check:** a race between the re-check and landing; an output of SOL
-  (variant A) that has no W_out.
-- **The masking of Bound's own accounts in lookup tables:** does it ever produce a message the
-  runtime refuses, or one larger than before?
-
-### F. Reliability and operations
-
-- The runbook for pausing and revoking.
-- The release digest and the live check.
-- CI gating.
-- What is monitored today and what is not: Jupiter format changes, program upgrades, error rates,
-  spend.
-- What an operator sees when something goes wrong, and how fast they can act.
-
-### G. Code quality and simplicity
-
-- Complexity hotspots: `swap.ts`, `verify.ts`, `SwapApp.tsx`.
-- Duplicated logic: several compiled-message decoders, test fakes, shape knowledge in three
-  places.
-- Dead or temporary code (`/diagnostic`, research scripts).
-- Test quality:
-  - run a mutation pass on `verify.ts`, `parse.ts`, `compiler.ts`, `swap.ts`, `boundShape.ts` and
-    the skill's check;
-  - report what survives.
-- Documentation drift.
-
-### H. Cost and economics
-
-- The cost of one swap in RPC credits and Jupiter calls, at current Helius and Jupiter prices.
-- The fixed monthly cost.
-- The volume at which the 0.2% fee covers it.
-- Where revenue leaks: fee-free paths, such as sales of tokens the treasury has no account for,
-  which is most memecoins. What that means for agents and bots.
+- Transaction simulation and warnings in wallets (Blowfish-style), Lighthouse assertions, Jupiter's
+  own protections, intent and solver systems, delegate and spending-limit approaches (Squads),
+  session keys.
+- Is there a simpler way to give the same guarantee: the swap can touch only what was approved,
+  and the minimum holds? If so, what does it cost, and what does it lose?
 
 ---
 
-## 5. Phase 3: scenarios
+## 4. Part 2: read the code against the research
 
-For each, say what the system does, what the user or agent sees, whether the guarantee and the fee
-hold, and how long it takes. Do it on the page and through the API. Add every scenario we missed.
+For each area, write a short **compatibility table**: what the world does (sourced), what Bound does
+(`file:line`), and a verdict. The verdict is one of:
+- works;
+- works with a limit (say which);
+- refuses (say whether that is correct);
+- breaks;
+- unknown (say what would decide it).
 
-- **Tokens:**
-  - SOL↔USDC;
-  - USDC→USDT;
-  - dust;
-  - an amount too large for one transaction;
-  - a Token-2022 token with a transfer fee, in and out;
-  - PYUSD or USDG;
-  - a token with a hook;
-  - a token frozen by default;
-  - a hop through a Token-2022 mint.
-- **Pump:**
-  - a curve buy and a curve sale;
-  - a curve that grows;
-  - a curve completing mid-swap;
-  - a PumpSwap buy and sale;
-  - a cashback coin;
-  - E's Pump account already existing.
-- **Accounts:**
-  - W_out missing, delegated, with a close authority, frozen, memo-required;
-  - a treasury account that is frozen, or missing;
-  - a wallet short of SOL.
-- **Wallets:**
-  - Phantom, Solflare, Backpack, Ledger;
-  - a wallet that changes the message;
-  - one that signs and sends by itself;
-  - one that is slow;
-  - an account switch.
-- **Network:**
-  - Jupiter 429, timeout, malformed or malicious;
-  - RPC 429, lagging, lying;
-  - congestion with the fee at its cap;
-  - a transaction seen but not confirmed.
-- **Parallel:**
-  - two tabs;
-  - two devices;
-  - two agent swaps into one token;
-  - a hundred agents at once;
-  - build ahead racing the click;
-  - two finalizes of one ticket;
-  - finalize on another instance or after expiry.
-- **Adversarial:**
-  - a malicious DEX;
-  - a compromised Jupiter API, Bound server, dependency or skill bundle;
-  - a phishing clone;
-  - an agent dropping the fee;
-  - a stolen API key, ticket or server secret;
-  - hostile token metadata aimed at an agent.
+- **Transactions:** does `packages/core` build what the runtime and the wallets expect today, and
+  what they will expect after the scheduled changes? Is v1 correct against the final specification?
+- **The verifier's rules:** are they complete against what you found? Does the world allow something
+  (an instruction, an account state, an extension, a program behaviour) that the rules never
+  consider? Are there rules that refuse legitimate swaps for no safety reason?
+- **Tokens:** go through the traded tokens you found. For each group: swappable, refused (why), or
+  swappable with a condition. Pay attention to Token-2022 and to the newest launches.
+- **Jupiter:** which responses Bound accepts and refuses, and what happens to users on the day
+  Jupiter changes a format or deprecates an endpoint.
+- **Pump.fun:** is the route refund built exactly as the programs expect? What happens on a Pump
+  upgrade?
+- **Wallets:** a table of the wallets you researched: works, refuses (why), unknown. What the user
+  sees in each case.
+- **Freshness:** compare the page's intervals and rebuild rules (section 1), and the agent ticket's
+  lifetime, with your findings in 3B. Where do users or Bound lose today? Give your recommended
+  intervals and rules, with the reasoning.
+- **Confirmation and messages:** does every outcome message claim only what the RPC semantics you
+  researched can prove?
+- **The agent API and the skill:** compared with how agents actually work (3H), can a real agent
+  integrate from `SKILL.md` alone? Which key setups are left out?
+- **Speed, by reading:** from the code, count the round trips on the critical path (Jupiter calls,
+  RPC calls, simulations) for each kind of route, and compare with what others do. Say which could
+  be removed or run in parallel **without weakening a check**. Do not measure; count.
 
 ---
 
-## 6. Phase 4: suggestions
+## 5. Part 3: what did we leave out?
 
-Propose improvements where your research supports them. Order them by value against effort. For
+List everything the code and the documents do not account for: situations, token types, wallet
+behaviours, network conditions, upcoming changes, agent setups, legal or operational facts that
+change the design.
+
+For each, say:
+- what happens today, read from the code;
+- how likely it is and who it affects;
+- what we should do.
+
+Use these as a starting checklist, not a limit:
+- **Tokens:** a new Token-2022 extension; a token whose issuer can pause or claw back; a hop through
+  a Token-2022 mint; dust; an amount too large for one transaction.
+- **Pump:** a curve completing mid-swap; a cashback coin; E's Pump account already existing.
+- **Accounts:** W's output account missing, delegated, frozen or memo-required; the treasury's
+  account frozen or missing; a wallet short of SOL.
+- **Wallets:** a wallet that changes the message; one that signs and sends by itself; a slow one;
+  an account switch mid-swap.
+- **Network:** congestion with the fee at its cap; a transaction seen but never confirmed; a lagging
+  or lying RPC; Jupiter slow, refusing or malformed.
+- **Parallel:** two tabs or two devices swapping into the same token; many agents at once; a ticket
+  finalized twice or after expiry.
+- **Adversarial:** a malicious DEX; a compromised Jupiter API or Bound server; a phishing clone; an
+  agent dropping the fee; a stolen API key or secret; hostile token metadata aimed at an agent.
+
+---
+
+## 6. Part 4: suggestions
+
+Where your research shows a better or simpler way, propose it, ordered by value against effort. For
 each give:
 - what to change;
 - the evidence;
-- the cost to build;
+- the effort;
 - the risk of changing and the risk of not changing;
-- how to test it.
+- the test we should run to confirm it.
 
 Look especially for:
-- **Simpler designs** that keep the same guarantee.
-- **Speed:** fewer round trips, better caching, a landing strategy within the fee cap.
-- **Cost:** fewer calls per swap, cheaper plans, leaks in the fee.
-- **Robustness to upstream changes:** Jupiter formats, Pump upgrades, wallet behaviour.
-- **What agents need:** a published verifier package, remote-signer policy templates, examples
-  for common frameworks.
-- **What could be removed.**
+- **Simpler designs** that keep the same guarantee. Also say what could be removed.
+- **Freshness and landing:** fewer failed or expired swaps, fewer questions to the user, within the
+  fee cap.
+- **Coverage:** more tokens and wallets working safely.
+- **Robustness to upstream changes:** Jupiter formats, Pump upgrades, wallet behaviour, SIMDs.
+- **What agents need** to adopt Bound.
+- **Cost:** fewer calls per swap, and fee paths that leak.
 
 ---
 
 ## 7. What to deliver
 
-1. **Verification ledger:** every claim, its source or experiment, a verdict.
-2. **Findings,** most severe first. Each with:
+1. **Research notes,** by topic A–I: what we need to know, each point sourced and dated. Short.
+2. **Compatibility tables** from Part 2: transactions, rules, tokens, Jupiter, Pump.fun, wallets,
+   freshness, confirmation, agents, round trips.
+3. **Freshness recommendation:** intervals and rebuild rules for the page, the build ahead and
+   agents, with reasoning.
+4. **Findings,** most severe first. Each with:
    - an ID;
-   - a severity: Critical (user funds beyond the guarantee), High (the guarantee or the fee broken
-     under realistic conditions), Medium, Low or Info;
+   - a severity: Critical (user funds beyond the guarantee), High (the guarantee or the fee broken,
+     or a large group of users or tokens that cannot swap), Medium, Low or Info;
    - the area;
-   - the preconditions;
-   - a proof or a precise argument;
+   - the source and the code line;
    - the impact;
    - a fix;
-   - the regression test to add.
-3. **Performance report:** measured latencies, calls per swap, size headroom, load behaviour,
-   with method and numbers.
-4. **Cost model:** per swap and per month, with the prices used.
-5. **Scenario table** from section 5.
-6. **Suggestions,** ordered, as in section 6.
+   - **the test we should run** to confirm it (you do not run it).
+5. **What we left out,** from Part 3.
+6. **Suggestions,** ordered, from Part 4.
 7. **Documentation errors.**
-8. **Readiness scorecard:** a go or no-go for the page (small alpha), the page (open launch), the
-   agent API (private beta) and the agent API (open). Give the exact conditions each needs.
+8. **Verdict,** by area: will it work? Answer "sure", "likely", "unknown" or "no" for:
+   - the page with the main wallets;
+   - the page on mobile;
+   - the tokens people trade;
+   - Pump.fun;
+   - agents with local keys;
+   - agents with remote signers;
+   - behaviour when Jupiter or the network changes.
+
+   Give the reason for each.
 
 Be direct. Where something is right, say so in one line and move on; spend the space on what is not.
