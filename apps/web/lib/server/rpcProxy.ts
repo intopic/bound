@@ -1,4 +1,5 @@
 import { readBodyLimited, UPSTREAM_TIMEOUT_MS } from './body';
+import { notBoundShaped } from './boundShape';
 import { serverConfig } from './config';
 import { clientKey, rateLimited } from './rateLimit';
 
@@ -33,7 +34,7 @@ export async function proxyRpc(req: Request, target: string | null): Promise<Res
   if (rateLimited(`rpc:${client}`, LIMIT_PER_MINUTE)) return rpcError(null, -32005, 'Too many requests', 429);
   const text = await readBodyLimited(req, MAX_BODY_BYTES); // bytes, counted while reading (C-07)
   if (text === null) return rpcError(null, -32600, 'Request too large', 413);
-  let body: { id?: unknown; method?: unknown };
+  let body: { id?: unknown; method?: unknown; params?: unknown };
   try {
     body = JSON.parse(text);
   } catch {
@@ -50,6 +51,15 @@ export async function proxyRpc(req: Request, target: string | null): Promise<Res
     // explicit marker, so an upstream 4xx can never be mistaken for proof that nothing was sent.
     if (serverConfig().disabled) return rpcError(body.id, -32000, 'Protected swaps are paused', 403);
     if (rateLimited(`send:${client}`, SENDS_PER_MINUTE)) return rpcError(body.id, -32005, 'Too many requests', 429);
+  }
+  // After the kill switch and the send limit: only Bound's own transactions are sent or simulated
+  // through Bound's RPC account (review FA-06). A local refusal: nothing was forwarded, so the
+  // sender may say "never broadcast".
+  if (body.method === 'sendTransaction' || body.method === 'simulateTransaction') {
+    const params = Array.isArray(body.params) ? body.params : [];
+    const options = (params[1] ?? {}) as { encoding?: unknown };
+    const why = options.encoding === 'base64' ? notBoundShaped(params[0]) : 'only base64 transactions are relayed';
+    if (why) return rpcError(body.id, -32602, `Only Bound transactions are relayed: ${why}`, 422);
   }
 
   try {

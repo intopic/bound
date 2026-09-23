@@ -87,3 +87,19 @@ describe('a Jupiter under load', () => {
     expect(counter.calls).toBe(asked);
   });
 });
+
+describe('a Jupiter that does not answer (FA-16)', () => {
+  it('a request past the timeout ends as a 504 JupiterError, which the pipeline reports as unavailable', async () => {
+    const client = createJupiterClient({
+      buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels',
+      timeoutMs: 20,
+      fetchImpl: ((_: string, init: RequestInit) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+      })) as unknown as typeof fetch,
+    });
+    await expect(client.build({
+      inputMint: address(good.inputMint), outputMint: address(good.outputMint), amount: 1n,
+      taker: address('11111111111111111111111111111111'), slippageBps: 50, maxAccounts: 64,
+    })).rejects.toMatchObject({ status: 504 });
+  });
+});

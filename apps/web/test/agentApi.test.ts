@@ -7,7 +7,8 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
-  address, compileTransaction, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
+  address, compileTransaction, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
+  SolanaError, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
@@ -25,7 +26,7 @@ const secret = (fill: number) => new Uint8Array(32).fill(fill);
 const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
 let n = 0;
-async function world(opts: { height?: bigint; disabled?: boolean; jupiter?: AgentDeps['jupiter'] } = {}) {
+async function world(opts: { height?: bigint; disabled?: boolean; jupiter?: AgentDeps['jupiter']; sendError?: unknown; treasury?: null } = {}) {
   const W = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
@@ -36,19 +37,19 @@ async function world(opts: { height?: bigint; disabled?: boolean; jupiter?: Agen
   ]);
   const sent: string[] = [];
   const deps: AgentDeps = {
-    rpc: fakeRpc(accounts, { height: opts.height, sent }),
+    rpc: fakeRpc(accounts, { height: opts.height, sent, sendError: opts.sendError }),
     jupiter: opts.jupiter ?? fakeJupiter(),
     secrets: [secret(7)],
     keys: new Map([[sha(KEY), 'agent-one'], [sha(OTHER_KEY), 'agent-two']]),
     feeBps: 20n,
-    treasury: TREASURY,
+    treasury: opts.treasury === null ? null : TREASURY,
     excludeDexes: ['HumidiFi'],
     maxNetworkFeeLamports: 200_000n,
     disabled: opts.disabled ?? false,
     v1: false,
     perMinute: 1_000,
   };
-  return { W, deps, sent };
+  return { W, deps, sent, accounts };
 }
 
 const post = (path: string, body: unknown, key: string | null = KEY) =>
@@ -302,5 +303,56 @@ describe('E, derived rather than stored', () => {
   it('its private key cannot be exported', async () => {
     const E = await ephemeralFor(secret(7), 'nonce-one');
     expect(E.keyPair.privateKey.extractable).toBe(false);
+  });
+});
+
+describe('review fixes on the API', () => {
+  it('a swap into a token whose balance moved since prepare is not signed (FA-04)', async () => {
+    const w = await world();
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps);
+    expect(res.status).toBe(200);
+    const p = (await res.json()) as Prepared;
+    // Another swap into BONK lands between prepare and finalize.
+    const wOut = await ataOf(w.W.address, BONK);
+    const landed = tokenAccount(w.W.address, BONK);
+    new DataView(landed.data.buffer).setBigUint64(64, 5_000n, true);
+    w.accounts.set(wOut, landed);
+    const r = await finalize(w, p.ticket, await signAsWallet(w.W, p.transaction));
+    expect(r.status).toBe(409);
+    expect((await r.json()).error.code).toBe('output-balance-changed');
+    expect(w.sent).toHaveLength(0);
+  });
+
+  it('a finalize refused by the network hands back no transaction to broadcast (FA-08)', async () => {
+    const preflight = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
+    const w = await world({ sendError: preflight });
+    const p = await prepared(w);
+    const body = await (await finalize(w, p.ticket, await signAsWallet(w.W, p.transaction))).json();
+    expect(body.status).toBe('rejected');
+    expect(body.signedTransaction).toBeUndefined();
+  });
+
+  it('a fee-free swap says 0 bps, not the configured fee (FA-16)', async () => {
+    const w = await world({ treasury: null });
+    const p = await prepared(w);
+    expect(p.amounts.fee).toBe('0');
+    expect(p.amounts.feeBps).toBe('0');
+  });
+});
+
+describe('API keys from the environment', () => {
+  it('two keys with one id: the first one wins, so they never share tickets and limits (FA-16)', async () => {
+    const { agentDeps } = await import('../lib/server/agent/config.ts');
+    process.env.BOUND_API_SECRET = Buffer.alloc(32, 1).toString('base64');
+    process.env.BOUND_API_KEYS = `a:${sha('key-one')},a:${sha('key-two')},b:${sha('key-three')}`;
+    try {
+      const deps = agentDeps()!;
+      expect([...deps.keys.values()]).toEqual(['a', 'b']);
+      expect(deps.keys.has(sha('key-one'))).toBe(true);
+      expect(deps.keys.has(sha('key-two'))).toBe(false);
+    } finally {
+      delete process.env.BOUND_API_SECRET;
+      delete process.env.BOUND_API_KEYS;
+    }
   });
 });

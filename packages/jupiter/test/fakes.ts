@@ -106,6 +106,8 @@ export function fakeRpc(
     height?: bigint;
     /** Every transaction sent, as the wire string. */
     sent?: string[];
+    /** What sendTransaction throws instead of accepting (a preflight refusal, say). */
+    sendError?: unknown;
   } = {},
 ): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
@@ -121,6 +123,7 @@ export function fakeRpc(
     getLatestBlockhash: call(() => ({ value: { blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1_000n } })),
     getBlockHeight: call(() => opts.height ?? 1n),
     sendTransaction: call((wire: string) => {
+      if (opts.sendError) throw opts.sendError;
       opts.sent?.push(wire);
       return 'sig';
     }),

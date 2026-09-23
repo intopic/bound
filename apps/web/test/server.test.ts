@@ -7,6 +7,10 @@ import { iconHostAllowed, proxyIcon, sniffImage } from '../lib/server/iconProxy.
 import { proxyBuild } from '../lib/server/jupiterProxy.ts';
 import { clientKey, rateLimited } from '../lib/server/rateLimit.ts';
 import { proxyRpc } from '../lib/server/rpcProxy.ts';
+import { createNoopSigner, getBase64EncodedWireTransaction } from '@solana/kit';
+import { getTransferSolInstruction } from '@solana-program/system';
+import { compileProtectedSwap } from '@bound/core';
+import { compileRaw, LIFETIME, scenario } from '../../../packages/verifier/test/fixtures.ts';
 
 let n = 0;
 const uniqueIp = () => `203.0.113.${++n % 250}-${n}`;
@@ -110,8 +114,15 @@ describe('RPC proxy', () => {
   it('B-06: sendTransaction has its own limit per client, sized for re-broadcasts', async () => {
     vi.stubGlobal('fetch', upstreamOk());
     const ip = uniqueIp();
+    // A Bound transaction: the relay sends nothing else (FA-06).
+    const s = await scenario();
+    const { transaction } = compileProtectedSwap({
+      policy: s.policy, swapInstruction: s.swapIx, intermediates: s.intermediates, version: 0, lifetime: LIFETIME,
+      computeUnitLimit: 400_000, microLamportsPerComputeUnit: 50_000n, lookupTables: s.lookupTables, outputBalanceBefore: s.wOutBalance,
+    });
+    const wire = getBase64EncodedWireTransaction(transaction);
     const send = () =>
-      proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'sendTransaction', params: ['AA=='] }, { 'x-vercel-forwarded-for': ip }), 'https://rpc.test');
+      proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'sendTransaction', params: [wire, { encoding: 'base64' }] }, { 'x-vercel-forwarded-for': ip }), 'https://rpc.test');
     for (let i = 0; i < 60; i++) expect((await send()).status).toBe(200);
     expect((await send()).status).toBe(429);
   });
@@ -246,5 +257,44 @@ describe('B-08: token icons are served from Bound, from listed hosts only', () =
     vi.stubGlobal('fetch', upstream);
     expect((await icon('https%3A%2F%2Fevil.example%2Fx')).status).toBe(400);
     expect(upstream).not.toHaveBeenCalled();
+  });
+});
+
+describe('the RPC relay sends and simulates only Bound transactions (review FA-06)', () => {
+  const call = (method: string, wire: string, encoding = 'base64') =>
+    proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method, params: [wire, { encoding }] }), 'https://rpc.test');
+
+  it('an ordinary SOL transfer is refused for sending and for simulation, with nothing forwarded', async () => {
+    const upstream = upstreamOk();
+    vi.stubGlobal('fetch', upstream);
+    const s = await scenario();
+    const transfer = getTransferSolInstruction({ source: createNoopSigner(s.W), destination: s.E.address, amount: 1_000_000n });
+    const wire = getBase64EncodedWireTransaction(compileRaw(s.W, [transfer], 0));
+    for (const method of ['sendTransaction', 'simulateTransaction']) {
+      const res = await call(method, wire);
+      expect(res.status).toBe(422);
+      expect(res.headers.get('x-bound-not-forwarded')).toBe('1');
+    }
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it('a Bound swap is relayed, v0 and v1', async () => {
+    const upstream = upstreamOk();
+    vi.stubGlobal('fetch', upstream);
+    const s = await scenario();
+    for (const version of [0, 1] as const) {
+      const { transaction } = compileProtectedSwap({
+        policy: s.policy, swapInstruction: s.swapIx, intermediates: s.intermediates, version, lifetime: LIFETIME,
+        computeUnitLimit: 400_000, microLamportsPerComputeUnit: 50_000n, priorityFeeLamports: 20_000n,
+        lookupTables: version === 0 ? s.lookupTables : undefined, outputBalanceBefore: s.wOutBalance,
+      });
+      expect((await call('simulateTransaction', getBase64EncodedWireTransaction(transaction))).status).toBe(200);
+    }
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
+
+  it('only base64 is relayed', async () => {
+    vi.stubGlobal('fetch', upstreamOk());
+    expect((await call('sendTransaction', 'AA==', 'base58')).status).toBe(422);
   });
 });

@@ -7,7 +7,9 @@ import { serverConfig } from '../config';
 import type { AgentDeps } from './api';
 
 /**
- * The agent API is off unless the deployment sets both of these (tools/agent-key.ts makes them):
+ * The agent API is off unless the deployment sets both of these (tools/agent-key.ts makes them).
+ * They are read when a deployment starts: on Vercel a change needs a redeploy (review FA-02), so
+ * revoking a key or pausing follows the runbook in SECURITY.md, not an edit in the dashboard.
  *
  *   BOUND_API_SECRET           32 random bytes, base64: seals tickets and derives each E
  *   BOUND_API_SECRET_PREVIOUS  optional, the one before it, while its tickets expire (a minute)
@@ -23,15 +25,19 @@ function secretOf(value: string | undefined): Uint8Array | null {
 
 function keysOf(value: string | undefined): Map<string, string> {
   const keys = new Map<string, string>();
+  const ids = new Set<string>();
   for (const entry of (value ?? '').split(',').map(s => s.trim()).filter(Boolean)) {
     const [id, hash] = entry.split(':');
+    // Two keys with one id would share tickets and limits: the first one wins (FA-16).
+    if (ids.has(id)) continue;
+    ids.add(id);
     if (/^[\w-]{1,40}$/.test(id ?? '') && /^[0-9a-f]{64}$/.test(hash ?? '')) keys.set(hash, id);
   }
   return keys;
 }
 
-// The clients are kept per instance; the settings are read on every request, so the kill switch
-// and a rotated key take effect without a redeploy.
+// The clients are kept per instance. The settings are read on every request, but a host may fix the
+// environment per deployment (Vercel does): see the runbook for pausing and revoking (FA-02).
 let clients: { rpc: SolanaRpc; jupiter: JupiterClient; for: string } | null = null;
 
 export function agentDeps(): AgentDeps | null {
@@ -40,19 +46,23 @@ export function agentDeps(): AgentDeps | null {
   if (!current || keys.size === 0) return null;
   const previous = secretOf(process.env.BOUND_API_SECRET_PREVIOUS);
   const server = serverConfig();
+  // The API may run on keys of its own, so that agents cannot use up the page's quota (FA-06).
+  const rpcUrl = process.env.RPC_URL_AGENTS || server.rpcUrl;
+  const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
   const feeBps = BigInt(/^\d{1,3}$/.test(process.env.BOUND_API_FEE_BPS ?? '') ? process.env.BOUND_API_FEE_BPS!
     : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_BOUND_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_BOUND_FEE_BPS! : '20');
   const treasury = process.env.NEXT_PUBLIC_BOUND_TREASURY?.trim() ?? '';
-  const identity = `${server.rpcUrl}|${server.jupiterApiKey ?? ''}`;
+  const identity = `${rpcUrl}|${jupiterApiKey ?? ''}`;
   if (clients?.for !== identity) {
     clients = {
       for: identity,
-      rpc: createRetryingRpc(server.rpcUrl),
+      rpc: createRetryingRpc(rpcUrl),
       jupiter: createJupiterClient({
         buildUrl: 'https://api.jup.ag/swap/v2/build',
         tokensUrl: 'https://api.jup.ag/tokens/v2/search',
         labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
-        apiKey: server.jupiterApiKey ?? undefined,
+        apiKey: jupiterApiKey ?? undefined,
+        timeoutMs: 15_000,
       }),
     };
   }

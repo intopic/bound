@@ -25,6 +25,12 @@ export type Ticket = {
   msg: string;
   /** After this block height the message can no longer land. */
   lvbh: string;
+  /**
+   * The output account and the balance its minimum-output check was built on (B and C): finalize
+   * reads it again and signs nothing if it moved (review FA-04). Absent for SOL output.
+   */
+  wOut?: string;
+  b0?: string;
 };
 
 const enc = new TextEncoder();
@@ -87,6 +93,8 @@ export async function openTicket(secrets: readonly Uint8Array[], token: string):
     if (!sameBytes(expected, Buffer.from(mac, 'base64url'))) return null;
     const fields = [t.nonce, t.key, t.owner, t.msg, t.lvbh];
     if (fields.some(f => typeof f !== 'string') || !/^[0-9a-f]{64}$/.test(t.msg) || !/^\d{1,20}$/.test(t.lvbh)) return null;
+    if ((t.wOut === undefined) !== (t.b0 === undefined)) return null;
+    if (t.wOut !== undefined && (typeof t.wOut !== 'string' || typeof t.b0 !== 'string' || !/^\d{1,20}$/.test(t.b0))) return null;
     return { ticket: t, secret };
   }
   return null;

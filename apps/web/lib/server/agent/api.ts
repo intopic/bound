@@ -1,10 +1,10 @@
 import { getBase64EncodedWireTransaction, getTransactionDecoder, isAddress } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import { JUPITER_PROGRAM } from '@bound/core';
+import { JUPITER_PROGRAM, tokenAmountOf } from '@bound/core';
 import type { TxVersion } from '@bound/core';
 import { BoundError, countersignProtectedSwap, DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
 import type { JupiterClient } from '@bound/jupiter';
-import { fetchMints, httpStatusOf, sendOnce } from '@bound/solana';
+import { fetchAccounts, fetchMints, httpStatusOf, sendOnce } from '@bound/solana';
 import type { SolanaRpc } from '@bound/solana';
 import { readBodyLimited } from '../body';
 import { rateLimited } from '../rateLimit';
@@ -169,9 +169,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
     // the certificate: it is the one value the fee depends on.
     const messageSha256 = await sha256Hex(prepared.transaction.messageBytes);
+    const wOut = prepared.policy.accounts.wOut;
     const ticket = await sealTicket(secret, {
       v: 1, kid: await kidOf(secret), nonce, key, owner: owner as string, msg: messageSha256,
       lvbh: prepared.lifetime.lastValidBlockHeight.toString(),
+      ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString() } : {}),
     });
     const p = prepared.policy;
     return json(200, {
@@ -183,7 +185,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       version,
       lastValidBlockHeight: prepared.lifetime.lastValidBlockHeight,
       amounts: {
-        amountIn: p.amountIn, fee: p.fee, feeBps: p.feeBps, swapAmount: p.swapAmount,
+        amountIn: p.amountIn, fee: p.fee, feeBps: p.fee === 0n ? 0n : p.feeBps, swapAmount: p.swapAmount,
         quotedOut: prepared.quote.outAmount, minOut: p.minOut, priceImpactPct: prepared.quote.priceImpactPct,
       },
       costs: {
@@ -192,7 +194,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         routeRentLamports: prepared.oneTimeCosts.routeRent,
         tokenTax: prepared.tokenTax,
       },
-      notices: prepared.notices,
+      // networkBusy: the priority fee is at its limit, so the swap may land late or expire (FA-15).
+      notices: { ...prepared.notices, networkBusy: prepared.priorityFeeCapped },
       route: prepared.quote.route,
       certificate: prepared.certificate,
       policy: p,
@@ -230,6 +233,17 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
   }
 
   try {
+    // The minimum-output check is the output account's balance at prepare plus the minimum. If the
+    // balance moved since (another swap into this token, a transfer), the check could count those
+    // tokens: sign nothing (review FA-04). Run one swap per output token until it is confirmed.
+    if (ticket.wOut) {
+      const now = tokenAmountOf((await fetchAccounts(deps.rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
+      if (now !== BigInt(ticket.b0!)) {
+        return fail(409, 'output-balance-changed', 'The balance of your output account changed since prepare (another swap or a transfer arrived). Nothing was signed or sent; prepare again.', {
+          balanceAtPrepare: ticket.b0, balanceNow: now,
+        });
+      }
+    }
     const E = await ephemeralFor(secret, ticket.nonce);
     const original: Transaction = { messageBytes: returned.messageBytes, signatures: {} } as Transaction;
     const signed = await countersignProtectedSwap({
@@ -243,8 +257,9 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       signature: sent.signature,
       status: sent.status,
       ...(sent.refusal ? { refusal: sent.refusal } : {}),
-      // Fully signed: the agent can re-broadcast it and confirm it with its own RPC until it expires.
-      signedTransaction: getBase64EncodedWireTransaction(signed),
+      // Fully signed, so the agent can re-broadcast it and confirm it with its own RPC until it
+      // expires. Not when it was refused: an agent that prepares again must not land both (FA-08).
+      ...(sent.status === 'rejected' ? {} : { signedTransaction: getBase64EncodedWireTransaction(signed) }),
       lastValidBlockHeight: ticket.lvbh,
     });
   } catch (e) {

@@ -93,6 +93,11 @@ export function createJupiterClient(opts: {
   minIntervalMs?: number;
   /** The first retry's wait; each later one doubles it. */
   retryBaseMs?: number;
+  /**
+   * Gives up on a request after this long (review FA-16). The page's relay has its own timeout; a
+   * server calling Jupiter directly needs one, or a silent Jupiter holds the request to its limit.
+   */
+  timeoutMs?: number;
 }): JupiterClient {
   const doFetch = opts.fetchImpl ?? fetch.bind(globalThis);
   const retryBaseMs = opts.retryBaseMs ?? 600;
@@ -109,7 +114,13 @@ export function createJupiterClient(opts: {
       const wait = lastCall + (opts.minIntervalMs ?? 0) - Date.now();
       if (wait > 0) await sleep(wait);
       lastCall = Date.now();
-      const res = await doFetch(url, { headers });
+      let res: Response;
+      try {
+        res = await doFetch(url, { headers, ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}) });
+      } catch (e) {
+        if ((e as Error)?.name === 'TimeoutError') throw new JupiterError('Jupiter did not answer in time', 504);
+        throw e;
+      }
       const body = await res.text();
       // Jupiter wraps transient upstream failures ("Pool has not been updated in a while") in a 400.
       const retryable = res.status === 429 || res.status >= 500 || (res.status === 400 && /quote failed|not been updated/i.test(body));
