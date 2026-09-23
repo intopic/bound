@@ -6,7 +6,7 @@ import { clientKey, rateLimited } from './rateLimit';
 const ALLOWED_METHODS = new Set([
   'getAccountInfo', 'getMultipleAccounts', 'getBalance', 'getTokenAccountBalance', 'getLatestBlockhash',
   'getBlockHeight', 'getEpochInfo', 'simulateTransaction', 'sendTransaction', 'getSignatureStatuses', 'getFeeForMessage',
-  'getMinimumBalanceForRentExemption', 'getTransaction',
+  'getMinimumBalanceForRentExemption', 'getTransaction', 'getRecentPrioritizationFees',
 ]);
 const MAX_BODY_BYTES = 64 * 1024;
 const LIMIT_PER_MINUTE = 300;

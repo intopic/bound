@@ -7,7 +7,7 @@ import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, feeFor, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
-  MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
+  LAMPORTS_PER_SIGNATURE, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, TxVersion, Violation } from '@bound/core';
@@ -87,6 +87,12 @@ export type SwapRequest = {
    */
   acceptedMinOut?: bigint;
   /**
+   * The page's quote already showed a route through a Pump.fun bonding curve. Jupiter is then asked
+   * at the curve tolerance first, which saves the second request (latency). Only a hint: a route
+   * that turns out not to be a curve route is asked for again at the usual tolerance (BR-01).
+   */
+  expectCurve?: boolean;
+  /**
    * How much worse than the unrestricted market price the user has agreed the protected route may
    * be, in bps. Without it, a route more than `askAboveBps` below the market stops with
    * `costs-more` and the page asks.
@@ -116,6 +122,10 @@ export type PreparedSwap = {
    * (Pump.fun's per-buyer account). It does not come back, and it is shown before signing.
    */
   oneTimeCosts: { outputAccountRent: bigint; routeRent: bigint };
+  /** W_out's balance the minimum-output check was built on (B and C), to spot a stale build. */
+  outputBalanceBefore: bigint;
+  /** The priority fee this message pays, in lamports, chosen from recent fees (within R4). */
+  priorityFeeLamports: bigint;
   /** The network fee of this exact message, as the cluster prices it (audit B-12). */
   networkFeeLamports: bigint;
   /** Side effects the user should be told about before signing. */
@@ -180,6 +190,20 @@ export function intermediatesFromSetup(setup: readonly ApiInstruction[], policy:
     out.push({ ata: address(ata), mint: address(mint), tokenProgram: address(tokenProgram) });
   }
   return out;
+}
+
+/**
+ * Programs that open an account in the taker's name and charge it the rent: both Pump.fun markets.
+ * A route through one goes straight to measuring that rent, skipping a simulation known to fail.
+ * Only a shortcut: any other route that needs rent is still found by its failed simulation.
+ */
+const RENT_CHARGING_PROGRAMS = new Set(['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P', 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA']);
+
+/** The 75th percentile of recent priority fees, in micro-lamports per compute unit; null if none. */
+export function recentFeeLevel(fees: readonly { prioritizationFee: bigint | number }[]): bigint | null {
+  if (!fees.length) return null;
+  const sorted = fees.map(f => BigInt(f.prioritizationFee)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.75))];
 }
 
 /** Jupiter's label for the Pump.fun bonding curve; PumpSwap, after it, is `Pump.fun Amm`. */
@@ -490,7 +514,7 @@ export async function prepareProtectedSwap(deps: {
     // Each route is built at its own tolerance, so that Jupiter's program enforces a second floor on
     // chain that does not depend on the balance Bound read from the RPC (review BR-01). A curve route
     // is asked for again at the curve tolerance once it is known to be one.
-    slippageBps: settings.slippageBps,
+    slippageBps: req.expectCurve ? settings.curveSlippageBps : settings.slippageBps,
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
   };
   // Individual quotes fail transiently ("pool has not been updated", "zero tradable amount"):
@@ -616,6 +640,7 @@ export async function prepareProtectedSwap(deps: {
   const compile = (
     r: BuildResponse, lifetime: Lifetime, intermediates: IntermediateAta[], computeUnitLimit: number,
     outputBalanceBefore = wOutBefore.balance,
+    priority: { microLamportsPerComputeUnit: bigint; priorityFeeLamports: bigint } = settings,
   ) =>
     compileProtectedSwap({
       policy: policyFor(r),
@@ -625,8 +650,8 @@ export async function prepareProtectedSwap(deps: {
       version: req.version,
       lifetime,
       computeUnitLimit,
-      microLamportsPerComputeUnit: settings.microLamportsPerComputeUnit,
-      priorityFeeLamports: settings.priorityFeeLamports,
+      microLamportsPerComputeUnit: priority.microLamportsPerComputeUnit,
+      priorityFeeLamports: priority.priorityFeeLamports,
       lookupTables: req.version === 0 ? (r.addressesByLookupTableAddress ?? undefined) as never : undefined,
     });
 
@@ -677,11 +702,14 @@ export async function prepareProtectedSwap(deps: {
     for (const [level, maxAccounts] of MAX_ACCOUNTS_LEVELS.entries()) {
       let r = attempt === 0 && level === 0 ? await firstRouteTask : await buildOrNull(maxAccounts, excluded);
       if (!r) continue;
-      // A curve route is built again at the curve tolerance, so Jupiter's threshold matches Bound's
-      // floor. If the new answer is no longer a curve route, the first one stands.
-      if (isCurveRoute(r) && settings.curveSlippageBps !== settings.slippageBps) {
-        const wide = await buildOrNull(maxAccounts, excluded, settings.curveSlippageBps);
-        if (wide && isCurveRoute(wide)) r = wide;
+      // Every route is built at its own tolerance, so Jupiter's threshold matches Bound's floor
+      // (BR-01). A route asked for at the other one is asked for again; if the answer changes
+      // kind on the way, this level is skipped rather than built at a mismatched tolerance.
+      const own = slippageFor(r, settings);
+      if (own !== buildBase.slippageBps) {
+        const again = await buildOrNull(maxAccounts, excluded, own);
+        if (!again || slippageFor(again, settings) !== own) continue;
+        r = again;
       }
       if (!answersThisRequest(r)) { sawBadQuote = true; continue; }
       const out = BigInt(r.outAmount);
@@ -736,16 +764,20 @@ export async function prepareProtectedSwap(deps: {
     }
 
     const route = chosen.r.routePlan.map(p => p.swapInfo.label);
-    let trial = timed(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS));
-    let sim = await simulate(rpc, trial.transaction);
+    const buildTrial = () => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS);
+    // A route through a market known to charge the taker rent is measured at once (latency).
+    const knownRent = chosen.r.swapInstruction.accounts.some(a => RENT_CHARGING_PROGRAMS.has(a.pubkey));
+    const early = knownRent ? await measureTakerRent(buildTrial, rent => { takerRent = rent; }) : null;
+    let trial = early ? early.trial : timed(buildTrial);
+    let sim = early ? early.sim : await simulate(rpc, trial.transaction);
     // Some routes open an account in the taker's name and make the taker pay its rent — both of
     // Pump.fun's markets do, once per buyer. E holds no SOL on purpose, so such a route fails for
     // want of lamports.
     // Measure exactly what it needs and send E that and no more; see `measureTakerRent`. Only a
     // failure inside the swap is the route's: one before it is the wallet's own (review BR-10).
     const lookups = chosen.r.addressesByLookupTableAddress;
-    let probedForRent = false;
-    if (!sim.ok && failedInSwap(sim, trial.transaction, lookups) && sim.logs.some(l => l.includes('insufficient lamports'))) {
+    let probedForRent = !!early;
+    if (!early && !sim.ok && failedInSwap(sim, trial.transaction, lookups) && sim.logs.some(l => l.includes('insufficient lamports'))) {
       probedForRent = true;
       const measured = await measureTakerRent(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS), rent => { takerRent = rent; });
       if (measured) {
@@ -762,7 +794,8 @@ export async function prepareProtectedSwap(deps: {
       const chosenPolicy = policyFor(chosen.r);
       const swapAccounts = chosen.r.swapInstruction.accounts.map(a => address(a.pubkey));
       // The snapshot for the verifier and the fresh blockhash, together (idea 21).
-      const [snapshot, finalLifetime] = await Promise.all([
+      const writable = chosen.r.swapInstruction.accounts.filter(a => a.isWritable).map(a => address(a.pubkey)).slice(0, 128);
+      const [snapshot, finalLifetime, feeLevel] = await Promise.all([
         fetchSnapshot({
           rpc,
           addresses: [
@@ -774,13 +807,28 @@ export async function prepareProtectedSwap(deps: {
           lookupTableAddresses: req.version === 0 ? Object.keys(chosen.r.addressesByLookupTableAddress ?? {}).map(a => address(a)) : [],
         }),
         latestLifetime(rpc),
+        // What the pools this swap writes to are paying for priority now; the default when unknown.
+        rpc.getRecentPrioritizationFees(writable).send().then(recentFeeLevel).catch(() => null),
       ]);
 
       // Final build with a tight compute budget, a fresh blockhash, and W_out's balance as the
       // verifier will read it from the same snapshot.
       const units = Math.min(MAX_COMPUTE_UNITS, Math.ceil(sim.units * 1.3) + 20_000);
       const outputBalanceBefore = policy.accounts.wOut ? tokenAmountOf(snapshot.accounts.get(policy.accounts.wOut)?.data) : 0n;
-      const final = timed(() => compile(chosen.r, finalLifetime, chosen.intermediates, units, outputBalanceBefore));
+      // The priority fee follows the network's load, so a swap is not left behind when it is busy:
+      // the recent level on the swap's own pools, never below the default, and always capped so the
+      // whole fee stays within R4's limit (two signatures plus priority).
+      const feeRoom = (chosenPolicy.maxNetworkFeeLamports < ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS
+        ? chosenPolicy.maxNetworkFeeLamports : ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS) - 2n * LAMPORTS_PER_SIGNATURE;
+      const wantedPrice = feeLevel !== null && feeLevel > settings.microLamportsPerComputeUnit ? feeLevel : settings.microLamportsPerComputeUnit;
+      const maxPrice = (feeRoom * 1_000_000n) / BigInt(units);
+      const microLamports = wantedPrice < maxPrice ? wantedPrice : maxPrice;
+      const v1Wanted = (microLamports * BigInt(units) + 999_999n) / 1_000_000n;
+      const v1Priority = v1Wanted > settings.priorityFeeLamports ? v1Wanted : settings.priorityFeeLamports;
+      const priorityFeeLamports = req.version === 1 ? (v1Priority < feeRoom ? v1Priority : feeRoom) : v1Wanted;
+      const final = timed(() => compile(chosen.r, finalLifetime, chosen.intermediates, units, outputBalanceBefore, {
+        microLamportsPerComputeUnit: microLamports, priorityFeeLamports,
+      }));
 
       // Verified and certified in one step: the certificate exists only if every rule held.
       const verifyStarted = performance.now();
@@ -830,6 +878,8 @@ export async function prepareProtectedSwap(deps: {
         certificate: certification.certificate,
         timings: { totalMs: Math.round(performance.now() - started), localMs: Math.round(localMs) },
         networkFeeLamports: BigInt(clusterFee),
+        outputBalanceBefore,
+        priorityFeeLamports,
         notices: { removesDelegate },
         tokenTax: inputFee ? { inputBps: inputFee.bps, extraOnInput: taxOnInput } : null,
         intermediates: chosen.intermediates,

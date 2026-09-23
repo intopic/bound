@@ -104,7 +104,10 @@ function lamportsSentToTaker(wire: string): { taker: string; lamports: bigint; s
 
 function fakeRpc(
   accounts: Map<string, Account>,
-  opts: { feeFails?: boolean; epochFails?: boolean; takerRent?: bigint; priceMoves?: number; walletShort?: boolean } = {},
+  opts: {
+    feeFails?: boolean; epochFails?: boolean; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
+    feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
+  } = {},
 ): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
   let moved = 0;
@@ -121,6 +124,7 @@ function fakeRpc(
     // holds its rent; with it, the taker ends holding whatever it was sent beyond the rent.
     simulateTransaction: call((wire: string, config: { accounts?: { addresses: string[] } }) => {
       const need = opts.takerRent ?? 0n;
+      if (opts.simulations) opts.simulations.count++;
       const { taker, lamports, swapIndex } = lamportsSentToTaker(wire);
       // The wallet cannot pay for its own part: the first instruction, a rent payment, fails.
       if (opts.walletShort) {
@@ -152,6 +156,10 @@ function fakeRpc(
     }),
     getMinimumBalanceForRentExemption: call((size: bigint) => (BigInt(size) === 0n ? 650_240n : 1_488_440n)),
     getBalance: call(() => ({ value: 400_000n })),
+    getRecentPrioritizationFees: call(() => {
+      if (opts.feeLevels === 'fails') throw new Error('RPC unavailable');
+      return (opts.feeLevels ?? []).map((prioritizationFee, i) => ({ slot: BigInt(i), prioritizationFee }));
+    }),
     getEpochInfo: call(() => {
       if (opts.epochFails) throw new Error('RPC unavailable');
       return { epoch: 900n };
@@ -242,7 +250,8 @@ async function prepare(output: Address, opts: {
   jupiter?: JupiterClient; inputDecimals?: number; feeFails?: boolean; delegate?: boolean; wOutExists?: boolean;
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
   chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
-  input?: Address; treasury?: Address; amountIn?: bigint;
+  input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
+  expectCurve?: boolean;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
@@ -251,7 +260,7 @@ async function prepare(output: Address, opts: {
     {
       rpc: fakeRpc(accounts, {
         feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent, priceMoves: opts.priceMoves,
-        walletShort: opts.walletShort,
+        walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations,
       }),
       jupiter: opts.jupiter ?? fakeJupiter(), settings: { ...settings, treasury: opts.treasury ?? null },
     },
@@ -259,7 +268,7 @@ async function prepare(output: Address, opts: {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: opts.input ?? USDC, outputMint: output,
       amountIn: opts.amountIn ?? 1_000_000n,
       inputDecimals: opts.inputDecimals ?? DECIMALS[opts.input ?? USDC], outputDecimals: DECIMALS[output], version: 1,
-      acceptedMinOut: opts.acceptedMinOut, acceptedCostBps: opts.acceptedCostBps,
+      acceptedMinOut: opts.acceptedMinOut, acceptedCostBps: opts.acceptedCostBps, expectCurve: opts.expectCurve,
     },
   );
 }
@@ -578,6 +587,49 @@ describe('a SOL fee into a treasury wallet that does not exist yet (review BR-06
     const prepared = await prepare(BONK, { input: WSOL_MINT, treasury: TREASURY, amountIn: 100_000_000n, chain: [funded] });
     expect(prepared.policy.fee).toBe((100_000_000n * settings.feeBps) / 10_000n);
     expect(prepared.policy.treasury).toBe(TREASURY);
+  });
+});
+
+describe('latency without weaker protection', () => {
+  const floor = (bps: number) => (OUT * BigInt(10_000 - bps)) / 10_000n;
+  const onChain: [string, Account][] = [[PUMP, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }]];
+
+  it('a page that already saw a curve route asks Jupiter at 3% once, not twice', async () => {
+    const asked: BuildParams[] = [];
+    const prepared = await prepare(BONK, {
+      jupiter: fakeJupiter({ label: 'Pump.fun', curveProgram: true, asked }), chain: onChain, expectCurve: true,
+    });
+    expect(prepared.policy.minOut).toBe(floor(300));
+    expect(asked.every(p => p.slippageBps === 300)).toBe(true);
+  });
+
+  it('a wrong curve hint still builds an ordinary route at 0.5% (BR-01 holds)', async () => {
+    const asked: BuildParams[] = [];
+    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ asked }), expectCurve: true });
+    expect(prepared.policy.minOut).toBe(floor(50));
+    expect(asked.some(p => p.slippageBps === 50 && p.excludeDexes?.length)).toBe(true);
+  });
+
+  it('a Pump.fun route goes straight to measuring its rent: two simulations, not three', async () => {
+    const simulations = { count: 0 };
+    const prepared = await prepare(BONK, {
+      jupiter: fakeJupiter({ label: 'Pump.fun', curveProgram: true }), chain: onChain, takerRent: 1_346_200n, simulations,
+    });
+    expect(prepared.policy.takerRent).toBe(1_346_200n);
+    expect(simulations.count).toBe(2);
+  });
+
+  it('the priority fee follows recent fees on the pools, never below the default', async () => {
+    const busy = await prepare(BONK, { feeLevels: [1_000n, 2_000n, 300_000n, 400_000n] });
+    const quiet = await prepare(BONK, { feeLevels: [1n, 2n] });
+    const unknown = await prepare(BONK, { feeLevels: 'fails' });
+    expect(busy.priorityFeeLamports).toBeGreaterThan(quiet.priorityFeeLamports);
+    expect(quiet.priorityFeeLamports).toBe(unknown.priorityFeeLamports);
+  });
+
+  it('a runaway fee level is capped so the whole fee stays within R4', async () => {
+    const prepared = await prepare(BONK, { feeLevels: [10n ** 15n] });
+    expect(prepared.priorityFeeLamports + 10_000n).toBeLessThanOrEqual(settings.maxNetworkFeeLamports);
   });
 });
 
