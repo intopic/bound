@@ -8,28 +8,33 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # The agent skill ships a bundle of the verifier; it must be exactly what the source builds.
+      - run: node tools/build-skill.ts --check
       - run: npm run build
 
   reproducible:
     # The digest of the built client assets is what a user can check against the audited source,
     # and it is worth nothing unless the same source always produces the same bytes.
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.twice.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - name: Build twice and compare
+        id: twice
         run: |
           BOUND_BUILD_ID=$GITHUB_SHA npm run build
           first=$(node tools/build-digest.ts)
@@ -40,13 +45,34 @@ jobs:
           echo "second $second"
           test "$first" = "$second"
           echo "digest=$first" >> "$GITHUB_STEP_SUMMARY"
+          echo "digest=$first" >> "$GITHUB_OUTPUT"
+
+  reproducible-elsewhere:
+    # The same build on another runner image must give the same digest (review FA-10): two builds
+    # on one machine agree even when that machine is what changed them.
+    needs: reproducible
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build once and compare with the other image
+        run: |
+          BOUND_BUILD_ID=$GITHUB_SHA npm run build
+          here=$(node tools/build-digest.ts)
+          echo "ubuntu-latest ${{ needs.reproducible.outputs.digest }}"
+          echo "ubuntu-22.04  $here"
+          test "$here" = "${{ needs.reproducible.outputs.digest }}"
 
   fuzz:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm

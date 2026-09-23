@@ -3,7 +3,11 @@ name: CPI
 # T6: build the malicious swap program and run it against Bound's protected transaction inside a
 # real Solana VM. Separate from CI because it needs the Rust and Solana toolchains.
 on:
+  # Every push to main, whatever it touched (review FA-10): the guarantee is tested on each change
+  # that can reach production. Other branches, only when what T6 exercises changes.
   push:
+    branches: [main]
+  pull_request:
     paths:
       - 'tests/cpi/**'
       - 'packages/core/**'
@@ -16,9 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -26,8 +29,7 @@ jobs:
       # The lockfile is written on Windows, where litesvm has no binary; make sure the Linux one is here.
       - run: npm install --no-save litesvm@1.4.1
 
-      - uses: dtolnay/rust-toolchain@stable
-
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 23 September 2026
       - name: Install the Solana toolchain
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
@@ -35,7 +37,7 @@ jobs:
       - run: solana --version
 
       - name: Cache the SBF platform tools
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/solana
           key: platform-tools-${{ runner.os }}
@@ -51,7 +53,7 @@ jobs:
         if: always()
         run: cat tests/cpi/results/cpi.md || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: cpi-report
