@@ -636,6 +636,34 @@ programs and Jupiter (BR-13).
 
 ---
 
+## 0n. Latency: what Bound adds before the wallet opens, and what was cut
+
+Measured on mainnet on 23 September 2026 with the public RPC and keyless Jupiter (both slow and
+rate-limited, so these are upper figures): one Jupiter call takes 0.19–0.66 s; Bound took 0.67–2.3 s
+from click to wallet, mostly network round trips (reads, the route, simulation, the snapshot, the
+fee). Compiling and verifying locally took 0.07–0.3 s. What was cut, with no check loosened:
+
+- **Built ahead of the click.** While the user looks at a quote, the page builds and verifies the
+  swap for it with its own one-time key. The click uses it if it is under 20 s old, is for exactly
+  the inputs on screen, and the output account still holds the balance its minimum was built on
+  (re-read at the click); otherwise it builds as before. A build nobody clicks on is never signed or
+  sent and expires with its blockhash. No question is asked ahead: a build that would need one is
+  dropped. Measured in Edge: 86–114 ms from click to wallet when used, against 0.6–1.6 s before.
+- **Curve routes asked at 3% at once** when the page's quote already showed one (`expectCurve`);
+  a wrong hint still ends in a route built at 0.5%.
+- **Pump.fun routes measured at once** for the rent they charge E, without the simulation known to
+  fail first.
+- **Priority fee by load:** the 75th percentile of recent fees on the swap's own pools, never below
+  the default, capped so the whole fee stays within R4; read with the snapshot, so no extra round
+  trip. This is about landing, not about the time before the wallet.
+
+Cost: building ahead roughly triples the build calls per visitor who does not click. With keyless
+Jupiter (30 requests a minute for the whole site) that runs into its limit quickly, and a build
+ahead that fails falls back to building at the click; the paid Jupiter key is required for launch
+anyway.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

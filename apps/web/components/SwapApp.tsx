@@ -5,13 +5,13 @@ import type { ReactNode } from 'react';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
 import { address, getTransactionEncoder } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
-import { feeFor, JUPITER_PROGRAM } from '@bound/core';
+import { feeFor, JUPITER_PROGRAM, tokenAmountOf } from '@bound/core';
 import type { TxVersion } from '@bound/core';
 import {
   BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, prepareProtectedSwap, quotedMinimum,
 } from '@bound/jupiter';
 import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
-import { createEphemeral } from '@bound/solana';
+import { createEphemeral, fetchAccounts } from '@bound/solana';
 import type { SendOutcome } from '@bound/solana';
 import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
@@ -98,6 +98,8 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
 }
 /** A transaction lives about a minute; one that waited longer than this on a question is rebuilt. */
 const STALE_AFTER_QUESTION_MS = 15_000;
+/** A swap built ahead of the click is used only this soon after its build started. */
+const AHEAD_MAX_AGE_MS = 20_000;
 
 /**
  * Why a token cannot be swapped safely, in words rather than the name of a Token-2022 extension.
@@ -128,6 +130,22 @@ function extrasOf(p: PreparedSwap, t: { inSymbol: string; outSymbol: string; inD
   }
   if (p.notices.removesDelegate) lines.push(`This also removes the spending permission you gave on your ${t.outSymbol} account.`);
   return lines;
+}
+
+/** Identifies the inputs a build ahead of the click was made for. */
+const aheadKey = (owner: string, input: string, output: string, amountIn: bigint, quotedAt: number, version: TxVersion) =>
+  [owner, input, output, String(amountIn), quotedAt, version].join('|');
+
+/**
+ * A build made ahead is used only if the output account still holds what its minimum was built on
+ * (B and C: the check is that balance plus the minimum). Another swap into the same token since
+ * then, even from another device, sends the click back to building.
+ */
+async function outputBalanceUnchanged(p: PreparedSwap): Promise<boolean> {
+  const wOut = p.policy.accounts.wOut;
+  if (!wOut) return true;
+  const now = await fetchAccounts(getRpc(), [wOut]).then(m => tokenAmountOf(m.get(wOut)?.data)).catch(() => null);
+  return now === p.outputBalanceBefore;
 }
 
 /** Does a rebuilt swap cost more than the one the user just accepted? */
@@ -555,31 +573,35 @@ export function SwapApp() {
    * Builds the protected swap with the minimum the user accepted. If the market moved beyond the
    * tolerance, the user sees the new minimum and decides; it is never lowered silently (C-02).
    */
+  /** The pipeline's dependencies, with the fee fixed at build time and the server's limits. */
+  const swapDeps = (s: PublicStatus) => ({
+    rpc: getRpc(),
+    jupiter: getJupiter(),
+    settings: {
+      ...DEFAULT_SETTINGS,
+      feeBps: FEE_BPS,
+      treasury: TREASURY,
+      excludeDexes: s.excludeDexes,
+      maxNetworkFeeLamports: BigInt(s.maxNetworkFeeLamports),
+      jupiterProgram: JUPITER_PROGRAM,
+    },
+  });
+
   async function prepareAccepted(args: {
     E: KeyPairSigner; owner: Address; inToken: TokenInfo; outToken: TokenInfo; amountIn: bigint;
     inDecimals: number; outDecimals: number; acceptedMinOut: bigint; version: TxVersion; status: PublicStatus;
+    expectCurve: boolean;
   }): Promise<PreparedSwap | null> {
     let accepted = args.acceptedMinOut;
     let acceptedCost: bigint | undefined;
     for (let round = 0; ; round++) {
       try {
         return await prepareProtectedSwap(
-          {
-            rpc: getRpc(),
-            jupiter: getJupiter(),
-            settings: {
-              ...DEFAULT_SETTINGS,
-              feeBps: FEE_BPS,
-              treasury: TREASURY,
-              excludeDexes: args.status.excludeDexes,
-              maxNetworkFeeLamports: BigInt(args.status.maxNetworkFeeLamports),
-              jupiterProgram: JUPITER_PROGRAM,
-            },
-          },
+          swapDeps(args.status),
           {
             owner: args.owner, ephemeral: args.E, inputMint: address(args.inToken.id), outputMint: address(args.outToken.id),
             amountIn: args.amountIn, inputDecimals: args.inDecimals, outputDecimals: args.outDecimals,
-            acceptedMinOut: accepted, acceptedCostBps: acceptedCost, version: args.version,
+            acceptedMinOut: accepted, acceptedCostBps: acceptedCost, version: args.version, expectCurve: args.expectCurve,
           },
         );
       } catch (e) {
@@ -614,6 +636,29 @@ export function SwapApp() {
     }
   }
 
+  // --- built ahead of the click (latency). While the user looks at a quote, the swap for it is
+  // built and verified with its own one-time key, so the click opens the wallet at once. Nothing is
+  // signed or sent: a build nobody clicks on expires with its blockhash. No question is asked here;
+  // a build that would need one (price moved, costs more) is dropped, and the click asks as before.
+  const ahead = useRef<{ key: string; startedAt: number; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
+  useEffect(() => {
+    if (phase !== 'idle' || blocker || !wallet || !W || !tokenIn || !tokenOut || !amountIn || !quote || !status) return;
+    if (inDecimals === null || outDecimals === null) return;
+    const version = chooseVersion(supportedVersions(wallet), V1_ENABLED);
+    if (version === null) return;
+    const key = aheadKey(W, tokenIn.id, tokenOut.id, amountIn, quote.at, version);
+    if (ahead.current?.key === key) return;
+    const request = {
+      owner: W, inputMint: address(tokenIn.id), outputMint: address(tokenOut.id), amountIn,
+      inputDecimals: inDecimals, outputDecimals: outDecimals, acceptedMinOut: quote.minOut, expectCurve: quote.curve, version,
+    };
+    const task = (async () => {
+      const E = await createEphemeral();
+      return { prepared: await prepareProtectedSwap(swapDeps(status), { ...request, ephemeral: E }), E };
+    })().catch(() => null);
+    ahead.current = { key, startedAt: Date.now(), task };
+  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals]);
+
   // --- the protected swap: build + verify → wallet signs first → re-verify → E signs last → send
   async function swap() {
     if (!wallet || !account || !W || !tokenIn || !tokenOut || !amountIn || !status || !quote || blocker) return;
@@ -644,17 +689,25 @@ export function SwapApp() {
     let settled = true;
     const texts: SwapTexts = { paid: `${formatUnits(amountIn, inDecimals)} ${inToken.symbol}`, received: '', exposed: '', minimum: '' };
     const cancelled = () => setNotice({ kind: 'info', title: 'Swap cancelled', body: 'Nothing was signed and no funds moved.' });
+    // A build made ahead of the click is used at most once.
+    const early = ahead.current;
+    ahead.current = null;
     try {
-      const E = await createEphemeral();
-      const build = (acceptedMinOut: bigint) => prepareAccepted({
-        E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinOut, version, status,
+      const build = (E: KeyPairSigner, acceptedMinOut: bigint) => prepareAccepted({
+        E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinOut, version, status, expectCurve: quote.curve,
       });
       // A large price impact is asked about before anything is built, as other swap pages do.
       if (quote.impact >= IMPACT_ASK) {
         if (!(await askAboutOffer({ kind: 'impact', pct: impactText(quote.impact) }))) return cancelled();
         setPhase('checking');
       }
-      let prepared = await build(quote.minOut);
+      // The swap built while the user looked at this quote, if it is recent, is for exactly these
+      // inputs and its output balance has not moved since; otherwise it is built now.
+      const reused = early && early.key === aheadKey(W, inToken.id, outToken.id, amountIn, quote.at, version)
+        && Date.now() - early.startedAt < AHEAD_MAX_AGE_MS ? await early.task : null;
+      const fresh = reused && (await outputBalanceUnchanged(reused.prepared)) ? reused : null;
+      const E = fresh ? fresh.E : await createEphemeral();
+      let prepared = fresh ? fresh.prepared : await build(E, quote.minOut);
       if (!prepared) return cancelled();
       // Costs the page did not show before the click are shown before the wallet opens (BR-03).
       const facts = { inSymbol: inToken.symbol, outSymbol: outToken.symbol, inDecimals };
@@ -666,7 +719,7 @@ export function SwapApp() {
         // build costs more than what was just accepted.
         if (Date.now() - askedAt > STALE_AFTER_QUESTION_MS) {
           setPhase('checking');
-          const again = await build(prepared.quote.minOut);
+          const again = await build(E, prepared.quote.minOut);
           if (!again) return cancelled();
           if (costsMoreThan(again, prepared) && !(await askAboutOffer({ kind: 'extras', lines: extrasOf(again, facts) }))) return cancelled();
           prepared = again;
