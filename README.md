@@ -4,9 +4,11 @@ Swap any SPL or Token-2022 token, or SOL, on Solana without giving the swap prog
 rest of your wallet.
 
 > **What you approve is all the swap can touch.** The external swap program can move at most the
-> amount you approve. It gets no spending authority over your other tokens, your NFTs or your SOL,
-> no permission outlives the transaction, and the minimum output shown is enforced on successful
-> execution: if less would arrive, the whole swap reverts.
+> amount you approve, plus a market's one-time account fee when one is shown before your wallet
+> opens. It gets no spending authority over your other tokens, your NFTs or your SOL, no permission
+> outlives the transaction, and the minimum output shown is enforced on successful execution: if
+> less would arrive, the whole swap reverts. For a token output that check relies on the RPC's
+> report of your balance of that token (SECURITY.md, "One RPC provider").
 
 ## How it works
 

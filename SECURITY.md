@@ -15,11 +15,14 @@ For every swap Bound builds:
    a close authority is refused.
 3. The transaction grants no new authority over W's assets (no approvals, no ownership changes).
 4. The user receives at least the minimum they accepted before signing, which is never below the
-   quote less the slippage: 0.5%, or 3% when the route trades on a Pump.fun bonding curve. Bound checks it on chain after the swap; if less arrived, the whole
-   transaction reverts. When a token is bought, the check compares the user's account for that
-   token with its balance when the swap was prepared: a transfer into that account from someone else
-   at the same moment counts toward it. Bound never runs two of its own swaps into the same token at
-   once.
+   quote less the slippage: 0.5%, or 3% when the route trades on a Pump.fun bonding curve. Bound
+   checks it on chain after the swap; if less arrived, the whole transaction reverts. When a token
+   is bought, the check compares the user's account for that token with its balance when the swap
+   was prepared, and that balance is read from the RPC: the check assumes the RPC reports it
+   truthfully, and a transfer into that account from someone else at the same moment counts toward
+   it. Jupiter's program also enforces the route's own tolerance on chain, a second floor that does
+   not depend on the RPC. Bound never runs two of its own swaps into the same token at once in the
+   same browser.
 
 Bound has one minimum-output model for every router: an exact base-unit amount enforced by a trusted
 instruction in the same transaction and checked independently by the verifier. A router's own
@@ -58,13 +61,15 @@ R1's address filter then only has to cover what can move **without** W's signatu
 
 - token accounts with a pre-existing delegate: none of W's token accounts reach the external program
   except `W_out`, and `W_out`'s delegate is revoked before the swap;
-- mints with a permanent delegate: such a delegate moves tokens without W's signature, but not
-  without its own. A delegate that is an ordinary key signs only as a signer of the transaction,
-  and R6 admits none but W and E, so it cannot act inside the swap. A delegate off the curve is a
-  program-derived address its program could sign for, and that program could be in the route, so
-  such a mint is refused — as an endpoint and as an intermediate. The same holds for a transfer
-  hook with a real program. Tokens used only inside the route's own pools never reach W's
-  accounts; the external instruction is untrusted anyway (AUDIT.md section 0j).
+- mints with a permanent delegate: such a delegate moves tokens without W's signature. Inside the
+  swap it can reach only accounts of that mint the route was given: E's, which are the route's
+  anyway, and `W_out`. What protects `W_out` is the minimum-output check, which counts `W_out`'s
+  balance after the swap against its balance before, so anything the delegate takes out is netted.
+  Bound also refuses a delegate that is a program-derived address, but that rule is not what
+  protects the user: an "ordinary" delegate can still be a Token-program multisig whose signer is a
+  program, and the delegate can be reassigned after the snapshot (review BR-05, AUDIT.md sections
+  0j and 0m). A transfer hook with a real program is refused. Tokens used only inside the route's
+  own pools never reach W's accounts; the external instruction is untrusted anyway.
 
 Anyone changing R1 or R6 must re-read this section. The same note sits above the rules in
 `packages/verifier/src/verify.ts`.
@@ -90,13 +95,19 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
 
 - A malicious or compromised DEX or program inside the route: limited to the approved amount; less
   than the minimum output reverts the transaction.
-- A compromised Jupiter API response: rejected by the verifier (R1–R7).
+- A compromised Jupiter API response: rejected by the verifier (R1–R7) if it breaks isolation. A
+  bad price, or a route label, is not something the verifier can detect.
 - Changes after verification (wallet, extension, network): rejected by the wallet-return check (R6).
 - A compromised Bound server that still serves the genuine page: it sees mints, amounts, E's public
   key and the user's address, never a private key. It can pause swaps, change the alpha limit and
   the excluded DEXes, and lower F_max, but it cannot raise the fee above 1%, the network fee above
-  0.001 SOL, or send the fee anywhere else. It also relays RPC answers and token metadata: wrong
-  decimals are caught against the chain, but lying account state is the RPC assumption above.
+  0.001 SOL, or send the fee anywhere else. It also relays RPC answers, Jupiter's answers and token
+  metadata. Wrong decimals are caught against the chain, but a relay that under-reports the balance
+  of the user's output account and forges a route through its own pool can defeat Bound's minimum
+  for a token output, and take the whole swap amount from a user who already holds that token
+  (review BR-01). Jupiter's on-chain threshold does not help against a forged route. The defence
+  is serving the genuine page and relays from a published, monitored release (section "Verifying
+  the code you are running").
 
 ## Not covered
 
@@ -245,11 +256,22 @@ Bound runs on a single RPC provider (Helius). That is an operational choice: two
 companies would remove one trust assumption, at the cost of a second account, a second bill and a
 second thing that can break.
 
-What a second provider would buy is a cross-check of address lookup tables. In a v0 transaction the
-account list is partly stored in those tables, so the verifier has to read them from somewhere, and
-an RPC that lied about a table could hide an account from rule R1. With one provider, Bound trusts
-that provider for exactly that. Everything else it returns is checked: account contents are read
-into a snapshot that every rule is applied to, and a transaction that does not match is refused.
+The rules are applied to a snapshot the RPC provides, so the RPC is trusted for more than lookup
+tables. What depends on it, from the v1 review (AUDIT.md section 0m):
+
+| Read | Used for | If the RPC lies |
+| --- | --- | --- |
+| Balance of the output account | The minimum-output check for a token output | The check can pass with less delivered. Jupiter's own threshold (0.5%, or 3% on a curve) still holds on an honest route |
+| Lookup table contents | R1 | Together with a lying Jupiter, an account could be hidden. v1 transactions have no lookup tables |
+| Owners and data of the route's accounts | R1's test for W's own accounts | A W account with a delegate the user set up earlier could be hidden |
+| Mints: owner, decimals, extensions | R2, R7, amounts | A wrong decimals value reverts on chain (TransferChecked); a hidden extension falls back on the minimum |
+| Simulation | The route rent sent to E | Up to the 0.005 SOL cap, stated before signing |
+| Whether the treasury has an account | Fee on or off | Only Bound's revenue |
+| Blockhash, fee, epoch | Lifetime, the fee check, tax pricing | Expiry or a revert, never a loss |
+| Statuses, block height | What the page reports | A landed swap could be shown as expired |
+
+What does not depend on it: that W's signature never reaches the external program, the exact debit
+templates, the fee caps, and the bytes the wallet signs.
 
 A v1 transaction carries no lookup tables at all, so the assumption disappears as wallets adopt
 it. The optional cross-check against a second provider was removed on 23 September 2026 to keep

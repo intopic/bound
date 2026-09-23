@@ -520,10 +520,10 @@ buyer, and with Bound every swap is a new buyer. About 0.0013 SOL.
 
 **The bonding curve.** A new Pump.fun token trades on its bonding curve before it moves to
 PumpSwap, and there Pump.fun takes the purchase in native SOL, not from a token account. It gets
-that SOL itself: its buy instruction calls the token program's `UnwrapLamports` on E's temporary
-WSOL account, which moves exactly the approved amount into E's own balance, and spends it from
-there. So the approved amount reaches the market the same way as on every other route, and nothing
-in Bound changed for it. The curve opens the same kind of per-buyer account (1,346,200 lamports) and
+that SOL itself. On 22 September its buy instruction called the token program's `UnwrapLamports`
+on E's temporary WSOL account and spent the approved amount from E's own balance; on 23 September
+the review saw the same instruction take it without that step. Bound depends on neither: it
+measures what E spends, and E ends with nothing either way (section 0m, BR-15). The curve opens the same kind of per-buyer account (1,346,200 lamports) and
 may charge 132,080 more for growing the curve's own account; both are measured as `takerRent`, about
 0.0015 SOL in all. Sells on the curve pay the same rent and deliver the proceeds as WSOL into E_out,
 where Bound's minimum check reads them.
@@ -541,10 +541,11 @@ quoted again, and after two misses the user is told the price moved.
 **Slippage on the curve: 3%.** The same speed reaches past the simulation: in T14 a curve token moved
 more than 0.5% between building a swap and executing it, which reverts the swap and costs the user
 the network fee for nothing. A route with any leg on a Pump.fun bonding curve (Jupiter's label
-`Pump.fun`) now gets a 3% tolerance; every other route, PumpSwap included, keeps 0.5%. Jupiter is
-asked for the wider of the two before the route is known, so that its own threshold never stops a
-route first. That cannot weaken anything: Bound computes the floor per route, enforces it with its
-own check, and Jupiter's threshold only ever makes it stricter. The minimum the page shows is
+`Pump.fun`, with the curve program among the swap's accounts) now gets a 3% tolerance; every other
+route, PumpSwap included, keeps 0.5%. Each route is asked for at its own tolerance, a curve route a
+second time once it is seen to be one, so Jupiter's program enforces the same tolerance on chain.
+(Until the review, Jupiter was asked for 3% on every route, which weakened that second floor; see
+section 0m, BR-01.) The minimum the page shows is
 computed the same way, and a stricter minimum the user already accepted still wins. The cost is
 the wider room for price movement and MEV on those tokens, up to 3%, which the minimum shown
 before signing states. Decision of 23 September 2026.
@@ -598,6 +599,36 @@ hash, verifier version, the temporary authority's address, the programs invoked)
 person pays: Bound's fee, the network fee, a new account's deposit, a market's account fee. The
 verifier still certifies every transaction before the wallet opens, and the certificate stays in
 the prepared swap for a wallet, an agent or an auditor that wants to check it.
+
+---
+
+## 0m. The v1 review of 23 September 2026
+
+An independent adversarial review of the v1 web dApp at `f636cad` found no path by which the
+external instruction can debit W directly, spend another of W's accounts, or leave an authority
+behind. It found the minimum for token outputs weaker than documented, and a set of smaller issues.
+What was done, commit by commit:
+
+| Finding | What it was | What changed | Evidence |
+| --- | --- | --- | --- |
+| BR-01 (High) | For a token output the floor is `b0 + minOut` with `b0` read from the RPC, and since `d03028b` Jupiter was always asked for 3%, so its own on-chain threshold was 3% for every route | Each route is asked for at its own tolerance: 0.5%, and 3% only for a curve route, asked again once it is seen to be one. Jupiter's program again enforces 0.5% on chain for every other route, a floor that does not depend on the RPC. SECURITY.md now lists what depends on the RPC | `2eb5a41`; pipeline tests, two fail without the change; T14 24/24 on mainnet |
+| BR-04 | The 3% tolerance was chosen from Jupiter's label alone | A curve route needs the label and the curve program `6EF8…F6P` among the swap's accounts | `2eb5a41`; a label without the program stays at 0.5% |
+| BR-14 | The verifier did not refuse an address loaded twice (the runtime does) | R5 refuses it | `510adba`; M17 |
+| BR-10 | A wallet short of SOL was probed for route rent and read "Every route failed in simulation" | The rent probe runs only when the swap instruction itself failed; a failure before it is `insufficient-sol`, with what the swap needs and what the wallet holds | `0d33daf`; checked on mainnet with an empty wallet |
+| BR-06 | A SOL fee into a treasury wallet that does not exist yet reverts every swap under about 0.325 SOL | Such a swap is fee-free, like a token the treasury has no account for | `0d33daf` |
+| BR-11 | Freeze and mint authority warnings came only from Jupiter's metadata | For a token Jupiter has not verified, they come from the mint account | `076de08`; three tests |
+| BR-05 | The page and SECURITY.md said an ordinary-key issuer delegate cannot act inside the swap | Corrected: a multisig delegate with a program signer can; the minimum, which nets `W_out`, is what protects the user. The on-curve rule stays, costing nothing | this section, SECURITY.md |
+| BR-02 | The per-token swap lock lapsed 180 s after the click | Refreshed when the wallet opens and when the swap is sent | `64bf106`; fake-time test |
+| BR-12 | v1 was used whenever a wallet advertised it, with no v1 swap landed yet | v0 unless the build sets `NEXT_PUBLIC_BOUND_ENABLE_V1=1` | `64bf106` |
+| BR-03 | The market fee, token tax and delegate removal appeared only while the wallet was open; success showed the quote | A card before the wallet opens when any applies; after confirmation, the amount actually received, from the transaction | `457926d`; Edge: smoke 18/18, a curve buy shows the card before the wallet is called |
+| BR-15 | §0k described one way Pump.fun takes the SOL | Both were observed: unwrapping E_in (22 September) and not (23 September, the review). Bound depends on neither: it measures what E spends | §0k |
+
+Left for operations, not code: the real-wallet test with Phantom and at least one other wallet; a
+treasury holding at least 0.01 SOL, with its fee accounts; deploying only from tags and a pause
+drill; branch protection (not available for a private repository on the current GitHub plan);
+confirming that a token pasted into an earlier chat was revoked; a published, monitored release
+digest (BR-07); firewall rate limits for the relays (BR-09); monitoring upgrades of the token
+programs and Jupiter (BR-13).
 
 ---
 
