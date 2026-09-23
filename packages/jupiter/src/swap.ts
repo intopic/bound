@@ -705,8 +705,8 @@ export async function prepareProtectedSwap(deps: {
       if (accepted === undefined || chosenGapBps > accepted + 50n) {
         throw new BoundError(
           'costs-more',
-          `The protected route for this swap is ${percent(chosenGapBps)} below the best price on the market: it has to fit in one transaction, and Bound leaves out pools that would leave an account behind.`
-          + (chosenGapBps > settings.warnAboveBps ? ' At this distance most people should trade a smaller amount instead.' : ''),
+          `This route gives ${percent(chosenGapBps)} less than the best price on the market.`
+          + (chosenGapBps > settings.warnAboveBps ? ' A smaller amount often gets a better price.' : ''),
           [], null,
           { gapBps: chosenGapBps, outAmount: BigInt(chosen.r.outAmount), baselineOut },
         );

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
 import { address, getTransactionEncoder } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
@@ -32,8 +33,12 @@ import { TokenIcon, TokenPicker } from './TokenPicker';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
 type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string };
-/** `curve`: the route trades on a Pump.fun bonding curve, so its tolerance is the wider one. */
-type Quote = { out: bigint; minOut: bigint; curve: boolean; at: number };
+/**
+ * `curve`: the route trades on a Pump.fun bonding curve, so its tolerance is the wider one.
+ * `impact`: how much this amount moves the market price, as Jupiter reports it: a fraction, so
+ * 0.132 is 13.2% (checked 2026-09-23 against the rates of a small and a large quote).
+ */
+type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number; at: number };
 /** What the wallet is about to be asked to sign, shown while it is open. */
 type Pending = {
   minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
@@ -44,6 +49,7 @@ type Pending = {
 type Offer =
   | { kind: 'price'; was: string; now: string }
   | { kind: 'cost'; gap: string; severe: boolean }
+  | { kind: 'impact'; pct: string }
   | { kind: 'extras'; lines: string[] };
 /** `received`: what the chain recorded, once confirmed; empty until then. */
 type SwapTexts = { paid: string; received: string; exposed: string; minimum: string };
@@ -53,6 +59,43 @@ const QUOTE_TAKER = '11111111111111111111111111111111';
 const SOL_RESERVE_LAMPORTS = 10_000_000n; // fees plus temporary rent, returned in the same transaction
 const TOKEN_ACCOUNT_SIZE = 165n;
 const OFFER_TIMEOUT_MS = 45_000;
+/** Price impact: a warning from 1%, a question before building from 5%, as swap pages usually do. */
+const IMPACT_WARN = 0.01;
+const IMPACT_ASK = 0.05;
+const impactText = (fraction: number) => `${(fraction * 100).toFixed(fraction < 0.1 ? 2 : 1)}%`;
+
+/**
+ * Each question the page asks, in plain words. The protected route's distance from the best price is
+ * stated as a fact, not as a cost of the protection; price impact is its own, separate warning.
+ */
+function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
+  switch (o.kind) {
+    case 'price':
+      return {
+        title: 'The protected route pays less than the price you saw',
+        body: <p>Minimum received is now <strong>{o.now}</strong> (was {o.was}). Nothing has been signed.</p>,
+        go: 'Continue with the new minimum',
+      };
+    case 'cost':
+      return {
+        title: `This route gives ${o.gap} less than the best price on the market`,
+        body: <p>{o.severe ? 'A smaller amount often gets a better price. ' : ''}Nothing has been signed.</p>,
+        go: 'Continue',
+      };
+    case 'impact':
+      return {
+        title: `Price impact is ${o.pct}`,
+        body: <p>This amount moves the market price a lot, so you get less per token than a smaller swap would. Nothing has been signed.</p>,
+        go: 'Continue',
+      };
+    case 'extras':
+      return {
+        title: 'Before your wallet opens',
+        body: <ul className="extras">{o.lines.map(line => <li key={line}>{line}</li>)}</ul>,
+        go: 'Continue to wallet',
+      };
+  }
+}
 /** A transaction lives about a minute; one that waited longer than this on a question is rebuilt. */
 const STALE_AFTER_QUESTION_MS = 15_000;
 
@@ -135,7 +178,7 @@ function explainError(e: unknown): Notice {
       'bad-quote': 'Only bad prices were offered',
       'price-moved': 'The price moved',
       'insufficient-sol': 'Not enough SOL',
-      'costs-more': 'Protecting this swap costs more here',
+      'costs-more': 'This route gives less than the best price',
       'simulation-failed': 'The swap would fail',
       'verification-failed': "We couldn't build a protected swap",
       'wallet-changed-transaction': 'Your wallet changed the transaction',
@@ -415,7 +458,10 @@ export function SwapApp() {
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
           setQuote(answersThis
-            ? { out: BigInt(r.outAmount), minOut: quotedMinimum(r, DEFAULT_SETTINGS), curve: isCurveRoute(r), at: Date.now() }
+            ? {
+              out: BigInt(r.outAmount), minOut: quotedMinimum(r, DEFAULT_SETTINGS), curve: isCurveRoute(r),
+              impact: Number.isFinite(Number(r.priceImpactPct)) ? Math.max(0, Number(r.priceImpactPct)) : 0, at: Date.now(),
+            }
             : null);
         })
         .catch(() => !cancelled && setQuote(null))
@@ -603,6 +649,11 @@ export function SwapApp() {
       const build = (acceptedMinOut: bigint) => prepareAccepted({
         E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinOut, version, status,
       });
+      // A large price impact is asked about before anything is built, as other swap pages do.
+      if (quote.impact >= IMPACT_ASK) {
+        if (!(await askAboutOffer({ kind: 'impact', pct: impactText(quote.impact) }))) return cancelled();
+        setPhase('checking');
+      }
       let prepared = await build(quote.minOut);
       if (!prepared) return cancelled();
       // Costs the page did not show before the click are shown before the wallet opens (BR-03).
@@ -721,6 +772,7 @@ export function SwapApp() {
   };
 
   const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
+  if (quote && quote.impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(quote.impact)}: this amount moves the market price.`);
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
   // A token that taxes its own transfers costs more through Bound, because the protected account
   // is one extra transfer. Said before the swap, not after it.
@@ -905,35 +957,12 @@ export function SwapApp() {
         </div>
 
         {phase === 'confirm' && offer && (
-          <div
-            className="banner info" role="alertdialog"
-            aria-label={offer.kind === 'price' ? 'The price moved' : offer.kind === 'cost' ? 'This route costs more' : 'Before your wallet opens'}
-          >
-            <p className="banner-title">
-              {offer.kind === 'price'
-                ? 'The protected route pays less than the price you saw'
-                : offer.kind === 'cost' ? 'Protecting this swap costs more here' : 'Before your wallet opens'}
-            </p>
-            {offer.kind === 'extras' ? (
-              <ul className="extras">
-                {offer.lines.map(line => <li key={line}>{line}</li>)}
-              </ul>
-            ) : offer.kind === 'price' ? (
-              <p>
-                Minimum received is now <strong>{offer.now}</strong> (was {offer.was}). Nothing has been signed.
-              </p>
-            ) : (
-              <p>
-                The protected route is <strong>{offer.gap}</strong> below the best price on the market. A protected swap
-                has to fit in one transaction, and Bound leaves out pools that would leave an account behind. A smaller
-                amount often costs less.
-                {offer.severe && ' At this distance most people should trade a smaller amount instead.'} Nothing has been
-                signed, and the choice is yours.
-              </p>
-            )}
+          <div className="banner info" role="alertdialog" aria-label={offerCopy(offer).title}>
+            <p className="banner-title">{offerCopy(offer).title}</p>
+            {offerCopy(offer).body}
             <div className="banner-actions">
               <button className="primary" onClick={() => decideOffer.current?.(true)}>
-                {offer.kind === 'price' ? 'Continue with the new minimum' : offer.kind === 'cost' ? 'Continue anyway' : 'Continue to wallet'}
+                {offerCopy(offer).go}
               </button>
               <button className="ghost" onClick={() => decideOffer.current?.(false)}>
                 Cancel
