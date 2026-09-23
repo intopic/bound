@@ -8,6 +8,13 @@ the whole transaction reverts.
 Two calls. Bound builds and verifies the transaction; your wallet signs it first; Bound signs last,
 with the one-time key, and sends it. Bound never holds your key or your funds.
 
+For coding agents there is a skill, `skills/bound-protected-swap/` (`SKILL.md` and a working
+example, `examples/swap.ts`, that needs only `@solana/kit`):
+
+```bash
+npx skills add intopic/bound --skill bound-protected-swap
+```
+
 ```
 POST /api/v1/prepare    → an unsigned transaction and a ticket
    (you sign the transaction as your wallet)

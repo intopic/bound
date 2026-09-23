@@ -759,6 +759,18 @@ unsigned transaction was refused by R6; keyless Jupiter's 429 came back as `busy
 Open, for the auditor (`API-AGJENTET.md` section 9): custody wording, the choice of (a), local
 verification by the agent, a minimum-fee rule, and the free-template limit (API keys and limits only).
 
+**The skill** (`skills/bound-protected-swap/`, in the Agent Skills format): `SKILL.md` teaches a coding
+agent the flow, what to check before signing, and how to act on each error without accepting a lower
+minimum, a costlier route or a higher fee on its own. `examples/swap.ts` implements it with
+`@solana/kit` only: `checkPrepared` refuses to sign when the message does not hash to
+`messageSha256`, the signers or fee payer are not the wallet and E, the debit, mints or minimum
+differ from what was asked, or the fee or network fee exceed the agent's limits. These checks hold
+Bound to its own statements; they are not an independent verification of the instructions, which
+needs `@bound/verifier` (not published yet). Evidence: `apps/web/test/skillExample.test.ts` runs the
+example end to end against the real API handlers and checks seven wrong responses are refused; its
+`--dry-run` against mainnet through `next start` priced USDC→SOL and SOL→USDC with no problems and
+refused a fee above `--max-fee-bps 10`.
+
 ---
 
 ## 1. What Bound is
