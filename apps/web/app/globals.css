@@ -81,6 +81,8 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .protection { margin-top: 12px; padding: 12px 14px; background: var(--ok-bg); border: 1px solid var(--ok-line); border-radius: 12px; }
 .protection-title { display: flex; align-items: center; gap: 8px; margin: 0 0 2px; font-weight: 600; color: var(--ok); }
 .protection-note { margin: 0; font-size: 13px; color: var(--muted); }
+.extras { margin: 6px 0; padding-left: 18px; }
+.extras li { margin: 2px 0; }
 
 .details { margin: 10px 2px; }
 .detail-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); padding: 2px 0; }

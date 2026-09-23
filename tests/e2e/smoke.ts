@@ -113,7 +113,7 @@ try {
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
   check('page loads with USDC → SOL preselected', await page.getByRole('button', { name: /SOL/ }).first().isVisible());
   check('protection panel is shown', await page.getByText('Wallet authority protected').isVisible());
-  check('protection is one plain line', await page.getByText('The swap can touch only the amount you swap.').isVisible());
+  check('protection is one plain line', await page.getByText('The swap can use only the amount you swap.').isVisible());
   check('test mode banner without a treasury', await page.getByText('Test mode: no Bound fee is charged.').isVisible());
   await page.screenshot({ path: `${OUT}/1-start.png` });
 
@@ -123,7 +123,7 @@ try {
   check('test wallet connects through the Wallet Standard', true);
 
   await page.getByLabel('Amount to pay').fill('5');
-  await page.getByText(/Minimum output .* SOL · enforced on successful execution/).waitFor({ timeout: 20_000 });
+  await page.getByText(/Minimum received .* SOL · if less would arrive, the swap cancels itself/).waitFor({ timeout: 20_000 });
   check('live quote appears', true, await page.locator('.box').nth(1).locator('.amount').innerText());
   await page.screenshot({ path: `${OUT}/2-quote.png` });
 

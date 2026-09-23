@@ -56,11 +56,11 @@ describe('RPC proxy', () => {
   it('forwards allowlisted methods, including the epoch, fee and rent queries', async () => {
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
-    for (const method of ['getEpochInfo', 'getFeeForMessage', 'getMinimumBalanceForRentExemption']) {
+    for (const method of ['getEpochInfo', 'getFeeForMessage', 'getMinimumBalanceForRentExemption', 'getTransaction']) {
       const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method, params: [] }), 'https://rpc.test');
       expect(res.status).toBe(200);
     }
-    expect(upstream).toHaveBeenCalledTimes(3);
+    expect(upstream).toHaveBeenCalledTimes(4);
   });
 
   it('refuses other methods and batches', async () => {

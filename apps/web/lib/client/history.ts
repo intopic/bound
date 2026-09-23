@@ -69,8 +69,9 @@ export function addHistory(entry: HistoryEntry): HistoryEntry[] {
   return write([entry, ...readHistory().filter(h => h.signature !== entry.signature)].slice(0, MAX));
 }
 
-export function updateHistory(signature: string, status: HistoryStatus): HistoryEntry[] {
-  return write(readHistory().map(h => (h.signature === signature ? { ...h, status } : h)));
+/** `received`: what the chain recorded, once known; it replaces the minimum stored at send. */
+export function updateHistory(signature: string, status: HistoryStatus, received?: string): HistoryEntry[] {
+  return write(readHistory().map(h => (h.signature === signature ? { ...h, status, ...(received ? { received } : {}) } : h)));
 }
 
 export const isUnsettled = (h: HistoryEntry) => h.status === 'pending' || h.status === 'unknown';
