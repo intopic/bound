@@ -181,9 +181,12 @@ published with a release can be compared against a build you made yourself.
 
 **Scripts carry their own hashes.** The page sets `integrity` on the scripts it loads
 (`experimental.sri`, SHA-384), so a browser refuses a script whose bytes were altered between the
-build and the tab. Next does not put it on every chunk yet: today 5 of 7 script tags carry one, and
-the browser test records the exact ratio on every run rather than assuming it. The chunks without
-it are still covered by the digest above, which is over every file.
+build and the tab. Next signs only the scripts it writes itself; the chunks of the page's own code
+are written by React, so each page preloads them with the hashes Next computed at build time and
+React copies the hash onto the tag (`apps/web/lib/server/scriptIntegrity.ts`). Today 7 of 8 script
+tags carry one. The eighth is Next's layout chunk (router and error boundaries), which is written
+before any page code runs; the browser test names it and fails if a second tag loses its hash. It
+is still covered by the digest above, which is over every file.
 
 Neither of these protects against a backend that serves a different page on purpose. What they do
 is make that visible to anyone who looks, instead of impossible to tell.

@@ -99,14 +99,15 @@ try {
     csp,
   );
   // Subresource integrity: the browser refuses a script whose bytes were altered on the way. Next
-  // does not put it on every chunk yet, so the ratio is recorded rather than assumed.
+  // signs its bootstrap chunks and the page signs its own (lib/server/scriptIntegrity.ts); Next's
+  // layout chunk is written before any page code runs, so one tag is allowed without a hash.
   const scripts = await page.$$eval('script[src^="/_next/static"]', tags =>
     tags.map(t => ({ src: t.getAttribute('src') ?? '', integrity: !!t.getAttribute('integrity') })));
-  const signed = scripts.filter(x => x.integrity).length;
+  const unsigned = scripts.filter(x => !x.integrity).map(x => x.src.split('/').pop());
   check(
     'scripts carry subresource integrity hashes',
-    scripts.length > 0 && signed >= Math.ceil(scripts.length * 0.7),
-    `${signed} of ${scripts.length} script tags; the rest are covered by the published build digest`,
+    scripts.length > 0 && unsigned.length <= 1,
+    `${scripts.length - unsigned.length} of ${scripts.length} script tags; without: ${unsigned.join(', ') || 'none'} (covered by the published build digest)`,
   );
 
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
