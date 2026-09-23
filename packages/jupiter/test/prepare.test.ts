@@ -340,6 +340,12 @@ describe('a protected route that costs more than the open market', () => {
     expect(await codeOf(prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 3_000n }) }))).toBe('costs-more');
   });
 
+  it('is asked about from 0.5% below the market, and goes through silently below that', async () => {
+    expect(settings.askAboveBps).toBe(50n);
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 70n }) }))).toBe('costs-more');
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 30n }) }))).toBe('ok');
+  });
+
   it('is refused only when the answer is no longer a price at all', async () => {
     expect(await codeOf(prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 6_000n }) }))).toBe('bad-quote');
   });

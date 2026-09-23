@@ -55,7 +55,9 @@ export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'>
   excludeDexes: ['HumidiFi'],
   slippageBps: 50,
   curveSlippageBps: 300,
-  askAboveBps: 100n,
+  // 0.5%: a silent cost of 1% would be five times Bound's own fee. T9 measured 90% of protected
+  // routes within 0.26% of the market, so most swaps still go through without a question.
+  askAboveBps: 50n,
   warnAboveBps: 500n,
   badQuoteBps: 5_000n,
   maxRepairAttempts: 4,
