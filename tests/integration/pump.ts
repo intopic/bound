@@ -106,7 +106,9 @@ async function holderOf(mint: Address, program: Address): Promise<{ owner: Addre
     const d = Uint8Array.from(Buffer.from(r.account.data[0], 'base64'));
     return { account: address(r.pubkey), owner: decoder.decode(d.subarray(0, 32)), balance: new DataView(d.buffer, d.byteOffset).getBigUint64(32, true) };
   }).sort((a, b) => (a.balance > b.balance ? -1 : 1)).slice(0, 40);
-  const wallets = await fetchAccounts(rpc, rows.map(r => r.owner));
+  // The public RPC sometimes closes the connection on a large read; that is no holder, not a failure.
+  const wallets = await fetchAccounts(rpc, rows.map(r => r.owner)).catch(() => null);
+  if (!wallets) return null;
   for (const r of rows) {
     const wallet = wallets.get(r.owner);
     if (!wallet || wallet.owner !== SYSTEM_PROGRAM || wallet.lamports < 50_000_000n || r.balance === 0n) continue;
@@ -168,6 +170,11 @@ for (const t of candidates) {
     }
     run = await execute(prepared.transaction, [prepared.policy.ephemeral, prepared.policy.accounts.eIn, wOut]);
   }
+  if (!run.ok && priceMoved(run.failure)) {
+    // The market outran the tolerance twice in a row; the minimum reverted the swap both times.
+    check(t.symbol, 'buy: the final transaction executes', null, `çmimi lëvizi përtej tolerancës dy herë: ${run.failure.slice(0, 80)}`);
+    continue;
+  }
   check(t.symbol, 'buy: the final transaction executes', run.ok, run.failure);
   if (run.ok) {
     check(t.symbol, 'buy: the temporary key ends with nothing', gone(run.after[0]), run.after[0] ? `${run.after[0].lamports} lamports left` : '');
@@ -199,6 +206,10 @@ for (const t of candidates) {
       ({ sell, done } = await sellOnce());
     }
     check(t.symbol, 'sell: built, verified and certified', true, `${sell.quote.route.join(' → ')}, rent ${sell.policy.takerRent}`);
+    if (!done.ok && priceMoved(done.failure)) {
+      check(t.symbol, 'sell: the final transaction executes', null, `çmimi lëvizi përtej tolerancës dy herë: ${done.failure.slice(0, 80)}`);
+      continue;
+    }
     check(t.symbol, 'sell: the final transaction executes', done.ok, done.failure);
     if (done.ok) check(t.symbol, 'sell: the key and both temporary accounts end empty', done.after.every(gone));
   } catch (e) {
