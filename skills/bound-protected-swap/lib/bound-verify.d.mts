@@ -20,6 +20,12 @@ export type AgentLimits = {
   maxNetworkFeeLamports?: number;
   /** When set, the fee may go only to this treasury wallet (or nowhere). */
   treasury?: string;
+  /**
+   * The most rent the route may keep, in lamports: what the wallet sends for a market's account,
+   * less what closing it returns in the same transaction (default 0.001 SOL). A Pump.fun bonding
+   * curve keeps about 0.00013 SOL of every buy for growing its own account.
+   */
+  maxRouteCostLamports?: number;
 };
 
 /** The parts of a /api/v1/prepare answer the check reads. */
@@ -32,8 +38,9 @@ export type PreparedSwap = {
 
 /**
  * Runs Bound's full verifier on the prepared transaction, with chain state read from `rpc` (the
- * agent's own RPC) and the policy held to `limits`, then simulates it there: the one-time key must
- * end with nothing. Returns the problems found; sign only when empty.
+ * agent's own RPC) and the policy held to `limits`, then simulates it there: nothing may stay under
+ * the one-time key, in its own account or in a Pump.fun market's account in its name. Returns the
+ * problems found; sign only when empty.
  */
 export function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>): Promise<string[]>;
 

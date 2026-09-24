@@ -25,6 +25,7 @@ import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { BoundApiError, checkPrepared, confirm, protectedSwap } from '../../../skills/bound-protected-swap/examples/swap.ts';
 import { ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
+import { routeAccountFor } from '@bound/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
 import type { Intent, Prepared } from '../../../skills/bound-protected-swap/examples/swap.ts';
@@ -263,8 +264,46 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
       source: createNoopSigner(b.wallet.address), destination: honest.temporaryAuthority as Address, amount: 5_000_000n,
     }));
     const lie = await lyingAnswer(honest, b.wallet.address, ixs, { ...honest.policy, takerRent: '5000000' });
-    const problems = await checkPrepared(lie, intentFor(b.wallet), b.agentRpc);
+    const problems = await checkPrepared(lie, { ...intentFor(b.wallet), maxRouteCostLamports: 5_000_000 }, b.agentRpc);
     expect(problems).toEqual(['the one-time key would keep 5000000 lamports after the swap']);
+  });
+
+  it('rent the route keeps is refused beyond the limit the agent sets, 0.001 SOL by default (engineering review M-05)', async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    const ixs = honestInstructions(honest);
+    const swap = ixs.findIndex(ix => ix.programAddress === 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+    ixs.splice(swap, 0, getTransferSolInstruction({
+      source: createNoopSigner(b.wallet.address), destination: honest.temporaryAuthority as Address, amount: 5_000_000n,
+    }));
+    const lie = await lyingAnswer(honest, b.wallet.address, ixs, { ...honest.policy, takerRent: '5000000' });
+    expect((await checkPrepared(lie, intentFor(b.wallet), b.agentRpc)).join()).toContain('keeps 5000000 lamports of rent that do not come back');
+  });
+
+  it('lamports left in a Pump market account under the one-time key are refused (engineering review M-05)', async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    const market = await routeAccountFor(address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'), honest.temporaryAuthority as Address);
+    // The agent's RPC reports the market's account under E still holding its rent after the swap.
+    const rpc = {
+      ...b.agentRpc,
+      simulateTransaction: () => ({
+        send: async () => ({ value: { err: null, logs: [], accounts: [null, { lamports: 1_346_200n }, null] } }),
+      }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    const problems = await checkPrepared(honest, intentFor(b.wallet), rpc);
+    expect(problems.join()).toContain('a market account under the one-time key would keep 1346200 lamports');
+    expect(market).toBeTruthy();
+  });
+
+  it('a simulation that does not report the accounts proves nothing, and is refused (engineering review M-05)', async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    const rpc = {
+      ...b.agentRpc,
+      simulateTransaction: () => ({ send: async () => ({ value: { err: null, logs: [] } }) }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    expect((await checkPrepared(honest, intentFor(b.wallet), rpc)).join()).toContain('did not report what the one-time key holds');
   });
 
   it('with too few blocks left to land, the example does not finalize (F-05)', async () => {

@@ -42,7 +42,7 @@ const ata = async (owner: Address, mint: Address, tokenProgram: Address = TOKEN_
 const addressBytes = (a: Address) => getAddressEncoder().encode(a);
 const seed = (s: string) => new TextEncoder().encode(s);
 /** The account a Pump market opens for E, and the program's event authority, derived here, not read. */
-const routeAccountFor = async (program: Address, E: Address) =>
+export const routeAccountFor = async (program: Address, E: Address) =>
   (await getProgramDerivedAddress({ programAddress: program, seeds: [seed('user_volume_accumulator'), addressBytes(E)] }))[0];
 const eventAuthorityFor = async (program: Address) =>
   (await getProgramDerivedAddress({ programAddress: program, seeds: [seed('__event_authority')] }))[0];

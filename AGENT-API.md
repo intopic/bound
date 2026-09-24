@@ -108,8 +108,11 @@ Before signing, run the verifier: `verifyPrepared(prepared, limits, yourRpc)` fr
 fee, optionally Bound's treasury address) and your own minimum, which is required: a price you got
 yourself, never Bound's (`ownMinimum` asks Jupiter for one). It holds `policy` to those limits, reads
 every account the message names from your RPC, runs the verifier's rules on the exact bytes, and
-simulates the transaction there: the one-time key must end with nothing. The `certificate` and
-`amounts` are Bound's statements; the check is what makes them evidence.
+simulates the transaction there: nothing may stay under the one-time key, in its own account or in
+the account a Pump.fun market opens in its name. Rent the route keeps (`costs.routeRentLamports`
+less `costs.routeRefundLamports`) is accepted only up to your `maxRouteCostLamports`, 0.001 SOL
+unless you set it (a Pump.fun bonding curve keeps about 0.00013 SOL of every buy). The `certificate` and `amounts` are Bound's statements; the check is what makes them
+evidence, and holds the amounts stated to the policy the bytes are checked against.
 
 `notices.networkBusy` means the network fee is at its limit, so the swap may land late or expire.
 `amounts.feeBps` is 0 when the swap is fee-free.
@@ -209,13 +212,15 @@ have sent it, so check it before preparing again (see above). `price-moved` and 
 - It never has your key, and after your wallet signs, no byte of the message can change without
   breaking that signature. What you sign is what the verifier approved, if you ran it on your own
   RPC; if you did not, you signed what Bound's server built.
-- The one-time key it signs with owns nothing outside this one transaction. On Pump.fun routes the
-  market opens a per-buyer account under that key; Bound closes it at the end of the same
-  transaction and sends its rent back to your wallet (`costs.routeRefundLamports`). Only when that
-  cannot be done does the account stay under the key. Bound's server can derive the key again from
-  its secret, so whoever holds that secret could collect lamports left under it; a Bound swap
-  leaves none, and the skill's check simulates that before your wallet signs. Bound derives a key
-  only for its ticket's finalize, repeated or not, and never logs the nonces it derives from.
+- No permission over your wallet outlives the transaction. On Pump.fun routes the market opens a
+  per-buyer account under the one-time key; Bound closes it at the end of the same transaction and
+  sends its rent back to your wallet (`costs.routeRefundLamports`). When that cannot be done (the
+  account also holds a cashback coin's cashback, or the close does not fit in the transaction), the
+  account stays under the key with its rent. Bound's server can derive the key again from its
+  secret, so whoever holds that secret could collect it: the skill's check simulates the
+  transaction and refuses one that leaves anything under the key or in that account, and rent that
+  does not come back beyond your limit. Bound derives a key only for its ticket's finalize,
+  repeated or not, and never logs the nonces it derives from.
 - It can refuse or delay: a signed transaction it holds back simply expires, in about 40 seconds.
 - It sees the addresses and amounts of the swaps you ask for, as any swap API does.
 

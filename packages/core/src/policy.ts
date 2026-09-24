@@ -80,11 +80,15 @@ export function minimumReceived(policy: Pick<Policy, 'minOut' | 'fee' | 'feeSide
 
 /**
  * The least minimum a swap must enforce so that the wallet keeps `received` after a fee of `feeBps`
- * on the output: ceil(received × 10,000 / (10,000 − feeBps)).
+ * on the output. ceil(received × 10,000 / (10,000 − feeBps)) always suffices, but the fee rounds
+ * down, so a unit less sometimes does too; the least is taken (engineering review L-10).
  */
 export function minimumForReceived(received: bigint, feeBps: bigint): bigint {
   const keep = BPS_DENOMINATOR - feeBps;
-  return (received * BPS_DENOMINATOR + keep - 1n) / keep;
+  let gross = (received * BPS_DENOMINATOR + keep - 1n) / keep;
+  // What the wallet keeps never falls as the minimum rises, so stepping down stops at the least.
+  while (gross > 0n && gross - 1n - outputFeeFor(gross - 1n, feeBps) >= received) gross--;
+  return gross;
 }
 
 export class PolicyError extends Error {}

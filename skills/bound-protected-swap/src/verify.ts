@@ -10,18 +10,20 @@
  * Two things the rules alone cannot settle are settled here too (research audit). The price: the
  * agent must bring a floor of its own (`minOut`, from `ownMinimum` or its own source), or a server
  * could sell the amount for almost nothing through a pool it controls (F-02). And the one-time key:
- * the swap is simulated on the agent's RPC and must leave it with nothing, so no lamports stay
- * where a server that derives the key could collect them (F-06).
+ * the swap is simulated on the agent's RPC and must leave nothing under it, in its own account or
+ * in an account a Pump.fun market opens in its name, so no lamports stay where a server that
+ * derives the key could collect them (F-06, engineering review M-05). Rent a route keeps is a cost
+ * that does not come back, accepted only up to the agent's own limit (0.001 SOL by default).
  *
  * Bundled into ../lib/bound-verify.mjs by tools/build-skill.ts (only @solana/kit stays external), so
  * the skill works on its own; CI rebuilds it and fails if the committed file differs.
  */
 import { fetchAddressesForLookupTables, getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@solana/kit';
 import type { Address, Rpc, SolanaRpcApi } from '@solana/kit';
-import { JUPITER_PROGRAM } from '@bound/core/constants';
+import { JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM } from '@bound/core/constants';
 import type { ChainSnapshot, Policy } from '@bound/core/types';
 import { readAccounts } from '@bound/solana';
-import { verify } from '@bound/verifier';
+import { routeAccountFor, verify } from '@bound/verifier';
 
 /** What the agent asked for, and the most it accepts. */
 export type AgentLimits = {
@@ -42,6 +44,12 @@ export type AgentLimits = {
   maxNetworkFeeLamports?: number;
   /** When set, the fee may go only to this treasury wallet (or nowhere). */
   treasury?: string;
+  /**
+   * The most rent the route may keep, in lamports: what the wallet sends for a market's account,
+   * less what closing it returns in the same transaction (default 0.001 SOL). A Pump.fun bonding
+   * curve keeps about 0.00013 SOL of every buy for growing its own account.
+   */
+  maxRouteCostLamports?: number;
 };
 
 /** The parts of a /api/v1/prepare answer the check reads. */
@@ -98,6 +106,12 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
   if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1_000_000)) {
     problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
   }
+  // Rent that does not come back is a cost of its own, apart from the network fee (M-05).
+  const routeCost = p.takerRent - p.routeRefund;
+  const maxRouteCost = BigInt(limits.maxRouteCostLamports ?? 1_000_000);
+  if (routeCost > maxRouteCost) {
+    problems.push(`the route keeps ${routeCost} lamports of rent that do not come back, above your limit of ${maxRouteCost} (maxRouteCostLamports)`);
+  }
   // What the wallet keeps: the enforced minimum, less a fee taken from the output (like Jupiter's,
   // Bound takes its fee in SOL first, then USDC or USDT, on whichever side of the swap they are).
   const keeps = p.feeSide === 'output' ? p.minOut - p.fee : p.minOut;
@@ -139,30 +153,38 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
 }
 
 /**
- * What the one-time key holds after the swap, simulated on the agent's own RPC. Every lamport the
- * wallet sends it (a market's account rent) must be spent by the route or come back in the same
- * transaction; a server that stated more than the route needs, or a smaller refund, would otherwise
- * leave lamports under a key it can derive (research audit F-06).
+ * What stays under the one-time key after the swap, simulated on the agent's own RPC: in its own
+ * account, and in the account each Pump.fun market opens in its name. Every lamport the wallet sends
+ * it (a market's account rent) must be spent by the route or come back in the same transaction; a
+ * server that stated more than the route needs, a smaller refund, or a market account left open
+ * would otherwise leave lamports under a key it can derive (research audit F-06, engineering
+ * review M-05). An account that does not exist afterwards holds nothing; an answer that does not
+ * report the accounts proves nothing, and is refused.
  */
 async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>): Promise<string[]> {
+  const watched = [key, ...await Promise.all([PUMP_CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountFor(program, key)))];
   try {
     const { value } = await rpc
       .simulateTransaction(transaction as never, {
         encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed',
-        accounts: { addresses: [key], encoding: 'base64' },
+        accounts: { addresses: watched, encoding: 'base64' },
       })
       .send();
     if (value.err) return [`the swap fails in simulation on your RPC: ${JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? v.toString() : v))}`];
     const after = (value as { accounts?: readonly ({ lamports: bigint | number } | null)[] | null }).accounts;
-    const left = BigInt(after?.[0]?.lamports ?? 0);
-    return left === 0n ? [] : [`the one-time key would keep ${left} lamports after the swap`];
+    if (!Array.isArray(after) || after.length !== watched.length) {
+      return ['the simulation on your RPC did not report what the one-time key holds after the swap'];
+    }
+    const held = after.map(a => BigInt(a?.lamports ?? 0));
+    const problems: string[] = [];
+    if (held[0] !== 0n) problems.push(`the one-time key would keep ${held[0]} lamports after the swap`);
+    const inMarkets = held.slice(1).reduce((sum, x) => sum + x, 0n);
+    if (inMarkets !== 0n) problems.push(`a market account under the one-time key would keep ${inMarkets} lamports after the swap`);
+    return problems;
   } catch (e) {
     return [`the swap could not be simulated on your RPC: ${(e as Error).message}`];
   }
 }
-
-/** The program of a Pump.fun bonding curve: a route through one is quoted at a wider tolerance. */
-const PUMP_CURVE_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 
 /**
  * A floor of the agent's own, from a price it asks Jupiter for itself (research audit F-02): the

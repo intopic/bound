@@ -55,7 +55,11 @@ export type Certificate = {
    * are separate and are stated above; this field is about tokens, not about lamports.
    */
   otherTokenDebit: 0;
-  /** Nothing the transaction grants outlives it: no delegate, no authority, no account. */
+  /**
+   * No permission over the wallet's accounts outlives the transaction: no delegate, no authority. A
+   * market's account the route opens under E and cannot close keeps its rent: that is stated above,
+   * as `routeRentLamports` less `routeRefundLamports` (engineering review M-05).
+   */
   persistentPermissions: 0;
   signers: readonly [Address, Address];
   externalProgram: Address;

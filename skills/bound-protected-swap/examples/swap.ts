@@ -20,7 +20,7 @@
  *   JUPITER_API_KEY=...                          (optional: for your own price; keyless allows one call every 2 s)
  *
  *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 20]
- *                [--accept-cost-bps N] [--v1]
+ *                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
  *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
  */
 import { readFileSync } from 'node:fs';
@@ -52,6 +52,8 @@ export type Intent = {
   maxNetworkFeeLamports?: number;
   /** When set, the fee may go only to this treasury wallet (or nowhere). */
   treasury?: string;
+  /** The most market rent that does not come back you accept, in lamports (default 0.001 SOL). */
+  maxRouteCostLamports?: number;
   /** A gap to the open market the user already accepted, from a `costs-more` answer (bps, as a string). */
   acceptCostBps?: string;
   /** 1 for a v1 transaction, where the deployment offers it; 0 (the default) otherwise. */
@@ -343,7 +345,7 @@ async function main() {
   const need = (name: string) => process.env[name] ?? (console.error(`Set ${name}.`), process.exit(2));
   const [inputMint, outputMint, amountIn] = [flag('in'), flag('out'), flag('amount')];
   if (!inputMint || !outputMint || !amountIn) {
-    console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--accept-cost-bps N] [--v1] [--owner <address> --dry-run]');
+    console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1] [--owner <address> --dry-run]');
     process.exit(2);
   }
   const apiUrl = need('BOUND_API_URL').replace(/\/+$/, '');
@@ -352,6 +354,7 @@ async function main() {
     inputMint, outputMint, amountIn, minOut: flag('min-out'), treasury: process.env.BOUND_TREASURY || undefined,
     maxFeeBps: flag('max-fee-bps') ? Number(flag('max-fee-bps')) : undefined,
     maxBelowBps: flag('max-below-bps') ? Number(flag('max-below-bps')) : undefined,
+    maxRouteCostLamports: flag('max-route-cost-lamports') ? Number(flag('max-route-cost-lamports')) : undefined,
     acceptCostBps: flag('accept-cost-bps'),
     version: process.argv.includes('--v1') ? 1 as const : undefined,
   };

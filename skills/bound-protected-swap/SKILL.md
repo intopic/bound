@@ -57,9 +57,14 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
      key, fee and network-fee ceilings, the treasury if you pinned it;
    - **every instruction of the exact transaction**, with Bound's verifier (rules R1–R7) against
      chain state from your RPC: your wallet never reaches the swap program, only the approved amount
-     leaves it, nothing is approved, reassigned or left behind, Jupiter's own on-chain floor is
-     present and measured on your output account, and the minimum is enforced after the swap;
-   - a simulation of the transaction on your RPC, after which the one-time key must hold nothing.
+     leaves it, no permission over your wallet is approved, reassigned or left behind, Jupiter's own
+     on-chain floor is present, measured on your output account and reaches the whole minimum, and
+     the minimum is enforced after the swap;
+   - a simulation of the transaction on your RPC, after which nothing may stay under the one-time
+     key: not in its own account, and not in the account a Pump.fun market opens in its name;
+   - rent the route keeps (`costs.routeRentLamports` less `costs.routeRefundLamports`), accepted only
+     up to your `maxRouteCostLamports`, 0.001 SOL unless you set it (the example's
+     `--max-route-cost-lamports`). A Pump.fun bonding curve keeps about 0.00013 SOL of every buy.
 4. **Sign as the wallet only**: `partiallySignTransaction([wallet.keyPair], tx)`. Do not modify the
    transaction; a changed message, including a removed fee, is refused at finalize. The
    transaction's id is now known: it is the wallet's signature (`getSignatureFromTransaction`).
