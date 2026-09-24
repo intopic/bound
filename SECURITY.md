@@ -6,7 +6,7 @@ For every swap Bound builds:
 
 1. The external swap program (Jupiter's route) can move at most `q − f` of the input token, where `q`
    is the amount the user entered and `f` is the Bound fee. The fee is compiled into the page at
-   build time (0.2% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`). When
+   build time (0.5% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`). When
    the route opens an account in the temporary key's name and charges it the rent (both of
    Pump.fun's markets do, once per buyer), it can also reach exactly that rent, which is measured in simulation, capped at
    0.005 SOL (`MAX_TAKER_RENT_LAMPORTS`) and stated before signing. Nothing else in SOL.
@@ -67,14 +67,14 @@ finalize and never logs nonces.
 The rent stays in the user's own new token account and is shown before signing. Bound never makes the
 user pay rent for Bound's own fee account.
 
-The fee (0.2%) is taken in the order Jupiter prefers for its own (its pricing and token list differ):
+The fee (0.5%) is taken in the order Jupiter prefers for its own (its pricing and token list differ):
 in SOL first, then USDC, then USDT, on
 whichever side of the swap they are and the treasury can receive them; otherwise in the input token
-when the treasury has an account for it; otherwise the swap is fee-free. On the input it is 0.2% of
-the amount, paid before the swap. On the output it is 0.2% of the enforced minimum, paid after the
+when the treasury has an account for it; otherwise the swap is fee-free. On the input it is 0.5% of
+the amount, paid before the swap. On the output it is 0.5% of the enforced minimum, paid after the
 minimum is checked (from the wallet once E_out has paid out, for SOL; from `W_out`, for USDC or
 USDT): the minimum the user sees and accepts is what the wallet keeps after it, and the fee is never
-more than 0.2% of what the swap delivers, since Jupiter's own floor holds the route to that minimum
+more than 0.5% of what the swap delivers, since Jupiter's own floor holds the route to that minimum
 whatever else arrives in the account (engineering review H-03). This is what lets a memecoin sold for SOL pay, where the treasury
 could never hold an account for every new token.
 

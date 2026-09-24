@@ -182,7 +182,7 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
         ix.programAddress === 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4' ? { ...ix, programAddress: attacker } : ix);
       return lyingAnswer(honest, b.wallet.address, ixs, { ...honest.policy, jupiterProgram: attacker });
     }],
-    ['a fee of 1% instead of 0.2%', async (_b, honest) => ({ ...honest, policy: { ...honest.policy, feeBps: '100' } })],
+    ['a fee of 1%, above the most an agent accepts', async (_b, honest) => ({ ...honest, policy: { ...honest.policy, feeBps: '100' } })],
     ['a minimum of 1', async (_b, honest) => ({ ...honest, policy: { ...honest.policy, minOut: '1' } })],
   ];
   for (const [name, make] of variants) {

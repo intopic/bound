@@ -911,6 +911,23 @@ enforced one).
 
 ---
 
+## 0v. The fee is 0.5% (24 September 2026)
+
+The owner raised the fee from 0.2% to 0.5%: at 0.2% the fee income could fall short of what running
+the service costs. Everything else about it stays as section 0t describes (which token, which side,
+fee-free only when the treasury can receive none), and the verifier's ceiling stays at 1%.
+
+- Defaults: `NEXT_PUBLIC_BOUND_FEE_BPS` and the API's fee are 50 unless configured, in the page, the
+  API server, the pipeline's settings and the release workflow. The fee is compiled into the page at
+  build time, so a deployment whose variable still says 20 keeps 0.2% until it is set to 50 and
+  rebuilt.
+- The skill accepts Bound's fee by default (`maxFeeBps` 50), and its own floor (`ownMinimum`) takes
+  the larger fee off the amount it prices.
+- For comparison, from the research of 24 September 2026: trading bots around 1%, Phantom 0.85%,
+  MetaMask 0.875%, Jupiter's own swap page 0 to 0.1% on most pairs and 0.5% on tokens under a day old.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
@@ -925,7 +942,7 @@ verified byte for byte.
 
 > For every transaction Bound produces, the single external instruction (Jupiter) can move at most
 > `q − f` of the input token, where `q` is the amount the user entered and `f` is the Bound fee
-> (fixed at build time, 0.2% by default, at most 1% by the verifier). It never receives W or any token
+> (fixed at build time, 0.5% by default, at most 1% by the verifier). It never receives W or any token
 > account of W except the output account, whose delegate is revoked before the swap, and the
 > transaction grants no new authority over W's assets. The user receives at least `minOut` — the
 > minimum they accepted before signing, never below the quote less the slippage (0.5%, or 3% on a

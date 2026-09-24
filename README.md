@@ -14,7 +14,7 @@ rest of your wallet.
 
 1. Bound creates a one-time key **E** in the browser (WebCrypto Ed25519, non-extractable).
 2. In a single transaction, the wallet **W** moves exactly the amount to swap into a temporary account
-   owned by E, pays the Bound fee (0.2%), and only E and that account are given to the one untrusted
+   owned by E, pays the Bound fee (0.5%), and only E and that account are given to the one untrusted
    instruction (Jupiter's swap). After the swap, Bound checks that at least the minimum output
    arrived, then closes the temporary accounts back to W.
 3. Before the wallet opens, the **verifier** checks the exact bytes against 7 rules (below).
@@ -107,7 +107,7 @@ Fixed at build time (compiled into the page, so the server cannot change them af
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then almost every swap pays, memecoin sales included. A swap the treasury can receive in neither token is fee-free |
-| `NEXT_PUBLIC_BOUND_FEE_BPS` | 20 | 0.2%. The verifier refuses more than 100 (1%) |
+| `NEXT_PUBLIC_BOUND_FEE_BPS` | 50 | 0.5%. The verifier refuses more than 100 (1%) |
 | `NEXT_PUBLIC_BOUND_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Bound v1 swap has landed on mainnet |
 
 Server only (never sent to the browser):

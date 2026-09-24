@@ -44,9 +44,9 @@ Requests are limited per key (60 per minute per endpoint by default). A `429` me
 
 ## Fee
 
-0.2%, inside the transaction, taken the way Jupiter takes its own: in SOL first, then USDC, then
+0.5%, inside the transaction, taken the way Jupiter takes its own: in SOL first, then USDC, then
 USDT, on whichever side of the swap they are; otherwise in the input token. `amounts.feeMint` says
-which. On the input it is 0.2% of `amountIn`; on the output it is 0.2% of the enforced minimum, paid
+which. On the input it is 0.5% of `amountIn`; on the output it is 0.5% of the enforced minimum, paid
 after the minimum is checked, and `amounts.minOut` is what your wallet keeps after it. It is part of
 the message you sign, and Bound signs only the exact message it built, so a transaction with the fee
 removed is not signed. The verifier refuses anything above 1%. When the treasury can receive the fee

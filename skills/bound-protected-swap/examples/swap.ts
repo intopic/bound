@@ -19,7 +19,7 @@
  *   BOUND_TREASURY=<address>                     (optional: the fee may go only there)
  *   JUPITER_API_KEY=...                          (optional: for your own price; keyless allows one call every 2 s)
  *
- *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 20]
+ *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 50]
  *                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
  *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
  */
@@ -46,7 +46,7 @@ export type Intent = {
   minOut?: string;
   /** For the floor asked of Jupiter: how far below its price, in bps (default 2%, 5% on a Pump.fun curve). */
   maxBelowBps?: number;
-  /** The highest Bound fee you accept, in bps (Bound's is 20). */
+  /** The highest Bound fee you accept, in bps (Bound's is 50). */
   maxFeeBps?: number;
   /** The highest network fee you accept, in lamports. */
   maxNetworkFeeLamports?: number;
@@ -156,7 +156,7 @@ export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<Solana
   // paid in, or of the minimum that comes out, never more than your limit of either.
   const onOutput = p.amounts.feeMint !== undefined && p.amounts.feeMint === intent.outputMint && p.amounts.feeMint !== intent.inputMint;
   const base = onOutput ? BigInt(p.amounts.minOut) + BigInt(p.amounts.fee) : BigInt(intent.amountIn);
-  const maxFee = (base * BigInt(intent.maxFeeBps ?? 20)) / 10_000n;
+  const maxFee = (base * BigInt(intent.maxFeeBps ?? 50)) / 10_000n;
   const stated = BigInt(p.certificate.input.boundFee) + BigInt(p.certificate.output.boundFee ?? '0');
   if (BigInt(p.amounts.fee) > maxFee) problems.push(`the Bound fee ${p.amounts.fee} is above ${maxFee}`);
   if (stated !== BigInt(p.amounts.fee)) problems.push('the fee the certificate states differs from the one in amounts');

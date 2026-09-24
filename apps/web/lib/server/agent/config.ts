@@ -52,7 +52,7 @@ export function agentDeps(): AgentDeps | null {
   const rpcUrl = process.env.RPC_URL_AGENTS || server.rpcUrl;
   const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
   const feeBps = BigInt(/^\d{1,3}$/.test(process.env.BOUND_API_FEE_BPS ?? '') ? process.env.BOUND_API_FEE_BPS!
-    : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_BOUND_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_BOUND_FEE_BPS! : '20');
+    : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_BOUND_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_BOUND_FEE_BPS! : '50');
   const treasury = process.env.NEXT_PUBLIC_BOUND_TREASURY?.trim() ?? '';
   const identity = `${rpcUrl}|${jupiterApiKey ?? ''}`;
   if (clients?.for !== identity) {

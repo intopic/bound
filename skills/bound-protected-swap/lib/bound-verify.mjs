@@ -898,7 +898,7 @@ async function verifyPrepared(prepared, limits, rpc) {
 	if (p.amountIn !== BigInt(limits.amountIn)) problems.push(`the policy debits ${p.amountIn}, not ${limits.amountIn}`);
 	if (p.jupiterProgram !== JUPITER_PROGRAM) problems.push(`the swap program is ${p.jupiterProgram}, not Jupiter`);
 	if (p.ephemeral !== prepared.temporaryAuthority) problems.push("the one-time key differs from the one stated");
-	if (p.feeBps > BigInt(limits.maxFeeBps ?? 20)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
+	if (p.feeBps > BigInt(limits.maxFeeBps ?? 50)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
 	if (limits.treasury && p.treasury !== null && p.treasury !== limits.treasury) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
 	if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1e6)) problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
 	const routeCost = p.takerRent - p.routeRefund;
@@ -980,7 +980,7 @@ async function leftUnderKey(transaction, key, rpc) {
 */
 async function ownMinimum(args) {
 	const amount = BigInt(args.amountIn);
-	const routed = amount - amount * BigInt(args.maxFeeBps ?? 20) / 10000n;
+	const routed = amount - amount * BigInt(args.maxFeeBps ?? 50) / 10000n;
 	const url = new URL(args.jupiterUrl ?? "https://api.jup.ag/swap/v2/build");
 	const query = {
 		inputMint: args.inputMint,
