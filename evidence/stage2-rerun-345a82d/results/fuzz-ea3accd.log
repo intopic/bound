@@ -1,0 +1,18 @@
+start=2026-09-24T21:39:04Z sha=ea3accdd78baa636b886284ab1c32fdc0d800cf8 seed=20260924
+
+ RUN  v4.1.11 <scratch>/wt-ea3accd
+
+stdout | packages/verifier/test/property.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > a Token-2022 mint with an extension we refuse never passes 914595ms
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > every honest shape the compiler produces is accepted 894215ms
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > every attack is rejected 898887ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  21:39:05
+   Duration  2708.66s (transform 429ms, setup 50ms, import 647ms, tests 2707.70s, environment 0ms)
+
+JUNIT report written to <scratch>/results/fuzz-ea3accd.junit.xml
+exit=0 end=2026-09-24T22:24:14Z

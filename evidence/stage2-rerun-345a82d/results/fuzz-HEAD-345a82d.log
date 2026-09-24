@@ -1,0 +1,89 @@
+start=2026-09-24T21:39:01Z sha=345a82d8590319b967ede3f65bbc8e18b3ae7e44 seed=20260924
+
+ RUN  v4.1.11 <repo>
+
+stdout | packages/verifier/test/extensions.test.ts
+[fc-seed] 20260924
+
+stdout | packages/verifier/test/property.test.ts
+[fc-seed] 20260924
+
+ × packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding 24319ms
+   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ × packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > every combination of the entries a swap can live with is accepted 32531ms
+   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ × packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too 16109ms
+   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ × packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an area cut short is refused, wherever the cut falls 19485ms
+   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > the fixtures mean what they say: ordinary keys are on the curve, program addresses are not 2ms
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > a Token-2022 mint with an extension we refuse never passes 917193ms
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > every honest shape the compiler produces is accepted 900344ms
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > every attack is rejected 906883ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ packages/verifier/test/extensions.test.ts:63:3
+     61|
+     62| describe('Token-2022: any combination of extensions (final audit, item…
+     63|   it('a set of entries is accepted exactly when none of them is refuse…
+       |   ^
+     64|     fc.assert(
+     65|       fc.property(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > every combination of the entries a swap can live with is accepted
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ packages/verifier/test/extensions.test.ts:77:3
+     75|   });
+     76|
+     77|   it('every combination of the entries a swap can live with is accepte…
+       |   ^
+     78|     fc.assert(
+     79|       fc.property(fc.array(fc.oneof(...allowed), { minLength: 1, maxLe…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ packages/verifier/test/extensions.test.ts:86:3
+     84|   });
+     85|
+     86|   it('an entry hidden after an empty slot is refused: the token progra…
+       |   ^
+     87|     fc.assert(
+     88|       fc.property(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an area cut short is refused, wherever the cut falls
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ packages/verifier/test/extensions.test.ts:99:3
+     97|   });
+     98|
+     99|   it('an area cut short is refused, wherever the cut falls', () => {
+       |   ^
+    100|     fc.assert(
+    101|       fc.property(fc.array(fc.oneof(...allowed), { minLength: 1, maxLe…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  4 failed | 4 passed (8)
+   Start at  21:39:02
+   Duration  2725.00s (transform 481ms, setup 78ms, import 810ms, tests 2816.87s, environment 0ms)
+
+JUNIT report written to <scratch>/results/fuzz-HEAD-345a82d.junit.xml
+exit=1 end=2026-09-24T22:24:27Z

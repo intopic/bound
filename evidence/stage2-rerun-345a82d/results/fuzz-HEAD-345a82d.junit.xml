@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="8" failures="4" errors="0" time="2816.871208543">
+    <testsuite name="packages/verifier/test/extensions.test.ts" timestamp="2026-09-24T22:24:27.069Z" hostname="vm" tests="5" failures="4" errors="0" skipped="0" time="92.448169378">
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding" time="24.319141844">
+            <failure message="Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with &quot;testTimeout&quot;." type="Error">
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with &quot;testTimeout&quot;.
+ ❯ packages/verifier/test/extensions.test.ts:63:3
+            </failure>
+        </testcase>
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; every combination of the entries a swap can live with is accepted" time="32.530782772">
+            <failure message="Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with &quot;testTimeout&quot;." type="Error">
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with &quot;testTimeout&quot;.
+ ❯ packages/verifier/test/extensions.test.ts:77:3
+            </failure>
+        </testcase>
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too" time="16.109306636">
+            <failure message="Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with &quot;testTimeout&quot;." type="Error">
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with &quot;testTimeout&quot;.
+ ❯ packages/verifier/test/extensions.test.ts:86:3
+            </failure>
+        </testcase>
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; an area cut short is refused, wherever the cut falls" time="19.484771467">
+            <failure message="Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with &quot;testTimeout&quot;." type="Error">
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with &quot;testTimeout&quot;.
+ ❯ packages/verifier/test/extensions.test.ts:99:3
+            </failure>
+        </testcase>
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; the fixtures mean what they say: ordinary keys are on the curve, program addresses are not" time="0.002202744">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/verifier/test/property.test.ts" timestamp="2026-09-24T22:24:27.075Z" hostname="vm" tests="3" failures="0" errors="0" skipped="0" time="2724.423039165">
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; a Token-2022 mint with an extension we refuse never passes" time="917.192764021">
+        </testcase>
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; every honest shape the compiler produces is accepted" time="900.34367918">
+        </testcase>
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; every attack is rejected" time="906.883286183">
+        </testcase>
+    </testsuite>
+</testsuites>

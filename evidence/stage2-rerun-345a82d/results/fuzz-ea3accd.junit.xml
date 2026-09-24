@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="3" failures="0" errors="0" time="2707.700655563">
+    <testsuite name="packages/verifier/test/property.test.ts" timestamp="2026-09-24T22:24:13.978Z" hostname="vm" tests="3" failures="0" errors="0" skipped="0" time="2707.700655563">
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; a Token-2022 mint with an extension we refuse never passes" time="914.595039153">
+        </testcase>
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; every honest shape the compiler produces is accepted" time="894.214707525">
+        </testcase>
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; every attack is rejected" time="898.887334113">
+        </testcase>
+    </testsuite>
+</testsuites>
