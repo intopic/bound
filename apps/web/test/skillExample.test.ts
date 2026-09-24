@@ -9,8 +9,8 @@ import { describe, expect, it } from 'vitest';
 import {
   address, appendTransactionMessageInstructions, compileTransaction, createNoopSigner, createTransactionMessage,
   decompileTransactionMessage, generateKeyPairSigner, getBase58Decoder, getBase64EncodedWireTransaction, getCompiledTransactionMessageDecoder,
-  getSignatureFromTransaction, getTransactionDecoder, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash,
-  SolanaError, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder, partiallySignTransaction, pipe, setTransactionMessageFeePayer,
+  setTransactionMessageLifetimeUsingBlockhash, signBytes, SolanaError, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
 } from '@solana/kit';
 import type { Address, Instruction, KeyPairSigner, Rpc, SolanaRpcApi } from '@solana/kit';
 import { getAssignInstruction, getTransferSolInstruction } from '@solana-program/system';
@@ -25,7 +25,10 @@ import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import {
   acquireLock, BoundApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending,
+  signerFromSignBytes, signerFromSignTransaction,
 } from '../../../skills/bound-protected-swap/examples/swap.ts';
+import { runCli } from '../../../skills/bound-protected-swap/src/cli.ts';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -656,5 +659,151 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
     release();
     other();
     acquireLock(dir, 'wallet-one')();
+  });
+});
+
+describe('wallets held by a signing service (remote signers)', () => {
+  const finalizesOf = (b: Awaited<ReturnType<typeof bound>>) => {
+    const counter = { n: 0 };
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/finalize')) counter.n++;
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    return { counter, fetchImpl };
+  };
+
+  it('a service that signs raw bytes is given the checked message, and the swap confirms', async () => {
+    const b = await bound();
+    let seen: Uint8Array | null = null;
+    const remote = signerFromSignBytes(b.wallet.address, async message => {
+      seen = message;
+      return signBytes(b.wallet.keyPair.privateKey, message);
+    });
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: remote, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
+    expect(result.outcome).toBe('confirmed');
+    const built = getTransactionDecoder().decode(Buffer.from(result.prepared.transaction, 'base64'));
+    expect(Buffer.from(seen!).equals(Buffer.from(built.messageBytes))).toBe(true);
+    expect(b.sent).toHaveLength(1);
+  });
+
+  it('a service that signs a transaction and hands it back unsent works', async () => {
+    const b = await bound();
+    const remote = signerFromSignTransaction(b.wallet.address, async wire => {
+      const signed = await partiallySignTransaction([b.wallet.keyPair], getTransactionDecoder().decode(Buffer.from(wire, 'base64')));
+      return Buffer.from(getTransactionEncoder().encode(signed)).toString('base64');
+    });
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: remote, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
+    expect(result.outcome).toBe('confirmed');
+  });
+
+  it("a signature that is not the wallet's for this message is refused, and nothing is finalized", async () => {
+    const b = await bound();
+    const { counter, fetchImpl } = finalizesOf(b);
+    const wrong = signerFromSignBytes(b.wallet.address, async () => signBytes(b.wallet.keyPair.privateKey, new Uint8Array([1, 2, 3])));
+    await expect(protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: wrong, fetchImpl, pollMs: 1, intent: swapIntent }))
+      .rejects.toThrow('no valid signature');
+    expect(counter.n).toBe(0);
+    expect(b.sent).toHaveLength(0);
+  });
+
+  it('a service that changes the transaction before signing it is refused, and nothing is finalized', async () => {
+    const b = await bound();
+    const { counter, fetchImpl } = finalizesOf(b);
+    const meddling = signerFromSignTransaction(b.wallet.address, async wire => {
+      const tx = getTransactionDecoder().decode(Buffer.from(wire, 'base64'));
+      const message = new Uint8Array(tx.messageBytes);
+      message[message.length - 1] ^= 1;
+      const signed = await partiallySignTransaction([b.wallet.keyPair], { ...tx, messageBytes: message as never });
+      return Buffer.from(getTransactionEncoder().encode(signed)).toString('base64');
+    });
+    await expect(protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: meddling, fetchImpl, pollMs: 1, intent: swapIntent }))
+      .rejects.toThrow('changed the transaction');
+    expect(counter.n).toBe(0);
+    expect(b.sent).toHaveLength(0);
+  });
+});
+
+describe('bound-verify, the command for bots in other languages', () => {
+  const setup = async (opts: { rpc?: (b: Awaited<ReturnType<typeof bound>>) => Rpc<SolanaRpcApi> } = {}) => {
+    const b = await bound();
+    const stateDir = mkdtempSync(join(tmpdir(), 'bound-cli-'));
+    let finalizes = 0;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/finalize')) finalizes++;
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const deps = {
+      rpc: opts.rpc ? opts.rpc(b) : b.agentRpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY,
+      pollMs: 1, maxWaitMs: 60,
+    };
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' };
+    // What a bot in another language does with `message`: sign the bytes with its own key, in base58.
+    const signMessage = async (message: string, bytes?: Uint8Array) =>
+      getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, bytes ?? Buffer.from(message, 'base64')));
+    return { b, deps, stateDir, intent, signMessage, finalizes: () => finalizes };
+  };
+  // Everything crosses the process boundary as JSON.
+  const viaJson = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+
+  it('prepare, one signature made by the bot, finalize: confirmed, and no record is left', async () => {
+    const { b, deps, stateDir, intent, signMessage } = await setup();
+    const ready = await runCli('prepare', { intent }, deps);
+    expect(ready.code).toBe(0);
+    const out = viaJson(ready.output) as { checked: unknown; message: string };
+    const done = await runCli('finalize', { checked: out.checked, signature: await signMessage(out.message) }, deps);
+    expect(done.code).toBe(0);
+    expect(done.output.outcome).toBe('confirmed');
+    expect(b.sent).toHaveLength(1);
+    expect(readdirSync(stateDir).filter(f => f.startsWith('pending-'))).toEqual([]);
+  });
+
+  it("finalize checks again: an answer that no longer passes, or a signature that is not the wallet's, sends nothing", async () => {
+    const { b, deps, intent, signMessage, finalizes } = await setup();
+    const out = viaJson((await runCli('prepare', { intent }, deps)).output) as { checked: { prepared: Prepared; intent: Intent }; message: string };
+    const higherFloor = { ...out.checked, intent: { ...out.checked.intent, minOut: String(BigInt(out.checked.prepared.amounts.minOut) + 1n) } };
+    const refused = await runCli('finalize', { checked: higherFloor, signature: await signMessage(out.message) }, deps);
+    expect(refused.code).toBe(1);
+    expect(String(refused.output.problems)).toContain('below yours');
+    const forged = await runCli('finalize', { checked: out.checked, signature: await signMessage('', new Uint8Array([9, 9, 9])) }, deps);
+    expect(forged.code).toBe(1);
+    expect(String(forged.output.error)).toContain('no valid signature');
+    const short = await runCli('finalize', { checked: out.checked, signature: '1111' }, deps);
+    expect(short.code).toBe(1);
+    expect(finalizes()).toBe(0);
+    expect(b.sent).toHaveLength(0);
+  });
+
+  it('nothing new is prepared while an earlier swap could still land, and recover says which', async () => {
+    const { deps, stateDir, intent } = await setup({ rpc: b => chainOf(b) });
+    await createFileStore(stateDir).put({
+      signature: 'still-unknown-signature', lastValidBlockHeight: 10n ** 12n, ticket: 't', signedTransaction: '', messageSha256: '', signedAt: 0,
+    });
+    const blocked = await runCli('prepare', { intent }, deps);
+    expect(blocked.code).toBe(3);
+    expect(blocked.output.pending).toEqual(['still-unknown-signature']);
+    const recovered = await runCli('recover', {}, deps);
+    expect(recovered.code).toBe(3);
+    expect(recovered.output.unknown).toEqual(['still-unknown-signature']);
+  });
+
+  it('check: an honest answer is safe to sign, a lying one is not', async () => {
+    const { b, deps } = await setup();
+    const honest = await honestAnswer(b);
+    expect((await runCli('check', { prepared: honest, intent: intentFor(b.wallet) }, deps)).code).toBe(0);
+    const other = await generateKeyPairSigner();
+    const lie = { ...honest, policy: { ...honest.policy, treasury: other.address } };
+    const refused = await runCli('check', { prepared: lie, intent: intentFor(b.wallet) }, deps);
+    expect(refused.code).toBe(1);
+    expect(String(refused.output.problems)).toContain("not Bound's treasury");
+  });
+
+  it('usage errors exit 2, and the bundled command runs as a command only', async () => {
+    const { deps } = await setup();
+    expect((await runCli('prepare', {}, deps)).code).toBe(2);
+    expect((await runCli('finalize', { checked: {} }, deps)).code).toBe(2);
+    expect((await runCli('swap', {}, deps)).code).toBe(2);
+    const run = spawnSync(process.execPath, ['skills/bound-protected-swap/bin/bound-verify.mjs'], { encoding: 'utf8', cwd: join(import.meta.dirname, '../../..') });
+    expect(run.status).toBe(2);
+    expect(JSON.parse(run.stdout).error).toContain('usage: bound-verify');
   });
 });

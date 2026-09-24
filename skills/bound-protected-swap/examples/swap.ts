@@ -16,6 +16,9 @@
  *
  *   BOUND_API_URL=https://<bound host>  BOUND_API_KEY=bnd_...  SOLANA_RPC_URL=https://<your rpc>
  *   BOUND_WALLET_KEYPAIR=/path/to/keypair.json   (a solana-keygen file; never paste a key in a prompt)
+ *                                                a wallet held by a signing service: see signerFromSignBytes
+ *                                                and signerFromSignTransaction; bots in other languages:
+ *                                                bin/bound-verify.mjs
  *   BOUND_TREASURY=<address>                     (optional: only for another Bound deployment;
  *                                                Bound's own treasury is pinned in the skill)
  *   JUPITER_API_KEY=...                          (optional: for your own price; keyless allows one call every 2 s)
@@ -33,9 +36,9 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createKeyPairSignerFromBytes, createSolanaRpc, getCompiledTransactionMessageDecoder, getPublicKeyFromAddress,
-  getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder, partiallySignTransaction, verifySignature,
+  getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder, verifySignature,
 } from '@solana/kit';
-import type { Address, KeyPairSigner, Rpc, SolanaRpcApi, Transaction } from '@solana/kit';
+import type { Address, Rpc, SignatureBytes, SignatureDictionary, SolanaRpcApi, Transaction, TransactionPartialSigner } from '@solana/kit';
 import { ownMinimum, ownSolFeeLimit, verifyPrepared } from '../lib/bound-verify.mjs';
 
 export type Intent = {
@@ -210,10 +213,55 @@ export const MIN_BLOCKS_TO_FINALIZE = 30n;
  */
 export const LAG_BLOCKS = 25n;
 
-export async function signAsWallet(wallet: KeyPairSigner, transaction: string): Promise<string> {
+/**
+ * The wallet: whatever signs a transaction for one address the way @solana/kit's signers do. A
+ * `KeyPairSigner` from a keypair file is one; a wallet held by a signing service is another, through
+ * `signerFromSignBytes` or `signerFromSignTransaction`. Only its signature for its own address is
+ * used, and only once it verifies against the exact message that was checked.
+ */
+export type WalletSigner = TransactionPartialSigner;
+
+export async function signAsWallet(wallet: WalletSigner, transaction: string): Promise<string> {
   const tx = getTransactionDecoder().decode(Buffer.from(transaction, 'base64'));
-  const signed = await partiallySignTransaction([wallet.keyPair], tx);
-  return Buffer.from(getTransactionEncoder().encode(signed)).toString('base64');
+  const [signatures] = await wallet.signTransactions([tx as never]);
+  const signature = signatures?.[wallet.address];
+  if (!signature || !await verifySignature(await getPublicKeyFromAddress(wallet.address), signature, tx.messageBytes)) {
+    throw new Error(`Not sending: the wallet returned no valid signature from ${wallet.address} for this transaction.`);
+  }
+  return Buffer.from(getTransactionEncoder().encode({ ...tx, signatures: { ...tx.signatures, [wallet.address]: signature } })).toString('base64');
+}
+
+/**
+ * A wallet held by a service that signs raw bytes with its ed25519 key (a KMS or HSM, or a signing
+ * service's raw-payload call): `sign` receives the transaction's message and returns the 64-byte
+ * signature. The message is all that leaves your process, and it is the one the check verified.
+ */
+export function signerFromSignBytes(address: string, sign: (message: Uint8Array) => Promise<Uint8Array>): WalletSigner {
+  return {
+    address: address as Address,
+    signTransactions: transactions => Promise.all(transactions.map(async tx =>
+      ({ [address]: (await sign(new Uint8Array(tx.messageBytes))) as SignatureBytes }) as SignatureDictionary)),
+  };
+}
+
+/**
+ * A wallet held by a service that signs whole transactions and hands them back without sending
+ * them (base64 in, base64 out). Its answer counts only when it is this very transaction: a service
+ * that changes one byte (a priority fee, a new blockhash, an instruction of its own) is refused, since
+ * Bound co-signs only the message it built and your check verified. A service that can only sign
+ * and send cannot be used: Bound's signature comes last.
+ */
+export function signerFromSignTransaction(address: string, sign: (transaction: string) => Promise<string>): WalletSigner {
+  return {
+    address: address as Address,
+    signTransactions: transactions => Promise.all(transactions.map(async tx => {
+      const back = getTransactionDecoder().decode(Buffer.from(await sign(Buffer.from(getTransactionEncoder().encode(tx)).toString('base64')), 'base64'));
+      if (!sameBytes(back.messageBytes, tx.messageBytes)) throw new Error('The signing service changed the transaction. Nothing was signed or sent.');
+      const signature = back.signatures[address as Address];
+      if (!signature) throw new Error(`The signing service returned no signature from ${address}. Nothing was sent.`);
+      return { [address]: signature } as SignatureDictionary;
+    })),
+  };
 }
 
 /**
@@ -388,29 +436,21 @@ export function acquireLock(dir: string, owner: string, staleMs = 10 * 60_000): 
   return () => rmSync(path, { force: true });
 }
 
+/** A prepared swap that passed the check, with the intent and limits it was checked against. */
+export type Checked = { prepared: Prepared; intent: Intent };
+
 /**
- * The whole flow. A price that moved or a costlier route is not accepted silently: it throws.
- *
- * The outcome is read on your RPC for the signature your wallet made, never taken from finalize:
- * `rejected` means Bound refused to send it and the chain shows it can no longer land; `expired`,
- * that it did not land; `unknown`, that no outcome could be read in time. Only after `rejected` or
- * `expired` is a new swap for the same intent safe; after `unknown`, check `signature` first.
+ * Prepare and check: your own floor (asked of Jupiter when you set none), Bound's answer, and the
+ * full check on the exact bytes with chain state from your RPC. Throws on anything to refuse; sign
+ * only the transaction this returns. A price that moved or a costlier route is not accepted
+ * silently: Bound's answer is an error that says so.
  */
-export async function protectedSwap(args: {
-  apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; wallet: KeyPairSigner; intent: Omit<Intent, 'owner'>;
-  fetchImpl?: Fetch; pollMs?: number; jupiterApiKey?: string;
-  /**
-   * Called before finalize with what to keep (see `Signed`). Unattended, persist it durably here
-   * (`createFileStore`): if this throws, nothing is finalized.
-   */
-  onSigned?: (signed: Signed) => void | Promise<void>;
-  /** How long to wait for an outcome, in ms; `unknown` after that (default 3 minutes). */
-  maxWaitMs?: number;
-  /** How long one call to Bound or to your RPC may take, in ms (default 30 s and 10 s). */
-  requestTimeoutMs?: number;
-}): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string }> {
+export async function prepareChecked(args: {
+  apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; owner: string; intent: Omit<Intent, 'owner'>;
+  fetchImpl?: Fetch; jupiterApiKey?: string; requestTimeoutMs?: number;
+}): Promise<Checked> {
   const fetchImpl = args.fetchImpl ?? fetch;
-  const owner = args.wallet.address;
+  const owner = args.owner;
   // A floor of your own, from a price Bound did not give you (research audit F-02).
   const minOut = args.intent.minOut ?? await ownMinimum({
     inputMint: args.intent.inputMint, outputMint: args.intent.outputMint, amountIn: args.intent.amountIn, taker: owner,
@@ -431,11 +471,42 @@ export async function protectedSwap(args: {
   }
   const problems = await checkPrepared(prepared, intent, args.rpc);
   if (problems.length) throw new Error(`Not signing: ${problems.join('; ')}`);
-  const signedTransaction = await signAsWallet(args.wallet, prepared.transaction);
+  return { prepared, intent };
+}
+
+/**
+ * Finalize a transaction your wallet signed, then read its outcome on your RPC for the signature
+ * your wallet made, never taken from finalize: `rejected` means Bound refused to send it and the
+ * chain shows it can no longer land; `expired`, that it did not land; `unknown`, that no outcome could
+ * be read in time. Only after `rejected` or `expired` is a new swap for the same intent safe; after
+ * `unknown`, check `signature` first. `signedTransaction` must be the checked transaction, unchanged,
+ * with a valid signature from the wallet.
+ */
+export async function finalizeSigned(args: {
+  apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; prepared: Prepared; signedTransaction: string;
+  fetchImpl?: Fetch; pollMs?: number;
+  /**
+   * Called before finalize with what to keep (see `Signed`). Unattended, persist it durably here
+   * (`createFileStore`): if this throws, nothing is finalized.
+   */
+  onSigned?: (signed: Signed) => void | Promise<void>;
+  /** How long to wait for an outcome, in ms; `unknown` after that (default 3 minutes). */
+  maxWaitMs?: number;
+  /** How long one call to Bound or to your RPC may take, in ms (default 30 s and 10 s). */
+  requestTimeoutMs?: number;
+}): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string }> {
+  const { prepared, signedTransaction } = args;
+  const fetchImpl = args.fetchImpl ?? fetch;
   const mine = getTransactionDecoder().decode(Buffer.from(signedTransaction, 'base64'));
+  const built = getTransactionDecoder().decode(Buffer.from(prepared.transaction, 'base64'));
+  if (!sameBytes(mine.messageBytes, built.messageBytes)) throw new Error('Not finalizing: this is not the transaction Bound prepared. Nothing was sent.');
+  const own = mine.signatures[prepared.wallet as Address];
+  if (!own || !await verifySignature(await getPublicKeyFromAddress(prepared.wallet as Address), own, mine.messageBytes)) {
+    throw new Error(`Not finalizing: the transaction carries no valid signature from ${prepared.wallet}. Nothing was sent.`);
+  }
   // The transaction's id is your wallet's signature, known from bytes you signed yourself.
   const signature = getSignatureFromTransaction(mine);
-  const height = BigInt(await args.rpc.getBlockHeight({ commitment: 'confirmed' }).send());
+  const height = BigInt(await args.rpc.getBlockHeight({ commitment: 'confirmed' }).send({ abortSignal: AbortSignal.timeout(args.requestTimeoutMs ?? 10_000) }));
   const stated = BigInt(prepared.lastValidBlockHeight);
   if (stated - height < MIN_BLOCKS_TO_FINALIZE) {
     throw new Error(`Not finalizing: only ${stated - height} blocks are left before this swap expires, too few to land. Nothing was sent; prepare it again.`);
@@ -464,12 +535,36 @@ export async function protectedSwap(args: {
   // Bytes from the server are re-broadcast only when they are this very transaction, signed by E.
   const bytes = done?.signedTransaction && await isThisTransaction(done.signedTransaction, mine, prepared.temporaryAuthority)
     ? done.signedTransaction : undefined;
-  const outcome = await confirm(args.rpc, signature, lastValid, { signedTransaction: bytes, pollMs: args.pollMs, maxWaitMs: args.maxWaitMs });
+  const outcome = await confirm(args.rpc, signature, lastValid, {
+    signedTransaction: bytes, pollMs: args.pollMs, maxWaitMs: args.maxWaitMs, requestTimeoutMs: args.requestTimeoutMs,
+  });
   // Kept or not, the caller decides what to do with a pending record: an unknown outcome stays pending.
   const refusal = refused ? refused.code : done?.status === 'rejected' ? done.refusal ?? 'network' : undefined;
   // Refused by Bound, and the chain shows it can no longer land: that refusal is what happened.
   if (outcome === 'expired' && refusal) return { signature, outcome: 'rejected', prepared, refusal };
   return { signature, outcome, prepared, ...(refusal ? { refusal } : {}) };
+}
+
+/**
+ * The whole flow: `prepareChecked`, the wallet's signature, `finalizeSigned`. See those for what
+ * each step refuses and what each outcome means.
+ */
+export async function protectedSwap(args: {
+  apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; wallet: WalletSigner; intent: Omit<Intent, 'owner'>;
+  fetchImpl?: Fetch; pollMs?: number; jupiterApiKey?: string;
+  /**
+   * Called before finalize with what to keep (see `Signed`). Unattended, persist it durably here
+   * (`createFileStore`): if this throws, nothing is finalized.
+   */
+  onSigned?: (signed: Signed) => void | Promise<void>;
+  /** How long to wait for an outcome, in ms; `unknown` after that (default 3 minutes). */
+  maxWaitMs?: number;
+  /** How long one call to Bound or to your RPC may take, in ms (default 30 s and 10 s). */
+  requestTimeoutMs?: number;
+}): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string }> {
+  const { prepared } = await prepareChecked({ ...args, owner: args.wallet.address });
+  const signedTransaction = await signAsWallet(args.wallet, prepared.transaction);
+  return finalizeSigned({ ...args, prepared, signedTransaction });
 }
 
 // --- command line
@@ -543,7 +638,8 @@ async function main() {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+// Only as `node swap.ts`: bin/bound-verify.mjs bundles this file and must not run its command line.
+if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   main().catch(e => {
     console.error(e instanceof BoundApiError ? `${e.code}: ${e.message}` : e);
     process.exitCode = 1;

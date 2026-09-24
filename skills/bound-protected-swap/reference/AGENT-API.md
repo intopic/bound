@@ -1,3 +1,5 @@
+<!-- Copied from AGENT-API.md by tools/build-skill.ts. Edit that file, not this one. -->
+
 # Bound agent API
 
 Protected swaps on Solana for bots and AI agents. Your wallet signs a swap in which the swap program

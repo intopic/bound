@@ -1011,6 +1011,43 @@ signature found finalized, the covered height reported), the canary 7/7, the bro
 
 ---
 
+## 0z. The skill as a package, bots in any language, remote signers (24 September 2026)
+
+The repository becomes private, so the skill folder is now the whole package an agent or a bot
+downloads: `package.json` (one dependency, `@solana/kit` 8), `README.md`, and
+`reference/AGENT-API.md`, a copy `tools/build-skill.ts` keeps identical to `AGENT-API.md` (CI's
+`--check`).
+
+- **Bots in other languages**: `bin/bound-verify.mjs`, bundled from `src/cli.ts` and the example,
+  so it runs the example's own code. JSON on stdin and stdout, an exit code. `prepare` refuses while
+  an earlier swap is unsettled, checks on the bot's RPC, and answers the message to sign; the bot
+  signs it with its own key; `finalize` checks everything again before anything is sent, keeps the
+  record before finalize, holds the wallet's lock, and reads the outcome for the wallet's signature;
+  `recover` settles what a stopped run left; `check` serves bots that call the API themselves.
+- **Remote signers**: the example's wallet is any signer of one address (`WalletSigner`, kit's
+  partial signer). `signerFromSignBytes` for a service that signs raw bytes, `signerFromSignTransaction`
+  for one that signs a transaction and hands it back unsent. A signature is used only once it
+  verifies against the checked message; a service that changes the transaction is refused.
+- `protectedSwap` is now `prepareChecked` + `signAsWallet` + `finalizeSigned`; `finalizeSigned`
+  refuses bytes other than the prepared message or without the wallet's valid signature, and its
+  block-height read is bounded like every other RPC call (S1-M-04). The example's command line runs
+  only as `swap.ts`, never from a bundle that includes it.
+
+Tests (`skillExample.test.ts`): a raw-bytes service signs exactly the checked message and the swap
+confirms; a transaction-signing service works; a signature over other bytes and a service that
+changes the transaction are refused with nothing finalized; `bound-verify` prepare, a signature made
+outside, finalize, confirmed with no record left; finalize refuses an answer that no longer passes
+and a signature that is not the wallet's, sending nothing; nothing is prepared while an earlier swap
+is unknown, and `recover` names it; `check` passes an honest answer and refuses a lying one; usage
+errors exit 2, and the bundled command runs as a command only. 475 unit tests.
+
+Outside the repository: the skill folder copied alone, `npm install` (47 packages), and
+`bound-verify` against a local Bound server on mainnet with a throwaway API key: `prepare` built and
+passed the full check on the public RPC; `finalize` with a signature not the wallet's was refused
+before anything was sent. The fee was 0 because the treasury wallet holds no SOL yet (section 0x).
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
