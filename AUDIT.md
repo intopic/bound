@@ -1100,6 +1100,38 @@ Tests: 495 unit tests; the canary 7/7 on mainnet; T6 in CI with the two new case
 
 ---
 
+## 0zc. The independent audit, Stage 2 (24 September 2026)
+
+Stage 2 of the independent audit (`AUDIT-PROMPT-INDEPENDENT.md`) ran on `ea3accd`: the 475 unit
+tests, the fuzz at 300,000 cases, the VM tests 32/32, 36 pairs × v0/v1 simulated twice, and fault
+injection with fake transports. Its verdict was NO-GO until six findings were fixed and verified.
+Each was checked against the code as it stood after `345a82d` before anything changed.
+
+| Finding | What it was | Fix | Test |
+| --- | --- | --- | --- |
+| H-01 | SOL → `dap` (PumpSwap): when closing the account the market opens under E did not fit, the page built the swap anyway and called the rent "an account fee charged by this market"; the lamports stayed under E, lost with it, and on the API path reachable by whoever derives E. The skill refused the same bytes | The page and the API hold to the skill's rule. The exact final transaction is simulated once more, watching E, both Pump markets' accounts under E and their WSOL and USDC accounts: it must execute and leave nothing there. A route whose close does not fit is traded for a narrower one (a lower `maxAccounts` level); an account holding more than its rent (a cashback coin, whose refund cannot be exact) is refused, never left open | `prepare.test.ts`: a route that fits only without the close is never built without it; the auditor's case, a wide route replaced by a narrower one that closes the account; a cashback coin refused; the final simulation counted. The canary's PumpSwap and curve buys on mainnet |
+| H-02 | Two swaps prepared before signing: with the first unknown, the second could still be finalized and sent | One swap per wallet in flight: `bound-verify finalize` refuses while another swap from the same wallet may still land (exit 3), with or without an order id; `protectedSwap` takes a `pending` store and does the same, checking again after keeping its own record so that two racing runs both stand down. The same signed bytes may be finalized again | `skillExample.test.ts`: two prepared, the first unknown, the second never sent and the first asked again; `protectedSwap` with another pending swap of the wallet, and one of another wallet |
+| M-01 | A worker whose stale lock was taken over removed its successor's lock on release | The lock names its holder (a random token); release deletes it only while it still carries that token; a stale lock is moved aside atomically, only if it is still the one judged stale | Three workers: A goes stale, B takes over, A releases, C is still refused, B releases, C gets it |
+| M-02 | The page's first send had no time limit, and the agent's check read its RPC without one | Every RPC request through Bound's transport ends in 20 s; `sendAndConfirm` bounds every call (first send included, counted in its deadline) and reads a send that timed out for its signature; the skill's check bounds every read and simulation (`requestTimeoutMs`, 10 s by default) | A first send that never answers still ends confirmed on time; a transport that never answers is aborted; the agent's check against an RPC that never answers ends with a problem |
+| M-03 | After a swap was sent, a failure to remove its record turned the answer into `sent: false`, without the signature | The outcome comes from the chain, and a bookkeeping failure is reported beside it (`bookkeepingError`); once a swap was kept for finalize, any error reads as `unknown` with its signature | A record that cannot be removed (disk full) after a confirmed swap, in `bound-verify` and in `protectedSwap` |
+| M-04 | The page opened the wallet when the RPC could not give the block height | The height is asked three times; without it the wallet is not opened ("Couldn't reach the network"), and a lifetime that has run out is built again, then refused | Browser smoke: the height answered 503, and answered far past the lifetime: no signature request in either case |
+
+On the rest of the report: the shared contract (point 2) already held except for the final
+simulation, now added (H-01); manual slippage in an "Advanced" section is a product decision left to
+the owner; signer-side limits for bots (caps, allowlists) belong to the integrator's wallet and are
+recommended in SKILL.md; the production gates (RPC with an SLA, fee and treasury checked in the
+deployed build, the release digest, the owner's real-wallet test, an incident plan) remain the
+owner's. Verified on the fixed commit: 503 unit tests, the browser smoke 21/21, the canary on mainnet.
+
+Measured on mainnet after H-01, SOL into the 14 trending Pump.fun coins: 9 routed through a Pump
+market; 8 fit with the close and returned the full deposit (1,346,200 lamports), `dap` among them;
+one, TRTF, came to 1,234 bytes with the close, 2 over v0's 1,232, and is refused rather than left
+open (as v1 it builds, at 1,428 bytes, with the deposit returned; v1 stays off until a Bound v1 swap
+has landed). A refusal of that kind now says why ("would leave a market's deposit under the swap's
+one-time key") instead of "every route failed in simulation".
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

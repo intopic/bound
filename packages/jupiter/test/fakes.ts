@@ -8,7 +8,8 @@ import {
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import {
-  ataOf, ATA_PROGRAM, JUPITER_PROGRAM, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
+  ataOf, ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
+  TOKEN_PROGRAM, WSOL_MINT,
 } from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
 import { JupiterError } from '../src/client.ts';
@@ -100,18 +101,36 @@ export async function fundedAccounts(
  * The SOL a transaction sends the temporary key: the signer that is not the fee payer, credited by
  * a System transfer (instruction 2).
  */
-export function lamportsSentToTaker(wire: string): { taker: string; lamports: bigint; swapIndex: number } {
+export function lamportsSentToTaker(wire: string): {
+  taker: string; lamports: bigint; swapIndex: number;
+  /** The transaction closes the account a Pump market opened for the taker (FA-05). */
+  closesRouteAccount: boolean;
+  /** What the taker sends on, to the wallet, after the close. */
+  sentByTaker: bigint;
+  /** The accounts the swap instruction passes: only an account passed there can be opened under E. */
+  swapAccounts: string[];
+} {
   const tx = getTransactionDecoder().decode(Uint8Array.from(Buffer.from(wire, 'base64')));
   const compiled = getCompiledTransactionMessageDecoder().decode(tx.messageBytes);
   const message = decompileTransactionMessage(compiled as never);
   const taker = compiled.staticAccounts.slice(1, compiled.header.numSignerAccounts)[0];
   let lamports = 0n;
+  let sentByTaker = 0n;
+  let closesRouteAccount = false;
   for (const ix of message.instructions) {
     const data = ix.data ?? new Uint8Array();
-    if (ix.programAddress !== SYSTEM_PROGRAM || data[0] !== 2 || ix.accounts?.[1]?.address !== taker) continue;
-    lamports += new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(4, true);
+    if (ix.programAddress === SYSTEM_PROGRAM && data[0] === 2) {
+      const amount = new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(4, true);
+      if (ix.accounts?.[1]?.address === taker) lamports += amount;
+      if (ix.accounts?.[0]?.address === taker) sentByTaker += amount;
+    }
+    if (ix.programAddress === PUMP && data.length === 8 && CLOSE_USER_VOLUME_ACCUMULATOR.every((b, i) => data[i] === b)) closesRouteAccount = true;
   }
-  return { taker, lamports, swapIndex: message.instructions.findIndex(ix => ix.programAddress === JUPITER_PROGRAM) };
+  const swap = message.instructions.find(ix => ix.programAddress === JUPITER_PROGRAM);
+  return {
+    taker, lamports, swapIndex: message.instructions.findIndex(ix => ix.programAddress === JUPITER_PROGRAM), closesRouteAccount, sentByTaker,
+    swapAccounts: (swap?.accounts ?? []).map(a => a.address as string),
+  };
 }
 
 export function fakeRpc(
@@ -177,7 +196,7 @@ export function fakeRpc(
       }
       const need = opts.takerRent ?? 0n;
       if (opts.simulations) opts.simulations.count++;
-      const { taker, lamports, swapIndex } = lamportsSentToTaker(wire);
+      const { taker, lamports, swapIndex, closesRouteAccount, sentByTaker, swapAccounts } = lamportsSentToTaker(wire);
       // The wallet cannot pay for its own part: the first instruction, a rent payment, fails.
       if (opts.walletShort) {
         return { value: { err: { InstructionError: [0, { Custom: 1 }] }, logs: ['Transfer: insufficient lamports 400000, need 2039280'], unitsConsumed: 5_000n } };
@@ -222,11 +241,21 @@ export function fakeRpc(
           // E keeps what it was sent beyond the rent; the account the market opened for E (Pump's
           // per-buyer account) holds the rent.
           // A cashback coin's account also holds the cashback the trade earned (FA-05, F-03).
-          accounts: await Promise.all((config.accounts?.addresses ?? []).map(async a => (
-            a === taker ? { lamports: lamports - need }
-              : a === (await routeAccountOf(PUMP, taker as Address)) && need > 0n
-                ? { lamports: need + (opts.cashback ?? 0n), data: [b64(new Uint8Array(ROUTE_ACCOUNT_SIZE)), 'base64'] }
-                : null))),
+          // Closed, the market's account hands everything it held to E, and E sends on what the
+          // transaction says; whatever is left stays with E.
+          accounts: await Promise.all((config.accounts?.addresses ?? []).map(async a => {
+            const held = need > 0n ? need + (opts.cashback ?? 0n) : 0n;
+            if (a === taker) {
+              const left = lamports - need + (closesRouteAccount ? held : 0n) - sentByTaker;
+              return left > 0n ? { lamports: left } : null;
+            }
+            // The market opens its account under E only when the route passes it; otherwise the rent
+            // went to an account of the market's own.
+            if (a === (await routeAccountOf(PUMP, taker as Address)) && need > 0n && !closesRouteAccount && swapAccounts.includes(a)) {
+              return { lamports: held, data: [b64(new Uint8Array(ROUTE_ACCOUNT_SIZE)), 'base64'] };
+            }
+            return null;
+          })),
         },
       };
     }),

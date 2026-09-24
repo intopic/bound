@@ -306,3 +306,30 @@ describe('reads that must not be older than a slot (final audit, item 6)', () =>
     await expect(readAccounts(rpc, ['11111111111111111111111111111111' as never], { minContextSlot: 110n })).rejects.toThrow();
   });
 });
+
+describe('nothing waits without end (final audit, M-02)', () => {
+  it('a first send that never answers counts against the deadline, and the outcome is read for its signature', async () => {
+    const { rpc } = fakeRpc({ statuses: [confirmed] });
+    // The first send hangs until it is aborted; statuses answer as usual.
+    const hanging = {
+      ...rpc,
+      sendTransaction: () => ({
+        send: (o?: { abortSignal?: AbortSignal }) => new Promise((_, reject) => o?.abortSignal?.addEventListener('abort', () => reject(new Error('aborted')))),
+      }),
+    } as unknown as SolanaRpc;
+    const started = Date.now();
+    const result = await sendAndConfirm({ rpc: hanging, transaction: await signedTransaction(), lastValidBlockHeight: LAST_VALID, timing: { ...timing, requestMs: 40 } });
+    expect(result.status).toBe('confirmed');
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  it('the transport ends every request in time, whoever calls it', async () => {
+    const never: Parameters<typeof retryingTransport>[0] = ((config: unknown) => new Promise((_, reject) => {
+      (config as { signal?: AbortSignal }).signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    })) as never;
+    const transport = retryingTransport(never, 0, 1, 30);
+    const started = Date.now();
+    await expect(transport({ payload: { method: 'getBalance' } } as never)).rejects.toThrow('aborted');
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+});

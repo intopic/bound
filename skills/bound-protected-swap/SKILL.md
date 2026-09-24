@@ -147,7 +147,14 @@ late or expire (an expired swap costs nothing).
   state directory), and `protectedSwap` does not finalize when `onSigned` fails to keep it. While an
   earlier outcome is unknown, start no new swap for that intent.
 - **One worker per wallet** (`acquireLock` in the example, for processes sharing a directory; workers
-  on several machines need a shared store with a lock of its own).
+  on several machines need a shared store with a lock of its own). The lock names its holder, and a
+  worker whose lock was taken over never removes its successor's.
+- **One swap per wallet in flight.** With a pending store (`protectedSwap`'s `pending`, the command
+  line's state directory), nothing is prepared or sent while another swap from the same wallet may
+  still land (`PendingSwapError`; `bound-verify` exits 3), with or without an order id. The same
+  signed bytes may always be asked again: they land at most once.
+- **The chain's answer is the answer.** A record that cannot be written or removed after a swap was
+  sent is reported beside its outcome (`bookkeepingError`), with the signature, never as "not sent".
 - **Give every order an id** (`intent.id`, the example's `--id`), the same on every retry of that
   order. With an order book (`createFileStore`, or your own `OrderBook` shared by every worker), an
   order that confirmed, or whose transaction may still land, is never swapped again

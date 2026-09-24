@@ -104,7 +104,7 @@ async function readAccounts(rpc, addresses, opts = {}) {
 			encoding: "base64",
 			commitment: "confirmed",
 			...opts.minContextSlot !== void 0 ? { minContextSlot: opts.minContextSlot } : {}
-		}).send(), opts.minContextSlot);
+		}).send(opts.timeoutMs ? { abortSignal: AbortSignal.timeout(opts.timeoutMs) } : void 0), opts.minContextSlot);
 		const at = BigInt(context?.slot ?? 0);
 		slot = slot === 0n || at !== 0n && at < slot ? at : slot;
 		value.forEach((acc, j) => {
@@ -910,7 +910,8 @@ const hex = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(
 * The problems found, or an empty list. Sign only when it is empty. `rpc` must be the agent's own
 * RPC, not one Bound provides: the check is worth what the chain state it reads is worth.
 */
-async function verifyPrepared(prepared, limits, rpc) {
+async function verifyPrepared(prepared, limits, rpc, opts = {}) {
+	const timeoutMs = opts.requestTimeoutMs ?? 1e4;
 	const problems = [];
 	let transaction;
 	try {
@@ -943,7 +944,7 @@ async function verifyPrepared(prepared, limits, rpc) {
 	try {
 		const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
 		const lookups = compiled.addressTableLookups ?? [];
-		const lookupTables = lookups.length ? await fetchAddressesForLookupTables(lookups.map((l) => l.lookupTableAddress), rpc) : {};
+		const lookupTables = lookups.length ? await fetchAddressesForLookupTables(lookups.map((l) => l.lookupTableAddress), rpc, { abortSignal: AbortSignal.timeout(timeoutMs) }) : {};
 		const resolved = lookups.flatMap((l) => [...l.writableIndexes, ...l.readonlyIndexes].map((i) => lookupTables[l.lookupTableAddress]?.[i]).filter((a) => !!a));
 		const derived = Object.values(p.accounts).filter((a) => !!a);
 		const { accounts, slot } = await readAccounts(rpc, [
@@ -954,7 +955,7 @@ async function verifyPrepared(prepared, limits, rpc) {
 			p.outputMint,
 			p.ephemeral,
 			...p.treasury ? [p.treasury] : []
-		]);
+		], { timeoutMs });
 		snapshot = {
 			accounts,
 			lookupTables,
@@ -965,7 +966,7 @@ async function verifyPrepared(prepared, limits, rpc) {
 	}
 	const verdict = await verify(transaction, p, snapshot);
 	for (const v of verdict.violations) problems.push(`${v.rule}: ${v.detail}`);
-	problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc, snapshot.slot));
+	problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc, snapshot.slot, timeoutMs));
 	return problems;
 }
 /**
@@ -977,7 +978,7 @@ async function verifyPrepared(prepared, limits, rpc) {
 * review M-05). An account that does not exist afterwards holds nothing; an answer that does not
 * report the accounts proves nothing, and is refused.
 */
-async function leftUnderKey(transaction, key, rpc, minContextSlot = 0n) {
+async function leftUnderKey(transaction, key, rpc, minContextSlot = 0n, timeoutMs = 1e4) {
 	const markets = await Promise.all([PUMP_CURVE_PROGRAM, PUMP_AMM_PROGRAM].map((program) => routeAccountFor(program, key)));
 	const cashback = await Promise.all(markets.flatMap((owner) => [WSOL_MINT, USDC_MINT].map(async (mint) => (await findAssociatedTokenPda({
 		owner,
@@ -1000,7 +1001,7 @@ async function leftUnderKey(transaction, key, rpc, minContextSlot = 0n) {
 				encoding: "base64"
 			},
 			...minContextSlot > 0n ? { minContextSlot } : {}
-		}).send();
+		}).send({ abortSignal: AbortSignal.timeout(timeoutMs) });
 		if (value.err) return [`the swap fails in simulation on your RPC: ${JSON.stringify(value.err, (_, v) => typeof v === "bigint" ? v.toString() : v)}`];
 		const after = value.accounts;
 		if (!Array.isArray(after) || after.length !== watched.length) return ["the simulation on your RPC did not report what the one-time key holds after the swap"];

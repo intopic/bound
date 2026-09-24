@@ -97,7 +97,11 @@ const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16
  * The problems found, or an empty list. Sign only when it is empty. `rpc` must be the agent's own
  * RPC, not one Bound provides: the check is worth what the chain state it reads is worth.
  */
-export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>): Promise<string[]> {
+export async function verifyPrepared(
+  prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>, opts: { requestTimeoutMs?: number } = {},
+): Promise<string[]> {
+  // Every read on your RPC ends in time: one that never answers is a problem, not a wait (final audit, M-02).
+  const timeoutMs = opts.requestTimeoutMs ?? 10_000;
   const problems: string[] = [];
   let transaction;
   try {
@@ -155,7 +159,7 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
     };
     const lookups = compiled.addressTableLookups ?? [];
     const lookupTables: Record<string, readonly Address[]> = lookups.length
-      ? await fetchAddressesForLookupTables(lookups.map(l => l.lookupTableAddress), rpc as never)
+      ? await fetchAddressesForLookupTables(lookups.map(l => l.lookupTableAddress), rpc as never, { abortSignal: AbortSignal.timeout(timeoutMs) })
       : {};
     const resolved = lookups.flatMap(l =>
       [...l.writableIndexes, ...l.readonlyIndexes].map(i => lookupTables[l.lookupTableAddress]?.[i]).filter((a): a is Address => !!a));
@@ -164,7 +168,7 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
       ...compiled.staticAccounts, ...resolved, ...derived, p.inputMint, p.outputMint, p.ephemeral,
       ...(p.treasury ? [p.treasury] : []),
     ];
-    const { accounts, slot } = await readAccounts(rpc as never, addresses);
+    const { accounts, slot } = await readAccounts(rpc as never, addresses, { timeoutMs });
     snapshot = { accounts, lookupTables, slot };
   } catch (e) {
     return [...problems, `the chain state could not be read from your RPC: ${(e as Error).message}`];
@@ -173,7 +177,7 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
   const verdict = await verify(transaction, p, snapshot);
   for (const v of verdict.violations) problems.push(`${v.rule}: ${v.detail}`);
   // Simulated on state not older than the snapshot just read (final audit, item 6).
-  problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc, snapshot.slot));
+  problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc, snapshot.slot, timeoutMs));
   return problems;
 }
 
@@ -186,7 +190,7 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
  * review M-05). An account that does not exist afterwards holds nothing; an answer that does not
  * report the accounts proves nothing, and is refused.
  */
-async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>, minContextSlot = 0n): Promise<string[]> {
+async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>, minContextSlot = 0n, timeoutMs = 10_000): Promise<string[]> {
   // E, each Pump market's account in E's name, and the token accounts those hold cashback in (WSOL,
   // or USDC on a USDC-quoted market): a claim E could make later is value under E too (Stage 1, U1).
   const markets = await Promise.all([PUMP_CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountFor(program, key)));
@@ -200,7 +204,7 @@ async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRp
         accounts: { addresses: watched, encoding: 'base64' },
         ...(minContextSlot > 0n ? { minContextSlot } : {}),
       })
-      .send();
+      .send({ abortSignal: AbortSignal.timeout(timeoutMs) });
     if (value.err) return [`the swap fails in simulation on your RPC: ${JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? v.toString() : v))}`];
     const after = (value as { accounts?: readonly ({ lamports: bigint | number } | null)[] | null }).accounts;
     if (!Array.isArray(after) || after.length !== watched.length) {
