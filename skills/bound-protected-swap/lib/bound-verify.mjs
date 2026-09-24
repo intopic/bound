@@ -856,6 +856,11 @@ async function verify(transaction, policy, snapshot) {
 * Bundled into ../lib/bound-verify.mjs by tools/build-skill.ts (only @solana/kit stays external), so
 * the skill works on its own; CI rebuilds it and fails if the committed file differs.
 */
+/**
+* Bound's treasury wallet, pinned like the fee: unless the agent names another, Bound's fee may go
+* here or nowhere, whatever the server says.
+*/
+const BOUND_TREASURY = "6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm";
 const BIGINT_FIELDS = [
 	"minOut",
 	"takerRent",
@@ -903,7 +908,7 @@ async function verifyPrepared(prepared, limits, rpc) {
 	if (p.jupiterProgram !== JUPITER_PROGRAM) problems.push(`the swap program is ${p.jupiterProgram}, not Jupiter`);
 	if (p.ephemeral !== prepared.temporaryAuthority) problems.push("the one-time key differs from the one stated");
 	if (p.feeBps > BigInt(limits.maxFeeBps ?? 30)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
-	if (limits.treasury && p.treasury !== null && p.treasury !== limits.treasury) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
+	if (p.treasury !== null && p.treasury !== (limits.treasury || "6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm")) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
 	if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1e6)) problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
 	if (p.feeSide === "sol") {
 		if (limits.maxSolFeeLamports === void 0) problems.push("the Bound fee is paid in SOL at a price the check cannot see: set maxSolFeeLamports from a price you got yourself (ownSolFeeLimit asks Jupiter)");
@@ -1050,4 +1055,4 @@ async function ownSolFeeLimit(args) {
 	return Number(limit);
 }
 //#endregion
-export { ownMinimum, ownSolFeeLimit, verifyPrepared };
+export { BOUND_TREASURY, ownMinimum, ownSolFeeLimit, verifyPrepared };

@@ -969,6 +969,11 @@ SOL from the wallet at the swap's value. The verifier's ceiling stays at 1%.
   `BOUND_API_FEE_BPS`, if set) must say 30, then a rebuild.
 - The skill pins it: an agent's check refuses a fee above 30 bps unless the agent raises
   `maxFeeBps` itself, and `ownMinimum` and `ownSolFeeLimit` count 30 bps.
+- The skill pins the treasury too (24 September 2026): `BOUND_TREASURY`,
+  `6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm`. An agent's check refuses a fee paid to any other
+  wallet unless the agent names another treasury itself (for another Bound deployment). The
+  deployment's `NEXT_PUBLIC_BOUND_TREASURY` must be this address. While the wallet holds no token
+  accounts, every fee arrives in SOL (section 0w); it must hold some SOL first, or no fee is taken.
 - Against the research of 24 September 2026: trading bots around 1%, Phantom 0.85%, MetaMask 0.875%;
   Jupiter's own swap page 0 to 0.1% on most pairs, 0.5% on tokens under a day old.
 

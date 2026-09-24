@@ -29,7 +29,7 @@ import {
 import { mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
+import { BOUND_TREASURY, ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
 import { routeAccountFor } from '@bound/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
@@ -85,7 +85,8 @@ async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean; s
 }
 
 // A floor of the agent's own is required (research audit F-02); 1 lets the other checks speak.
-const intentFor = (wallet: KeyPairSigner): Intent => ({ owner: wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1' });
+// The test deployment's treasury stands in for Bound's pinned one (named, as for another deployment).
+const intentFor = (wallet: KeyPairSigner): Intent => ({ owner: wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1', treasury: TREASURY });
 
 async function honestAnswer(b: Awaited<ReturnType<typeof bound>>): Promise<Prepared> {
   const res = await b.fetchImpl('http://bound.test/api/v1/prepare', {
@@ -128,7 +129,7 @@ describe("the skill's example", () => {
     const b = await bound();
     const result = await protectedSwap({
       apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
-      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' },
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     });
     expect(result.outcome).toBe('confirmed');
     expect(result.prepared.amounts.fee).toBe('2000');
@@ -207,6 +208,17 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
     expect((await checkPrepared(higher, intentFor(b.wallet), b.agentRpc)).join()).toContain('the fee of 50 bps is above your limit');
   });
 
+  it('unless the agent names another, the fee may go only to Bound\'s pinned treasury, or nowhere', async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    const { treasury: _named, ...unnamed } = intentFor(b.wallet);
+    expect(BOUND_TREASURY).toBe('6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm');
+    // This deployment's treasury is not Bound's, so an agent that named none refuses the fee.
+    expect((await checkPrepared(honest, unnamed, b.agentRpc)).join()).toContain(`the fee goes to ${TREASURY}, not Bound's treasury`);
+    const toBound = { ...honest, policy: { ...honest.policy, treasury: BOUND_TREASURY } };
+    expect((await checkPrepared(toBound, unnamed, b.agentRpc)).join()).not.toContain('treasury');
+  });
+
   it('the fee sent to another treasury is refused when the agent pins Bound\'s', async () => {
     const b = await bound();
     const honest = await honestAnswer(b);
@@ -260,7 +272,7 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
     const b = await bound();
     const result = await protectedSwap({
       apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
-      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' },
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     });
     expect(result.outcome).toBe('confirmed');
     const floor = await ownMinimum({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: b.wallet.address, fetchImpl: b.fetchImpl });
@@ -336,7 +348,7 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
     const late = { ...b.agentRpc, getBlockHeight: () => ({ send: async () => 990n }) } as unknown as Rpc<SolanaRpcApi>;
     await expect(protectedSwap({
       apiUrl: 'http://bound.test', apiKey: KEY, rpc: late, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
-      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' },
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     })).rejects.toThrow('only 10 blocks are left');
     expect(b.sent).toHaveLength(0);
   });
@@ -347,7 +359,7 @@ describe("the fee, taken like Jupiter's, as the agent sees it", () => {
     const b = await bound({ treasuryWallet: true });
     const result = await protectedSwap({
       apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
-      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' },
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     });
     expect(result.outcome).toBe('confirmed');
     const p = result.prepared;
@@ -367,7 +379,7 @@ describe("the fee, taken like Jupiter's, as the agent sees it", () => {
 });
 
 const signatureOfWire = (wire: string) => getSignatureFromTransaction(getTransactionDecoder().decode(Buffer.from(wire, 'base64')));
-const swapIntent = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1' };
+const swapIntent = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1', treasury: TREASURY };
 
 /**
  * The agent's own RPC on a chain that moves on: 40 blocks at every height read. A transaction is on
@@ -532,7 +544,7 @@ describe('a fee in SOL for a pair neither token of which can carry it (every swa
   it('the example holds it to a price of its own from Jupiter, and the swap goes through', async () => {
     const b = await solFeeWorld();
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: { ...pair, minOut: '1' },
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: { ...pair, minOut: '1', treasury: TREASURY },
     });
     expect(result.outcome).toBe('confirmed');
     expect(result.prepared.amounts.feeMint).toBe(WSOL_MINT);
@@ -561,9 +573,9 @@ describe('a fee in SOL for a pair neither token of which can carry it (every swa
       certificate: { ...lie.certificate, solFee: { lamports: String(fee * 3n), destination: TREASURY } },
     };
     const ownLimit = Number(fee + fee / 50n);
-    const problems = await checkPrepared(inflated, { owner: b.wallet.address, ...pair, minOut: '1', maxSolFeeLamports: ownLimit }, b.agentRpc);
+    const problems = await checkPrepared(inflated, { owner: b.wallet.address, ...pair, minOut: '1', maxSolFeeLamports: ownLimit, treasury: TREASURY }, b.agentRpc);
     expect(problems.join()).toContain('above your limit');
-    expect(await checkPrepared(honest, { owner: b.wallet.address, ...pair, minOut: '1', maxSolFeeLamports: ownLimit }, b.agentRpc)).toEqual([]);
+    expect(await checkPrepared(honest, { owner: b.wallet.address, ...pair, minOut: '1', maxSolFeeLamports: ownLimit, treasury: TREASURY }, b.agentRpc)).toEqual([]);
   });
 });
 

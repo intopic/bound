@@ -1,6 +1,12 @@
 // Types for bound-verify.mjs, the bundled agent verifier (source: ../src/verify.ts).
 import type { Rpc, SolanaRpcApi } from '@solana/kit';
 
+/**
+ * Bound's treasury wallet, pinned like the fee: unless the agent names another, Bound's fee may go
+ * here or nowhere, whatever the server says.
+ */
+export declare const BOUND_TREASURY: '6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm';
+
 /** What the agent asked for, and the most it accepts. */
 export type AgentLimits = {
   /** The agent's wallet, which signs first and pays. */
@@ -18,7 +24,10 @@ export type AgentLimits = {
   maxFeeBps?: number;
   /** The most the transaction may cost in network fees, in lamports (default 0.001 SOL). */
   maxNetworkFeeLamports?: number;
-  /** When set, the fee may go only to this treasury wallet (or nowhere). */
+  /**
+   * The only wallet the fee may go to (or nowhere). Bound's own (`BOUND_TREASURY`) unless set; set it
+   * only to use another Bound deployment.
+   */
   treasury?: string;
   /**
    * The most rent the route may keep, in lamports: what the wallet sends for a market's account,

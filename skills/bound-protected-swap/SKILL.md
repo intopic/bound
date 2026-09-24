@@ -27,8 +27,9 @@ The user provides these; never ask for them in chat, and never print or log them
   chain state it reads is worth.
 - `BOUND_WALLET_KEYPAIR`: path to the wallet's keypair file. Load the key from the file in code; it
   must never appear in a prompt, a message, a log or a command line.
-- `BOUND_TREASURY` (optional): Bound's treasury address, published by Bound. When set, the fee may go
-  nowhere else.
+- Bound's treasury is pinned in the skill: `6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm`. The fee goes there or
+  nowhere; a swap whose fee goes to any other wallet is refused. `BOUND_TREASURY` names another
+  treasury only for another Bound deployment.
 - `JUPITER_API_KEY` (optional): for the agent's own price. Without it Jupiter allows one request
   every two seconds, which is enough for one swap at a time.
 
@@ -57,7 +58,7 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
    - that the answer agrees with itself and with what you asked: tokens, amount, wallet, fee at most
      your limit, minimum at least yours, network fee within your limit;
    - that the policy is held to your intent: owner, mints, amount, Jupiter's program, the one-time
-     key, fee and network-fee ceilings, the treasury if you pinned it;
+     key, fee and network-fee ceilings, the treasury;
    - **every instruction of the exact transaction**, with Bound's verifier (rules R1–R7) against
      chain state from your RPC: your wallet never reaches the swap program, only the approved amount
      leaves it, no permission over your wallet is approved, reassigned or left behind, Jupiter's own

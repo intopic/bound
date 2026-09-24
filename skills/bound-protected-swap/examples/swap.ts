@@ -16,7 +16,8 @@
  *
  *   BOUND_API_URL=https://<bound host>  BOUND_API_KEY=bnd_...  SOLANA_RPC_URL=https://<your rpc>
  *   BOUND_WALLET_KEYPAIR=/path/to/keypair.json   (a solana-keygen file; never paste a key in a prompt)
- *   BOUND_TREASURY=<address>                     (optional: the fee may go only there)
+ *   BOUND_TREASURY=<address>                     (optional: only for another Bound deployment;
+ *                                                Bound's own treasury is pinned in the skill)
  *   JUPITER_API_KEY=...                          (optional: for your own price; keyless allows one call every 2 s)
  *
  *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
@@ -54,7 +55,7 @@ export type Intent = {
   maxFeeBps?: number;
   /** The highest network fee you accept, in lamports. */
   maxNetworkFeeLamports?: number;
-  /** When set, the fee may go only to this treasury wallet (or nowhere). */
+  /** The only wallet the fee may go to: Bound's own (pinned in the skill) unless set. */
   treasury?: string;
   /** The most market rent that does not come back you accept, in lamports (default 0.001 SOL). */
   maxRouteCostLamports?: number;
