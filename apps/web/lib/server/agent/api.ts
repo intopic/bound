@@ -1,4 +1,4 @@
-import { getBase64EncodedWireTransaction, getTransactionDecoder, isAddress } from '@solana/kit';
+import { getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
 import { JUPITER_PROGRAM, tokenAmountOf } from '@bound/core';
 import type { TxVersion } from '@bound/core';
@@ -87,16 +87,20 @@ function explain(e: unknown): Response {
   if (e instanceof BoundError) {
     const violations = e.violations.length ? { violations: e.violations } : {};
     switch (e.code) {
+      // Both need the user's yes before the agent asks again: a worse price is a new authorization,
+      // not a retry, and says so in a field a program can read (engineering review, section 5).
       case 'price-moved':
         return fail(409, e.code, e.message, {
           // What the wallet would keep, after a fee taken from the output: the same unit as minOut.
           newMinOut: e.priceMoved?.newMinReceived, newOutAmount: e.priceMoved?.newOutAmount,
-          retry: 'Send prepare again with minOut set to newMinOut to accept it.',
+          requiresApproval: true,
+          retry: 'Only with the user\'s approval: send prepare again with minOut set to newMinOut.',
         });
       case 'costs-more':
         return fail(409, e.code, e.message, {
           gapBps: e.costsMore?.gapBps, outAmount: e.costsMore?.outAmount, baselineOut: e.costsMore?.baselineOut,
-          retry: 'Send prepare again with acceptCostBps set to gapBps to accept it.',
+          requiresApproval: true,
+          retry: 'Only with the user\'s approval: send prepare again with acceptCostBps set to gapBps.',
         });
       case 'busy':
       case 'unavailable':
@@ -218,8 +222,15 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   }
 }
 
+/**
+ * Said with every refusal once the transaction is known. An earlier finalize of the same ticket may
+ * have sent it and lost its answer on the way back, so "prepare again" is safe only once that
+ * transaction can no longer land (engineering review H-01).
+ */
+const EARLIER =
+  'If an earlier finalize of this ticket went out, that transaction can still land until lastValidBlockHeight: check its signature on your own RPC before preparing again.';
+
 export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Response> {
-  if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was signed by Bound or sent.');
   const key = await authenticate(req, deps);
   if (key instanceof Response) return key;
   const body = await readJson(req);
@@ -244,27 +255,56 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
   if ((await sha256Hex(returned.messageBytes)) !== ticket.msg) {
     return fail(400, 'transaction-changed', 'This is not the transaction Bound built. Bound signs only the exact message it built and verified; nothing was signed or sent.');
   }
+  // The transaction's id is the wallet's signature (W pays, so it signs first), already in these
+  // bytes: without it nothing could have been sent, by this request or an earlier one.
+  let signature: string;
+  try {
+    signature = getSignatureFromTransaction(returned);
+  } catch {
+    return fail(400, 'wallet-changed-transaction', 'The transaction carries no signature from your wallet. Sign exactly what prepare returned; nothing was signed or sent.');
+  }
+  const known = { signature, lastValidBlockHeight: ticket.lvbh };
+  const refuse = (status: number, code: string, message: string, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}) =>
+    fail(status, code, `${message} ${EARLIER}`, { ...extra, ...known }, headers);
+
+  // What the chain knows of this transaction comes before any condition for a first send: a repeated
+  // finalize must describe the transaction it repeats, never invite a second swap (H-01).
+  let onChain: unknown;
+  try {
+    onChain = (await deps.rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()).value[0];
+  } catch {
+    return refuse(503, 'unavailable', 'Bound could not read from the network whether this transaction was already sent, so this request sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
+  }
 
   try {
+    const E = await ephemeralFor(secret, ticket.nonce);
+    const original: Transaction = { messageBytes: returned.messageBytes, signatures: {} } as Transaction;
+    const countersign = (landed: boolean) => countersignProtectedSwap({
+      rpc: deps.rpc,
+      prepared: { transaction: original, lifetime: { lastValidBlockHeight: BigInt(ticket.lvbh) }, policy: { owner: ticket.owner as Address } },
+      walletSignedBytes: new Uint8Array(bytes),
+      ephemeral: E,
+      landed,
+    });
+    // Already on chain: the answer of the finalize that sent it, the same bytes, and no second send.
+    // Even while paused, since it reads and sends nothing.
+    if (onChain) {
+      const signed = await countersign(true);
+      return json(200, { signature, status: 'sent', signedTransaction: getBase64EncodedWireTransaction(signed), lastValidBlockHeight: ticket.lvbh });
+    }
+    if (deps.disabled) return refuse(503, 'paused', 'Protected swaps are paused. This request signed and sent nothing.');
     // The minimum-output check is the output account's balance at prepare plus the minimum. If the
     // balance moved since (another swap into this token, a transfer), the check could count those
     // tokens: sign nothing (review FA-04). Run one swap per output token until it is confirmed.
     if (ticket.wOut) {
       const now = tokenAmountOf((await fetchAccounts(deps.rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
       if (now !== BigInt(ticket.b0!)) {
-        return fail(409, 'output-balance-changed', 'The balance of your output account changed since prepare (another swap or a transfer arrived). Nothing was signed or sent; prepare again.', {
+        return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (another swap or a transfer arrived), so this request signed and sent nothing.', {
           balanceAtPrepare: ticket.b0, balanceNow: now,
         });
       }
     }
-    const E = await ephemeralFor(secret, ticket.nonce);
-    const original: Transaction = { messageBytes: returned.messageBytes, signatures: {} } as Transaction;
-    const signed = await countersignProtectedSwap({
-      rpc: deps.rpc,
-      prepared: { transaction: original, lifetime: { lastValidBlockHeight: BigInt(ticket.lvbh) }, policy: { owner: ticket.owner as Address } },
-      walletSignedBytes: new Uint8Array(bytes),
-      ephemeral: E,
-    });
+    const signed = await countersign(false);
     const sent = await sendOnce(deps.rpc, signed);
     return json(200, {
       signature: sent.signature,
@@ -276,6 +316,17 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       lastValidBlockHeight: ticket.lvbh,
     });
   } catch (e) {
-    return explain(e);
+    // Every path here ends before a send: say what this request did, and name the transaction.
+    if (e instanceof BoundError && e.code === 'expired') {
+      return refuse(410, 'expired', 'The transaction reached the end of its lifetime before Bound signed it now.');
+    }
+    if (e instanceof BoundError && e.code === 'wallet-changed-transaction') {
+      return refuse(400, e.code, 'Your wallet\'s signature does not match the transaction Bound built; this request signed and sent nothing.', e.violations.length ? { violations: e.violations } : {});
+    }
+    const http = httpStatusOf(e);
+    if (http === 429) return refuse(503, 'busy', 'The network is busy, so this request sent nothing. Wait a few seconds and try finalize again.', {}, { 'retry-after': '5' });
+    if (http !== null && http >= 500) return refuse(503, 'unavailable', "The network didn't answer, so this request sent nothing. Try finalize again in a moment.", {}, { 'retry-after': '5' });
+    console.error(e);
+    return refuse(500, 'internal', 'Something went wrong, and this request sent nothing.');
   }
 }

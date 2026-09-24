@@ -873,6 +873,36 @@ Jupiter takes its own (its fee mint priority: SOL, then stablecoins, on either s
 
 ---
 
+## 0u. The engineering review of 24 September 2026 (read, reason, report)
+
+A read-only review of `feb3b4f` (`AUDIT-PROMPT-REVIEW.md`): no tests run, every finding reasoned from
+the code. Each finding was checked against the code before anything changed, and each fix comes with
+the focused test the review proposed. The earlier test-running audit's reproductions (`FA2-*`, never
+committed) point at the same places: FA2-02 is H-01, FA2-03 is H-03, FA2-04 is M-06, FA2-05 is M-08,
+FA2-07 is the `sendOnce` line of H-01.
+
+| Finding | What it was | Fix | State |
+| --- | --- | --- | --- |
+| H-01 | A finalize repeated after its answer was lost met the output-balance check (or expiry, or the pause) before anything else and said "nothing was sent; prepare again", after a swap that had landed: an agent following it swapped twice. `sendOnce` also called a transaction rejected when it could not read its status | The transaction's id is the wallet's signature, already in the bytes finalize receives: its status is read first. On chain: the same answer and bytes, nothing sent, even past its lifetime or while paused. Not on chain: every refusal says what that request did and names the transaction (`signature`, `lastValidBlockHeight`). An unreadable status is a 503, never a guess; in `sendOnce` it is `unknown`. Still stateless | done |
+| H-02 | The skill's example confirmed whatever signature and bytes finalize returned, called a missing `signedTransaction` a rejection, lost the signature when finalize's answer was lost, and waited forever on a failing RPC | The example computes the signature from the bytes the wallet signed, hands it to `onSigned` before finalize, asks finalize once more after a lost or unreadable answer, re-broadcasts only bytes that are this transaction with a valid E signature, and reads the outcome for its own signature. The last block is taken on its own clock (height at signing + 150 + 25), so a lower figure from the server cannot end the wait. `rejected` only once the chain shows it can no longer land; `unknown` after a deadline (3 min). Also: `Retry-After` kept on `BoundApiError`, `acceptCostBps` and `version` forwarded, stated amounts held to the policy the verifier checks, `requiresApproval` on `price-moved` and `costs-more` | done |
+| H-03 | The verifier required Jupiter's quoted amount, not its floor after slippage, to cover the minimum; a concurrent deposit could fill the gap | next | open |
+| H-04 | The page passed the gross minimum; a change of fee side could lower the net one unasked | next | open |
+| M-05 | "Nothing left behind" claimed more than the one-account simulation checks | next | open |
+| M-06 | A rebuild compared gross route rent, not rent less refund, and the second question skipped the freshness check | next | open |
+| M-07 | The cross-tab lock is not atomic | not a safety control once H-03 holds | open |
+| M-08 | The relay's shape filter was described as proof it cannot be abused | wording; firewall rules at the host | open |
+| M-09 | The canary never ran a fee | next | open |
+| L-10 | `minimumForReceived` is conservative by a unit, not the least | next | open |
+
+Tests: `agentApi.test.ts` (a finalize repeated after landing, past the lifetime, while paused, with
+an unreadable status, with a signature not W's), `send.test.ts` (an unreadable status is unknown),
+`skillExample.test.ts` (answers lost once and always, another transaction's signature, `sent`
+without bytes, `rejected` from a server that sent it, a real refusal, a lower lifetime from the
+server, the signature kept before finalize, a failing RPC, `Retry-After`, a minimum stated above the
+enforced one).
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

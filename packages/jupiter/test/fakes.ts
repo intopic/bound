@@ -3,7 +3,8 @@
  * would), shared by the pipeline's tests and the agent API's.
  */
 import {
-  address, decompileTransactionMessage, getAddressEncoder, getCompiledTransactionMessageDecoder, getTransactionDecoder,
+  address, decompileTransactionMessage, getAddressEncoder, getCompiledTransactionMessageDecoder, getSignatureFromTransaction,
+  getTransactionDecoder,
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import {
@@ -130,6 +131,12 @@ export function fakeRpc(
     pumpSlippage?: number;
     /** Bound's own transfer from the wallet fails, before the swap (a balance that changed, say). */
     failBeforeSwap?: boolean;
+    /** What the chain knows of each signature; unknown ones have no status. */
+    statuses?: Map<string, { confirmationStatus: 'processed' | 'confirmed' | 'finalized'; err: unknown }>;
+    /** A transaction lands, confirmed, when it is sent (into `statuses`). */
+    landOnSend?: boolean;
+    /** Reading a status fails. */
+    statusFails?: boolean;
   } = {},
 ): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
@@ -148,9 +155,16 @@ export function fakeRpc(
     sendTransaction: call((wire: string) => {
       if (opts.sendError) throw opts.sendError;
       opts.sent?.push(wire);
+      if (opts.landOnSend) {
+        const signature = getSignatureFromTransaction(getTransactionDecoder().decode(Buffer.from(wire, 'base64')));
+        opts.statuses?.set(signature, { confirmationStatus: 'confirmed', err: null });
+      }
       return 'sig';
     }),
-    getSignatureStatuses: call(() => ({ value: [null] })),
+    getSignatureStatuses: call((signatures: string[]) => {
+      if (opts.statusFails) throw new Error('RPC unavailable');
+      return { value: signatures.map(s => opts.statuses?.get(s) ?? null) };
+    }),
     // A route that opens an account in the taker's name fails, as PumpSwap does, until the taker
     // holds its rent; with it, the taker ends holding whatever it was sent beyond the rent.
     simulateTransaction: call(async (wire: string, config: { accounts?: { addresses: string[] } }) => {

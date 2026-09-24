@@ -213,6 +213,12 @@ describe('one send, for a caller that confirms on its own (the agent API)', () =
     expect((await once({ firstSend: preflight(), statuses: [confirmed] })).status).toBe('sent');
   });
 
+  it('a preflight refusal whose status cannot be read is unknown, not rejected (engineering review H-01)', async () => {
+    const r = await once({ firstSend: preflight(), statuses: ['throw'] });
+    expect(r.status).toBe('unknown');
+    expect(r.refusal).toBeUndefined();
+  });
+
   it('a lost connection is unknown: it may have been forwarded', async () => {
     expect((await once({ firstSend: new Error('fetch failed') })).status).toBe('unknown');
   });

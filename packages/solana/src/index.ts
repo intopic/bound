@@ -254,8 +254,11 @@ export async function sendOnce(rpc: SolanaRpc, transaction: Transaction): Promis
     const http = httpStatusOf(e);
     if (http === null) {
       const known = await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()
-        .then(r => !!r.value[0]).catch(() => false);
+        .then(r => !!r.value[0], () => null);
       if (known) return { signature, status: 'sent', error: null };
+      // The refusal may be of a second send of a transaction already on its way; a status that
+      // cannot be read does not say it is not, so the outcome is unknown (engineering review H-01).
+      if (known === null) return { signature, status: 'unknown', error: String((e as Error)?.message ?? e) };
     }
     return {
       signature, status: 'rejected', error: String((e as Error)?.message ?? e),

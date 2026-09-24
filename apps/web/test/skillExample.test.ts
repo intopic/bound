@@ -8,8 +8,9 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   address, appendTransactionMessageInstructions, compileTransaction, createNoopSigner, createTransactionMessage,
-  decompileTransactionMessage, generateKeyPairSigner, getBase64EncodedWireTransaction, getCompiledTransactionMessageDecoder,
-  getTransactionDecoder, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash,
+  decompileTransactionMessage, generateKeyPairSigner, getBase58Decoder, getBase64EncodedWireTransaction, getCompiledTransactionMessageDecoder,
+  getSignatureFromTransaction, getTransactionDecoder, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash,
+  SolanaError, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
 } from '@solana/kit';
 import type { Address, Instruction, KeyPairSigner, Rpc, SolanaRpcApi } from '@solana/kit';
 import { getAssignInstruction, getTransferSolInstruction } from '@solana-program/system';
@@ -22,8 +23,9 @@ import { DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, US
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
-import { checkPrepared, protectedSwap } from '../../../skills/bound-protected-swap/examples/swap.ts';
+import { BoundApiError, checkPrepared, confirm, protectedSwap } from '../../../skills/bound-protected-swap/examples/swap.ts';
 import { ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
+import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
 import type { Intent, Prepared } from '../../../skills/bound-protected-swap/examples/swap.ts';
 
@@ -44,7 +46,7 @@ const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter())
  * `market`: what Bound's server quotes from, which a compromised server chooses. `treasuryWallet`:
  * the treasury's wallet exists, so a sale into SOL pays its fee in SOL, out of the output.
  */
-async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean } = {}) {
+async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown } = {}) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)],
@@ -55,7 +57,7 @@ async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean } 
     ...(opts.treasuryWallet ? [[TREASURY, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }] as [string, Account]] : []),
   ]);
   const sent: string[] = [];
-  const rpc = fakeRpc(accounts, { sent });
+  const rpc = fakeRpc(accounts, { sent, sendError: opts.sendError });
   const deps: AgentDeps = {
     rpc, jupiter: opts.market ?? fakeJupiter(), secrets: [new Uint8Array(32).fill(3)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'skill-test']]),
@@ -211,6 +213,11 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
       ['another wallet', honest, { owner: (await generateKeyPairSigner()).address }],
       ['a minimum below the one asked for', honest, { minOut: String(10n ** 15n) }],
       ['a message that is not the one hashed', { ...honest, messageSha256: '0'.repeat(64) }, {}],
+      // A minimum shown above the one the bytes enforce, stated alike in the amounts and the certificate.
+      ['a minimum stated above the enforced one', (() => {
+        const shown = String(BigInt(honest.amounts.minOut) + 1_000n);
+        return { ...honest, amounts: { ...honest.amounts, minOut: shown }, certificate: { ...honest.certificate, output: { ...honest.certificate.output, minimumOutput: shown } } };
+      })(), {}],
     ];
     for (const [name, prepared, change] of cases) {
       expect((await checkPrepared(prepared, { ...intent, ...change }, b.agentRpc)).length, name).toBeGreaterThan(0);
@@ -292,5 +299,150 @@ describe("the fee, taken like Jupiter's, as the agent sees it", () => {
     const honest = await honestAnswer(b);
     const lie = { ...honest, policy: { ...honest.policy, fee: String(BigInt(honest.policy.fee as string) * 2n) } };
     expect((await checkPrepared(lie, intentFor(b.wallet), b.agentRpc)).join()).toContain('policy amounts are inconsistent');
+  });
+});
+
+const signatureOfWire = (wire: string) => getSignatureFromTransaction(getTransactionDecoder().decode(Buffer.from(wire, 'base64')));
+const swapIntent = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1' };
+
+/**
+ * The agent's own RPC on a chain that moves on: 40 blocks at every height read. A transaction is on
+ * chain once Bound's server has sent it and the height has reached `landAt`; `others` are other
+ * transactions the chain has confirmed.
+ */
+function chainOf(b: Awaited<ReturnType<typeof bound>>, opts: { landAt?: bigint; others?: string[] } = {}) {
+  let height = 0n;
+  const onChain = (s: string) => (b.sent.some(w => signatureOfWire(w) === s) && height >= (opts.landAt ?? 0n)) || !!opts.others?.includes(s);
+  return {
+    ...b.agentRpc,
+    getBlockHeight: () => ({ send: async () => (height += 40n) }),
+    getSignatureStatuses: (signatures: string[]) => ({
+      send: async () => ({ value: signatures.map(s => (onChain(s) ? { confirmationStatus: 'confirmed', err: null } : null)) }),
+    }),
+  } as unknown as Rpc<SolanaRpcApi>;
+}
+
+/** The API over HTTP, with each finalize answer passed through `change` on its way back. */
+function answering(b: Awaited<ReturnType<typeof bound>>, change: (answer: Record<string, unknown>, n: number) => Record<string, unknown> | 'lost') {
+  let n = 0;
+  return (async (url: string, init: RequestInit) => {
+    const res = await b.fetchImpl(url, init);
+    if (!url.endsWith('/api/v1/finalize')) return res;
+    const changed = change(await res.json(), n++);
+    if (changed === 'lost') throw new TypeError('fetch failed');
+    return new Response(JSON.stringify(changed), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+}
+
+describe('after signing, the chain is the only witness (engineering review H-01, H-02)', () => {
+  it('an answer lost after the swap was sent: finalize is asked once more, and the same transaction confirms', async () => {
+    const b = await bound();
+    let prepares = 0;
+    const lossy = answering(b, (answer, n) => (n === 0 ? 'lost' : answer));
+    const counting = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/prepare')) prepares++;
+      return lossy(url, init);
+    }) as unknown as typeof fetch;
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: counting, pollMs: 1, intent: swapIntent });
+    expect(result.outcome).toBe('confirmed');
+    expect(prepares).toBe(1);
+    // The same transaction however often it went out, so it could land only once.
+    expect(new Set(b.sent).size).toBe(1);
+    expect(result.signature).toBe(signatureOfWire(b.sent[0]));
+  });
+
+  it('with every answer lost, the outcome is still read for the transaction the wallet signed', async () => {
+    const b = await bound();
+    const result = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: answering(b, () => 'lost'), pollMs: 1, intent: swapIntent,
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(result.signature).toBe(signatureOfWire(b.sent[0]));
+  });
+
+  it("another transaction's confirmed signature from the server is not a success", async () => {
+    const b = await bound();
+    const other = getBase58Decoder().decode(crypto.getRandomValues(new Uint8Array(64)));
+    // The server sends nothing and names a transaction that did confirm, with bytes that are not ours.
+    const liar = (async (url: string, init: RequestInit) => url.endsWith('/api/v1/finalize')
+      ? new Response(JSON.stringify({ signature: other, status: 'sent', signedTransaction: Buffer.alloc(300, 1).toString('base64'), lastValidBlockHeight: '1000' }), { status: 200 })
+      : b.fetchImpl(url, init)) as unknown as typeof fetch;
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { others: [other] }), wallet: b.wallet, fetchImpl: liar, pollMs: 1, intent: swapIntent });
+    expect(result.outcome).toBe('expired');
+    expect(result.signature).not.toBe(other);
+    expect(b.sent).toHaveLength(0);
+  });
+
+  it('"sent" without the signed transaction is not a refusal: the swap it sent confirms', async () => {
+    const b = await bound();
+    const result = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, pollMs: 1, intent: swapIntent,
+      fetchImpl: answering(b, ({ signedTransaction: _, ...rest }) => rest),
+    });
+    expect(result.outcome).toBe('confirmed');
+  });
+
+  it('"rejected" from a server that sent it anyway: the outcome is what the chain shows', async () => {
+    const b = await bound();
+    const result = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, pollMs: 1, intent: swapIntent,
+      fetchImpl: answering(b, ({ signedTransaction: _, ...rest }) => ({ ...rest, status: 'rejected', refusal: 'network' })),
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(b.sent).toHaveLength(1);
+  });
+
+  it('a real refusal before sending is "rejected" once the transaction can no longer land', async () => {
+    const preflight = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
+    const b = await bound({ sendError: preflight });
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
+    expect(result).toMatchObject({ outcome: 'rejected', refusal: 'network' });
+    expect(b.sent).toHaveLength(0);
+  });
+
+  it('a lower lastValidBlockHeight from the server does not end the wait while the swap can still land', async () => {
+    const b = await bound();
+    // Both answers say the transaction dies at block 100; it lands at 180, as its real lifetime allows.
+    const low = (async (url: string, init: RequestInit) => {
+      const res = await b.fetchImpl(url, init);
+      if (url.startsWith('https://api.jup.ag/')) return res;
+      const body = await res.json();
+      return new Response(JSON.stringify({ ...body, lastValidBlockHeight: '100' }), { status: res.status });
+    }) as unknown as typeof fetch;
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { landAt: 180n }), wallet: b.wallet, fetchImpl: low, pollMs: 1, intent: swapIntent });
+    expect(result.outcome).toBe('confirmed');
+  });
+
+  it('the signature is handed over to keep before finalize is asked', async () => {
+    const b = await bound();
+    const order: string[] = [];
+    const watching = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/finalize')) order.push('finalize');
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    let kept = '';
+    const result = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: watching, pollMs: 1, intent: swapIntent,
+      onSigned: s => { kept = s.signature; order.push('signed'); },
+    });
+    expect(order).toEqual(['signed', 'finalize']);
+    expect(kept).toBe(result.signature);
+  });
+
+  it('confirming stops at its deadline while the RPC keeps failing, and says unknown', async () => {
+    const failing = {
+      getSignatureStatuses: () => ({ send: async () => { throw new Error('RPC unavailable'); } }),
+      getBlockHeight: () => ({ send: async () => { throw new Error('RPC unavailable'); } }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    expect(await confirm(failing, 'sig', 1_000n, { pollMs: 1, maxWaitMs: 30 })).toBe('unknown');
+  });
+
+  it("a busy answer keeps its Retry-After, so the agent can wait as told", async () => {
+    const busy: JupiterClient = { ...fakeJupiter(), build: async () => { throw new JupiterError('Jupiter 429: Too many requests', 429); } };
+    const b = await bound({ market: busy });
+    const err = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BoundApiError);
+    expect(err).toMatchObject({ code: 'busy', retryAfter: 5 });
   });
 });

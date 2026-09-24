@@ -28,6 +28,7 @@ const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 let n = 0;
 async function world(opts: {
   height?: bigint; disabled?: boolean; jupiter?: AgentDeps['jupiter']; sendError?: unknown; treasury?: null; treasuryWallet?: boolean;
+  landOnSend?: boolean; statusFails?: boolean;
 } = {}) {
   const W = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
@@ -41,8 +42,9 @@ async function world(opts: {
     ...(opts.treasuryWallet ? [[TREASURY, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }] as [string, Account]] : []),
   ]);
   const sent: string[] = [];
+  const statuses: NonNullable<NonNullable<Parameters<typeof fakeRpc>[1]>['statuses']> = new Map();
   const deps: AgentDeps = {
-    rpc: fakeRpc(accounts, { height: opts.height, sent, sendError: opts.sendError }),
+    rpc: fakeRpc(accounts, { height: opts.height, sent, sendError: opts.sendError, statuses, landOnSend: opts.landOnSend, statusFails: opts.statusFails }),
     jupiter: opts.jupiter ?? fakeJupiter(),
     secrets: [secret(7)],
     keys: new Map([[sha(KEY), 'agent-one'], [sha(OTHER_KEY), 'agent-two']]),
@@ -54,7 +56,7 @@ async function world(opts: {
     v1: false,
     perMinute: 1_000,
   };
-  return { W, deps, sent, accounts };
+  return { W, deps, sent, accounts, statuses };
 }
 
 const post = (path: string, body: unknown, key: string | null = KEY) =>
@@ -94,6 +96,9 @@ async function signChanged(W: KeyPairSigner, wire: string, at: (length: number) 
 
 const finalize = (w: Awaited<ReturnType<typeof world>>, ticket: string, signedTransaction: string, key = KEY) =>
   agentFinalize(post('finalize', { ticket, signedTransaction }, key), w.deps);
+
+/** The transaction's id: the wallet's signature, known to the agent before finalize. */
+const signatureOf = (wire: string) => getSignatureFromTransaction(getTransactionDecoder().decode(Buffer.from(wire, 'base64')));
 
 describe('prepare', () => {
   it('builds the protected swap with the fee in it, and a ticket bound to the exact message', async () => {
@@ -151,6 +156,8 @@ describe('prepare', () => {
     const body = await res.json();
     expect(body.error.code).toBe('price-moved');
     expect(BigInt(body.error.newMinOut)).toBeGreaterThan(0n);
+    // A new authorization, not a retry, in a field a program reads (engineering review, section 5).
+    expect(body.error.requiresApproval).toBe(true);
   });
 
   it('a busy Jupiter is a 503 to retry, not a missing route', async () => {
@@ -282,8 +289,10 @@ describe('finalize', () => {
     const w = await world();
     const p = await prepared(w);
     const late = { ...w, deps: { ...w.deps, rpc: fakeRpc(new Map(), { height: 10_000n, sent: w.sent }) } };
-    const res = await finalize(late, p.ticket, await signAsWallet(w.W, p.transaction));
+    const signed = await signAsWallet(w.W, p.transaction);
+    const res = await finalize(late, p.ticket, signed);
     expect(res.status).toBe(410);
+    expect((await res.json()).error.signature).toBe(signatureOf(signed));
     expect(w.sent).toHaveLength(0);
   });
 
@@ -301,8 +310,85 @@ describe('finalize', () => {
     const w = await world();
     const p = await prepared(w);
     const paused = { ...w, deps: { ...w.deps, disabled: true } };
-    expect((await finalize(paused, p.ticket, await signAsWallet(w.W, p.transaction))).status).toBe(503);
+    const res = await finalize(paused, p.ticket, await signAsWallet(w.W, p.transaction));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe('paused');
     expect(w.sent).toHaveLength(0);
+  });
+});
+
+describe('a finalize repeated after its answer was lost (engineering review H-01)', () => {
+  // A swap into BONK: once it lands the output balance has moved, which used to answer "prepare
+  // again", and an agent that did would have swapped twice.
+  async function landedSwap() {
+    const w = await world({ landOnSend: true });
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps);
+    expect(res.status).toBe(200);
+    const p = (await res.json()) as Prepared;
+    const signed = await signAsWallet(w.W, p.transaction);
+    const first = await (await finalize(w, p.ticket, signed)).json();
+    expect(first.status).toBe('sent');
+    const arrived = tokenAccount(w.W.address, BONK);
+    new DataView(arrived.data.buffer).setBigUint64(64, 5_000n, true);
+    w.accounts.set(await ataOf(w.W.address, BONK), arrived);
+    return { w, p, signed, first };
+  }
+
+  it('answers with the same transaction and sends nothing more, though the output balance moved', async () => {
+    const { w, p, signed, first } = await landedSwap();
+    const res = await finalize(w, p.ticket, signed);
+    expect(res.status).toBe(200);
+    const again = await res.json();
+    expect(again).toMatchObject({ status: 'sent', signature: first.signature, signedTransaction: first.signedTransaction });
+    expect(again.signature).toBe(signatureOf(signed));
+    expect(w.sent).toHaveLength(1);
+  });
+
+  it('the same after its lifetime ended, and while swaps are paused: nothing is sent again', async () => {
+    const { w, p, signed, first } = await landedSwap();
+    const rpc = { ...w.deps.rpc, getBlockHeight: () => ({ send: async () => 10_000n }) } as unknown as AgentDeps['rpc'];
+    const later = { ...w, deps: { ...w.deps, rpc, disabled: true } };
+    const res = await finalize(later, p.ticket, signed);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'sent', signature: first.signature, signedTransaction: first.signedTransaction });
+    expect(w.sent).toHaveLength(1);
+  });
+
+  it("a signature in W's place that is not W's gets no answer, even when it is on chain", async () => {
+    const { w, p } = await landedSwap();
+    // Another landed transaction's signature put in W's place is not a way to obtain E's signature.
+    const tx = getTransactionDecoder().decode(Buffer.from(p.transaction, 'base64'));
+    const other = await generateKeyPairSigner();
+    const forgedSignature = await signBytes(other.keyPair.privateKey, tx.messageBytes);
+    const forged = Buffer.from(getTransactionEncoder().encode({ ...tx, signatures: { ...tx.signatures, [w.W.address]: forgedSignature } } as never)).toString('base64');
+    w.statuses.set(signatureOf(forged), { confirmationStatus: 'confirmed', err: null });
+    const res = await finalize(w, p.ticket, forged);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('wallet-changed-transaction');
+    expect(body.signedTransaction).toBeUndefined();
+  });
+
+  it('when the network cannot say whether it was sent, this request sends nothing and names the transaction', async () => {
+    const w = await world({ statusFails: true });
+    const p = await prepared(w);
+    const signed = await signAsWallet(w.W, p.transaction);
+    const res = await finalize(w, p.ticket, signed);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    const { error } = await res.json();
+    expect(error).toMatchObject({ code: 'unavailable', signature: signatureOf(signed), lastValidBlockHeight: '1000' });
+    expect(w.sent).toHaveLength(0);
+  });
+
+  it('a transaction the wallet did not sign cannot have been sent, and is refused as such', async () => {
+    const w = await world();
+    const p = await prepared(w);
+    const res = await finalize(w, p.ticket, p.transaction);
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error.code).toBe('wallet-changed-transaction');
+    expect(error.signature).toBeUndefined();
   });
 });
 
@@ -332,9 +418,16 @@ describe('review fixes on the API', () => {
     const landed = tokenAccount(w.W.address, BONK);
     new DataView(landed.data.buffer).setBigUint64(64, 5_000n, true);
     w.accounts.set(wOut, landed);
-    const r = await finalize(w, p.ticket, await signAsWallet(w.W, p.transaction));
+    const signed = await signAsWallet(w.W, p.transaction);
+    const r = await finalize(w, p.ticket, signed);
     expect(r.status).toBe(409);
-    expect((await r.json()).error.code).toBe('output-balance-changed');
+    const { error } = await r.json();
+    expect(error.code).toBe('output-balance-changed');
+    // What this request did, and the transaction an earlier finalize may have sent (H-01).
+    expect(error.signature).toBe(signatureOf(signed));
+    expect(error.lastValidBlockHeight).toBe('1000');
+    expect(error.message).toContain('this request signed and sent nothing');
+    expect(error.message).toContain('earlier finalize');
     expect(w.sent).toHaveLength(0);
   });
 

@@ -129,6 +129,10 @@ const signedTransaction = Buffer.from(getTransactionEncoder().encode(signed)).to
 
 Do not change the message: any change, including removing the fee, makes finalize refuse it.
 
+The transaction's signature, its id on chain, is your wallet's signature: you know it now, before
+finalize (`getSignatureFromTransaction(signed)`). Keep it, with the ticket, before calling finalize.
+Whatever finalize answers, or if no answer arrives, that signature is how you find out what happened.
+
 ## 3. Finalize
 
 ```http
@@ -139,9 +143,11 @@ Authorization: Bearer bnd_...
 { "ticket": "eyJ2Ijox....", "signedTransaction": "<base64, signed by your wallet>" }
 ```
 
-Bound checks that the message is byte for byte the one it built, that your wallet's signature is
-valid, that the transaction has not expired, and that your output account holds what it held at
-prepare (another swap or a transfer in between would count toward the minimum); then it signs as the
+Bound checks that the message is byte for byte the one it built and looks the transaction up on
+chain first: if an earlier finalize of this ticket already sent it, the answer is that same
+transaction again and nothing is sent. Otherwise it checks that your wallet's signature is valid,
+that the transaction has not expired, and that your output account holds what it held at prepare
+(another swap or a transfer in between would count toward the minimum); then it signs as the
 one-time key and sends it once. Run one swap per output token at a time.
 
 ```json
@@ -155,16 +161,30 @@ one-time key and sends it once. Run one swap per output token at a time.
 
 | `status` | Meaning |
 | --- | --- |
-| `sent` | The RPC accepted it. Confirm it on chain; re-broadcast `signedTransaction` until it confirms or `lastValidBlockHeight` passes. It can land only once. |
+| `sent` | The RPC accepted it, or it is already on chain. Confirm it on chain; re-broadcast `signedTransaction` until it confirms or `lastValidBlockHeight` passes. It can land only once. |
 | `unknown` | The connection failed after the request left. It may have been forwarded: check the signature before doing anything else. |
-| `rejected` | Provably never broadcast (`refusal`: `network` is the RPC's preflight, usually a price that moved). No `signedTransaction` is returned: prepare again. |
+| `rejected` | This request never broadcast it (`refusal`: `network` is the RPC's preflight, usually a price that moved). No `signedTransaction` is returned. |
 
-Finalizing the same ticket twice returns the same transaction and signature.
+Finalizing the same ticket again, after an answer that never arrived, answers for the same
+transaction: while it is not on chain it is sent again (the same bytes can land only once), and
+once it is on chain the answer is `sent` with the same bytes, even after its lifetime or during a
+pause.
+
+**Before preparing again for the same swap**, make sure the transaction you signed can no longer
+land: its signature has no record on your RPC and the finalized block height is past
+`lastValidBlockHeight`. An answer from finalize, `rejected` or an error, speaks only for that one
+request; an earlier finalize of the ticket whose answer was lost may have sent it. Take the last
+block from your own RPC too (your block height when you sign, plus 150, plus a margin for a
+lagging node): the blockhash is older than that, so the server's figure cannot shorten the wait.
+The skill's example does all of this (`protectedSwap`, `confirm`).
 
 ## Errors
 
-Every error is `{ "error": { "code": "...", "message": "..." } }`, and nothing was signed by Bound or
-sent unless the code says otherwise.
+Every error is `{ "error": { "code": "...", "message": "..." } }`, and the request that received it
+signed and sent nothing. From finalize, once the ticket and message check out, the error also names
+the transaction (`signature`, `lastValidBlockHeight`): an earlier finalize of the same ticket may
+have sent it, so check it before preparing again (see above). `price-moved` and `costs-more` carry
+`requiresApproval: true`: a worse price or a costlier route is the user's decision, not a retry.
 
 | HTTP | `code` | What to do |
 | --- | --- | --- |
@@ -174,14 +194,14 @@ sent unless the code says otherwise.
 | 400 | `wallet-changed-transaction` | Your wallet's signature is missing or does not match (`violations`). |
 | 401 | `unauthorized` | Missing or unknown API key. |
 | 404 | `not-enabled` | The deployment has no agent API. |
-| 409 | `price-moved` | The market cannot meet your `minOut`. `newMinOut` is what it supports now: prepare again with it to accept, or not. |
-| 409 | `costs-more` | The route that fits in one protected transaction is `gapBps` below the open market. Prepare again with `acceptCostBps` to accept. |
-| 409 | `output-balance-changed` | Your balance of the output token moved since prepare. Nothing was signed by Bound; prepare again. |
-| 410 | `expired` | The transaction's lifetime passed before finalize. Prepare again. |
+| 409 | `price-moved` | The market cannot meet your `minOut`. `newMinOut` is what it supports now: with the user's approval, prepare again with it; or not. |
+| 409 | `costs-more` | The route that fits in one protected transaction is `gapBps` below the open market. With the user's approval, prepare again with `acceptCostBps`. |
+| 409 | `output-balance-changed` | Your balance of the output token moved since prepare, so this request signed nothing. Check `signature` as above, then prepare again. |
+| 410 | `expired` | The transaction's lifetime passed before this finalize signed it. Check `signature` as above, then prepare again. |
 | 422 | `unsupported-token`, `no-route`, `bad-quote`, `insufficient-sol`, `insufficient-balance`, `simulation-failed`, `verification-failed`, `token-data-mismatch`, `output-account-restricted`, `input-account-restricted` | This swap cannot be built safely right now; `message` says why. |
 | 429 | `rate-limited` | Too many requests for this key. Wait `Retry-After` seconds. |
-| 503 | `busy`, `unavailable` | Jupiter or the network is overloaded or silent. Wait `Retry-After` seconds and retry. |
-| 503 | `paused` | Bound has paused protected swaps. Your funds are not affected. |
+| 503 | `busy`, `unavailable` | Jupiter or the network is overloaded or silent (from finalize: Bound could not read whether the transaction was already sent). Wait `Retry-After` seconds and retry. |
+| 503 | `paused` | Bound has paused protected swaps. Your funds are not affected. A transaction already on chain is still reported by finalize. |
 | 503 | `route-format` | Jupiter changed its swap instruction and Bound refuses what it cannot read. Nothing builds until Bound is updated: wait `Retry-After` (300) seconds, not less. |
 
 ## What Bound can and cannot do with your swap
@@ -194,8 +214,8 @@ sent unless the code says otherwise.
   transaction and sends its rent back to your wallet (`costs.routeRefundLamports`). Only when that
   cannot be done does the account stay under the key. Bound's server can derive the key again from
   its secret, so whoever holds that secret could collect lamports left under it; a Bound swap
-  leaves none, and the skill's check simulates that before your wallet signs. Bound never derives
-  a key again after finalize and never logs the nonces it derives from.
+  leaves none, and the skill's check simulates that before your wallet signs. Bound derives a key
+  only for its ticket's finalize, repeated or not, and never logs the nonces it derives from.
 - It can refuse or delay: a signed transaction it holds back simply expires, in about 40 seconds.
 - It sees the addresses and amounts of the swaps you ask for, as any swap API does.
 

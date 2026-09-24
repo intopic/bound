@@ -1201,14 +1201,19 @@ export async function countersignProtectedSwap(args: {
   prepared: Countersignable;
   walletSignedBytes: Uint8Array;
   ephemeral: KeyPairSigner;
+  /**
+   * The chain already has this transaction, so its lifetime no longer matters: the agent API answers
+   * a repeated finalize with the same signed bytes and sends nothing (engineering review H-01).
+   */
+  landed?: boolean;
 }): Promise<FullySignedTransaction & Transaction> {
   const { rpc, prepared, ephemeral } = args;
   const check = await verifyWalletReturn(prepared.transaction, args.walletSignedBytes, prepared.policy.owner, ephemeral.address);
   if (!check.ok || !check.transaction) {
     throw new BoundError('wallet-changed-transaction', 'The wallet changed the transaction, so it was stopped for your safety.', check.violations);
   }
-  const height = await rpc.getBlockHeight({ commitment: 'confirmed' }).send();
-  if (height > prepared.lifetime.lastValidBlockHeight) {
+  const height = args.landed ? null : await rpc.getBlockHeight({ commitment: 'confirmed' }).send();
+  if (height !== null && height > prepared.lifetime.lastValidBlockHeight) {
     throw new BoundError('expired', 'The transaction expired before it was signed. Build it again.');
   }
   const signed = await partiallySignTransaction([ephemeral.keyPair], check.transaction);

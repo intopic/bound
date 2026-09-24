@@ -61,31 +61,47 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
      present and measured on your output account, and the minimum is enforced after the swap;
    - a simulation of the transaction on your RPC, after which the one-time key must hold nothing.
 4. **Sign as the wallet only**: `partiallySignTransaction([wallet.keyPair], tx)`. Do not modify the
-   transaction; a changed message, including a removed fee, is refused at finalize.
-5. **Finalize** promptly: the transaction lives 150 blocks, about 40 seconds. With fewer than 30
-   blocks left (`lastValidBlockHeight` minus your RPC's block height) prepare again instead; the
-   example does. `POST /api/v1/finalize` with `{ ticket, signedTransaction }`.
-   Bound checks your output account's balance has not moved, signs last and sends once, and returns
-   `signature`, `status` and, unless refused, the fully signed `signedTransaction`.
-6. **Confirm on your own RPC** (`confirm` in the example). For `sent` or `unknown`, poll the
-   signature and re-broadcast `signedTransaction` every few seconds until it is confirmed or the
-   finalized block height passes `lastValidBlockHeight` (re-broadcasting the same bytes is safe; it
-   lands once). A swap is done only when confirmed; `sent` is not done. For `rejected`, it was never
-   broadcast and there is nothing to re-send: prepare again.
+   transaction; a changed message, including a removed fee, is refused at finalize. The
+   transaction's id is now known: it is the wallet's signature (`getSignatureFromTransaction`).
+   **Keep it before finalize** (the example's `onSigned`); it is how you learn what happened if an
+   answer is lost or the process stops.
+5. **Finalize** promptly: the transaction lives 150 blocks, about 40 seconds at today's block times.
+   With fewer than 30 blocks left (`lastValidBlockHeight` minus your RPC's block height) prepare
+   again instead; the example does. `POST /api/v1/finalize` with `{ ticket, signedTransaction }`.
+   Bound looks the transaction up first (a repeated finalize answers for the same transaction and
+   sends nothing new), checks your output account's balance has not moved, signs last and sends
+   once, and returns `signature`, `status` and, unless refused, the fully signed `signedTransaction`.
+   With no answer, or a 5xx, the example asks finalize once more: the same bytes land only once.
+6. **Confirm on your own RPC, for your own signature** (`confirm` in the example), whatever
+   finalize answered. Re-broadcast `signedTransaction` only after checking it is your transaction
+   with a valid signature from the one-time key. The outcome is the chain's: confirmed, failed, or
+   expired once the finalized block height is past the last block it could land in and the
+   signature has no record. Take that last block from your own RPC (your height when you sign,
+   plus 150, plus a margin), never from the server alone. A swap is done only when confirmed; `sent`
+   is not done.
+7. **Prepare again only when the chain says the first one can no longer land.** A `rejected` status
+   or an error from finalize speaks for that one request: an earlier finalize whose answer was lost
+   may have sent the transaction. The example reports `rejected` only after the chain confirms the
+   transaction can no longer land, and `unknown` when no outcome could be read in time; after
+   `unknown`, check the signature before anything else.
 
 ## Handling errors
 
 Errors are `{ "error": { "code", "message" } }`.
 
-- `409 price-moved`: the market no longer meets `minOut`. `newMinOut` is what it supports now. Ask
-  the user before preparing again with `minOut: newMinOut`; never lower a minimum on your own.
-- `409 costs-more`: the protected route is `gapBps` below the open market. Ask the user; to accept,
-  prepare again with `acceptCostBps: gapBps`.
+Every error says what that request did: it signed and sent nothing. An error from finalize also
+names the transaction (`signature`, `lastValidBlockHeight`); follow step 7 before preparing again.
+
+- `409 price-moved` (`requiresApproval: true`): the market no longer meets `minOut`. `newMinOut` is
+  what it supports now. Ask the user before preparing again with `minOut: newMinOut`; never lower a
+  minimum on your own.
+- `409 costs-more` (`requiresApproval: true`): the protected route is `gapBps` below the open market.
+  Ask the user; to accept, prepare again with `acceptCostBps: gapBps` (the example's `--accept-cost-bps`).
 - `409 output-balance-changed`: your balance of the output token changed between prepare and
-  finalize (another swap or a transfer). Nothing was signed by Bound; prepare again.
-- `503 busy` / `unavailable`, `429 rate-limited`: wait the `Retry-After` seconds, then retry. Do not
-  retry in a tight loop.
-- `410 expired`: the transaction's lifetime (about 40 seconds) passed before finalize; prepare again.
+  finalize (another swap or a transfer), so that finalize signed nothing. Step 7, then prepare again.
+- `503 busy` / `unavailable`, `429 rate-limited`: wait the `Retry-After` seconds (the example's
+  `BoundApiError.retryAfter`), then retry. Do not retry in a tight loop.
+- `410 expired`: the transaction's lifetime passed before finalize signed it. Step 7, then prepare again.
 - `503 route-format`: Jupiter changed its swap instruction and Bound refuses what it cannot read
   yet. Nothing builds until Bound is updated; wait at least the `Retry-After` (300 s).
 - `503 paused`: Bound has paused swaps; the user's funds are not affected. Try later.
