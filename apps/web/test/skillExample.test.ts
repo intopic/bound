@@ -25,8 +25,9 @@ import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import {
   acquireLock, BoundApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending,
-  signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
+  BoundOrderError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
 } from '../../../skills/bound-protected-swap/examples/swap.ts';
+import type { OrderBook } from '../../../skills/bound-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/bound-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
@@ -822,5 +823,78 @@ describe('the skill names its version (final audit, M1)', () => {
     expect(result.outcome).toBe('confirmed');
     expect(seen.length).toBeGreaterThanOrEqual(2);
     expect(new Set(seen)).toEqual(new Set([SKILL_VERSION]));
+  });
+});
+
+describe('the same order is never swapped twice (final audit, item 7)', () => {
+  const counting = (b: Awaited<ReturnType<typeof bound>>) => {
+    const calls = { prepare: 0, finalize: 0 };
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/prepare')) calls.prepare++;
+      if (url.endsWith('/api/v1/finalize')) calls.finalize++;
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl };
+  };
+
+  it('an order that confirmed is not prepared again: the retry is told, with the transaction that did it', async () => {
+    const b = await bound();
+    const orders = createFileStore(mkdtempSync(join(tmpdir(), 'bound-orders-')));
+    const { calls, fetchImpl } = counting(b);
+    const first = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-42' } });
+    expect(first.outcome).toBe('confirmed');
+    expect(await orders.order('order-42')).toEqual({ signature: first.signature, state: 'confirmed' });
+    const again = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-42' } })
+      .catch((e: unknown) => e);
+    expect(again).toBeInstanceOf(BoundOrderError);
+    expect((again as BoundOrderError).record.signature).toBe(first.signature);
+    expect(calls.prepare).toBe(1);
+    expect(b.sent).toHaveLength(1);
+  });
+
+  it('an order whose last attempt expired may be tried again; one taken by another worker is not sent', async () => {
+    const b = await bound();
+    const orders = createFileStore(mkdtempSync(join(tmpdir(), 'bound-orders-')));
+    await orders.recordOrder('order-7', { signature: 'an-earlier-attempt', state: 'expired' });
+    const retried = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-7' } });
+    expect(retried.outcome).toBe('confirmed');
+
+    const c = await bound();
+    const { calls, fetchImpl } = counting(c);
+    // Another worker takes the order between this one's check and its signature.
+    const racing: OrderBook = { order: async () => null, recordOrder: async () => {}, claimOrder: async () => false };
+    const lost = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: c.agentRpc, wallet: c.wallet, fetchImpl, pollMs: 1, orders: racing, intent: { ...swapIntent, id: 'order-8' } })
+      .catch((e: unknown) => e);
+    expect(lost).toBeInstanceOf(BoundOrderError);
+    expect(calls.finalize).toBe(0);
+    expect(c.sent).toHaveLength(0);
+  });
+
+  it('a stopped run leaves the order pending; recovery settles it, and the order learns its outcome', async () => {
+    const b = await bound();
+    const dir = mkdtempSync(join(tmpdir(), 'bound-orders-'));
+    const store = createFileStore(dir);
+    const landed = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, orders: store,
+      intent: { ...swapIntent, id: 'order-9' }, onSigned: s => store.put(s),
+    });
+    // As if the process had stopped after finalize: the order still says pending.
+    await store.recordOrder('order-9', { signature: landed.signature, state: 'pending' });
+    const { settled } = await recoverPending(store, chainOf(b), { pollMs: 1, maxWaitMs: 60, orders: store });
+    expect(settled).toEqual([{ signature: landed.signature, outcome: 'confirmed' }]);
+    expect(await store.order('order-9')).toEqual({ signature: landed.signature, state: 'confirmed' });
+  });
+
+  it('bound-verify: prepare refuses an order that already swapped (exit 5)', async () => {
+    const b = await bound();
+    const stateDir = mkdtempSync(join(tmpdir(), 'bound-cli-orders-'));
+    const deps = { rpc: b.agentRpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl: b.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'cli-order-1' };
+    const ready = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
+    const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(ready.message, 'base64')));
+    expect((await runCli('finalize', { checked: ready.checked, signature }, deps)).code).toBe(0);
+    const again = await runCli('prepare', { intent }, deps);
+    expect(again.code).toBe(5);
+    expect((again.output.order as { state: string }).state).toBe('confirmed');
   });
 });

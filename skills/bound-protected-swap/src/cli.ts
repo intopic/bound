@@ -9,7 +9,8 @@
  *   bound-verify finalize   {"checked": ..., "signature": "..."}    0 confirmed   1 not swapped   3 unknown: recover before anything new
  *   bound-verify recover                                            0 all settled   3 something is still unknown
  *   bound-verify check      {"prepared": ..., "intent": {...}}      0 safe to sign   1 refused   (for bots that call the API themselves)
- *   2 on any usage or configuration error.
+ *   2 on any usage or configuration error; 5 when `intent.id` names an order that already swapped or
+ *   whose transaction may still land (the same order is never swapped twice).
  *
  * `intent` is the example's `Intent`: owner, inputMint, outputMint, amountIn (base units, strings),
  * and optionally minOut, maxFeeBps, maxNetworkFeeLamports, maxRouteCostLamports, maxSolFeeLamports,
@@ -27,7 +28,7 @@ import type { Address, Rpc, SignatureBytes, SolanaRpcApi } from '@solana/kit';
 import {
   acquireLock, BoundApiError, checkPrepared, createFileStore, finalizeSigned, prepareChecked, recoverPending,
 } from '../examples/swap.ts';
-import type { Checked, Intent, Prepared } from '../examples/swap.ts';
+import type { Checked, Intent, OrderRecord, Prepared } from '../examples/swap.ts';
 import { ownMinimum, ownSolFeeLimit } from '../lib/bound-verify.mjs';
 
 export type CliDeps = {
@@ -82,7 +83,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
   }
 
   if (command === 'recover') {
-    const { settled, unknown } = await recoverPending(store, deps.rpc, { pollMs: deps.pollMs, maxWaitMs: deps.maxWaitMs });
+    const { settled, unknown } = await recoverPending(store, deps.rpc, { pollMs: deps.pollMs, maxWaitMs: deps.maxWaitMs, orders: store });
     return { code: unknown.length ? 3 : 0, output: { ok: unknown.length === 0, settled, unknown } };
   }
 
@@ -95,6 +96,12 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     const pending = (await store.list()).map(s => s.signature);
     if (pending.length) {
       return { code: 3, output: { ok: false, pending, error: 'Earlier swaps are not settled yet: run `bound-verify recover` first. Nothing was prepared.' } };
+    }
+    // The same order, asked again: said, not swapped twice (final audit, item 7).
+    const orderId = body.intent.id;
+    const prior = orderId ? await store.order(orderId) : null;
+    if (prior && (prior.state === 'confirmed' || prior.state === 'pending')) {
+      return { code: 5, output: { ok: false, order: { id: orderId, ...prior }, error: prior.state === 'confirmed' ? 'This order already swapped. Nothing new was prepared.' : 'This order has a transaction that may still land: run `bound-verify recover`. Nothing new was prepared.' } };
     }
     const { owner, ...rest } = body.intent;
     try {
@@ -152,9 +159,21 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       const result = await finalizeSigned({
         ...api, rpc: deps.rpc, prepared, signedTransaction: wire, fetchImpl: deps.fetchImpl,
         pollMs: deps.pollMs, maxWaitMs: deps.maxWaitMs, requestTimeoutMs: deps.requestTimeoutMs,
-        // Kept on disk before finalize: if this process stops, `recover` settles it first.
-        onSigned: s => store.put(s),
+        // Kept on disk before finalize: if this process stops, `recover` settles it first. An order
+        // is taken here too, atomically when new, so two runs cannot both send it.
+        onSigned: async s => {
+          const orderId = intent.id;
+          if (orderId) {
+            const record: OrderRecord = { signature: s.signature, state: 'pending' };
+            const prior = await store.order(orderId);
+            if (prior && (prior.state === 'confirmed' || prior.state === 'pending')) throw new Error(`Order ${orderId} is already ${prior.state} (${prior.signature}).`);
+            if (prior) await store.recordOrder(orderId, record);
+            else if (!await store.claimOrder(orderId, record)) throw new Error(`Order ${orderId} was taken by another run.`);
+          }
+          await store.put({ ...s, ...(orderId ? { intentId: orderId } : {}) });
+        },
       });
+      if (intent.id) await store.recordOrder(intent.id, { signature: result.signature, state: result.outcome === 'unknown' ? 'pending' : result.outcome });
       if (result.outcome !== 'unknown') await store.remove(result.signature);
       return {
         code: result.outcome === 'confirmed' ? 0 : result.outcome === 'unknown' ? 3 : 1,

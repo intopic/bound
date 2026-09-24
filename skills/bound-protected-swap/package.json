@@ -11,6 +11,6 @@
     "node": ">=22.18"
   },
   "dependencies": {
-    "@solana/kit": "^8.3.0"
+    "@solana/kit": "8.3.0"
   }
 }

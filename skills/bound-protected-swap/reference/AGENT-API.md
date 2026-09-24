@@ -81,7 +81,7 @@ Authorization: Bearer bnd_...
   "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   "outputMint": "So11111111111111111111111111111111111111112",
   "amountIn": "5000000",
-  "minOut": "42500000"
+  "minOut": "42400000"
 }
 ```
 
@@ -90,7 +90,7 @@ Authorization: Bearer bnd_...
 | `owner` | required | The wallet that pays and receives. It signs first. |
 | `inputMint`, `outputMint` | required | Mint addresses. SOL is `So11111111111111111111111111111111111111112`. |
 | `amountIn` | required | Base units, as a string (`"5000000"` is 5 USDC). The fee comes out of it. |
-| `minOut` | optional | Your own floor, in base units of the output: what your wallet must keep, after a fee taken from the output. Bound never enforces less than this. Without it, the floor is the route's quote less 0.5% (3% on a Pump.fun bonding curve), which is Bound's word: the skill's check refuses to sign without a floor of your own, and `ownMinimum` gets one from Jupiter directly. |
+| `minOut` | optional | Your own floor, in base units of the output: what your wallet must keep, after a fee taken from the output. Bound never enforces less than this. Without it, the floor is the route's quote less 0.5% (3% on a Pump.fun bonding curve), which is Bound's word: the skill's check refuses to sign without a floor of your own, and `ownMinimum` gets one from Jupiter directly. For a large order, take it from a source independent of Jupiter as well (an oracle, another aggregator, limits of your own). |
 | `acceptCostBps` | optional | Accept a protected route this many bps below the open market (see `costs-more`). |
 | `version` | optional | `0` (default). `1` only where the deployment enables it. |
 
@@ -105,8 +105,8 @@ Authorization: Bearer bnd_...
   "temporaryAuthority": "<the one-time key E>",
   "lastValidBlockHeight": "312345678",
   "blocksLeft": "148",
-  "amounts": { "amountIn": "5000000", "fee": "10000", "feeMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-               "feeBps": "20", "swapAmount": "4990000", "quotedOut": "42780667", "minOut": "42566764",
+  "amounts": { "amountIn": "5000000", "fee": "127700", "feeMint": "So11111111111111111111111111111111111111112",
+               "feeBps": "30", "swapAmount": "5000000", "quotedOut": "42780667", "minOut": "42439063",
                "priceImpactPct": 0.0001 },
   "costs": { "networkFeeLamports": "124480", "outputAccountRentLamports": "0", "routeRentLamports": "0", "routeRefundLamports": "0", "tokenTax": null },
   "notices": { "removesDelegate": false },

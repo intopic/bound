@@ -349,3 +349,17 @@ describe("Bound's proxies serve Bound's own page (final audit, M2)", () => {
     }
   });
 });
+
+describe('the skill hashes the site publishes (final audit, item 10)', () => {
+  it('/skill/SHA256SUMS lists every shipped file, with the version, and matches the skill folder', async () => {
+    const { GET } = await import('../app/skill/SHA256SUMS/route.ts');
+    const res = GET();
+    const text = await res.text();
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const onDisk = readFileSync(join(import.meta.dirname, '../../../skills/bound-protected-swap/SHA256SUMS'), 'utf8').replace(/\r\n/g, '\n');
+    expect(text).toBe(onDisk);
+    expect(text).toMatch(/^[0-9a-f]{64} {2}lib\/bound-verify\.mjs$/m);
+    expect(res.headers.get('x-bound-skill-version')).toBe('1.0.0');
+  });
+});

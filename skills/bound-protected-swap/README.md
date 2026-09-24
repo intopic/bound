@@ -5,7 +5,7 @@ touch the amount you approve. Bound builds the transaction; this folder checks i
 RPC** before your wallet signs, and reads the outcome on the chain.
 
 ```bash
-npm install          # the one dependency, @solana/kit 8 (Node 22.18 or later)
+npm ci               # the one dependency, @solana/kit 8.3.0, as the lockfile pins it (Node 22.18 or later)
 ```
 
 - **Agents** (Claude and other coding agents): `SKILL.md` is the skill. `examples/swap.ts` is the
@@ -18,6 +18,11 @@ npm install          # the one dependency, @solana/kit 8 (Node 22.18 or later)
 
 You need an API key from Bound (`BOUND_API_KEY`) and an RPC of your own (`SOLANA_RPC_URL`). Never
 put a wallet key in a prompt, a message, a log or a command line.
+
+**Check your copy before it signs anything.** `SHA256SUMS` lists the hash of every file here, and
+Bound's site serves the same list at `/skill/SHA256SUMS`: compare the two, then run
+`sha256sum -c SHA256SUMS` in this folder (on Windows, `Get-FileHash` on each file). `npm ci` installs
+exactly the versions in `package-lock.json`, each checked against its recorded hash.
 
 Contents: `lib/bound-verify.mjs` is Bound's verifier, bundled; `bin/bound-verify.mjs` the command;
 `src/` their sources. Bound's fee (0.3%) and treasury are pinned in the check: a swap that charges

@@ -199,11 +199,16 @@ export function unsupportedExtension(data: Uint8Array, options: { allowTransferF
   const nonZero = (from: number, to: number) => data.subarray(from, to).some(b => b !== 0);
   for (let at = TOKEN_ACCOUNT_SIZE + 1; ; ) {
     if (at === data.length) break; // the area ends exactly where the last extension does
-    if (at + 4 > data.length) return 'malformed extension area'; // a header cut in half
+    // Zeros to the end are padding, which the token program finds nothing in. Anything else after an
+    // empty type is refused: the token program does not stop there, it steps over it two bytes at a
+    // time and keeps reading, so an entry written after a gap would act on every transfer while this
+    // loop never saw it (final audit, the Token-2022 matrix).
+    const padding = () => !nonZero(at, data.length);
+    if (at + 4 > data.length) return padding() ? null : 'malformed extension area'; // a header cut in half
     const type = view.getUint16(at, true);
     const length = view.getUint16(at + 2, true);
     const value = at + 4;
-    if (type === 0) break; // Uninitialized: the rest is padding
+    if (type === 0) return padding() ? null : 'malformed extension area';
     if (value + length > data.length) return 'malformed extension';
     const expected = EXTENSION_LENGTH[type];
     if (expected !== undefined && length !== expected) return `extension ${type} with a length of ${length}, not ${expected}`;

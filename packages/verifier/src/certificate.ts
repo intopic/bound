@@ -5,7 +5,7 @@ import type { ChainSnapshot, Policy, Violation } from '@bound/core/types';
 import { verify } from './verify.ts';
 
 /** Changes whenever a rule changes; every certificate names the verifier that issued it. */
-export const VERIFIER_VERSION = '0.8.0';
+export const VERIFIER_VERSION = '0.8.1';
 
 /**
  * What a verified transaction does, in terms a person or a wallet can check. It is issued only after

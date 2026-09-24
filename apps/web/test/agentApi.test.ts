@@ -536,3 +536,17 @@ describe('the skill says its version, and an old copy is asked to update (final 
     expect(res.status).toBe(200);
   });
 });
+
+describe("a swap whose fee cannot be collected is refused, never built free (final audit, item 9)", () => {
+  it('prepare answers 503 fee-unavailable, with a Retry-After, and signs nothing', async () => {
+    const w = await world();
+    // No USDC account and no wallet for the treasury: the fee of USDC → SOL has nowhere to go.
+    w.accounts.delete(await ataOf(TREASURY, USDC));
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('60');
+    const body = await res.json();
+    expect(body.error.code).toBe('fee-unavailable');
+    expect(w.sent).toHaveLength(0);
+  });
+});

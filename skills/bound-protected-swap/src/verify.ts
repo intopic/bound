@@ -172,7 +172,8 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
 
   const verdict = await verify(transaction, p, snapshot);
   for (const v of verdict.violations) problems.push(`${v.rule}: ${v.detail}`);
-  problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc));
+  // Simulated on state not older than the snapshot just read (final audit, item 6).
+  problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc, snapshot.slot));
   return problems;
 }
 
@@ -185,7 +186,7 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
  * review M-05). An account that does not exist afterwards holds nothing; an answer that does not
  * report the accounts proves nothing, and is refused.
  */
-async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>): Promise<string[]> {
+async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>, minContextSlot = 0n): Promise<string[]> {
   // E, each Pump market's account in E's name, and the token accounts those hold cashback in (WSOL,
   // or USDC on a USDC-quoted market): a claim E could make later is value under E too (Stage 1, U1).
   const markets = await Promise.all([PUMP_CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountFor(program, key)));
@@ -197,6 +198,7 @@ async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRp
       .simulateTransaction(transaction as never, {
         encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed',
         accounts: { addresses: watched, encoding: 'base64' },
+        ...(minContextSlot > 0n ? { minContextSlot } : {}),
       })
       .send();
     if (value.err) return [`the swap fails in simulation on your RPC: ${JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? v.toString() : v))}`];

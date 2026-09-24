@@ -23,7 +23,7 @@
  *                                                Bound's own treasury is pinned in the skill)
  *   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
  *
- *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
+ *   node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
  *                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
  *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
  *
@@ -31,6 +31,7 @@
  * --state, default ./.bound-state) before finalize, settles what a stopped run left there before it
  * starts another, and holds a lock per wallet so that two workers never swap from it at once.
  */
+import { createHash } from 'node:crypto';
 import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,6 +72,13 @@ export type Intent = {
   acceptCostBps?: string;
   /** 1 for a v1 transaction, where the deployment offers it; 0 (the default) otherwise. */
   version?: 0 | 1;
+  /**
+   * Your order's own id, the same on every retry of that order (final audit, item 7). With an order
+   * book (`createFileStore`, or one of your own shared by every worker), an order that confirmed or
+   * whose last transaction could still land is never swapped again: the same transaction lands only
+   * once, and the id keeps a second, different transaction from carrying out the same order.
+   */
+  id?: string;
 };
 
 export type Prepared = {
@@ -357,7 +365,39 @@ export type Signed = {
   messageSha256: string;
   /** When it was signed, in ms since the epoch. */
   signedAt: number;
+  /** The order it carries out (`Intent.id`), if it has one. */
+  intentId?: string;
 };
+
+/** What happened to an order: its last transaction, and that transaction's state. */
+export type OrderRecord = { signature: string; state: 'pending' | 'confirmed' | 'failed' | 'expired' | 'rejected' };
+
+/**
+ * Where each order's outcome is kept, by `Intent.id`. `claim` must be atomic across every worker
+ * that may take the same order: it records the order only if nothing is recorded for it yet. The
+ * file store does it with an exclusive create; workers on several machines need a shared store
+ * (a database row, a key with set-if-absent) with the same three calls.
+ */
+export type OrderBook = {
+  order(id: string): Promise<OrderRecord | null>;
+  recordOrder(id: string, record: OrderRecord): Promise<void>;
+  claimOrder(id: string, record: OrderRecord): Promise<boolean>;
+};
+
+/** This order already confirmed, or its last transaction may still land: it is not swapped again. */
+export class BoundOrderError extends Error {
+  readonly id: string;
+  readonly record: OrderRecord;
+  constructor(id: string, record: OrderRecord) {
+    super(record.state === 'confirmed'
+      ? `Order ${id} already swapped: ${record.signature}. Nothing new was prepared.`
+      : `Order ${id} has a transaction that may still land (${record.signature}): settle it first. Nothing new was prepared.`);
+    this.id = id;
+    this.record = record;
+  }
+}
+
+const orderIsOpen = (r: OrderRecord | null): r is OrderRecord => !!r && (r.state === 'confirmed' || r.state === 'pending');
 
 /** Where signed swaps wait for their outcome. Unattended, it must survive the process (S1-M-01). */
 export type PendingStore = {
@@ -370,10 +410,42 @@ export type PendingStore = {
  * Pending swaps as files in `dir`, one per signature, each written to a temporary file, flushed to
  * disk and renamed into place, so a record is either whole or absent.
  */
-export function createFileStore(dir: string): PendingStore {
+export function createFileStore(dir: string): PendingStore & OrderBook {
   mkdirSync(dir, { recursive: true });
   const file = (signature: string) => join(dir, `pending-${signature}.json`);
+  // An id is the caller's text: its hash names the file, and the record keeps the id itself.
+  const orderFile = (id: string) => join(dir, `order-${createHash('sha256').update(id).digest('hex').slice(0, 40)}.json`);
+  const writeDurably = (path: string, text: string, flag: 'w' | 'wx') => {
+    const fd = openSync(path, flag);
+    try {
+      writeSync(fd, text);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  };
   return {
+    async order(id) {
+      try {
+        const { signature, state } = JSON.parse(readFileSync(orderFile(id), 'utf8')) as OrderRecord;
+        return { signature, state };
+      } catch {
+        return null;
+      }
+    },
+    async recordOrder(id, record) {
+      const temporary = `${orderFile(id)}.tmp`;
+      writeDurably(temporary, JSON.stringify({ id, ...record }), 'w');
+      renameSync(temporary, orderFile(id));
+    },
+    async claimOrder(id, record) {
+      try {
+        writeDurably(orderFile(id), JSON.stringify({ id, ...record }), 'wx');
+        return true;
+      } catch {
+        return false;
+      }
+    },
     async put(s) {
       const temporary = `${file(s.signature)}.tmp`;
       const fd = openSync(temporary, 'w');
@@ -403,7 +475,7 @@ export function createFileStore(dir: string): PendingStore {
  * for the same intent (S1-M-01).
  */
 export async function recoverPending(
-  store: PendingStore, rpc: Rpc<SolanaRpcApi>, opts: { pollMs?: number; maxWaitMs?: number } = {},
+  store: PendingStore, rpc: Rpc<SolanaRpcApi>, opts: { pollMs?: number; maxWaitMs?: number; orders?: OrderBook } = {},
 ): Promise<{ settled: { signature: string; outcome: Outcome }[]; unknown: string[] }> {
   const settled: { signature: string; outcome: Outcome }[] = [];
   const unknown: string[] = [];
@@ -411,6 +483,8 @@ export async function recoverPending(
     const outcome = await confirm(rpc, s.signature, s.lastValidBlockHeight, opts);
     if (outcome === 'unknown') unknown.push(s.signature);
     else {
+      // The order learns its outcome before the record that says it was pending goes away.
+      if (s.intentId && opts.orders) await opts.orders.recordOrder(s.intentId, { signature: s.signature, state: outcome });
       settled.push({ signature: s.signature, outcome });
       await store.remove(s.signature);
     }
@@ -568,10 +642,31 @@ export async function protectedSwap(args: {
   maxWaitMs?: number;
   /** How long one call to Bound or to your RPC may take, in ms (default 30 s and 10 s). */
   requestTimeoutMs?: number;
+  /** Where orders are kept by `intent.id` (see `OrderBook`); without an id or a book, not used. */
+  orders?: OrderBook;
 }): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string }> {
+  const id = args.intent.id;
+  const orders = id ? args.orders : undefined;
+  // An order that confirmed, or whose transaction may still land, is not swapped again (item 7).
+  const prior = orders ? await orders.order(id!) : null;
+  if (orderIsOpen(prior)) throw new BoundOrderError(id!, prior);
   const { prepared } = await prepareChecked({ ...args, owner: args.wallet.address });
   const signedTransaction = await signAsWallet(args.wallet, prepared.transaction);
-  return finalizeSigned({ ...args, prepared, signedTransaction });
+  const result = await finalizeSigned({
+    ...args, prepared, signedTransaction,
+    // The order is taken before finalize, atomically when it is new: two workers with the same order
+    // cannot both send one, and a process that stops here finds it pending on its next start.
+    onSigned: async signed => {
+      if (orders) {
+        const record: OrderRecord = { signature: signed.signature, state: 'pending' };
+        if (prior) await orders.recordOrder(id!, record);
+        else if (!await orders.claimOrder(id!, record)) throw new BoundOrderError(id!, (await orders.order(id!)) ?? record);
+      }
+      await args.onSigned?.({ ...signed, ...(id ? { intentId: id } : {}) });
+    },
+  });
+  if (orders) await orders.recordOrder(id!, { signature: result.signature, state: result.outcome === 'unknown' ? 'pending' : result.outcome });
+  return result;
 }
 
 // --- command line
@@ -584,7 +679,7 @@ async function main() {
   const need = (name: string) => process.env[name] ?? (console.error(`Set ${name}.`), process.exit(2));
   const [inputMint, outputMint, amountIn] = [flag('in'), flag('out'), flag('amount')];
   if (!inputMint || !outputMint || !amountIn) {
-    console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1] [--state <dir>] [--owner <address> --dry-run]');
+    console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1] [--state <dir>] [--owner <address> --dry-run]');
     process.exit(2);
   }
   const apiUrl = need('BOUND_API_URL').replace(/\/+$/, '');
@@ -596,6 +691,7 @@ async function main() {
     maxRouteCostLamports: flag('max-route-cost-lamports') ? Number(flag('max-route-cost-lamports')) : undefined,
     acceptCostBps: flag('accept-cost-bps'),
     version: process.argv.includes('--v1') ? 1 as const : undefined,
+    id: flag('id'),
   };
   const jupiterApiKey = process.env.JUPITER_API_KEY || undefined;
   if (!jupiterApiKey) console.error('JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.');
@@ -624,7 +720,7 @@ async function main() {
   const release = acquireLock(stateDir, wallet.address);
   try {
     // What a stopped run left is settled first; while any outcome is unknown, no new swap starts.
-    const { settled, unknown } = await recoverPending(store, rpc);
+    const { settled, unknown } = await recoverPending(store, rpc, { orders: store });
     for (const s of settled) console.error(`An earlier swap, ${s.signature}, ended ${s.outcome}.`);
     if (unknown.length) {
       console.error(`The outcome of an earlier swap is still unknown: ${unknown.join(', ')}. Check it before swapping again; nothing new was started.`);
@@ -632,7 +728,7 @@ async function main() {
       return;
     }
     const result = await protectedSwap({
-      apiUrl, apiKey, rpc, wallet, intent, jupiterApiKey,
+      apiUrl, apiKey, rpc, wallet, intent, jupiterApiKey, orders: store,
       // Kept on disk before finalize: if this process stops, the next run settles it first.
       onSigned: async s => {
         await store.put(s);

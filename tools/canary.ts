@@ -19,12 +19,14 @@
  * so that every fee path runs (CANARY_TREASURY overrides it).
  *
  *   node tools/canary.ts          RPC_URL and JUPITER_API_KEY are used when set
+ *   node tools/canary.ts --record-deploys   after a review, record the programs' deploys as reviewed
  *
  * Exit 1 when a swap cannot be built or executed for a reason that is not load: Jupiter's format
  * changed, a rule no longer holds, a major pair has no route, the fee is not where it belongs, or
  * the final transaction fails. A busy or silent service, or a price that keeps moving, only warns;
  * a run in which nothing at all could be checked exits 2, which is not a pass either.
  */
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
@@ -134,6 +136,13 @@ const [slot, perf] = await Promise.all([
 ]);
 const msPerSlot = (1000 * perf.reduce((s, p) => s + p.samplePeriodSecs, 0)) / Math.max(1, perf.reduce((s, p) => s + Number(p.numSlots), 0));
 console.log(`Slots: ${msPerSlot.toFixed(0)} ms; a transaction lives 150 blocks, about ${Math.round((150 * msPerSlot) / 1000)} s.`);
+// A program Bound depends on, deployed again since the last review, fails the run (final audit, item
+// 5): Bound treats Jupiter as untrusted, so its safety does not rest on the program's behaviour, but
+// whether swaps still work and still pay their fee does. The owner re-runs the checks, then records
+// the new slot: node tools/canary.ts --record-deploys.
+const KNOWN = 'tools/known-deploys.json';
+const known: Record<string, string> = existsSync(KNOWN) ? JSON.parse(readFileSync(KNOWN, 'utf8')) : {};
+const seen: Record<string, string> = {};
 for (const [name, program] of PROGRAMS) {
   const account = await rpc.getAccountInfo(program, { encoding: 'base64' }).send();
   const data = Buffer.from(account.value!.data[0], 'base64');
@@ -141,7 +150,19 @@ for (const [name, program] of PROGRAMS) {
   const programData = getAddressDecoder().decode(data.subarray(4, 36));
   const header = await rpc.getAccountInfo(programData, { encoding: 'base64', dataSlice: { offset: 4, length: 8 } }).send();
   const deployed = Buffer.from(header.value!.data[0], 'base64').readBigUInt64LE(0);
+  seen[name] = deployed.toString();
   console.log(`${name}: last deployed ${((Number(slot - deployed) * msPerSlot) / 86_400_000).toFixed(1)} days ago (slot ${deployed})`);
+  if (process.argv.includes('--record-deploys')) continue;
+  if (known[name] === undefined) report('warn', `${name} program`, `no reviewed deploy on record (${KNOWN})`);
+  else if (deployed !== BigInt(known[name])) {
+    report('fail', `${name} program`, `deployed again at slot ${deployed}, after the one reviewed (${known[name]}): re-run the canary's swaps and tests/integration/jupiter-floor.ts, then record it with --record-deploys`);
+  }
+}
+if (process.argv.includes('--record-deploys')) {
+  writeFileSync(KNOWN, `${JSON.stringify(seen, null, 2)}
+`);
+  console.log(`Recorded in ${KNOWN}.`);
+  process.exit(0);
 }
 console.log('');
 

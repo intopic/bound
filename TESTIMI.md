@@ -95,6 +95,8 @@ npm run dev
 
 Kostoja reale: disa cent (fee e rrjetit). 1 USDC kthehet në SOL që mbetet i yti. Në test mode nuk paguhet fee e Bound.
 
+**Me thesar të vendosur:** dërgo më parë të paktën 0.01 SOL te wallet-i i thesarit. Pa to, faqja nuk ndërton asnjë swap ("Bound's fee can't be collected right now"): Bound nuk bën më swap pa fee (AUDIT.md 0zb).
+
 1. Në wallet-in e testimit duhen **~0.02 SOL** dhe **~2 USDC** në rrjetin Solana.
 2. Ndërto dhe nis dApp-in:
 

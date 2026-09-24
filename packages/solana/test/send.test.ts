@@ -6,11 +6,11 @@ import { describe, expect, it } from 'vitest';
 import {
   appendTransactionMessageInstruction, createTransactionMessage, generateKeyPairSigner, pipe,
   setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash, signTransactionMessageWithSigners,
-  SolanaError, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR,
+  SolanaError, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { httpStatusOf, retryingTransport, sendAndConfirm, sendOnce } from '../src/index.ts';
+import { httpStatusOf, readAccounts, retryingTransport, sendAndConfirm, sendOnce } from '../src/index.ts';
 import type { SendStatus, SolanaRpc } from '../src/index.ts';
 
 const LAST_VALID = 100n;
@@ -272,5 +272,37 @@ describe('outcomes are said only once the chain proves them (review FA-07)', () 
   it('a failure confirmed by the chain is a failure', async () => {
     const failed: Status = { confirmationStatus: 'confirmed', err: { InstructionError: [3, { Custom: 1 }] } };
     expect((await run({ statuses: [failed] })).result.status).toBe('failed');
+  });
+});
+
+describe('reads that must not be older than a slot (final audit, item 6)', () => {
+  const lagging = (behind: number) => {
+    const asked: unknown[] = [];
+    let calls = 0;
+    const rpc = {
+      getMultipleAccounts: (addresses: string[], config: { minContextSlot?: bigint }) => ({
+        send: async () => {
+          asked.push(config.minContextSlot);
+          if (++calls <= behind) {
+            throw new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, { __serverMessage: 'Minimum context slot has not been reached', contextSlot: 99 } as never);
+          }
+          return { context: { slot: 120n }, value: addresses.map(() => null) };
+        },
+      }),
+    } as unknown as Parameters<typeof readAccounts>[0];
+    return { rpc, asked, calls: () => calls };
+  };
+
+  it('asks for the slot, waits for a node that is behind, and answers at least that recent', async () => {
+    const { rpc, asked, calls } = lagging(2);
+    const { slot } = await readAccounts(rpc, ['11111111111111111111111111111111' as never], { minContextSlot: 110n });
+    expect(slot).toBe(120n);
+    expect(calls()).toBe(3);
+    expect(asked).toEqual([110n, 110n, 110n]);
+  });
+
+  it('a node that stays behind fails the read instead of answering from older state', async () => {
+    const { rpc } = lagging(99);
+    await expect(readAccounts(rpc, ['11111111111111111111111111111111' as never], { minContextSlot: 110n })).rejects.toThrow();
   });
 });

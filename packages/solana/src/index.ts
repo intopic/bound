@@ -6,6 +6,7 @@ import {
   getBase64EncodedWireTransaction,
   getSignatureFromTransaction,
   isSolanaError,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
   SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
@@ -66,17 +67,39 @@ export async function fetchAccounts(rpc: SolanaRpc, addresses: readonly Address[
   return (await readAccounts(rpc, addresses)).accounts;
 }
 
-/** The same read, keeping the slot the chain answered at. */
+/**
+ * A read that must not be older than `minContextSlot`: a node behind it says so, and is asked again
+ * a few times (it catches up in a slot or two) before the read fails.
+ */
+async function notOlderThan<T>(read: () => Promise<T>, minContextSlot: bigint | undefined): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await read();
+    } catch (e) {
+      if (minContextSlot === undefined || attempt >= 4 || !isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) throw e;
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+}
+
+/**
+ * The same read, keeping the slot the chain answered at. With `minContextSlot`, every batch is at
+ * least that recent, so reads made in separate calls cannot mix state older than an earlier one
+ * (final audit, item 6).
+ */
 export async function readAccounts(
   rpc: SolanaRpc,
   addresses: readonly Address[],
+  opts: { minContextSlot?: bigint } = {},
 ): Promise<{ accounts: Map<string, AccountState | null>; slot: bigint }> {
   const unique = [...new Set(addresses)];
   const out = new Map<string, AccountState | null>();
   let slot = 0n;
   for (let i = 0; i < unique.length; i += MAX_ACCOUNTS_PER_CALL) {
     const batch = unique.slice(i, i + MAX_ACCOUNTS_PER_CALL);
-    const { context, value } = await rpc.getMultipleAccounts(batch, { encoding: 'base64', commitment: 'confirmed' }).send();
+    const { context, value } = await notOlderThan(() => rpc.getMultipleAccounts(batch, {
+      encoding: 'base64', commitment: 'confirmed', ...(opts.minContextSlot !== undefined ? { minContextSlot: opts.minContextSlot } : {}),
+    }).send(), opts.minContextSlot);
     // The oldest slot of the batches: the state is at least that recent. An RPC that omits the
     // context leaves the slot at zero, and a certificate then simply names no slot.
     const at = BigInt(context?.slot ?? 0);
@@ -90,16 +113,20 @@ export async function readAccounts(
 
 /**
  * Everything the verifier needs, read from the chain. Lookup tables come from the RPC, never from
- * Jupiter.
+ * Jupiter. With `minContextSlot` (the slot the swap was simulated at), the accounts and the tables
+ * are both at least that recent.
  */
 export async function fetchSnapshot(args: {
   rpc: SolanaRpc;
   addresses: readonly Address[];
   lookupTableAddresses: readonly Address[];
+  minContextSlot?: bigint;
 }): Promise<ChainSnapshot> {
-  const { accounts, slot } = await readAccounts(args.rpc, args.addresses);
+  const { accounts, slot } = await readAccounts(args.rpc, args.addresses, { minContextSlot: args.minContextSlot });
   const lookupTables: Record<string, readonly Address[]> = args.lookupTableAddresses.length
-    ? await fetchAddressesForLookupTables([...args.lookupTableAddresses], args.rpc)
+    ? await notOlderThan(() => fetchAddressesForLookupTables([...args.lookupTableAddresses], args.rpc, {
+      ...(args.minContextSlot !== undefined ? { minContextSlot: args.minContextSlot } : {}),
+    }), args.minContextSlot)
     : {};
   return { accounts, lookupTables, slot };
 }
@@ -165,6 +192,8 @@ export type Simulation = {
   lamportsAfter: bigint[];
   /** The size of each requested account's data after the transaction (0 when it no longer exists). */
   sizesAfter: number[];
+  /** The slot the simulation ran at (0 when the RPC does not say). */
+  slot: bigint;
 };
 
 /** Bytes in a base64 string, without decoding it. */
@@ -173,7 +202,7 @@ const base64Size = (s: string | undefined) =>
 
 /** Simulation answers "will it execute?" — never "is it safe?" (plan, section 15). */
 export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: readonly Address[] = []): Promise<Simulation> {
-  const { value } = await rpc
+  const { context, value } = await rpc
     .simulateTransaction(getBase64EncodedWireTransaction(transaction), {
       encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed',
       ...(watch.length ? { accounts: { addresses: [...watch], encoding: 'base64' as const } } : {}),
@@ -186,7 +215,7 @@ export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: 
   if (value.err === null && watch.length && (!Array.isArray(after) || after.length !== watch.length)) {
     return {
       ok: false, error: 'the RPC did not report the accounts it was asked to watch', units: Number(value.unitsConsumed ?? 0n),
-      logs, blame: null, failedInstruction: null, lamportsAfter: [], sizesAfter: [],
+      logs, blame: null, failedInstruction: null, lamportsAfter: [], sizesAfter: [], slot: BigInt(context?.slot ?? 0),
     };
   }
   return {
@@ -198,6 +227,7 @@ export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: 
     failedInstruction: failedInstructionOf(value.err),
     lamportsAfter: watch.map((_, i) => BigInt(after?.[i]?.lamports ?? 0)),
     sizesAfter: watch.map((_, i) => base64Size(after?.[i]?.data?.[0])),
+    slot: BigInt(context?.slot ?? 0),
   };
 }
 

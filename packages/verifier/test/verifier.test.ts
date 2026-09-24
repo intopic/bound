@@ -342,13 +342,18 @@ describe('Token-2022', () => {
     expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
   });
 
-  it('bytes left over after the last extension → R7', async () => {
-    const s = await t22([[18, 64]]);
-    const mint = s.snapshot.accounts.get(USDC)!;
-    const padded = { ...mint, data: new Uint8Array(mint.data.length + 3) };
-    padded.data.set(mint.data);
-    (s.snapshot.accounts as Map<string, unknown>).set(USDC, padded);
-    expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R7');
+  it('bytes left over after the last extension → R7, unless they are zeros, where nothing can be read', async () => {
+    const withTail = async (tail: number[]) => {
+      const s = await t22([[18, 64]]);
+      const mint = s.snapshot.accounts.get(USDC)!;
+      const padded = { ...mint, data: new Uint8Array(mint.data.length + tail.length) };
+      padded.data.set(mint.data);
+      padded.data.set(tail, mint.data.length);
+      (s.snapshot.accounts as Map<string, unknown>).set(USDC, padded);
+      return rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot));
+    };
+    expect(await withTail([14, 0, 64])).toContain('R7');
+    expect(await withTail([0, 0, 0])).not.toContain('R7');
   });
 
   it('a Token-2022 swap compiled with the classic program is refused', async () => {

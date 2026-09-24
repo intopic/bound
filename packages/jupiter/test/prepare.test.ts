@@ -393,10 +393,10 @@ describe('a wallet short of SOL (review BR-10)', () => {
 describe('a SOL fee into a treasury wallet that does not exist yet (review BR-06)', () => {
   const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
-  it('is fee-free while the fee is below the rent minimum, instead of reverting', async () => {
-    const prepared = await prepare(BONK, { input: WSOL_MINT, treasury: TREASURY, amountIn: 100_000_000n });
-    expect(prepared.policy.fee).toBe(0n);
-    expect(prepared.policy.treasury).toBeNull();
+  it('is refused, not built fee-free and not left to revert, until the treasury wallet exists (final audit, item 9)', async () => {
+    const refused = await prepare(BONK, { input: WSOL_MINT, treasury: TREASURY, amountIn: 100_000_000n }).catch((e: BoundError) => e);
+    expect((refused as BoundError).code).toBe('fee-unavailable');
+    expect((refused as BoundError).message).toContain("Bound's fee can't be collected");
   });
 
   it('charges the fee once the treasury wallet exists', async () => {
@@ -516,10 +516,11 @@ describe('a swap that landed and reverted: was it the price?', () => {
 describe('accounts frozen by the token issuer (review FA-12)', () => {
   const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
-  it("a frozen fee account makes the swap fee-free instead of impossible (a stablecoin's blacklist, say)", async () => {
+  it("a frozen fee account cannot receive the fee, so that swap is refused rather than built free (a stablecoin's blacklist, say)", async () => {
     const feeAccount = await ataOf(TREASURY, USDC);
-    const frozen = await prepare(WSOL_MINT, { treasury: TREASURY, chain: [[feeAccount, tokenAccount(TREASURY, USDC, { frozen: true })]] });
-    expect(frozen.policy.fee).toBe(0n);
+    const frozen = await prepare(WSOL_MINT, { treasury: TREASURY, chain: [[feeAccount, tokenAccount(TREASURY, USDC, { frozen: true })]] })
+      .catch((e: BoundError) => e);
+    expect((frozen as BoundError).code).toBe('fee-unavailable');
     const open = await prepare(WSOL_MINT, { treasury: TREASURY, chain: [[feeAccount, tokenAccount(TREASURY, USDC)]] });
     expect(open.policy.fee).toBeGreaterThan(0n);
   });
@@ -586,7 +587,8 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
       if (outcome.p && outcome.p.policy.takerRent > 0n && outcome.p.policy.routeRefund === 0n) droppedForSize++;
     }
     expect(droppedForSize).toBeGreaterThan(0);
-  });
+    // Twenty-one full builds: about 1.6 s alone, several times that beside the whole suite.
+  }, 20_000);
 
   it('without rent to pay there is no account to close', async () => {
     const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), expectCurve: true });
@@ -651,11 +653,10 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     expect(prepared.quote.minReceived).toBe(prepared.policy.minOut - prepared.policy.fee);
   });
 
-  it("without an account for either token, the swap is fee-free: the user never pays rent for the treasury's", async () => {
-    // USDC is on the input side here, and the treasury has no USDC account in this chain.
-    const prepared = await prepare(BONK, { input: USDC, treasury: TREASURY });
-    expect(prepared.policy.feeSide).toBeNull();
-    expect(prepared.policy.fee).toBe(0n);
+  it("without an account for either token and no wallet, the swap is refused: the user never pays rent for the treasury's, and never swaps free", async () => {
+    // USDC is on the input side here, and the treasury has no USDC account and no wallet in this chain.
+    const refused = await prepare(BONK, { input: USDC, treasury: TREASURY }).catch((e: BoundError) => e);
+    expect((refused as BoundError).code).toBe('fee-unavailable');
   });
 
   it("an agent's floor is what the wallet keeps: the enforced minimum covers the fee on top", async () => {
@@ -683,8 +684,9 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     expect(prepared.certificate.solFee.lamports).toBe(prepared.policy.fee);
   });
 
-  it('without a treasury wallet, or a price in SOL, such a pair is fee-free; a busy Jupiter is busy', async () => {
-    expect((await prepare(USDC, { input: BONK, treasury: TREASURY })).policy.feeSide).toBeNull();
+  it('without a treasury wallet, or a price in SOL, such a pair is refused, not built free; a busy Jupiter is busy', async () => {
+    const noWallet = await prepare(USDC, { input: BONK, treasury: TREASURY }).catch((e: BoundError) => e);
+    expect((noWallet as BoundError).code).toBe('fee-unavailable');
     const base = fakeJupiter();
     const pricedWith = (error: JupiterError): JupiterClient => ({
       ...base,
@@ -693,25 +695,29 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
         return base.build(p);
       },
     });
-    const unpriced = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(new JupiterError('Jupiter 400: No routes found', 400)) });
-    expect(unpriced.policy.feeSide).toBeNull();
+    const unpriced = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(new JupiterError('Jupiter 400: No routes found', 400)) })
+      .catch((e: BoundError) => e);
+    expect((unpriced as BoundError).code).toBe('fee-unavailable');
+    expect((unpriced as BoundError).message).toContain("can't be priced");
     const busy = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(new JupiterError('Jupiter 429', 429)) })
       .catch((e: BoundError) => e);
     expect((busy as BoundError).code).toBe('busy');
   });
 
   it('a fee side that changes between the quote and the build keeps the minimum the page showed (engineering review H-04)', async () => {
-    // Quoted while the treasury had no wallet: fee-free, and the page showed this minimum.
-    const quoted = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY });
-    expect(quoted.policy.feeSide).toBeNull();
+    // Quoted while the treasury had no wallet but a BONK account: the fee on the input, and the
+    // page showed this minimum.
+    const bonkAccount: [Address, Account] = [await ataOf(TREASURY, BONK), tokenAccount(TREASURY, BONK)];
+    const quoted = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [bonkAccount] });
+    expect(quoted.policy.feeSide).toBe('input');
     const shown = quoted.quote.minReceived;
     // The treasury's wallet appears before the click: the build now takes the fee from the SOL out,
     // and still keeps what the page showed, with the market unchanged.
-    const built = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet], acceptedMinReceived: shown });
+    const built = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [bonkAccount, wallet], acceptedMinReceived: shown });
     expect(built.policy.feeSide).toBe('output');
     expect(built.quote.minReceived).toBeGreaterThanOrEqual(shown);
     // Handed over gross, as the page used to, the same build kept less than it showed, unasked.
-    const gross = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet], acceptedMinOut: shown });
+    const gross = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [bonkAccount, wallet], acceptedMinOut: shown });
     expect(gross.quote.minReceived).toBeLessThan(shown);
   });
 });

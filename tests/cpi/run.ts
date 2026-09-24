@@ -67,6 +67,8 @@ const u64 = (v: bigint) => {
 };
 /** SPL Token Transfer: [source, destination, authority]. */
 const transfer = (amount: bigint) => Uint8Array.from([3, ...u64(amount)]);
+/** SPL Token TransferChecked: [source, mint, destination, authority, ...multisig signers]. */
+const transferChecked = (amount: bigint, decimals: number) => Uint8Array.from([12, ...u64(amount), decimals]);
 /** SPL Token Approve: [source, delegate, owner]. */
 const approve = (amount: bigint) => Uint8Array.from([4, ...u64(amount)]);
 /** SPL Token SetAuthority: [account, current authority]. Type 2 = AccountOwner, 3 = CloseAccount. */
@@ -144,6 +146,8 @@ type World = {
   vaultWsol: Address;
   treasury: Address;
   treasuryIn: Address;
+  /** The issuer multisig, when the case sets one (see `IssuerDelegate`). */
+  multisig: Address | null;
 };
 
 const accountOf = (svm: LiteSVM, a: Address): AccountState | null => {
@@ -187,10 +191,14 @@ function sendOrThrow(svm: LiteSVM, tx: Transaction, what: string) {
 
 /**
  * Who holds the permanent delegate of the swap's two Token-2022 mints, when one is set: an ordinary
- * key (the attacker's own wallet, which never signs the swap), or an address the attacker's
- * program can sign for itself (its pool authority).
+ * key (the attacker's own wallet, which never signs the swap), an address the attacker's program can
+ * sign for itself (its pool authority), or a Token multisig at an ordinary address whose one signer
+ * is that program address: R7 sees an ordinary key, and the program can still act as the delegate
+ * (final audit, item 4).
  */
-type IssuerDelegate = 'key' | 'program';
+type IssuerDelegate = 'key' | 'program' | 'multisig';
+/** A Token multisig account: m, n, initialized, then eleven signer slots. */
+const MULTISIG_SIZE = 355n;
 
 /** InitializePermanentDelegate (Token-2022 instruction 35); it must run before the mint is initialized. */
 const initializePermanentDelegate = (mint: Address, delegate: Address): Instruction => ({
@@ -220,7 +228,22 @@ async function setup(tokenProgram: Address = TOKEN_PROGRAM, issuer?: IssuerDeleg
     seeds: [new TextEncoder().encode('attacker')],
   });
 
-  const delegate = issuer === 'key' ? attackerWallet.address : issuer === 'program' ? vaultAuthority : null;
+  // A multisig whose single signer is the attacker program's own address (InitializeMultisig2).
+  const multisig = issuer === 'multisig' ? await generateKeyPairSigner() : null;
+  if (multisig) {
+    sendOrThrow(svm, await sign(svm, [
+      getCreateAccountInstruction({
+        payer, newAccount: multisig, lamports: lamports(svm.minimumBalanceForRentExemption(MULTISIG_SIZE)),
+        space: MULTISIG_SIZE, programAddress: tokenProgram,
+      }),
+      {
+        programAddress: tokenProgram,
+        accounts: [{ address: multisig.address, role: AccountRole.WRITABLE }, { address: vaultAuthority, role: AccountRole.READONLY }],
+        data: Uint8Array.from([19, 1]),
+      },
+    ], payer, [multisig]), 'creating the issuer multisig');
+  }
+  const delegate = issuer === 'key' ? attackerWallet.address : issuer === 'program' ? vaultAuthority : multisig?.address ?? null;
   const mints: [KeyPairSigner, number, boolean][] = [
     [mintInKey, IN_DECIMALS, !!delegate], [mintOutKey, OUT_DECIMALS, !!delegate], [mintOtherKey, 6, false],
   ];
@@ -253,6 +276,7 @@ async function setup(tokenProgram: Address = TOKEN_PROGRAM, issuer?: IssuerDeleg
     vaultWsol: await ataOf(vaultAuthority, WSOL_MINT),
     treasury: treasuryWallet.address,
     treasuryIn: await ataOf(treasuryWallet.address, mintIn, tokenProgram),
+    multisig: multisig?.address ?? null,
   };
 
   const ata = (owner: Address, mint: Address, account: Address, programAddress: Address = tokenProgram) =>
@@ -702,6 +726,32 @@ const CASES: Case[] = [
       program: IX.token,
       metas: [{ key: IX.output, w: true }, { key: IX.pool, w: true }, { key: w.attacker, s: true }],
       data: transfer(1n),
+    }],
+  },
+  {
+    // The delegate R7 lets through as an ordinary address is a multisig the route's program signs
+    // for: it can move tokens out of the wallet's output account inside the swap. What stops it is
+    // Bound's minimum-output check, which counts that account's balance after the swap.
+    name: "issuer delegate is a multisig the route's program signs for: takes from the wallet's output balance and delivers the minimum",
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, issuer: 'multisig', expect: 'reverts',
+    proves: 'a delegate hidden behind an ordinary-looking multisig can act inside the swap, and the minimum-output check reverts the whole transaction when it takes from what the wallet held',
+    extra: w => [w.multisig!],
+    inners: w => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT), {
+      program: IX.token, signed: true,
+      metas: [{ key: IX.output, w: true }, { key: 9 }, { key: IX.pool, w: true }, { key: w.multisig! }, { key: IX.poolAuthority, s: true }],
+      data: transferChecked(1n, OUT_DECIMALS),
+    }],
+  },
+  {
+    // The bound SECURITY.md states: such a delegate can keep only what arrived above the minimum.
+    name: 'issuer delegate is a multisig the route signs for: takes back only what it delivered above the minimum',
+    variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, issuer: 'multisig', expect: 'succeeds',
+    proves: "the most such a delegate can take is the surplus above the minimum: the wallet still nets the minimum, and nothing it held before",
+    extra: w => [w.multisig!],
+    inners: w => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT + 5n), {
+      program: IX.token, signed: true,
+      metas: [{ key: IX.output, w: true }, { key: 9 }, { key: IX.pool, w: true }, { key: w.multisig! }, { key: IX.poolAuthority, s: true }],
+      data: transferChecked(5n, OUT_DECIMALS),
     }],
   },
   {

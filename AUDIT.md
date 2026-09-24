@@ -1077,6 +1077,29 @@ external audit's Stage 2. Tests: 482 unit tests; the browser smoke 19/19, with t
 
 ---
 
+## 0zb. The auditor's development plan, checked and applied (24 September 2026)
+
+An auditor proposed seven changes (items 4 to 10) and a price reference for large orders, without
+widening Bound into a routing engine. Each was checked against the code before anything changed.
+
+| Item | The auditor's judgment | Checked | What changed |
+| --- | --- | --- | --- |
+| 4 (P0) Token-2022 | Testing each extension alone does not prove every combination | Right. The property tests used a fixed list of sets, and T6 covered a delegate that is an ordinary key or a program address, not a multisig | A matrix test (`packages/verifier/test/extensions.test.ts`): any set of entries in any order, trailing padding, cut areas, entries after a gap. It found two things. An entry written after an empty type was never read by R7, while the token program steps over empty types and reads it: now refused. Zeros to the end of the area were refused, though nothing can be read there: now accepted. Checked on 32 real Token-2022 mints (PYUSD, USDG, CASH, AUSD, Pump.fun coins): the same verdict for every one. T6 gains a permanent delegate that is a multisig whose signer is the route's program: taking from what the wallet held reverts; taking back what it delivered above the minimum leaves the wallet its minimum. Verifier 0.8.1 |
+| 5 (P1) Jupiter's program | An upgrade can change behaviour without changing the format; monitor and stop | Partly. Jupiter is untrusted by design: R1/R6 keep the wallet out of its reach and Bound's own minimum check reverts a swap that under-delivers, so an upgrade cannot take more than the approved amount. It can break availability, or the fee | The canary records when Jupiter, both Pump programs and Token-2022 were last deployed (`tools/known-deploys.json`) and fails when one is deployed again, until the owner re-runs the checks and records it (`--record-deploys`). The canary runs every three hours once `BOUND_CANARY` is set |
+| 6 (P1) Chain reads | Reads can mix state from different slots | In principle; every case examined fails closed (a hook set later needs accounts the transfer lacks; a table is append-only; a delegate is revoked in the transaction) | The verifier's snapshot is read not older than the simulation that accepted the route (`minContextSlot`, accounts and lookup tables, asked again while a node catches up); the skill simulates not older than the snapshot it verified. The agent keeps its own RPC |
+| 7 (P1) Duplicate orders | Two different transactions can carry out the same order | Right: the store and lock kept one transaction from landing twice, not one order from being sent twice | `Intent.id`: an order book (`createFileStore`, or one shared by every worker through the `OrderBook` calls) records each order; an order that confirmed, or whose transaction may still land, is refused (`BoundOrderError`, `bound-verify` exit 5); a new order is claimed atomically before finalize; recovery records the outcome |
+| 8 (P1) Infrastructure cost | Limits are per instance; one client can exhaust the RPC | Right, and mostly operations | Quotas of the API's own (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`) documented in `.env.example` and README beside the firewall rules and usage alerts |
+| 9 (P0) The fee | Some routes are free, and an example disagreed with the configuration | Right: AGENT-API.md's example still showed 20 bps and a fee on the input for a sale into SOL, and a deployment with a treasury built fee-free swaps when the fee could not be collected | With a treasury, a swap whose fee cannot be collected is refused, never built free: `fee-unavailable` (the treasury wallet not ready, or no SOL price; API 503 with Retry-After) and `amount-too-small`. Test mode, without a treasury, stays fee-free. The example shows 30 bps in SOL on the output. One fee setting for the page and the API (`NEXT_PUBLIC_BOUND_FEE_BPS`, `BOUND_API_FEE_BPS` only to differ); the skill's ceiling is 30 |
+| 10 (P1) The skill's distribution | A replaced skill could compromise signing | Right | `@solana/kit` pinned to 8.3.0 with a lockfile of hashes; `SHA256SUMS` of every shipped file, generated and checked in CI; the same list served by the site at `/skill/SHA256SUMS` as a second channel; LF line ends on every checkout so the sums hold. Signing releases needs the owner's key (or a public repository for provenance attestations) |
+| Price reference | The skill's own floor comes from Jupiter too | Right | SKILL.md and AGENT-API.md: for a large order, set `minOut` from a source independent of Jupiter |
+
+The auditor's example of a final fee of 10 bps does not apply: the fee is 30 bps (section 0x), the
+same in the page, the API and the skill's ceiling.
+
+Tests: 495 unit tests; the canary 7/7 on mainnet; T6 in CI with the two new cases.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

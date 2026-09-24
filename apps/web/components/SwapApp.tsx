@@ -253,9 +253,11 @@ function explainError(e: unknown): Notice {
       'insufficient-balance': 'Not enough of this token',
       'input-account-restricted': 'Your account for this token is restricted',
       'route-format': 'Protected swaps are waiting for an update',
+      'fee-unavailable': "Bound's fee can't be collected right now",
+      'amount-too-small': 'This amount is too small',
     };
     // Load or an upstream change, not the swap: the message already says that nothing was signed.
-    if (e.code === 'busy' || e.code === 'unavailable' || e.code === 'route-format') return { kind: 'info', title: titles[e.code], body: e.message };
+    if (e.code === 'busy' || e.code === 'unavailable' || e.code === 'route-format' || e.code === 'fee-unavailable') return { kind: 'info', title: titles[e.code], body: e.message };
     // The rule behind a refusal is for whoever investigates, not for the person swapping (final audit).
     if (e.violations.length) console.warn('Bound refused this swap:', e.violations);
     const rules = '';
@@ -1203,7 +1205,7 @@ export function SwapApp() {
               {!TREASURY
                 ? '0 (test mode)'
                 : !chargesFee
-                  ? 'Free for this pair'
+                  ? "Can't be collected right now"
                   : feeSide === 'output'
                     ? outputFee !== null && tokenOut && outDecimals !== null
                       ? `~${formatUnits(outputFee, outDecimals, 6)} ${tokenOut.symbol}, from what you receive`

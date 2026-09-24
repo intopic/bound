@@ -119,6 +119,10 @@ function explain(e: unknown): Response {
       case 'busy':
       case 'unavailable':
         return fail(503, e.code, e.message, {}, { 'retry-after': '5' });
+      // Bound cannot collect its fee on this swap (its treasury wallet is not ready, or the pair
+      // cannot be priced in SOL): nothing is built for free (final audit, item 9).
+      case 'fee-unavailable':
+        return fail(503, e.code, e.message, {}, { 'retry-after': '60' });
       // Jupiter's format changed: nothing builds until Bound is updated, so do not retry soon.
       case 'route-format':
         return fail(503, e.code, e.message, {}, { 'retry-after': '300' });

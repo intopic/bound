@@ -177,7 +177,15 @@ export type BoundErrorCode =
   // Jupiter refused with 429 or did not answer: says nothing about the route or the token.
   | 'busy' | 'unavailable'
   // Jupiter answered with an instruction Bound cannot read: its format changed (research audit F-07).
-  | 'route-format';
+  | 'route-format'
+  // Bound's fee cannot be collected on this swap, so it is not built (final audit, item 9).
+  | 'fee-unavailable' | 'amount-too-small';
+
+/** The treasury wallet does not exist yet (or cannot receive): Bound's to fix, not the user's. */
+export const FEE_UNAVAILABLE_MESSAGE = "Bound's fee can't be collected right now, so nothing was built. Your funds are not affected; try again later.";
+/** No token of the pair can carry the fee and Jupiter could not price it in SOL. */
+export const FEE_UNPRICED_MESSAGE = "Bound's fee for this pair can't be priced right now, so nothing was built. Try again in a moment.";
+export const AMOUNT_TOO_SMALL_MESSAGE = "This amount is too small to carry Bound's fee. Swap a larger amount.";
 
 /** What the user reads when Jupiter is overloaded or silent; the swap itself was never at fault. */
 export const BUSY_MESSAGE = 'Too many swaps are being priced right now. Wait a few seconds and try again. Nothing was signed.';
@@ -674,6 +682,13 @@ export async function prepareProtectedSwap(deps: {
     treasuryWalletReady,
     solFee,
   });
+  // Every swap a deployment with a treasury builds pays Bound's fee (the owner's rule; final audit,
+  // item 9). Test mode, without a treasury, is the only fee-free mode: a swap whose fee cannot be
+  // collected is refused, never built for free.
+  if (settings.treasury && policy.feeSide === null) {
+    throw new BoundError('fee-unavailable', treasuryWalletReady ? FEE_UNPRICED_MESSAGE : FEE_UNAVAILABLE_MESSAGE);
+  }
+  if (settings.treasury && policy.feeSide !== 'output' && policy.fee <= 0n) throw new BoundError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
 
   // The token keeps a cut of every transfer, including ours into the temporary account, so the
   // route must be quoted for what actually lands there.
@@ -1092,6 +1107,9 @@ export async function prepareProtectedSwap(deps: {
 
     if (sim.ok) {
       const chosenPolicy = policyFor(chosen.r);
+      // A fee on the output is a share of the minimum, known only now: a swap too small to carry it
+      // is refused like any other swap whose fee cannot be collected (final audit, item 9).
+      if (settings.treasury && chosenPolicy.fee <= 0n) throw new BoundError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
       const swapAccounts = chosen.r.swapInstruction.accounts.map(a => address(a.pubkey));
       // The snapshot for the verifier and the fresh blockhash, together (idea 21).
       const writable = chosen.r.swapInstruction.accounts.filter(a => a.isWritable).map(a => address(a.pubkey)).slice(0, 128);
@@ -1105,6 +1123,9 @@ export async function prepareProtectedSwap(deps: {
             ...chosen.intermediates.flatMap(x => [x.ata, x.mint]), req.inputMint, req.outputMint,
           ],
           lookupTableAddresses: req.version === 0 ? Object.keys(chosen.r.addressesByLookupTableAddress ?? {}).map(a => address(a)) : [],
+          // Not older than the simulation that accepted this route: what the verifier reads (W_out's
+          // balance and delegate, the mints, the lookup tables) is at least as recent (item 6).
+          ...(sim.slot > 0n ? { minContextSlot: sim.slot } : {}),
         }),
         latestLifetimeAt(rpc),
         // What the pools this swap writes to are paying for priority now; the default when unknown.

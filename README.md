@@ -106,7 +106,7 @@ Fixed at build time (compiled into the page, so the server cannot change them af
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then every swap pays, memecoin sales included; a pair neither token of which the treasury can receive pays in SOL from the wallet, at the swap's value (AUDIT.md 0w). Fee-free only while the treasury wallet does not exist, or when the pair cannot be priced in SOL |
+| `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then every swap pays, memecoin sales included; a pair neither token of which the treasury can receive pays in SOL from the wallet, at the swap's value (AUDIT.md 0w). With a treasury set, a swap whose fee cannot be collected (the wallet not funded yet, a pair that cannot be priced in SOL, an amount too small to carry it) is refused, never built free (AUDIT.md 0zb) |
 | `NEXT_PUBLIC_BOUND_FEE_BPS` | 30 | 0.3%. The verifier refuses more than 100 (1%) |
 | `NEXT_PUBLIC_BOUND_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Bound v1 swap has landed on mainnet |
 
@@ -135,6 +135,10 @@ Bound's proxies already refuse requests other websites make from their visitors'
 | `/api/jupiter/*` | 90 per minute | Quotes and token search, on Bound's Jupiter key |
 | `/api/token-icon` | 600 per minute | Icons, cached a day |
 | `/api/v1/*` | 120 per minute | The agent API; each key has its own limit too (`BOUND_API_PER_MINUTE`) |
+
+Give the agent API quotas of its own (`RPC_URL_AGENTS`, and `JUPITER_API_KEY_AGENTS` from a separate
+Jupiter account), so that agents cannot use up the page's, and set usage alerts at the RPC provider
+(Helius: credit usage) and on the hosting bill, so abnormal consumption is seen the day it starts.
 
 ## Scope of v0.1
 
