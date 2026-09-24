@@ -1,0 +1,1065 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="495" failures="0" errors="0" time="39.014239785">
+    <testsuite name="apps/web/test/agentApi.test.ts" timestamp="2026-09-24T21:39:35.013Z" hostname="vm" tests="38" failures="0" errors="0" skipped="0" time="1.358485945">
+        <testcase classname="apps/web/test/agentApi.test.ts" name="prepare &gt; builds the protected swap with the fee in it, and a ticket bound to the exact message" time="0.175525274">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="prepare &gt; Jupiter&apos;s format changing is a 503 to retry much later, not a price (research audit F-07)" time="0.052498675">
+            <system-err>
+Jupiter answered with a swap instruction the verifier cannot read: its format changed.
+
+            </system-err>
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="prepare &gt; refuses without a valid API key" time="0.008481953">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="prepare &gt; refuses while swaps are paused, before anything is built" time="0.008662589">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="prepare &gt; refuses malformed requests with the reason" time="0.018230608">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="prepare &gt; a minimum the market cannot meet is put back to the agent with the new one, never lowered for it" time="0.034363945">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="prepare &gt; a busy Jupiter is a 503 to retry, not a missing route" time="0.015263118">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; signs as E the message W signed, and sends it once" time="0.142174973">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; the same ticket twice gives the same transaction, which can land once" time="0.030262107">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; a message changed at the first byte is refused: E does not sign, nothing is sent" time="0.027555826">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; a message changed at the middle is refused: E does not sign, nothing is sent" time="0.025725405">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; a message changed at the last byte is refused: E does not sign, nothing is sent" time="0.032513085">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; an agent that removes the fee transfer, rebuilds and signs the rest is refused" time="0.022107214">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; a transaction W did not sign is refused (R6)" time="0.016049152">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; a signature in W&apos;s place made by another key is refused" time="0.02393453">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; a forged ticket is refused" time="0.049406904">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; another API key cannot finalize this key&apos;s ticket" time="0.026515503">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; a ticket past its lifetime is refused as expired" time="0.028913115">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; a rotated secret still finalizes the tickets it sealed, while it is listed as previous" time="0.03066028">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="finalize &gt; refuses while swaps are paused: E does not sign" time="0.060882988">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="a finalize repeated after its answer was lost (engineering review H-01) &gt; answers with the same transaction and sends nothing more, though the output balance moved" time="0.048040508">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="a finalize repeated after its answer was lost (engineering review H-01) &gt; the same after its lifetime ended, and while swaps are paused: nothing is sent again" time="0.082345921">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="a finalize repeated after its answer was lost (engineering review H-01) &gt; a signature in W&apos;s place that is not W&apos;s gets no answer, even when it is on chain" time="0.05120869">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="a finalize repeated after its answer was lost (engineering review H-01) &gt; when the network cannot say whether it was sent, this request sends nothing and names the transaction" time="0.025807238">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="a finalize repeated after its answer was lost (engineering review H-01) &gt; a transaction the wallet did not sign cannot have been sent, and is refused as such" time="0.040897764">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="E, derived rather than stored &gt; the same secret and nonce give the same E on any instance; another nonce or secret, another E" time="0.00250938">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="E, derived rather than stored &gt; its private key cannot be exported" time="0.000526426">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="review fixes on the API &gt; a swap into a token whose balance moved since prepare is not signed (FA-04)" time="0.037638653">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="review fixes on the API &gt; a finalize refused by the network hands back no transaction to broadcast (FA-08)" time="0.027091321">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="review fixes on the API &gt; a fee-free swap says 0 bps, not the configured fee (FA-16)" time="0.025718534">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="API keys from the environment &gt; a fee above the verifier&apos;s ceiling turns the API off instead of charging another (engineering audit L-01)" time="0.04377786">
+            <system-err>
+The agent API is off: its fee is 150 bps, above the verifier&apos;s ceiling of 100.
+
+            </system-err>
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="API keys from the environment &gt; two keys with one id: the first one wins, so they never share tickets and limits (FA-16)" time="0.000847594">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="the fee, taken like Jupiter&apos;s &gt; a sale into SOL names SOL as the fee token and states the minimum the wallet keeps" time="0.035721748">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="the fee, taken like Jupiter&apos;s &gt; without a treasury wallet the sale pays in USDC, the next token in line, from the input" time="0.039440873">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="the skill says its version, and an old copy is asked to update (final audit, M1) &gt; versions compare by major, minor and patch; what is not a version is not judged" time="0.000403547">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="the skill says its version, and an old copy is asked to update (final audit, M1) &gt; prepare answers an older skill with 426 and the minimum; a current one, or none named, is served" time="0.029259349">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="the skill says its version, and an old copy is asked to update (final audit, M1) &gt; a swap already signed is finalized whatever the skill that signed it" time="0.024027464">
+        </testcase>
+        <testcase classname="apps/web/test/agentApi.test.ts" name="a swap whose fee cannot be collected is refused, never built free (final audit, item 9) &gt; prepare answers 503 fee-unavailable, with a Retry-After, and signs nothing" time="0.005945716">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/diagnose.test.ts" timestamp="2026-09-24T21:39:35.017Z" hostname="vm" tests="6" failures="0" errors="0" skipped="0" time="0.131851379">
+        <testcase classname="apps/web/test/diagnose.test.ts" name="what a wallet did to the transaction it signed &gt; reports an untouched message as identical, with nothing added" time="0.059907697">
+        </testcase>
+        <testcase classname="apps/web/test/diagnose.test.ts" name="what a wallet did to the transaction it signed &gt; names an appended guard as a suffix and describes it" time="0.018909041">
+        </testcase>
+        <testcase classname="apps/web/test/diagnose.test.ts" name="what a wallet did to the transaction it signed &gt; separates an instruction added before ours from one appended after" time="0.017761194">
+        </testcase>
+        <testcase classname="apps/web/test/diagnose.test.ts" name="what a wallet did to the transaction it signed &gt; refuses to call it an addition when our own instructions came back changed" time="0.011299696">
+        </testcase>
+        <testcase classname="apps/web/test/diagnose.test.ts" name="what a wallet did to the transaction it signed &gt; notices a new signer and a changed fee payer" time="0.00705942">
+        </testcase>
+        <testcase classname="apps/web/test/diagnose.test.ts" name="what a wallet did to the transaction it signed &gt; writes a report that carries the added instruction and its accounts" time="0.014476586">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/history.test.ts" timestamp="2026-09-24T21:39:35.017Z" hostname="vm" tests="3" failures="0" errors="0" skipped="0" time="0.004625603">
+        <testcase classname="apps/web/test/history.test.ts" name="persisted swap settlement &gt; uses the signature status for confirmed and failed outcomes" time="0.001589156">
+        </testcase>
+        <testcase classname="apps/web/test/history.test.ts" name="persisted swap settlement &gt; expires only after the recorded last valid block height" time="0.000358914">
+        </testcase>
+        <testcase classname="apps/web/test/history.test.ts" name="persisted swap settlement &gt; keeps old, malformed and processed entries unknown" time="0.00115579">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/rebuild.test.ts" timestamp="2026-09-24T21:39:35.018Z" hostname="vm" tests="5" failures="0" errors="0" skipped="0" time="0.010426883">
+        <testcase classname="apps/web/test/rebuild.test.ts" name="a swap built again after a question (engineering review M-06) &gt; the same rent with its refund lost costs more: the user is asked again" time="0.006231974">
+        </testcase>
+        <testcase classname="apps/web/test/rebuild.test.ts" name="a swap built again after a question (engineering review M-06) &gt; a higher rent that comes back in full costs nothing more" time="0.000286847">
+        </testcase>
+        <testcase classname="apps/web/test/rebuild.test.ts" name="a swap built again after a question (engineering review M-06) &gt; the same costs are not asked about twice" time="0.000141466">
+        </testcase>
+        <testcase classname="apps/web/test/rebuild.test.ts" name="a swap built again after a question (engineering review M-06) &gt; a fee in SOL that is new, or more than 2% higher, costs more (engineering audit S1-M-02)" time="0.000310434">
+        </testcase>
+        <testcase classname="apps/web/test/rebuild.test.ts" name="a swap built again after a question (engineering review M-06) &gt; a larger transfer tax, or a delegate removal not mentioned before, costs more" time="0.000278584">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/received.test.ts" timestamp="2026-09-24T21:39:35.023Z" hostname="vm" tests="5" failures="0" errors="0" skipped="0" time="0.010018572">
+        <testcase classname="apps/web/test/received.test.ts" name="what actually arrived (review BR-03) &gt; a token output: the wallet account after, less before" time="0.001564094">
+        </testcase>
+        <testcase classname="apps/web/test/received.test.ts" name="what actually arrived (review BR-03) &gt; a token output into a new account starts from zero" time="0.000280253">
+        </testcase>
+        <testcase classname="apps/web/test/received.test.ts" name="what actually arrived (review BR-03) &gt; a SOL output: the wallet&apos;s lamports after, less before, plus the network fee and the market&apos;s account fee" time="0.000166389">
+        </testcase>
+        <testcase classname="apps/web/test/received.test.ts" name="what actually arrived (review BR-03) &gt; the part of the market&apos;s account fee that came back is not swap output (FA-05)" time="0.000176887">
+        </testcase>
+        <testcase classname="apps/web/test/received.test.ts" name="what actually arrived (review BR-03) &gt; unknown when the transaction does not show the account" time="0.000156971">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/scriptIntegrity.test.ts" timestamp="2026-09-24T21:39:35.024Z" hostname="vm" tests="3" failures="0" errors="0" skipped="0" time="0.006806827">
+        <testcase classname="apps/web/test/scriptIntegrity.test.ts" name="chunksToSign &gt; returns the page chunks with their hashes, as the URLs React writes" time="0.001748735">
+        </testcase>
+        <testcase classname="apps/web/test/scriptIntegrity.test.ts" name="chunksToSign &gt; leaves out bootstrap chunks, polyfills, stylesheets and media" time="0.000466924">
+        </testcase>
+        <testcase classname="apps/web/test/scriptIntegrity.test.ts" name="chunksToSign &gt; signs nothing when there is no manifest content" time="0.000200375">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/server.test.ts" timestamp="2026-09-24T21:39:35.024Z" hostname="vm" tests="31" failures="0" errors="0" skipped="0" time="0.284881995">
+        <testcase classname="apps/web/test/server.test.ts" name="B-06, C-04: the client key comes only from the header the ingress overwrites &gt; on Vercel (default) it reads x-vercel-forwarded-for and ignores every other header" time="0.00343033">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-06, C-04: the client key comes only from the header the ingress overwrites &gt; behind Cloudflare, a client-sent x-vercel-forwarded-for cannot mint a new identity (C-04)" time="0.000754247">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-06, C-04: the client key comes only from the header the ingress overwrites &gt; X-Forwarded-For, written by the client, is never used" time="0.000344569">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-06, C-04: the client key comes only from the header the ingress overwrites &gt; requests without the configured header share one bucket (limited, not unlimited)" time="0.000425592">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-06, C-04: the client key comes only from the header the ingress overwrites &gt; a window counts every request of the same key" time="0.000609422">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="RPC proxy &gt; forwards allowlisted methods, including the epoch, fee and rent queries" time="0.01166267">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="RPC proxy &gt; refuses other methods and batches" time="0.001509382">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="RPC proxy &gt; C-07: the body limit counts bytes, not characters" time="0.001217467">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="RPC proxy &gt; an upstream that does not answer becomes a 504, not a hanging request" time="0.001215884">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="RPC proxy &gt; never forwards the local-refusal marker from an upstream response" time="0.001034139">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="RPC proxy &gt; B-05: the kill switch refuses sendTransaction on the server, with a 4xx (never forwarded)" time="0.001084743">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="RPC proxy &gt; B-06: sendTransaction has its own limit per client, sized for re-broadcasts" time="0.16254155">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="Jupiter build proxy &gt; B-05: the kill switch refuses new builds on the server" time="0.002104286">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="Jupiter build proxy &gt; refuses payer and SOL wrapping (D12)" time="0.001954913">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="Jupiter build proxy &gt; passes Jupiter&apos;s 429 and its Retry-After on to the page, which waits that long" time="0.001443728">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-08: token icons are served from Bound, from listed hosts only &gt; host allowlist: HTTPS on a listed host only" time="0.000876664">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-08: token icons are served from Bound, from listed hosts only &gt; the served type comes from the bytes" time="0.00070575">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-08: token icons are served from Bound, from listed hosts only &gt; serves a listed icon with a locked-down CSP" time="0.003738593">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-08: token icons are served from Bound, from listed hosts only &gt; never fetches a private-network URL from token metadata" time="0.001235094">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-08: token icons are served from Bound, from listed hosts only &gt; re-checks every redirect" time="0.001282398">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-08: token icons are served from Bound, from listed hosts only &gt; follows a redirect that stays on listed hosts" time="0.002510638">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-08: token icons are served from Bound, from listed hosts only &gt; refuses a body that is not an image, and oversized bodies" time="0.005991003">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="B-08: token icons are served from Bound, from listed hosts only &gt; rejects a request that is not a mint address" time="0.000915176">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="the RPC relay sends and simulates only Bound transactions (review FA-06) &gt; an ordinary SOL transfer is refused for sending and for simulation, with nothing forwarded" time="0.013666879">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="the RPC relay sends and simulates only Bound transactions (review FA-06) &gt; a Bound swap is relayed, v0 and v1" time="0.019062166">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="the RPC relay sends and simulates only Bound transactions (review FA-06) &gt; only base64 is relayed" time="0.000596543">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="the relay passes Bound&apos;s close of a Pump market&apos;s account (FA-05) &gt; a swap that closes the account the market opened for E is relayed" time="0.016947313">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="Bound&apos;s proxies serve Bound&apos;s own page (final audit, M2) &gt; another website&apos;s page cannot spend Bound&apos;s RPC, Jupiter or icon quota through its visitors" time="0.000629547">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="Bound&apos;s proxies serve Bound&apos;s own page (final audit, M2) &gt; Bound&apos;s own page, and a client that is not a browser, are served as before" time="0.000654664">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="Bound&apos;s proxies serve Bound&apos;s own page (final audit, M2) &gt; /api/status says whether the deployment has a Jupiter key (final audit, H1)" time="0.000320678">
+        </testcase>
+        <testcase classname="apps/web/test/server.test.ts" name="the skill hashes the site publishes (final audit, item 10) &gt; /skill/SHA256SUMS lists every shipped file, with the version, and matches the skill folder" time="0.021559107">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/skillExample.test.ts" timestamp="2026-09-24T21:39:35.027Z" hostname="vm" tests="58" failures="0" errors="0" skipped="0" time="5.947648122">
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the skill&apos;s example &gt; prepares, verifies on its own RPC, signs as the wallet, finalizes and confirms" time="0.431575572">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the skill&apos;s example &gt; an honest answer passes the agent&apos;s full check" time="0.225642579">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; the audit&apos;s drain: 1,000,000 USDC and 50 SOL to an attacker, with every statement made to match" time="0.097917872">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; an extra Approve of the wallet&apos;s input account to the attacker" time="0.043913116">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; an extra SetAuthority handing the input account to the attacker" time="0.041188433">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; a System Assign of the wallet to another program" time="0.046675078">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; a priority fee of 1 SOL" time="0.046199873">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; the swap program swapped for the attacker&apos;s" time="0.052254227">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; a fee of 1%, above the most an agent accepts" time="0.053399419">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; a minimum of 1" time="0.030898689">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; a fee above Bound&apos;s 0.3% is refused unless the agent raises its limit itself" time="0.040091125">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; unless the agent names another, the fee may go only to Bound&apos;s pinned treasury, or nowhere" time="0.081153213">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; the fee sent to another treasury is refused when the agent pins Bound&apos;s" time="0.116582801">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a server that lies is refused before the wallet signs (review FA-01) &gt; answers that disagree with what was asked are refused by the plain checks too" time="0.127545767">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; without a floor of its own the agent does not sign: the price would be the server&apos;s word (F-02)" time="0.068971954">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; a server that sells for almost nothing passes every rule, and is refused by the floor the agent got from Jupiter (F-02)" time="0.071056474">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; the example asks Jupiter for its floor itself and sends it with prepare (F-02)" time="0.074330943">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; route rent the server says the market needs, but that stays with the one-time key, is refused (F-06)" time="0.024443015">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; rent the route keeps is refused beyond the limit the agent sets, 0.001 SOL by default (engineering review M-05)" time="0.029549191">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; lamports left in a Pump market account under the one-time key are refused (engineering review M-05)" time="0.024029913">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; cashback left in a token account of a Pump market account under E is refused (engineering audit U1)" time="0.032372251">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; a simulation that does not report the accounts proves nothing, and is refused (engineering review M-05)" time="0.052212885">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="what the rules cannot see, the agent checks itself (research audit) &gt; with too few blocks left to land, the example does not finalize (F-05)" time="0.068317041">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the fee, taken like Jupiter&apos;s, as the agent sees it &gt; a sale into SOL pays in SOL out of the output; the minimum the agent checks is what its wallet keeps" time="0.071636929">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the fee, taken like Jupiter&apos;s, as the agent sees it &gt; a server that takes a larger fee from the output than it states is refused" time="0.187129917">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; an answer lost after the swap was sent: finalize is asked once more, and the same transaction confirms" time="0.084786647">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; with every answer lost, the outcome is still read for the transaction the wallet signed" time="0.084030263">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; another transaction&apos;s confirmed signature from the server is not a success" time="0.083847818">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; &quot;sent&quot; without the signed transaction is not a refusal: the swap it sent confirms" time="0.067480492">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; &quot;rejected&quot; from a server that sent it anyway: the outcome is what the chain shows" time="0.624021485">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; a real refusal before sending is &quot;rejected&quot; once the transaction can no longer land" time="0.123123246">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; a lower lastValidBlockHeight from the server does not end the wait while the swap can still land" time="0.082124547">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; the signature is handed over to keep before finalize is asked" time="0.034220604">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; confirming stops at its deadline while the RPC keeps failing, and says unknown" time="0.032836747">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="after signing, the chain is the only witness (engineering review H-01, H-02) &gt; a busy answer keeps its Retry-After, so the agent can wait as told" time="0.025310302">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a fee in SOL for a pair neither token of which can carry it (every swap pays) &gt; the example holds it to a price of its own from Jupiter, and the swap goes through" time="0.144150035">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a fee in SOL for a pair neither token of which can carry it (every swap pays) &gt; without a limit of its own, the agent does not sign it" time="0.046806707">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="a fee in SOL for a pair neither token of which can carry it (every swap pays) &gt; a server that charges more SOL than the swap is worth to the agent is refused" time="0.041117879">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="recovery the delivered example must survive (engineering audit, Stage 1) &gt; a status node behind the finalized view keeps the outcome unknown; a covering one proves expiry (S1-H-01)" time="0.069441613">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="recovery the delivered example must survive (engineering audit, Stage 1) &gt; a status read that never answers does not hold confirm past its deadline (S1-M-04)" time="0.081729784">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="recovery the delivered example must survive (engineering audit, Stage 1) &gt; a finalize that never answers ends on time, and the outcome is read for its own signature (S1-M-04)" time="0.466137495">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="recovery the delivered example must survive (engineering audit, Stage 1) &gt; a swap that cannot be kept before finalize is not finalized (S1-M-01)" time="0.206178849">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="recovery the delivered example must survive (engineering audit, Stage 1) &gt; what a stopped run kept is settled by its own signature on the next start; the unknown stays (S1-M-01)" time="0.407422642">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="recovery the delivered example must survive (engineering audit, Stage 1) &gt; one worker per wallet: a second one is refused until the first releases (S1-M-01)" time="0.002486022">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="wallets held by a signing service (remote signers) &gt; a service that signs raw bytes is given the checked message, and the swap confirms" time="0.047606269">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="wallets held by a signing service (remote signers) &gt; a service that signs a transaction and hands it back unsent works" time="0.027285514">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="wallets held by a signing service (remote signers) &gt; a signature that is not the wallet&apos;s for this message is refused, and nothing is finalized" time="0.025957774">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="wallets held by a signing service (remote signers) &gt; a service that changes the transaction before signing it is refused, and nothing is finalized" time="0.025281777">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="bound-verify, the command for bots in other languages &gt; prepare, one signature made by the bot, finalize: confirmed, and no record is left" time="0.053752728">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="bound-verify, the command for bots in other languages &gt; finalize checks again: an answer that no longer passes, or a signature that is not the wallet&apos;s, sends nothing" time="0.056932545">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="bound-verify, the command for bots in other languages &gt; nothing new is prepared while an earlier swap could still land, and recover says which" time="0.06535565">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="bound-verify, the command for bots in other languages &gt; check: an honest answer is safe to sign, a lying one is not" time="0.067751819">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="bound-verify, the command for bots in other languages &gt; usage errors exit 2, and the bundled command runs as a command only" time="0.27158066">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the skill names its version (final audit, M1) &gt; SKILL_VERSION is the package&apos;s version, and every call to Bound carries it" time="0.052061868">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the same order is never swapped twice (final audit, item 7) &gt; an order that confirmed is not prepared again: the retry is told, with the transaction that did it" time="0.031321734">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the same order is never swapped twice (final audit, item 7) &gt; an order whose last attempt expired may be tried again; one taken by another worker is not sent" time="0.181024616">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the same order is never swapped twice (final audit, item 7) &gt; a stopped run leaves the order pending; recovery settles it, and the order learns its outcome" time="0.077861501">
+        </testcase>
+        <testcase classname="apps/web/test/skillExample.test.ts" name="the same order is never swapped twice (final audit, item 7) &gt; bound-verify: prepare refuses an order that already swapped (exit 5)" time="0.10598733">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/swapLock.test.ts" timestamp="2026-09-24T21:39:35.030Z" hostname="vm" tests="3" failures="0" errors="0" skipped="0" time="0.011766035">
+        <testcase classname="apps/web/test/swapLock.test.ts" name="the swap lock outlives a wallet left open (review BR-02) &gt; a second tab is refused while the first is still in its wallet, past the first period" time="0.008078753">
+        </testcase>
+        <testcase classname="apps/web/test/swapLock.test.ts" name="the swap lock outlives a wallet left open (review BR-02) &gt; without a refresh the lock lapses after one period" time="0.000898834">
+        </testcase>
+        <testcase classname="apps/web/test/swapLock.test.ts" name="the swap lock outlives a wallet left open (review BR-02) &gt; a tab cannot refresh a lock another tab now holds" time="0.00106085">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/tokens.test.ts" timestamp="2026-09-24T21:39:35.031Z" hostname="vm" tests="9" failures="0" errors="0" skipped="0" time="0.015377966">
+        <testcase classname="apps/web/test/tokens.test.ts" name="the selected mint decides its ATA program &gt; derives distinct classic and Token-2022 accounts from on-chain mint facts" time="0.00776277">
+        </testcase>
+        <testcase classname="apps/web/test/tokens.test.ts" name="the amount a quote is asked for &gt; is the whole amount for a token that charges nothing" time="0.000582429">
+        </testcase>
+        <testcase classname="apps/web/test/tokens.test.ts" name="the amount a quote is asked for &gt; leaves out the tax the token keeps, rounded the way the token program rounds it" time="0.000393546">
+        </testcase>
+        <testcase classname="apps/web/test/tokens.test.ts" name="the amount a quote is asked for &gt; respects the cap a mint puts on its fee" time="0.000253739">
+        </testcase>
+        <testcase classname="apps/web/test/tokens.test.ts" name="the active Token-2022 transfer fee &gt; does not need an epoch for a mint without the extension" time="0.000623505">
+        </testcase>
+        <testcase classname="apps/web/test/tokens.test.ts" name="the active Token-2022 transfer fee &gt; fails closed instead of pricing a taxing mint with epoch zero" time="0.001366823">
+        </testcase>
+        <testcase classname="apps/web/test/tokens.test.ts" name="token warnings come from the chain for a token Jupiter does not vouch for (review BR-11) &gt; a pasted mint with a freeze and a mint authority is warned about, though Jupiter has no audit for it" time="0.000426369">
+        </testcase>
+        <testcase classname="apps/web/test/tokens.test.ts" name="token warnings come from the chain for a token Jupiter does not vouch for (review BR-11) &gt; a pasted mint with neither authority is warned only that it is not verified" time="0.000697623">
+        </testcase>
+        <testcase classname="apps/web/test/tokens.test.ts" name="token warnings come from the chain for a token Jupiter does not vouch for (review BR-11) &gt; a verified token follows Jupiter&apos;s audit, so USDC&apos;s freeze authority is not a warning on every swap" time="0.000461041">
+        </testcase>
+    </testsuite>
+    <testsuite name="apps/web/test/wallets.test.ts" timestamp="2026-09-24T21:39:35.031Z" hostname="vm" tests="5" failures="0" errors="0" skipped="0" time="0.013090092">
+        <testcase classname="apps/web/test/wallets.test.ts" name="wallet chain selection &gt; keeps only accounts that explicitly support Solana mainnet" time="0.001714102">
+        </testcase>
+        <testcase classname="apps/web/test/wallets.test.ts" name="wallet chain selection &gt; does not fall back to an account from another chain" time="0.000288216">
+        </testcase>
+        <testcase classname="apps/web/test/wallets.test.ts" name="the transaction version (review BR-12) &gt; v0 even when the wallet advertises v1, until a build enables it" time="0.000283087">
+        </testcase>
+        <testcase classname="apps/web/test/wallets.test.ts" name="the transaction version (review BR-12) &gt; v1 when the build enables it and the wallet signs it" time="0.000437332">
+        </testcase>
+        <testcase classname="apps/web/test/wallets.test.ts" name="the transaction version (review BR-12) &gt; nothing for a wallet that signs only legacy transactions" time="0.000465287">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/core/test/policy.test.ts" timestamp="2026-09-24T21:39:35.032Z" hostname="vm" tests="5" failures="0" errors="0" skipped="0" time="0.097802915">
+        <testcase classname="packages/core/test/policy.test.ts" name="the minimum that keeps what the user accepted (engineering review L-10) &gt; one unit kept at 0.2% needs a minimum of one: its fee rounds down to nothing" time="0.002364409">
+        </testcase>
+        <testcase classname="packages/core/test/policy.test.ts" name="the minimum that keeps what the user accepted (engineering review L-10) &gt; is the least minimum that keeps at least the amount, for every amount and fee tried" time="0.091491658">
+        </testcase>
+        <testcase classname="packages/core/test/policy.test.ts" name="the minimum that keeps what the user accepted (engineering review L-10) &gt; holds for amounts far larger than a test can count through" time="0.000578405">
+        </testcase>
+        <testcase classname="packages/core/test/policy.test.ts" name="which token pays the fee (every swap pays) &gt; SOL, USDC and USDT first, then the input token, then SOL from the wallet" time="0.000705191">
+        </testcase>
+        <testcase classname="packages/core/test/policy.test.ts" name="which token pays the fee (every swap pays) &gt; with no way to receive anything, the swap is fee-free" time="0.000193381">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/jupiter/test/client.test.ts" timestamp="2026-09-24T21:39:35.032Z" hostname="vm" tests="12" failures="0" errors="0" skipped="0" time="0.052423509">
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; a well-formed quote passes unchanged" time="0.001450118">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; a non-numeric amount is refused with a JupiterError" time="0.000924044">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; a negative floor is refused with a JupiterError" time="0.000165472">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; a missing floor is refused with a JupiterError" time="0.000142764">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; a missing swap instruction is refused with a JupiterError" time="0.000112301">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; a swap instruction without accounts is refused with a JupiterError" time="0.000184095">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; no route plan is refused with a JupiterError" time="0.000117849">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; a body that is not an object is refused with a JupiterError" time="0.000098721">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="Jupiter /build responses are validated &gt; the client applies the check to every /build answer" time="0.0044989">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="a Jupiter under load &gt; a 429 is retried, and the answer that follows is used" time="0.006942798">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="a Jupiter under load &gt; after every retry was refused, the page stops asking for a few seconds instead of adding to the load" time="0.013745934">
+        </testcase>
+        <testcase classname="packages/jupiter/test/client.test.ts" name="a Jupiter that does not answer (FA-16) &gt; a request past the timeout ends as a 504 JupiterError, which the pipeline reports as unavailable" time="0.022192672">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/jupiter/test/prepare.test.ts" timestamp="2026-09-24T21:39:35.033Z" hostname="vm" tests="82" failures="0" errors="0" skipped="0" time="9.270517263">
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-01: the amount the user typed is converted with on-chain decimals &gt; an interface that used metadata decimals (9 for USDC) is refused before anything is built" time="0.214269374">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-01: the amount the user typed is converted with on-chain decimals &gt; matching decimals build normally" time="0.183373113">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the prepared swap carries its certificate and timings (ideas 35, 20) &gt; the certificate states the approved debit and the enforced minimum of this exact transaction" time="0.038572734">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-02: Bound computes the minimum itself &gt; a Jupiter floor of 1 is replaced by the quote less the accepted slippage" time="0.076642392">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-02: Bound computes the minimum itself &gt; a stricter Jupiter floor is kept" time="0.044604176">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-02: Bound computes the minimum itself &gt; the minimum the user accepted is enforced when it is stricter than the route floor" time="0.039781586">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-02: Bound computes the minimum itself &gt; Jupiter&apos;s own floor is raised to that minimum as well, no further than it needs (engineering review H-03)" time="0.05181021">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-02: Bound computes the minimum itself &gt; without a stricter accepted minimum, Jupiter keeps the tolerance it was asked for" time="0.046388418">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-02: Bound computes the minimum itself &gt; when the route can no longer deliver the accepted minimum, the user is asked again" time="0.089740579">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-02: Bound computes the minimum itself &gt; an answer for a different amount is not a quote for this swap" time="0.02437793">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-02: Bound computes the minimum itself &gt; a route priced right but too big is reported as not fitting, not as a bad quote" time="0.182863959">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a protected route that costs more than the open market &gt; is put to the user, never refused on their behalf" time="0.010381055">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a protected route that costs more than the open market &gt; is built once the user has accepted that cost" time="0.014001088">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a protected route that costs more than the open market &gt; is still put to the user well past the warning threshold" time="0.01795872">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a protected route that costs more than the open market &gt; is asked about from 0.5% below the market, and goes through silently below that" time="0.026765021">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a protected route that costs more than the open market &gt; is refused only when the answer is no longer a price at all" time="0.013414352">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a token that taxes its own transfers &gt; is swappable: the route is quoted for what arrives, and the withheld fees are harvested" time="0.017808726">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a token that taxes its own transfers &gt; its transaction harvests the withheld amount before closing the temporary account" time="1.130811515">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a token that taxes its own transfers &gt; without the epoch the tax cannot be priced, so nothing is built" time="0.600269179">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a token that taxes its own transfers &gt; a token that charges nothing needs no epoch at all" time="0.039091564">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a token that taxes its own transfers &gt; a token with no tax neither harvests nor reports one" time="0.022192756">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Token-2022 accounts &gt; an output account that requires a memo on every transfer is refused before anything is built" time="0.012691733">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="transient Jupiter refusals &gt; &quot;No matching liquidity&quot; on the first quotes does not end the swap" time="0.857812168">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="B-12: the network fee check fails closed &gt; without a price from the cluster, nothing goes to the wallet" time="0.041223008">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="B-12: the network fee check fails closed &gt; the exact fee is returned for display" time="0.023962455">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-09 and Revoke: costs and side effects are reported from the chain &gt; a new output account costs the rent the cluster quotes today" time="0.056961138">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="C-09 and Revoke: costs and side effects are reported from the chain &gt; removing an existing delegate on the output account is disclosed" time="0.042104008">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the mints a route passes through are screened like its own two &gt; a hop through a token that runs a transfer hook is refused, and nothing is built" time="0.014166663">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the mints a route passes through are screened like its own two &gt; says which extension it was, so the refusal is not a shrug" time="0.019966802">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the mints a route passes through are screened like its own two &gt; a hop through a Token-2022 mint with no extensions builds normally" time="0.017885887">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the mints a route passes through are screened like its own two &gt; a hop that charges a transfer fee is still allowed, because the compiler harvests it" time="0.018350488">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a price that moves between the quote and the simulation &gt; is quoted again, and the market is not left out for it" time="0.028053246">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a price that moves between the quote and the simulation &gt; so is a refusal on price by a Pump.fun market inside the route: the curve is not left out (research audit)" time="0.027938443">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a price that moves between the quote and the simulation &gt; that keeps moving is reported as a price move, not as a broken market" time="0.015505989">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a route that opens an account in the taker&apos;s name (PumpSwap, the Pump.fun bonding curve) &gt; the temporary key is sent exactly the rent the route spends, and nothing more" time="0.021371011">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a route that opens an account in the taker&apos;s name (PumpSwap, the Pump.fun bonding curve) &gt; the same for a swap into SOL and a swap from SOL" time="0.015246373">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a route that opens an account in the taker&apos;s name (PumpSwap, the Pump.fun bonding curve) &gt; a route that needs no rent sends the temporary key none" time="0.038399572">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a route that opens an account in the taker&apos;s name (PumpSwap, the Pump.fun bonding curve) &gt; a route that wants more than the ceiling is not paying rent but spending, and is not funded" time="0.059020799">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a route that opens an account in the taker&apos;s name (PumpSwap, the Pump.fun bonding curve) &gt; when the funded route fails because the price moved, that is what is acted on: quote again, keep the market" time="0.034471566">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="slippage on a Pump.fun bonding curve &gt; a route through the bonding curve is enforced at 3% below the quote, by Bound and by Jupiter" time="0.020653592">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="slippage on a Pump.fun bonding curve &gt; every other route, PumpSwap included, is built at 0.5%, so Jupiter enforces 0.5% on chain too (BR-01)" time="0.026181478">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="slippage on a Pump.fun bonding curve &gt; the label alone does not widen the tolerance: the curve program must be in the route (BR-04)" time="0.016966275">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="slippage on a Pump.fun bonding curve &gt; a minimum the user accepted still wins on the bonding curve when it is stricter" time="0.021679778">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a wallet short of SOL (review BR-10) &gt; is told how much SOL the swap needs, and no market is blamed for it" time="0.01377721">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a wallet short of SOL (review BR-10) &gt; a route short of the taker&apos;s rent is still measured and funded, not reported as the wallet&apos;s" time="0.033132969">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a SOL fee into a treasury wallet that does not exist yet (review BR-06) &gt; is refused, not built fee-free and not left to revert, until the treasury wallet exists (final audit, item 9)" time="0.006016241">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a SOL fee into a treasury wallet that does not exist yet (review BR-06) &gt; charges the fee once the treasury wallet exists" time="0.01568103">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="latency without weaker protection &gt; a page that already saw a curve route asks Jupiter at 3% once, not twice" time="0.019968919">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="latency without weaker protection &gt; a wrong curve hint still builds an ordinary route at 0.5% (BR-01 holds)" time="0.030392822">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="latency without weaker protection &gt; a Pump.fun route goes straight to measuring its rent: two simulations, not three" time="0.040543858">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="latency without weaker protection &gt; the priority fee follows recent fees on the pools, never below the default" time="0.100121984">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="latency without weaker protection &gt; a runaway fee level is capped so the whole fee stays within R4" time="0.03212934">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a Jupiter that is overloaded or silent &gt; a 429 is reported as busy, never as &quot;no route fits, try another token&quot;" time="0.011250428">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a Jupiter that is overloaded or silent &gt; the same when only the protected routes are refused" time="0.011972117">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a Jupiter that is overloaded or silent &gt; a Jupiter that does not answer is unavailable, not a broken market" time="0.008513296">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a Jupiter that is overloaded or silent &gt; a refused key or a path that is gone is Bound&apos;s to fix, not a missing route (research audit F-08)" time="2.158026077">
+            <system-err>
+Jupiter refused Bound&apos;s request with HTTP 401: Jupiter 401: Unauthorized
+Jupiter refused Bound&apos;s request with HTTP 401: Jupiter 401: Unauthorized
+
+Jupiter refused Bound&apos;s request with HTTP 403: Jupiter 403: Unauthorized
+Jupiter refused Bound&apos;s request with HTTP 403: Jupiter 403: Unauthorized
+
+Jupiter refused Bound&apos;s request with HTTP 404: Jupiter 404: Unauthorized
+Jupiter refused Bound&apos;s request with HTTP 404: Jupiter 404: Unauthorized
+
+Jupiter refused Bound&apos;s request with HTTP 410: Jupiter 410: Unauthorized
+Jupiter refused Bound&apos;s request with HTTP 410: Jupiter 410: Unauthorized
+
+            </system-err>
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a Jupiter that is overloaded or silent &gt; the kill switch&apos;s own answer is passed on as it is" time="0.096623533">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a swap that landed and reverted: was it the price? &gt; v0: Jupiter&apos;s own threshold (6001) and Bound&apos;s minimum check are the price; anything else is not" time="0.044528567">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="a swap that landed and reverted: was it the price? &gt; v1: Jupiter&apos;s own threshold (6001) and Bound&apos;s minimum check are the price; anything else is not" time="0.041952068">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="accounts frozen by the token issuer (review FA-12) &gt; a frozen fee account cannot receive the fee, so that swap is refused rather than built free (a stablecoin&apos;s blacklist, say)" time="0.069801532">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="accounts frozen by the token issuer (review FA-12) &gt; a frozen output account is refused with its real reason, not as a failed route" time="0.025536877">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Pump&apos;s per-buyer account under E is closed after the swap and its rent returned (review FA-05) &gt; the rent the market takes comes back to the wallet in the same transaction" time="0.065317174">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Pump&apos;s per-buyer account under E is closed after the swap and its rent returned (review FA-05) &gt; one more simulation than before, to check E ends with nothing" time="0.055599931">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Pump&apos;s per-buyer account under E is closed after the swap and its rent returned (review FA-05) &gt; a route that opens no such account returns nothing and adds nothing" time="0.036202055">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Pump&apos;s per-buyer account under E is closed after the swap and its rent returned (review FA-05) &gt; a cashback coin&apos;s account holds more than its rent: it is left alone, so the swap cannot revert on the refund (F-03)" time="0.050407503">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Pump&apos;s per-buyer account under E is closed after the swap and its rent returned (review FA-05) &gt; a route that fits only without the close is built without it, never sent to the RPC oversized" time="1.658324691">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Pump&apos;s per-buyer account under E is closed after the swap and its rent returned (review FA-05) &gt; without rent to pay there is no account to close" time="0.020618804">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the reason is named, not blamed on the market (research audit) &gt; a Jupiter instruction of a new format is a format change, not a bad price (F-07)" time="0.012670913">
+            <system-err>
+Jupiter answered with a swap instruction the verifier cannot read: its format changed.
+
+            </system-err>
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the reason is named, not blamed on the market (research audit) &gt; an input account frozen by the token&apos;s issuer is refused before anything is quoted (F-09)" time="0.01245519">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the reason is named, not blamed on the market (research audit) &gt; an input balance short of the amount is named, with the numbers the user typed (F-09)" time="0.007822661">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the reason is named, not blamed on the market (research audit) &gt; a failure in Bound&apos;s own steps before the swap stops at once, without blaming a market (F-09)" time="0.015779131">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a sale into SOL pays in SOL, out of the output, last; the minimum shown is what the wallet keeps" time="0.015101129">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a sale into USDC pays in USDC out of the output, when the treasury has a USDC account" time="0.033723489">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; without an account for either token and no wallet, the swap is refused: the user never pays rent for the treasury&apos;s, and never swaps free" time="0.005949422">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; an agent&apos;s floor is what the wallet keeps: the enforced minimum covers the fee on top" time="0.061196851">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a pair neither token of which can carry the fee pays it in SOL, at its value priced for the one-time key" time="0.023844222">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; without a treasury wallet, or a price in SOL, such a pair is refused, not built free; a busy Jupiter is busy" time="0.031891518">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a fee side that changes between the quote and the build keeps the minimum the page showed (engineering review H-04)" time="0.074933679">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Jupiter&apos;s floor, tightened to Bound&apos;s minimum (engineering review H-03) &gt; lowers the tolerance just enough for the floor to reach the minimum" time="0.00037424">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Jupiter&apos;s floor, tightened to Bound&apos;s minimum (engineering review H-03) &gt; a minimum equal to the quote leaves no tolerance" time="0.000092377">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Jupiter&apos;s floor, tightened to Bound&apos;s minimum (engineering review H-03) &gt; leaves the route alone when its floor already covers the minimum, or when nothing could" time="0.000105016">
+        </testcase>
+        <testcase classname="packages/jupiter/test/prepare.test.ts" name="Jupiter&apos;s floor, tightened to Bound&apos;s minimum (engineering review H-03) &gt; only the tolerance changes" time="0.000377534">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/jupiter/test/swap.test.ts" timestamp="2026-09-24T21:39:35.038Z" hostname="vm" tests="16" failures="0" errors="0" skipped="0" time="0.058277591">
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the strict on-chain minimum model &gt; never lets a weak router threshold lower Bound&apos;s slippage floor" time="0.00252862">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the strict on-chain minimum model &gt; keeps a stricter minimum already accepted by the user" time="0.000326037">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the strict on-chain minimum model &gt; recognizes the on-chain self-transfer under TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" time="0.000241869">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the strict on-chain minimum model &gt; recognizes the on-chain self-transfer under TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb" time="0.000153592">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the strict on-chain minimum model &gt; does not mistake an instruction without accounts for the minimum check" time="0.000127378">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the strict on-chain minimum model &gt; does not mistake an ordinary transfer for the minimum check" time="0.000146262">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="route selection &gt; a route over the 64-account limit does not fit" time="0.03556529">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="route selection &gt; a route within the limit compiles" time="0.01395078">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="route selection &gt; any other compile error still surfaces" time="0.001093743">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the size of a new token account, which decides the rent shown before signing &gt; a classic account is 165 bytes" time="0.000364003">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the size of a new token account, which decides the rent shown before signing &gt; a Token-2022 account with no extensions still carries the ImmutableOwner marker: 170" time="0.000161963">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the size of a new token account, which decides the rent shown before signing &gt; PYUSD and USDG accounts are 187 bytes, as on mainnet" time="0.000175701">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="the size of a new token account, which decides the rent shown before signing &gt; CASH accounts are 175 bytes, as on mainnet" time="0.000151387">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="which slippage a route gets &gt; 3% when a leg trades on a Pump.fun bonding curve and the route invokes the curve program" time="0.000234628">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="which slippage a route gets &gt; 0.5% otherwise, including a curve label on a route without the curve program (BR-04)" time="0.000181183">
+        </testcase>
+        <testcase classname="packages/jupiter/test/swap.test.ts" name="which slippage a route gets &gt; a quote shows the minimum of the tolerance its route will be built at" time="0.0001483">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/solana/test/send.test.ts" timestamp="2026-09-24T21:39:35.039Z" hostname="vm" tests="30" failures="0" errors="0" skipped="0" time="3.519979307">
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; reports the signature before the first request" time="0.036669927">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; a lost connection on the first send keeps watching: it may have landed" time="0.005658488">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; a gateway error (5xx) is ambiguous, not a refusal" time="0.007582774">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; an upstream 4xx is ambiguous without Bound&apos;s local-refusal marker" time="0.008158313">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; an internal JSON-RPC error keeps watching because the node may have accepted the send" time="0.010915286">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; a preflight refusal means it was never broadcast" time="0.004160951">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; a refusal from Bound&apos;s proxy (4xx) means it was never broadcast" time="0.004920092">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; status reads that keep failing end as unknown, never as &quot;nothing moved&quot;" time="0.157745443">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; processed at expiry is not an outcome: it waits for confirmation" time="0.010474038">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; processed but never confirmed after expiry ends as unknown" time="0.010660715">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; expired only when the cluster has no record of it after the blockhash expired" time="0.022516372">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="C-03: the outcome of a send &gt; an on-chain error is a failure that reverted" time="0.015893131">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="who refused a send that was never broadcast &gt; Bound&apos;s kill switch (403 from the relay) is told as a pause, not as a price move" time="0.163481284">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="who refused a send that was never broadcast &gt; the relay&apos;s send limit (429) is told as too many requests" time="0.008231432">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="who refused a send that was never broadcast &gt; the RPC&apos;s preflight is the network&apos;s refusal" time="0.00458376">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="a rate-limited RPC in the production build &gt; has no &quot;429&quot; in its message, so the status must come from the context" time="0.001165406">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="a rate-limited RPC in the production build &gt; is retried, and the answer that follows is returned" time="0.009986948">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="a rate-limited RPC in the production build &gt; a send is never retried by the transport: a 429 may follow a forwarded request (engineering audit S1-H-02)" time="0.013157756">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="a rate-limited RPC in the production build &gt; any other failure is not retried" time="0.000659904">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="one send, for a caller that confirms on its own (the agent API) &gt; accepted by the RPC is sent" time="0.065255181">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="one send, for a caller that confirms on its own (the agent API) &gt; a preflight refusal is rejected: never broadcast" time="0.00942081">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="one send, for a caller that confirms on its own (the agent API) &gt; a preflight refusal of a signature the cluster already has is a second send, not a rejection" time="0.163343321">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="one send, for a caller that confirms on its own (the agent API) &gt; a preflight refusal whose status cannot be read is unknown, not rejected (engineering review H-01)" time="0.251695321">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="one send, for a caller that confirms on its own (the agent API) &gt; a lost connection is unknown: it may have been forwarded" time="0.008332534">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="outcomes are said only once the chain proves them (review FA-07) &gt; an error seen only at processed (a fork, perhaps) is not a failure: the swap lands confirmed later" time="0.004801255">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="outcomes are said only once the chain proves them (review FA-07) &gt; a status node behind the finalized slot cannot make a swap expired, whatever the height (engineering audit S1-H-01)" time="0.023711764">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="outcomes are said only once the chain proves them (review FA-07) &gt; expiry needs the finalized height past the lifetime too, so a lagging node cannot make it expired" time="0.012089414">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="outcomes are said only once the chain proves them (review FA-07) &gt; a failure confirmed by the chain is a failure" time="0.00631351">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="reads that must not be older than a slot (final audit, item 6) &gt; asks for the slot, waits for a node that is behind, and answers at least that recent" time="0.805162833">
+        </testcase>
+        <testcase classname="packages/solana/test/send.test.ts" name="reads that must not be older than a slot (final audit, item 6) &gt; a node that stays behind fails the read instead of answering from older state" time="1.666963641">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/verifier/test/architecture.test.ts" timestamp="2026-09-24T21:39:35.041Z" hostname="vm" tests="3" failures="0" errors="0" skipped="0" time="0.007962467">
+        <testcase classname="packages/verifier/test/architecture.test.ts" name="verifier independence (plan, section 10) &gt; imports only kit, the token program client, Bound constants and types, and its own files" time="0.003818456">
+        </testcase>
+        <testcase classname="packages/verifier/test/architecture.test.ts" name="verifier independence (plan, section 10) &gt; @bound/core does not depend on the verifier" time="0.001329566">
+        </testcase>
+        <testcase classname="packages/verifier/test/architecture.test.ts" name="verifier independence (plan, section 10) &gt; economic limits come from constants.ts, not only from the policy (audit B-01, B-02)" time="0.000855543">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/verifier/test/audit.test.ts" timestamp="2026-09-24T21:39:35.042Z" hostname="vm" tests="42" failures="0" errors="0" skipped="0" time="0.972727477">
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-01: the Bound fee is bounded by the verifier, not by the configuration &gt; a 5000 bps fee is rejected even though the policy is self-consistent" time="0.110073237">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-01: the Bound fee is bounded by the verifier, not by the configuration &gt; a 9999 bps fee is rejected even though the policy is self-consistent" time="0.018994613">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-01: the Bound fee is bounded by the verifier, not by the configuration &gt; a 101 bps fee is rejected even though the policy is self-consistent" time="0.025739357">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-02: F_max is bounded by the verifier, not by the configuration &gt; a 710,000 lamport fee is rejected even when the policy allows 1 SOL" time="0.010359918">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-02: F_max is bounded by the verifier, not by the configuration &gt; a configured F_max above the absolute maximum is itself a violation" time="0.017497731">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-03: W_out authorities &gt; a delegate on W_out is neutralised by a trusted Revoke before the swap" time="0.016230522">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-03: W_out authorities &gt; a transaction without the Revoke is rejected" time="0.016148467">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-03: W_out authorities &gt; W_out with a close authority is refused" time="0.015381032">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-03: W_out authorities &gt; W_out missing from the snapshot fails closed" time="0.016756713">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; A: USDC → SOL (check on E_out): the honest check is accepted" time="0.010067625">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; B: SOL → USDC (check on W_out): the honest check is accepted" time="0.012373127">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; C: USDC → BONK, W_out already holds a balance: the honest check is accepted" time="0.010268324">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; C: USDC → Token-2022 BONK: the honest check is accepted" time="0.019184242">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; a transaction without the check is rejected" time="0.013129362">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; a check for less than the policy minimum is rejected" time="0.012578579">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; a check that ignores the existing W_out balance is rejected" time="0.016405666">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; a check placed after E_out is closed is rejected" time="0.010353352">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-04: Bound enforces the minimum output itself &gt; a policy without a minimum output is rejected" time="0.023011045">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="Token-2022 MemoTransfer account state &gt; allows an account whose memo requirement is present but disabled" time="0.000387281">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="Token-2022 MemoTransfer account state &gt; refuses an account whose incoming memo requirement is enabled" time="0.000202477">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="Token-2022 MemoTransfer account state &gt; fails closed on a malformed MemoTransfer payload" time="0.000130354">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-07: the v1 message config is an allowlist &gt; a heap size in the v1 config is rejected" time="0.032184391">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-09: the user never pays rent for Bound&apos;s fee account &gt; without a fee account the swap is fee-free and creates nothing for the treasury, v0" time="0.022733082">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-09: the user never pays rent for Bound&apos;s fee account &gt; without a fee account the swap is fee-free and creates nothing for the treasury, v1" time="0.01569315">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-09: the user never pays rent for Bound&apos;s fee account &gt; creating the treasury&apos;s account at the user&apos;s expense is rejected" time="0.025838185">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-09: the user never pays rent for Bound&apos;s fee account &gt; a SOL input still pays the fee to the treasury wallet, which needs no account" time="0.021448502">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; a hop through a taxing mint is accepted when its withheld fees are harvested first" time="0.026730913">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; the same hop without the harvest could not be closed → R5" time="0.029091041">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; a base mint without extensions is accepted" time="0.030935909">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; a harmless extension (metadata pointer) is accepted" time="0.024893837">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; a transfer-hook extension with no program is accepted" time="0.050162979">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; a mint that runs a transfer hook is rejected" time="0.030762097">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; a hop whose issuer delegate is an ordinary key is accepted" time="0.031213083">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; a hop whose issuer delegate a program can sign for is rejected" time="0.036077364">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; a hop mint missing from the snapshot is rejected" time="0.021311854">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-10: Token-2022 intermediate hops &gt; the number of intermediate accounts is bounded" time="0.041374954">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="B-11: Bound fee accounts are kept away from the external program &gt; the treasury&apos;s fee ATA inside the swap is rejected" time="0.019867382">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="controls the review ran &gt; an unrelated W token account in the swap is rejected with R1" time="0.017005559">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="controls the review ran &gt; an external account missing from the snapshot fails closed with R1" time="0.014496949">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="controls the review ran &gt; R5 measures the real wire size" time="0.027851219">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="second review, C-05: the verifier derives what the policy claims &gt; a policy whose variant does not match its mints is rejected" time="0.039419617">
+        </testcase>
+        <testcase classname="packages/verifier/test/audit.test.ts" name="second review, C-05: the verifier derives what the policy claims &gt; decimals that disagree with the mint in the snapshot are rejected" time="0.029138683">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/verifier/test/certificate.test.ts" timestamp="2026-09-24T21:39:35.044Z" hostname="vm" tests="8" failures="0" errors="0" skipped="0" time="0.324871716">
+        <testcase classname="packages/verifier/test/certificate.test.ts" name="certificate &gt; USDC → SOL, v0: states what the user approved, bound to the exact bytes" time="0.133017487">
+        </testcase>
+        <testcase classname="packages/verifier/test/certificate.test.ts" name="certificate &gt; USDC → SOL, v1: states what the user approved, bound to the exact bytes" time="0.052998655">
+        </testcase>
+        <testcase classname="packages/verifier/test/certificate.test.ts" name="certificate &gt; USDC → BONK, v0: states what the user approved, bound to the exact bytes" time="0.052047993">
+        </testcase>
+        <testcase classname="packages/verifier/test/certificate.test.ts" name="certificate &gt; USDC → BONK, v1: states what the user approved, bound to the exact bytes" time="0.018960903">
+        </testcase>
+        <testcase classname="packages/verifier/test/certificate.test.ts" name="certificate &gt; a fee in SOL from the wallet is stated as such, with where it goes" time="0.033940299">
+        </testcase>
+        <testcase classname="packages/verifier/test/certificate.test.ts" name="certificate &gt; names the slot the chain state was read at, when the reader recorded one" time="0.011376564">
+        </testcase>
+        <testcase classname="packages/verifier/test/certificate.test.ts" name="certificate &gt; is never issued for a transaction that fails a rule" time="0.009424215">
+        </testcase>
+        <testcase classname="packages/verifier/test/certificate.test.ts" name="certificate &gt; a SOL output names WSOL as the output mint" time="0.011126105">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/verifier/test/extensions.test.ts" timestamp="2026-09-24T21:39:35.045Z" hostname="vm" tests="5" failures="0" errors="0" skipped="0" time="3.509479772">
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding" time="0.673693399">
+        </testcase>
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; every combination of the entries a swap can live with is accepted" time="0.621284377">
+        </testcase>
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too" time="0.522147109">
+        </testcase>
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; an area cut short is refused, wherever the cut falls" time="1.677377444">
+        </testcase>
+        <testcase classname="packages/verifier/test/extensions.test.ts" name="Token-2022: any combination of extensions (final audit, item 4) &gt; the fixtures mean what they say: ordinary keys are on the curve, program addresses are not" time="0.004225839">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/verifier/test/property.test.ts" timestamp="2026-09-24T21:39:35.045Z" hostname="vm" tests="3" failures="0" errors="0" skipped="0" time="9.583430493">
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; a Token-2022 mint with an extension we refuse never passes" time="2.981717162">
+        </testcase>
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; every honest shape the compiler produces is accepted" time="5.046855984">
+        </testcase>
+        <testcase classname="packages/verifier/test/property.test.ts" name="T3: property tests &gt; every attack is rejected" time="1.551112809">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/verifier/test/verifier.test.ts" timestamp="2026-09-24T21:39:35.046Z" hostname="vm" tests="117" failures="0" errors="0" skipped="0" time="3.560041249">
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; A: USDC → SOL, v0" time="0.127967462">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; A: USDC → SOL, v1" time="0.033245336">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; B: SOL → USDC, v0" time="0.029324186">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; B: SOL → USDC, v1" time="0.014420014">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; C: USDC → BONK, v0" time="0.016123849">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; C: USDC → BONK, v1" time="0.011416692">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; no fee (test mode), v0" time="0.008360446">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; no fee (test mode), v1" time="0.010466563">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; no fee account: fee waived, v0" time="0.011327454">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; no fee account: fee waived, v1" time="0.00818285">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; two intermediate accounts, v0" time="0.015223778">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="honest protected swaps are accepted &gt; two intermediate accounts, v1" time="0.014310615">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M1: W in the swap instruction → R1" time="0.009418564">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M2: W&apos;s input token account hidden in an ALT → R1" time="0.007635006">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M3: W&apos;s input token account passed directly → R1" time="0.008882891">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M4: another of W&apos;s token accounts (WIF) via an ALT → R1" time="0.023798943">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M5: an added Approve → R2" time="0.019603704">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M6: SetAuthority on one of W&apos;s accounts → R2" time="0.033183803">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M7: CloseAccount to the attacker → R2" time="0.021801327">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M8: the input transfer is q − f + 1 → R2" time="0.033792201">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M9: a program other than Jupiter as the swap → R2" time="0.020406577">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M10: two untrusted instructions → R2" time="0.020116189">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M11: E already exists on chain with a balance → R3" time="0.024021964">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M12: an extreme compute unit price → R4" time="0.024944013">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M13: missing compute unit limit (v0) → R4" time="0.029063443">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M14a: the E_in close is missing → R5" time="0.015509966">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M14b: a v0 transaction over 1232 bytes → R5" time="0.03797932">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M15a: a third signer → R6" time="0.021364228">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M15b: someone else pays the fee → R6" time="0.033039215">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M16: the mint belongs to another token program than the policy says → R2" time="0.020022402">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="T2: mutation catalogue (plan, section 9) &gt; M17: an account loaded twice, statically and through an ALT → R5 (review BR-14)" time="0.069471429">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; an honest swap of a Token-2022 token with metadata only passes every rule" time="0.062860272">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a declared transfer hook with no program set runs no code, so it is accepted" time="0.187556272">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a transfer hook with a real program → R7" time="0.065302272">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a permanent delegate that is an ordinary key can act only by signing, so it is accepted" time="0.009491805">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a permanent delegate that a program can sign for → R7" time="0.009874634">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; new accounts that start initialized change nothing, so the default-state extension is accepted" time="0.018824223">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; the fee on confidential transfers never touches a public one, so it is accepted" time="0.012013301">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; PYUSD&apos;s own set of extensions passes every rule" time="0.01214995">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; accounts frozen by default → R7" time="0.024412882">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a default state that is not a state at all → R7" time="0.021360225">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a default-state extension of the wrong size → R7" time="0.042919812">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a permanent-delegate extension of the wrong size → R7" time="0.027681143">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a confidential-fee extension of the wrong size → R7" time="0.018988819">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; an interest-bearing mint → R7" time="0.011365758">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a scaled UI amount → R7" time="0.007853835">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a pausable mint → R7" time="0.009318675">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; an extension nobody has read yet → R7" time="0.008952544">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; the output side works the same way" time="0.011906064">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a token that taxes its transfers is accepted, with the withheld fees harvested before the close" time="0.011706472">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; without the harvest, the temporary account could not be closed → R5" time="0.01732505">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; harvesting after the close is refused → R5" time="0.025584805">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a policy that hides the transfer fee → R2" time="0.031006896">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; an extension whose declared length disagrees with the program layout → R7" time="0.023299534">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; bytes left over after the last extension → R7, unless they are zeros, where nothing can be read" time="0.041673825">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Token-2022 &gt; a Token-2022 swap compiled with the classic program is refused" time="0.020567263">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; a SOL transfer from W to the attacker → R2" time="0.017420706">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; System Assign of W → R2" time="0.018359096">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; a ComputeBudget instruction inside a v1 transaction → R4" time="0.01615263">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; an intermediate account that is created but never closed → R5" time="0.136090312">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; a swap placed before the input transfer → R2" time="0.018178558">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; an ALT the verifier cannot resolve → R1" time="0.022721033">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; a policy whose fee does not match the config → R2" time="0.021102737">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; the fee transfer redirected to another account → R2" time="0.044684457">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="more attacks &gt; a signer other than E owning a temporary account" time="0.038656353">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; exactly the measured rent to E is accepted, A: token → SOL, v0" time="0.019987667">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; exactly the measured rent to E is accepted, A: token → SOL, v1" time="0.018662601">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; exactly the measured rent to E is accepted, B: SOL → token, v0" time="0.017361332">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; exactly the measured rent to E is accepted, B: SOL → token, v1" time="0.017458396">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; exactly the measured rent to E is accepted, C: token → token, v0" time="0.04907437">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; exactly the measured rent to E is accepted, C: token → token, v1" time="0.072861507">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; one lamport more than the policy states → R2" time="0.043466444">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; the rent sent to anyone but E → R2" time="0.063694917">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; SOL for E when the policy states none → R2" time="0.040967388">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; the rent the policy states, but missing from the transaction → R4" time="0.028850248">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; the rent sent after the swap → R2" time="0.176123722">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; a policy asking for more than the ceiling → R4, whatever the transaction says" time="0.021365131">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="rent a route needs the temporary key to pay (PumpSwap) &gt; the certificate states the rent, so the page can show it" time="0.023835312">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="each load-bearing check has a test of its own (review FA-09) &gt; W in the swap is refused by its own check, also when W is in the snapshot as it is in production" time="0.013769751">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="each load-bearing check has a test of its own (review FA-09) &gt; E as the fee payer is refused by the fee-payer check (the signer set alone would pass)" time="0.028194512">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="each load-bearing check has a test of its own (review FA-09) &gt; the minimum-output check placed before the swap is refused" time="0.025468354">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; an honest route passes; so does the shared-accounts form of it" time="0.068579698">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; the route must deliver to the wallet&apos;s own output account, where Jupiter measures its floor" time="0.044251746">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; for SOL, the route must deliver to the temporary output account" time="0.032413763">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; any other instruction of Jupiter is refused, so a new format stops swaps instead of passing unread" time="0.015703203">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; a tolerance above 0.5% is refused, and above 3% on a bonding curve" time="0.034134643">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; a quote below the minimum output is refused: Jupiter would enforce less than Bound promised" time="0.013183827">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; a minimum above Jupiter&apos;s own floor is refused, though its quote covers it (engineering review H-03)" time="0.017736515">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; a platform fee or positive slippage taken by the route is refused" time="0.036576876">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Jupiter&apos;s own floor is read from its instruction (review FA-03) &gt; an amount in above what the temporary account holds, or zero, is refused" time="0.028481875">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Bound&apos;s own accounts are never loaded from a lookup table (review FA-16) &gt; W_out in a table the message uses is refused" time="0.02837666">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Bound&apos;s own accounts are never loaded from a lookup table (review FA-16) &gt; E_in in a table the message uses is refused" time="0.030125767">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Bound&apos;s own accounts are never loaded from a lookup table (review FA-16) &gt; Bound&apos;s fee account in a table the message uses is refused" time="0.022055682">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="Bound&apos;s own accounts are never loaded from a lookup table (review FA-16) &gt; the compiler keeps them in the message even when a table lists them, and the result passes" time="0.138209768">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; an honest swap through the bonding curve passes, v0" time="0.019674129">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; an honest swap through the bonding curve passes, v1" time="0.022526341">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; an honest swap through PumpSwap passes, v0" time="0.023138501">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; an honest swap through PumpSwap passes, v1" time="0.0201245">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; also on a sale into SOL, where E_out is closed before it" time="0.025867746">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; the lamports sent to anyone but W are refused" time="0.017338894">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; another amount is refused" time="0.014140664">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; an account that is not E&apos;s own for that market is refused" time="0.018112004">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; closed while E still owns a token account (before E_in is closed) is refused" time="0.01742368">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; the lamports sent on before the account is closed are refused" time="0.016814715">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; the close without the refund is refused" time="0.017956615">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; a Pump close the policy does not state is refused" time="0.024527733">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; any other Pump instruction outside the route is refused" time="0.008228427">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) &gt; a refund from a program that is not a Pump market, or above the rent ceiling, is refused" time="0.015417419">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a sale into SOL pays in SOL, from the wallet after E_out has paid out, as the last instruction" time="0.009498503">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a sale into USDC pays in USDC, from W_out after its minimum is checked" time="0.02001348">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; SOL comes first on either side; USDC before the input token; the input token when it is all there is" time="0.034266916">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a fee on the output moved before the swap, or before the minimum check, is refused" time="0.020699372">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a fee on the output that is larger, or goes elsewhere, is refused" time="0.014799979">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a pair neither token of which can carry the fee pays it in SOL, from the wallet, before the swap" time="0.02412079">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a fee in SOL that is larger, goes elsewhere, comes after the swap, or is left out, is refused" time="0.058435567">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a fee in SOL is only for a pair without SOL, and without a price or a treasury wallet the pair is fee-free" time="0.040700991">
+        </testcase>
+        <testcase classname="packages/verifier/test/verifier.test.ts" name="the fee, taken like Jupiter&apos;s: SOL first, then USDC and USDT, otherwise the input token &gt; a policy that takes the fee from an output other than SOL, USDC or USDT, or states another amount, is refused" time="0.04312859">
+        </testcase>
+    </testsuite>
+    <testsuite name="packages/verifier/test/wallet.test.ts" timestamp="2026-09-24T21:39:35.056Z" hostname="vm" tests="6" failures="0" errors="0" skipped="0" time="0.261746607">
+        <testcase classname="packages/verifier/test/wallet.test.ts" name="R6: what the wallet returns &gt; accepts the identical message signed by W" time="0.129160805">
+        </testcase>
+        <testcase classname="packages/verifier/test/wallet.test.ts" name="R6: what the wallet returns &gt; rejects a changed message" time="0.08914009">
+        </testcase>
+        <testcase classname="packages/verifier/test/wallet.test.ts" name="R6: what the wallet returns &gt; rejects a missing wallet signature" time="0.01039504">
+        </testcase>
+        <testcase classname="packages/verifier/test/wallet.test.ts" name="R6: what the wallet returns &gt; rejects a signature over a different message" time="0.01393054">
+        </testcase>
+        <testcase classname="packages/verifier/test/wallet.test.ts" name="R6: what the wallet returns &gt; rejects a transaction that E has already signed" time="0.009896335">
+        </testcase>
+        <testcase classname="packages/verifier/test/wallet.test.ts" name="R6: what the wallet returns &gt; rejects bytes that are not a transaction" time="0.0067349">
+        </testcase>
+    </testsuite>
+</testsuites>

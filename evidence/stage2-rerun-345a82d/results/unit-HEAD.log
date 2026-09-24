@@ -1,0 +1,600 @@
+
+ RUN  v4.1.11 <repo>
+
+stdout | apps/web/test/skillExample.test.ts
+[fc-seed] 20260924
+
+stdout | packages/verifier/test/verifier.test.ts
+[fc-seed] 20260924
+
+stdout | packages/jupiter/test/prepare.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > A: USDC → SOL, v0 128ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > C: USDC → BONK, v1 11ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > A: USDC → SOL, v1 33ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > no fee (test mode), v0 8ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > B: SOL → USDC, v0 29ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > no fee (test mode), v1 10ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > B: SOL → USDC, v1 14ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > no fee account: fee waived, v0 11ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > C: USDC → BONK, v0 16ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > no fee account: fee waived, v1 8ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > two intermediate accounts, v0 15ms
+ ✓ packages/verifier/test/verifier.test.ts > honest protected swaps are accepted > two intermediate accounts, v1 14ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M1: W in the swap instruction → R1 9ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M2: W's input token account hidden in an ALT → R1 8ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M3: W's input token account passed directly → R1 9ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-01: the amount the user typed is converted with on-chain decimals > an interface that used metadata decimals (9 for USDC) is refused before anything is built 214ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-01: the amount the user typed is converted with on-chain decimals > matching decimals build normally 183ms
+ ✓ packages/jupiter/test/prepare.test.ts > the prepared swap carries its certificate and timings (ideas 35, 20) > the certificate states the approved debit and the enforced minimum of this exact transaction 39ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-02: Bound computes the minimum itself > a Jupiter floor of 1 is replaced by the quote less the accepted slippage 77ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-02: Bound computes the minimum itself > a stricter Jupiter floor is kept 45ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M4: another of W's token accounts (WIF) via an ALT → R1 24ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M8: the input transfer is q − f + 1 → R2 34ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M13: missing compute unit limit (v0) → R4 29ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M15b: someone else pays the fee → R6 33ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > an honest swap of a Token-2022 token with metadata only passes every rule 63ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M5: an added Approve → R2 20ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M9: a program other than Jupiter as the swap → R2 20ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M14a: the E_in close is missing → R5 16ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M16: the mint belongs to another token program than the policy says → R2 20ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M6: SetAuthority on one of W's accounts → R2 33ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M10: two untrusted instructions → R2 20ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M14b: a v0 transaction over 1232 bytes → R5 38ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M17: an account loaded twice, statically and through an ALT → R5 (review BR-14) 69ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M7: CloseAccount to the attacker → R2 22ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M11: E already exists on chain with a balance → R3 24ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M15a: a third signer → R6 21ms
+ ✓ packages/verifier/test/verifier.test.ts > T2: mutation catalogue (plan, section 9) > M12: an extreme compute unit price → R4 25ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-02: Bound computes the minimum itself > an answer for a different amount is not a quote for this swap 24ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-02: Bound computes the minimum itself > a route priced right but too big is reported as not fitting, not as a bad quote 183ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-02: Bound computes the minimum itself > the minimum the user accepted is enforced when it is stricter than the route floor 40ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-02: Bound computes the minimum itself > when the route can no longer deliver the accepted minimum, the user is asked again 90ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-02: Bound computes the minimum itself > Jupiter's own floor is raised to that minimum as well, no further than it needs (engineering review H-03) 52ms
+ ✓ packages/jupiter/test/prepare.test.ts > a protected route that costs more than the open market > is put to the user, never refused on their behalf 10ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-02: Bound computes the minimum itself > without a stricter accepted minimum, Jupiter keeps the tolerance it was asked for 46ms
+ ✓ packages/jupiter/test/prepare.test.ts > a protected route that costs more than the open market > is built once the user has accepted that cost 14ms
+ ✓ packages/jupiter/test/prepare.test.ts > a protected route that costs more than the open market > is still put to the user well past the warning threshold 18ms
+ ✓ packages/jupiter/test/prepare.test.ts > a protected route that costs more than the open market > is asked about from 0.5% below the market, and goes through silently below that 27ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a declared transfer hook with no program set runs no code, so it is accepted 188ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a transfer hook with a real program → R7 65ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a permanent delegate that is an ordinary key can act only by signing, so it is accepted 9ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a permanent delegate that a program can sign for → R7 10ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > new accounts that start initialized change nothing, so the default-state extension is accepted 19ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > the fee on confidential transfers never touches a public one, so it is accepted 12ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > PYUSD's own set of extensions passes every rule 12ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > accounts frozen by default → R7 24ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a default state that is not a state at all → R7 21ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a default-state extension of the wrong size → R7 43ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a permanent-delegate extension of the wrong size → R7 28ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a confidential-fee extension of the wrong size → R7 19ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > an interest-bearing mint → R7 11ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a scaled UI amount → R7 8ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a pausable mint → R7 9ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > an extension nobody has read yet → R7 9ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > the output side works the same way 12ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a token that taxes its transfers is accepted, with the withheld fees harvested before the close 12ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > without the harvest, the temporary account could not be closed → R5 17ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > harvesting after the close is refused → R5 26ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a policy that hides the transfer fee → R2 31ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > an extension whose declared length disagrees with the program layout → R7 23ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > bytes left over after the last extension → R7, unless they are zeros, where nothing can be read 42ms
+ ✓ packages/verifier/test/verifier.test.ts > Token-2022 > a Token-2022 swap compiled with the classic program is refused 21ms
+ ✓ apps/web/test/skillExample.test.ts > the skill's example > prepares, verifies on its own RPC, signs as the wallet, finalizes and confirms 432ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > a SOL transfer from W to the attacker → R2 17ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > System Assign of W → R2 18ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > a ComputeBudget instruction inside a v1 transaction → R4 16ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > an intermediate account that is created but never closed → R5 136ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > a swap placed before the input transfer → R2 18ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > an ALT the verifier cannot resolve → R1 23ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > a policy whose fee does not match the config → R2 21ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > the fee transfer redirected to another account → R2 45ms
+ ✓ packages/verifier/test/verifier.test.ts > more attacks > a signer other than E owning a temporary account 39ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > exactly the measured rent to E is accepted, A: token → SOL, v0 20ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > exactly the measured rent to E is accepted, A: token → SOL, v1 19ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > exactly the measured rent to E is accepted, B: SOL → token, v0 17ms
+ ✓ packages/jupiter/test/prepare.test.ts > a protected route that costs more than the open market > is refused only when the answer is no longer a price at all 13ms
+ ✓ packages/jupiter/test/prepare.test.ts > a token that taxes its own transfers > is swappable: the route is quoted for what arrives, and the withheld fees are harvested 18ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > exactly the measured rent to E is accepted, B: SOL → token, v1 17ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > exactly the measured rent to E is accepted, C: token → token, v0 49ms
+ ✓ apps/web/test/skillExample.test.ts > the skill's example > an honest answer passes the agent's full check 226ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > the audit's drain: 1,000,000 USDC and 50 SOL to an attacker, with every statement made to match 98ms
+ ✓ packages/jupiter/test/prepare.test.ts > a token that taxes its own transfers > its transaction harvests the withheld amount before closing the temporary account 1131ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > an extra Approve of the wallet's input account to the attacker 44ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > an extra SetAuthority handing the input account to the attacker 41ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > exactly the measured rent to E is accepted, C: token → token, v1 73ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > one lamport more than the policy states → R2 43ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a System Assign of the wallet to another program 47ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a fee above Bound's 0.3% is refused unless the agent raises its limit itself 40ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a fee of 1%, above the most an agent accepts 53ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a priority fee of 1 SOL 46ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > unless the agent names another, the fee may go only to Bound's pinned treasury, or nowhere 81ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a minimum of 1 31ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > the swap program swapped for the attacker's 52ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > the rent sent to anyone but E → R2 64ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > the rent sent after the swap → R2 176ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > SOL for E when the policy states none → R2 41ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > a policy asking for more than the ceiling → R4, whatever the transaction says 21ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > the rent the policy states, but missing from the transaction → R4 29ms
+ ✓ packages/verifier/test/verifier.test.ts > rent a route needs the temporary key to pay (PumpSwap) > the certificate states the rent, so the page can show it 24ms
+ ✓ packages/verifier/test/verifier.test.ts > each load-bearing check has a test of its own (review FA-09) > W in the swap is refused by its own check, also when W is in the snapshot as it is in production 14ms
+ ✓ packages/verifier/test/verifier.test.ts > each load-bearing check has a test of its own (review FA-09) > E as the fee payer is refused by the fee-payer check (the signer set alone would pass) 28ms
+ ✓ packages/verifier/test/verifier.test.ts > each load-bearing check has a test of its own (review FA-09) > the minimum-output check placed before the swap is refused 25ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > an honest route passes; so does the shared-accounts form of it 69ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > the route must deliver to the wallet's own output account, where Jupiter measures its floor 44ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > the fee sent to another treasury is refused when the agent pins Bound's 117ms
+ ✓ packages/jupiter/test/prepare.test.ts > a token that taxes its own transfers > without the epoch the tax cannot be priced, so nothing is built 600ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > for SOL, the route must deliver to the temporary output account 32ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > any other instruction of Jupiter is refused, so a new format stops swaps instead of passing unread 16ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > a tolerance above 0.5% is refused, and above 3% on a bonding curve 34ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > a quote below the minimum output is refused: Jupiter would enforce less than Bound promised 13ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > a minimum above Jupiter's own floor is refused, though its quote covers it (engineering review H-03) 18ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > answers that disagree with what was asked are refused by the plain checks too 128ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > without a floor of its own the agent does not sign: the price would be the server's word (F-02) 69ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > a platform fee or positive slippage taken by the route is refused 37ms
+ ✓ packages/verifier/test/verifier.test.ts > Jupiter's own floor is read from its instruction (review FA-03) > an amount in above what the temporary account holds, or zero, is refused 28ms
+ ✓ packages/verifier/test/verifier.test.ts > Bound's own accounts are never loaded from a lookup table (review FA-16) > W_out in a table the message uses is refused 28ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > a server that sells for almost nothing passes every rule, and is refused by the floor the agent got from Jupiter (F-02) 71ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > the example asks Jupiter for its floor itself and sends it with prepare (F-02) 74ms
+ ✓ packages/verifier/test/verifier.test.ts > Bound's own accounts are never loaded from a lookup table (review FA-16) > E_in in a table the message uses is refused 30ms
+ ✓ packages/verifier/test/verifier.test.ts > Bound's own accounts are never loaded from a lookup table (review FA-16) > Bound's fee account in a table the message uses is refused 22ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > route rent the server says the market needs, but that stays with the one-time key, is refused (F-06) 24ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > rent the route keeps is refused beyond the limit the agent sets, 0.001 SOL by default (engineering review M-05) 30ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > lamports left in a Pump market account under the one-time key are refused (engineering review M-05) 24ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > cashback left in a token account of a Pump market account under E is refused (engineering audit U1) 32ms
+ ✓ packages/verifier/test/verifier.test.ts > Bound's own accounts are never loaded from a lookup table (review FA-16) > the compiler keeps them in the message even when a table lists them, and the result passes 138ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > an honest swap through the bonding curve passes, v0 20ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > an honest swap through the bonding curve passes, v1 23ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > an honest swap through PumpSwap passes, v0 23ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > an honest swap through PumpSwap passes, v1 20ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > a simulation that does not report the accounts proves nothing, and is refused (engineering review M-05) 52ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > also on a sale into SOL, where E_out is closed before it 26ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > the lamports sent to anyone but W are refused 17ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > another amount is refused 14ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > an account that is not E's own for that market is refused 18ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > closed while E still owns a token account (before E_in is closed) is refused 17ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > the lamports sent on before the account is closed are refused 17ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > with too few blocks left to land, the example does not finalize (F-05) 68ms
+ ✓ apps/web/test/skillExample.test.ts > the fee, taken like Jupiter's, as the agent sees it > a sale into SOL pays in SOL out of the output; the minimum the agent checks is what its wallet keeps 72ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > the close without the refund is refused 18ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > a Pump close the policy does not state is refused 25ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > any other Pump instruction outside the route is refused 8ms
+ ✓ packages/verifier/test/verifier.test.ts > the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05) > a refund from a program that is not a Pump market, or above the rent ceiling, is refused 15ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a sale into SOL pays in SOL, from the wallet after E_out has paid out, as the last instruction 9ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a sale into USDC pays in USDC, from W_out after its minimum is checked 20ms
+ ✓ apps/web/test/skillExample.test.ts > the fee, taken like Jupiter's, as the agent sees it > a server that takes a larger fee from the output than it states is refused 187ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > SOL comes first on either side; USDC before the input token; the input token when it is all there is 34ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a fee on the output moved before the swap, or before the minimum check, is refused 21ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a fee on the output that is larger, or goes elsewhere, is refused 15ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a pair neither token of which can carry the fee pays it in SOL, from the wallet, before the swap 24ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > an answer lost after the swap was sent: finalize is asked once more, and the same transaction confirms 85ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a fee in SOL that is larger, goes elsewhere, comes after the swap, or is left out, is refused 58ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a fee in SOL is only for a pair without SOL, and without a price or a treasury wallet the pair is fee-free 41ms
+ ✓ packages/verifier/test/verifier.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a policy that takes the fee from an output other than SOL, USDC or USDT, or states another amount, is refused 43ms
+ ✓ packages/jupiter/test/prepare.test.ts > a token that taxes its own transfers > a token that charges nothing needs no epoch at all 39ms
+ ✓ packages/jupiter/test/prepare.test.ts > a token that taxes its own transfers > a token with no tax neither harvests nor reports one 22ms
+ ✓ packages/jupiter/test/prepare.test.ts > Token-2022 accounts > an output account that requires a memo on every transfer is refused before anything is built 13ms
+ ✓ packages/jupiter/test/prepare.test.ts > transient Jupiter refusals > "No matching liquidity" on the first quotes does not end the swap 858ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > with every answer lost, the outcome is still read for the transaction the wallet signed 84ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > another transaction's confirmed signature from the server is not a success 84ms
+ ✓ packages/jupiter/test/prepare.test.ts > B-12: the network fee check fails closed > without a price from the cluster, nothing goes to the wallet 41ms
+ ✓ packages/jupiter/test/prepare.test.ts > B-12: the network fee check fails closed > the exact fee is returned for display 24ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > "sent" without the signed transaction is not a refusal: the swap it sent confirms 67ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-09 and Revoke: costs and side effects are reported from the chain > a new output account costs the rent the cluster quotes today 57ms
+ ✓ packages/jupiter/test/prepare.test.ts > C-09 and Revoke: costs and side effects are reported from the chain > removing an existing delegate on the output account is disclosed 42ms
+ ✓ packages/jupiter/test/prepare.test.ts > the mints a route passes through are screened like its own two > a hop through a token that runs a transfer hook is refused, and nothing is built 14ms
+ ✓ packages/jupiter/test/prepare.test.ts > the mints a route passes through are screened like its own two > says which extension it was, so the refusal is not a shrug 20ms
+ ✓ packages/jupiter/test/prepare.test.ts > the mints a route passes through are screened like its own two > a hop through a Token-2022 mint with no extensions builds normally 18ms
+ ✓ packages/jupiter/test/prepare.test.ts > the mints a route passes through are screened like its own two > a hop that charges a transfer fee is still allowed, because the compiler harvests it 18ms
+ ✓ packages/jupiter/test/prepare.test.ts > a price that moves between the quote and the simulation > is quoted again, and the market is not left out for it 28ms
+ ✓ packages/jupiter/test/prepare.test.ts > a price that moves between the quote and the simulation > so is a refusal on price by a Pump.fun market inside the route: the curve is not left out (research audit) 28ms
+ ✓ packages/jupiter/test/prepare.test.ts > a price that moves between the quote and the simulation > that keeps moving is reported as a price move, not as a broken market 16ms
+ ✓ packages/jupiter/test/prepare.test.ts > a route that opens an account in the taker's name (PumpSwap, the Pump.fun bonding curve) > the temporary key is sent exactly the rent the route spends, and nothing more 21ms
+ ✓ packages/jupiter/test/prepare.test.ts > a route that opens an account in the taker's name (PumpSwap, the Pump.fun bonding curve) > the same for a swap into SOL and a swap from SOL 15ms
+ ✓ packages/jupiter/test/prepare.test.ts > a route that opens an account in the taker's name (PumpSwap, the Pump.fun bonding curve) > a route that needs no rent sends the temporary key none 38ms
+ ✓ packages/jupiter/test/prepare.test.ts > a route that opens an account in the taker's name (PumpSwap, the Pump.fun bonding curve) > a route that wants more than the ceiling is not paying rent but spending, and is not funded 59ms
+ ✓ packages/jupiter/test/prepare.test.ts > a route that opens an account in the taker's name (PumpSwap, the Pump.fun bonding curve) > when the funded route fails because the price moved, that is what is acted on: quote again, keep the market 34ms
+ ✓ packages/jupiter/test/prepare.test.ts > slippage on a Pump.fun bonding curve > a route through the bonding curve is enforced at 3% below the quote, by Bound and by Jupiter 21ms
+ ✓ packages/jupiter/test/prepare.test.ts > slippage on a Pump.fun bonding curve > every other route, PumpSwap included, is built at 0.5%, so Jupiter enforces 0.5% on chain too (BR-01) 26ms
+ ✓ packages/jupiter/test/prepare.test.ts > slippage on a Pump.fun bonding curve > the label alone does not widen the tolerance: the curve program must be in the route (BR-04) 17ms
+ ✓ packages/jupiter/test/prepare.test.ts > slippage on a Pump.fun bonding curve > a minimum the user accepted still wins on the bonding curve when it is stricter 22ms
+ ✓ packages/jupiter/test/prepare.test.ts > a wallet short of SOL (review BR-10) > is told how much SOL the swap needs, and no market is blamed for it 14ms
+ ✓ packages/jupiter/test/prepare.test.ts > a wallet short of SOL (review BR-10) > a route short of the taker's rent is still measured and funded, not reported as the wallet's 33ms
+ ✓ packages/jupiter/test/prepare.test.ts > a SOL fee into a treasury wallet that does not exist yet (review BR-06) > is refused, not built fee-free and not left to revert, until the treasury wallet exists (final audit, item 9) 6ms
+ ✓ packages/jupiter/test/prepare.test.ts > a SOL fee into a treasury wallet that does not exist yet (review BR-06) > charges the fee once the treasury wallet exists 16ms
+ ✓ packages/jupiter/test/prepare.test.ts > latency without weaker protection > a page that already saw a curve route asks Jupiter at 3% once, not twice 20ms
+stdout | apps/web/test/agentApi.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > "rejected" from a server that sent it anyway: the outcome is what the chain shows 624ms
+ ✓ packages/jupiter/test/prepare.test.ts > latency without weaker protection > a wrong curve hint still builds an ordinary route at 0.5% (BR-01 holds) 30ms
+ ✓ packages/jupiter/test/prepare.test.ts > latency without weaker protection > a Pump.fun route goes straight to measuring its rent: two simulations, not three 41ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > a real refusal before sending is "rejected" once the transaction can no longer land 123ms
+ ✓ packages/jupiter/test/prepare.test.ts > latency without weaker protection > the priority fee follows recent fees on the pools, never below the default 100ms
+ ✓ packages/jupiter/test/prepare.test.ts > latency without weaker protection > a runaway fee level is capped so the whole fee stays within R4 32ms
+ ✓ packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > a 429 is reported as busy, never as "no route fits, try another token" 11ms
+stderr | packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > a refused key or a path that is gone is Bound's to fix, not a missing route (research audit F-08)
+Jupiter refused Bound's request with HTTP 401: Jupiter 401: Unauthorized
+Jupiter refused Bound's request with HTTP 401: Jupiter 401: Unauthorized
+
+stderr | packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > a refused key or a path that is gone is Bound's to fix, not a missing route (research audit F-08)
+Jupiter refused Bound's request with HTTP 403: Jupiter 403: Unauthorized
+Jupiter refused Bound's request with HTTP 403: Jupiter 403: Unauthorized
+
+stderr | packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > a refused key or a path that is gone is Bound's to fix, not a missing route (research audit F-08)
+Jupiter refused Bound's request with HTTP 404: Jupiter 404: Unauthorized
+Jupiter refused Bound's request with HTTP 404: Jupiter 404: Unauthorized
+
+stderr | packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > a refused key or a path that is gone is Bound's to fix, not a missing route (research audit F-08)
+Jupiter refused Bound's request with HTTP 410: Jupiter 410: Unauthorized
+Jupiter refused Bound's request with HTTP 410: Jupiter 410: Unauthorized
+
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > a lower lastValidBlockHeight from the server does not end the wait while the swap can still land 82ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > the signature is handed over to keep before finalize is asked 34ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > confirming stops at its deadline while the RPC keeps failing, and says unknown 33ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > a busy answer keeps its Retry-After, so the agent can wait as told 25ms
+ ✓ apps/web/test/skillExample.test.ts > a fee in SOL for a pair neither token of which can carry it (every swap pays) > the example holds it to a price of its own from Jupiter, and the swap goes through 144ms
+ ✓ apps/web/test/skillExample.test.ts > a fee in SOL for a pair neither token of which can carry it (every swap pays) > without a limit of its own, the agent does not sign it 47ms
+ ✓ apps/web/test/skillExample.test.ts > a fee in SOL for a pair neither token of which can carry it (every swap pays) > a server that charges more SOL than the swap is worth to the agent is refused 41ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > a status node behind the finalized view keeps the outcome unknown; a covering one proves expiry (S1-H-01) 69ms
+stderr | apps/web/test/agentApi.test.ts > prepare > Jupiter's format changing is a 503 to retry much later, not a price (research audit F-07)
+Jupiter answered with a swap instruction the verifier cannot read: its format changed.
+
+ ✓ apps/web/test/agentApi.test.ts > prepare > builds the protected swap with the fee in it, and a ticket bound to the exact message 176ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > Jupiter's format changing is a 503 to retry much later, not a price (research audit F-07) 52ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > refuses without a valid API key 8ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > refuses while swaps are paused, before anything is built 9ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > refuses malformed requests with the reason 18ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > a minimum the market cannot meet is put back to the agent with the new one, never lowered for it 34ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > a busy Jupiter is a 503 to retry, not a missing route 15ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > signs as E the message W signed, and sends it once 142ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > the same ticket twice gives the same transaction, which can land once 30ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a message changed at the first byte is refused: E does not sign, nothing is sent 28ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a message changed at the middle is refused: E does not sign, nothing is sent 26ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a message changed at the last byte is refused: E does not sign, nothing is sent 33ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > an agent that removes the fee transfer, rebuilds and signs the rest is refused 22ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a transaction W did not sign is refused (R6) 16ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a signature in W's place made by another key is refused 24ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > a status read that never answers does not hold confirm past its deadline (S1-M-04) 82ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > a finalize that never answers ends on time, and the outcome is read for its own signature (S1-M-04) 466ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a forged ticket is refused 49ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > another API key cannot finalize this key's ticket 27ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a ticket past its lifetime is refused as expired 29ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a rotated secret still finalizes the tickets it sealed, while it is listed as previous 31ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > refuses while swaps are paused: E does not sign 61ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > answers with the same transaction and sends nothing more, though the output balance moved 48ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > the same after its lifetime ended, and while swaps are paused: nothing is sent again 82ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > a signature in W's place that is not W's gets no answer, even when it is on chain 51ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > when the network cannot say whether it was sent, this request sends nothing and names the transaction 26ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > a transaction the wallet did not sign cannot have been sent, and is refused as such 41ms
+ ✓ apps/web/test/agentApi.test.ts > E, derived rather than stored > the same secret and nonce give the same E on any instance; another nonce or secret, another E 3ms
+ ✓ apps/web/test/agentApi.test.ts > E, derived rather than stored > its private key cannot be exported 1ms
+ ✓ apps/web/test/agentApi.test.ts > review fixes on the API > a swap into a token whose balance moved since prepare is not signed (FA-04) 38ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > a swap that cannot be kept before finalize is not finalized (S1-M-01) 206ms
+stderr | apps/web/test/agentApi.test.ts > API keys from the environment > a fee above the verifier's ceiling turns the API off instead of charging another (engineering audit L-01)
+The agent API is off: its fee is 150 bps, above the verifier's ceiling of 100.
+
+ ✓ apps/web/test/agentApi.test.ts > review fixes on the API > a finalize refused by the network hands back no transaction to broadcast (FA-08) 27ms
+ ✓ apps/web/test/agentApi.test.ts > review fixes on the API > a fee-free swap says 0 bps, not the configured fee (FA-16) 26ms
+ ✓ apps/web/test/agentApi.test.ts > API keys from the environment > a fee above the verifier's ceiling turns the API off instead of charging another (engineering audit L-01) 44ms
+ ✓ apps/web/test/agentApi.test.ts > API keys from the environment > two keys with one id: the first one wins, so they never share tickets and limits (FA-16) 1ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > what a stopped run kept is settled by its own signature on the next start; the unknown stays (S1-M-01) 407ms
+ ✓ apps/web/test/agentApi.test.ts > the fee, taken like Jupiter's > a sale into SOL names SOL as the fee token and states the minimum the wallet keeps 36ms
+ ✓ apps/web/test/agentApi.test.ts > the fee, taken like Jupiter's > without a treasury wallet the sale pays in USDC, the next token in line, from the input 39ms
+ ✓ apps/web/test/agentApi.test.ts > the skill says its version, and an old copy is asked to update (final audit, M1) > versions compare by major, minor and patch; what is not a version is not judged 0ms
+ ✓ apps/web/test/agentApi.test.ts > the skill says its version, and an old copy is asked to update (final audit, M1) > prepare answers an older skill with 426 and the minimum; a current one, or none named, is served 29ms
+ ✓ apps/web/test/agentApi.test.ts > the skill says its version, and an old copy is asked to update (final audit, M1) > a swap already signed is finalized whatever the skill that signed it 24ms
+ ✓ apps/web/test/agentApi.test.ts > a swap whose fee cannot be collected is refused, never built free (final audit, item 9) > prepare answers 503 fee-unavailable, with a Retry-After, and signs nothing 6ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > one worker per wallet: a second one is refused until the first releases (S1-M-01) 2ms
+ ✓ apps/web/test/skillExample.test.ts > wallets held by a signing service (remote signers) > a service that signs raw bytes is given the checked message, and the swap confirms 48ms
+ ✓ apps/web/test/skillExample.test.ts > wallets held by a signing service (remote signers) > a service that signs a transaction and hands it back unsent works 27ms
+ ✓ apps/web/test/skillExample.test.ts > wallets held by a signing service (remote signers) > a signature that is not the wallet's for this message is refused, and nothing is finalized 26ms
+ ✓ apps/web/test/skillExample.test.ts > wallets held by a signing service (remote signers) > a service that changes the transaction before signing it is refused, and nothing is finalized 25ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > prepare, one signature made by the bot, finalize: confirmed, and no record is left 54ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > finalize checks again: an answer that no longer passes, or a signature that is not the wallet's, sends nothing 57ms
+stdout | apps/web/test/server.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > nothing new is prepared while an earlier swap could still land, and recover says which 65ms
+ ✓ packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > the same when only the protected routes are refused 12ms
+ ✓ packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > a Jupiter that does not answer is unavailable, not a broken market 9ms
+ ✓ packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > a refused key or a path that is gone is Bound's to fix, not a missing route (research audit F-08) 2158ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > check: an honest answer is safe to sign, a lying one is not 68ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > usage errors exit 2, and the bundled command runs as a command only 272ms
+ ✓ packages/jupiter/test/prepare.test.ts > a Jupiter that is overloaded or silent > the kill switch's own answer is passed on as it is 97ms
+ ✓ packages/jupiter/test/prepare.test.ts > a swap that landed and reverted: was it the price? > v0: Jupiter's own threshold (6001) and Bound's minimum check are the price; anything else is not 45ms
+ ✓ apps/web/test/skillExample.test.ts > the skill names its version (final audit, M1) > SKILL_VERSION is the package's version, and every call to Bound carries it 52ms
+ ✓ apps/web/test/skillExample.test.ts > the same order is never swapped twice (final audit, item 7) > an order that confirmed is not prepared again: the retry is told, with the transaction that did it 31ms
+ ✓ packages/jupiter/test/prepare.test.ts > a swap that landed and reverted: was it the price? > v1: Jupiter's own threshold (6001) and Bound's minimum check are the price; anything else is not 42ms
+ ✓ packages/jupiter/test/prepare.test.ts > accounts frozen by the token issuer (review FA-12) > a frozen fee account cannot receive the fee, so that swap is refused rather than built free (a stablecoin's blacklist, say) 70ms
+ ✓ apps/web/test/skillExample.test.ts > the same order is never swapped twice (final audit, item 7) > an order whose last attempt expired may be tried again; one taken by another worker is not sent 181ms
+ ✓ apps/web/test/server.test.ts > B-06, C-04: the client key comes only from the header the ingress overwrites > on Vercel (default) it reads x-vercel-forwarded-for and ignores every other header 3ms
+ ✓ apps/web/test/server.test.ts > B-06, C-04: the client key comes only from the header the ingress overwrites > behind Cloudflare, a client-sent x-vercel-forwarded-for cannot mint a new identity (C-04) 1ms
+ ✓ apps/web/test/server.test.ts > B-06, C-04: the client key comes only from the header the ingress overwrites > X-Forwarded-For, written by the client, is never used 0ms
+ ✓ apps/web/test/server.test.ts > B-06, C-04: the client key comes only from the header the ingress overwrites > requests without the configured header share one bucket (limited, not unlimited) 0ms
+ ✓ apps/web/test/server.test.ts > B-06, C-04: the client key comes only from the header the ingress overwrites > a window counts every request of the same key 1ms
+ ✓ apps/web/test/server.test.ts > RPC proxy > forwards allowlisted methods, including the epoch, fee and rent queries 12ms
+ ✓ apps/web/test/server.test.ts > RPC proxy > refuses other methods and batches 2ms
+ ✓ apps/web/test/server.test.ts > RPC proxy > C-07: the body limit counts bytes, not characters 1ms
+ ✓ apps/web/test/server.test.ts > RPC proxy > an upstream that does not answer becomes a 504, not a hanging request 1ms
+ ✓ apps/web/test/server.test.ts > RPC proxy > never forwards the local-refusal marker from an upstream response 1ms
+ ✓ apps/web/test/server.test.ts > RPC proxy > B-05: the kill switch refuses sendTransaction on the server, with a 4xx (never forwarded) 1ms
+ ✓ packages/jupiter/test/prepare.test.ts > accounts frozen by the token issuer (review FA-12) > a frozen output account is refused with its real reason, not as a failed route 26ms
+ ✓ packages/jupiter/test/prepare.test.ts > Pump's per-buyer account under E is closed after the swap and its rent returned (review FA-05) > the rent the market takes comes back to the wallet in the same transaction 65ms
+ ✓ packages/jupiter/test/prepare.test.ts > Pump's per-buyer account under E is closed after the swap and its rent returned (review FA-05) > one more simulation than before, to check E ends with nothing 56ms
+ ✓ apps/web/test/skillExample.test.ts > the same order is never swapped twice (final audit, item 7) > a stopped run leaves the order pending; recovery settles it, and the order learns its outcome 78ms
+ ✓ apps/web/test/server.test.ts > RPC proxy > B-06: sendTransaction has its own limit per client, sized for re-broadcasts 163ms
+ ✓ apps/web/test/server.test.ts > Jupiter build proxy > B-05: the kill switch refuses new builds on the server 2ms
+ ✓ apps/web/test/server.test.ts > Jupiter build proxy > refuses payer and SOL wrapping (D12) 2ms
+ ✓ apps/web/test/server.test.ts > Jupiter build proxy > passes Jupiter's 429 and its Retry-After on to the page, which waits that long 1ms
+ ✓ apps/web/test/server.test.ts > B-08: token icons are served from Bound, from listed hosts only > host allowlist: HTTPS on a listed host only 1ms
+ ✓ apps/web/test/server.test.ts > B-08: token icons are served from Bound, from listed hosts only > the served type comes from the bytes 1ms
+ ✓ apps/web/test/server.test.ts > B-08: token icons are served from Bound, from listed hosts only > serves a listed icon with a locked-down CSP 4ms
+ ✓ apps/web/test/server.test.ts > B-08: token icons are served from Bound, from listed hosts only > never fetches a private-network URL from token metadata 1ms
+ ✓ apps/web/test/server.test.ts > B-08: token icons are served from Bound, from listed hosts only > re-checks every redirect 1ms
+ ✓ apps/web/test/server.test.ts > B-08: token icons are served from Bound, from listed hosts only > follows a redirect that stays on listed hosts 3ms
+ ✓ apps/web/test/server.test.ts > B-08: token icons are served from Bound, from listed hosts only > refuses a body that is not an image, and oversized bodies 6ms
+ ✓ apps/web/test/server.test.ts > B-08: token icons are served from Bound, from listed hosts only > rejects a request that is not a mint address 1ms
+ ✓ apps/web/test/server.test.ts > the RPC relay sends and simulates only Bound transactions (review FA-06) > an ordinary SOL transfer is refused for sending and for simulation, with nothing forwarded 14ms
+ ✓ apps/web/test/server.test.ts > the RPC relay sends and simulates only Bound transactions (review FA-06) > a Bound swap is relayed, v0 and v1 19ms
+ ✓ apps/web/test/server.test.ts > the RPC relay sends and simulates only Bound transactions (review FA-06) > only base64 is relayed 1ms
+ ✓ apps/web/test/server.test.ts > the relay passes Bound's close of a Pump market's account (FA-05) > a swap that closes the account the market opened for E is relayed 17ms
+ ✓ apps/web/test/server.test.ts > Bound's proxies serve Bound's own page (final audit, M2) > another website's page cannot spend Bound's RPC, Jupiter or icon quota through its visitors 1ms
+ ✓ apps/web/test/server.test.ts > Bound's proxies serve Bound's own page (final audit, M2) > Bound's own page, and a client that is not a browser, are served as before 1ms
+ ✓ apps/web/test/server.test.ts > Bound's proxies serve Bound's own page (final audit, M2) > /api/status says whether the deployment has a Jupiter key (final audit, H1) 0ms
+ ✓ apps/web/test/server.test.ts > the skill hashes the site publishes (final audit, item 10) > /skill/SHA256SUMS lists every shipped file, with the version, and matches the skill folder 22ms
+ ✓ apps/web/test/skillExample.test.ts > the same order is never swapped twice (final audit, item 7) > bound-verify: prepare refuses an order that already swapped (exit 5) 106ms
+stdout | packages/verifier/test/audit.test.ts
+[fc-seed] 20260924
+
+stdout | packages/solana/test/send.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > reports the signature before the first request 37ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > a lost connection on the first send keeps watching: it may have landed 6ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > a gateway error (5xx) is ambiguous, not a refusal 8ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > an upstream 4xx is ambiguous without Bound's local-refusal marker 8ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > an internal JSON-RPC error keeps watching because the node may have accepted the send 11ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > a preflight refusal means it was never broadcast 4ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > a refusal from Bound's proxy (4xx) means it was never broadcast 5ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > status reads that keep failing end as unknown, never as "nothing moved" 158ms
+ ✓ packages/verifier/test/audit.test.ts > B-01: the Bound fee is bounded by the verifier, not by the configuration > a 5000 bps fee is rejected even though the policy is self-consistent 110ms
+ ✓ packages/verifier/test/audit.test.ts > B-01: the Bound fee is bounded by the verifier, not by the configuration > a 9999 bps fee is rejected even though the policy is self-consistent 19ms
+ ✓ packages/verifier/test/audit.test.ts > B-01: the Bound fee is bounded by the verifier, not by the configuration > a 101 bps fee is rejected even though the policy is self-consistent 26ms
+ ✓ packages/verifier/test/audit.test.ts > B-02: F_max is bounded by the verifier, not by the configuration > a 710,000 lamport fee is rejected even when the policy allows 1 SOL 10ms
+ ✓ packages/verifier/test/audit.test.ts > B-02: F_max is bounded by the verifier, not by the configuration > a configured F_max above the absolute maximum is itself a violation 17ms
+ ✓ packages/verifier/test/audit.test.ts > B-03: W_out authorities > a delegate on W_out is neutralised by a trusted Revoke before the swap 16ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > processed at expiry is not an outcome: it waits for confirmation 10ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > processed but never confirmed after expiry ends as unknown 11ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > expired only when the cluster has no record of it after the blockhash expired 23ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > an on-chain error is a failure that reverted 16ms
+ ✓ packages/verifier/test/audit.test.ts > B-03: W_out authorities > a transaction without the Revoke is rejected 16ms
+ ✓ packages/verifier/test/audit.test.ts > B-03: W_out authorities > W_out with a close authority is refused 15ms
+ ✓ packages/verifier/test/audit.test.ts > B-03: W_out authorities > W_out missing from the snapshot fails closed 17ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > A: USDC → SOL (check on E_out): the honest check is accepted 10ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > B: SOL → USDC (check on W_out): the honest check is accepted 12ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > C: USDC → BONK, W_out already holds a balance: the honest check is accepted 10ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > C: USDC → Token-2022 BONK: the honest check is accepted 19ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > a transaction without the check is rejected 13ms
+ ✓ packages/solana/test/send.test.ts > who refused a send that was never broadcast > Bound's kill switch (403 from the relay) is told as a pause, not as a price move 163ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > a check for less than the policy minimum is rejected 13ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > a check that ignores the existing W_out balance is rejected 16ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > a check placed after E_out is closed is rejected 10ms
+ ✓ packages/verifier/test/audit.test.ts > B-04: Bound enforces the minimum output itself > a policy without a minimum output is rejected 23ms
+ ✓ packages/verifier/test/audit.test.ts > Token-2022 MemoTransfer account state > allows an account whose memo requirement is present but disabled 0ms
+ ✓ packages/verifier/test/audit.test.ts > Token-2022 MemoTransfer account state > refuses an account whose incoming memo requirement is enabled 0ms
+ ✓ packages/verifier/test/audit.test.ts > Token-2022 MemoTransfer account state > fails closed on a malformed MemoTransfer payload 0ms
+ ✓ packages/verifier/test/audit.test.ts > B-07: the v1 message config is an allowlist > a heap size in the v1 config is rejected 32ms
+ ✓ packages/verifier/test/audit.test.ts > B-09: the user never pays rent for Bound's fee account > without a fee account the swap is fee-free and creates nothing for the treasury, v0 23ms
+ ✓ packages/solana/test/send.test.ts > who refused a send that was never broadcast > the relay's send limit (429) is told as too many requests 8ms
+ ✓ packages/solana/test/send.test.ts > who refused a send that was never broadcast > the RPC's preflight is the network's refusal 5ms
+ ✓ packages/solana/test/send.test.ts > a rate-limited RPC in the production build > has no "429" in its message, so the status must come from the context 1ms
+ ✓ packages/solana/test/send.test.ts > a rate-limited RPC in the production build > is retried, and the answer that follows is returned 10ms
+ ✓ packages/solana/test/send.test.ts > a rate-limited RPC in the production build > a send is never retried by the transport: a 429 may follow a forwarded request (engineering audit S1-H-02) 13ms
+ ✓ packages/solana/test/send.test.ts > a rate-limited RPC in the production build > any other failure is not retried 1ms
+ ✓ packages/verifier/test/audit.test.ts > B-09: the user never pays rent for Bound's fee account > without a fee account the swap is fee-free and creates nothing for the treasury, v1 16ms
+ ✓ packages/verifier/test/audit.test.ts > B-09: the user never pays rent for Bound's fee account > creating the treasury's account at the user's expense is rejected 26ms
+ ✓ packages/verifier/test/audit.test.ts > B-09: the user never pays rent for Bound's fee account > a SOL input still pays the fee to the treasury wallet, which needs no account 21ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > a hop through a taxing mint is accepted when its withheld fees are harvested first 27ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > accepted by the RPC is sent 65ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > a preflight refusal is rejected: never broadcast 9ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > the same hop without the harvest could not be closed → R5 29ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > a base mint without extensions is accepted 31ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > a harmless extension (metadata pointer) is accepted 25ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > a transfer-hook extension with no program is accepted 50ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > a mint that runs a transfer hook is rejected 31ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > a hop whose issuer delegate is an ordinary key is accepted 31ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > a hop whose issuer delegate a program can sign for is rejected 36ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > a preflight refusal of a signature the cluster already has is a second send, not a rejection 163ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > a hop mint missing from the snapshot is rejected 21ms
+ ✓ packages/verifier/test/audit.test.ts > B-10: Token-2022 intermediate hops > the number of intermediate accounts is bounded 41ms
+ ✓ packages/verifier/test/audit.test.ts > B-11: Bound fee accounts are kept away from the external program > the treasury's fee ATA inside the swap is rejected 20ms
+ ✓ packages/verifier/test/audit.test.ts > controls the review ran > an unrelated W token account in the swap is rejected with R1 17ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > a preflight refusal whose status cannot be read is unknown, not rejected (engineering review H-01) 252ms
+ ✓ packages/verifier/test/audit.test.ts > controls the review ran > an external account missing from the snapshot fails closed with R1 14ms
+ ✓ packages/verifier/test/audit.test.ts > controls the review ran > R5 measures the real wire size 28ms
+ ✓ packages/verifier/test/audit.test.ts > second review, C-05: the verifier derives what the policy claims > a policy whose variant does not match its mints is rejected 39ms
+ ✓ packages/verifier/test/audit.test.ts > second review, C-05: the verifier derives what the policy claims > decimals that disagree with the mint in the snapshot are rejected 29ms
+ ✓ packages/jupiter/test/prepare.test.ts > Pump's per-buyer account under E is closed after the swap and its rent returned (review FA-05) > a route that opens no such account returns nothing and adds nothing 36ms
+ ✓ packages/jupiter/test/prepare.test.ts > Pump's per-buyer account under E is closed after the swap and its rent returned (review FA-05) > a cashback coin's account holds more than its rent: it is left alone, so the swap cannot revert on the refund (F-03) 50ms
+ ✓ packages/jupiter/test/prepare.test.ts > Pump's per-buyer account under E is closed after the swap and its rent returned (review FA-05) > a route that fits only without the close is built without it, never sent to the RPC oversized 1658ms
+stderr | packages/jupiter/test/prepare.test.ts > the reason is named, not blamed on the market (research audit) > a Jupiter instruction of a new format is a format change, not a bad price (F-07)
+Jupiter answered with a swap instruction the verifier cannot read: its format changed.
+
+stdout | packages/verifier/test/property.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/jupiter/test/prepare.test.ts > Pump's per-buyer account under E is closed after the swap and its rent returned (review FA-05) > without rent to pay there is no account to close 21ms
+ ✓ packages/jupiter/test/prepare.test.ts > the reason is named, not blamed on the market (research audit) > a Jupiter instruction of a new format is a format change, not a bad price (F-07) 13ms
+ ✓ packages/jupiter/test/prepare.test.ts > the reason is named, not blamed on the market (research audit) > an input account frozen by the token's issuer is refused before anything is quoted (F-09) 12ms
+ ✓ packages/jupiter/test/prepare.test.ts > the reason is named, not blamed on the market (research audit) > an input balance short of the amount is named, with the numbers the user typed (F-09) 8ms
+ ✓ packages/jupiter/test/prepare.test.ts > the reason is named, not blamed on the market (research audit) > a failure in Bound's own steps before the swap stops at once, without blaming a market (F-09) 16ms
+ ✓ packages/jupiter/test/prepare.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a sale into SOL pays in SOL, out of the output, last; the minimum shown is what the wallet keeps 15ms
+ ✓ packages/jupiter/test/prepare.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a sale into USDC pays in USDC out of the output, when the treasury has a USDC account 34ms
+ ✓ packages/jupiter/test/prepare.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > without an account for either token and no wallet, the swap is refused: the user never pays rent for the treasury's, and never swaps free 6ms
+ ✓ packages/jupiter/test/prepare.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > an agent's floor is what the wallet keeps: the enforced minimum covers the fee on top 61ms
+ ✓ packages/jupiter/test/prepare.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a pair neither token of which can carry the fee pays it in SOL, at its value priced for the one-time key 24ms
+ ✓ packages/jupiter/test/prepare.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > without a treasury wallet, or a price in SOL, such a pair is refused, not built free; a busy Jupiter is busy 32ms
+ ✓ packages/jupiter/test/prepare.test.ts > the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token > a fee side that changes between the quote and the build keeps the minimum the page showed (engineering review H-04) 75ms
+ ✓ packages/jupiter/test/prepare.test.ts > Jupiter's floor, tightened to Bound's minimum (engineering review H-03) > lowers the tolerance just enough for the floor to reach the minimum 0ms
+ ✓ packages/jupiter/test/prepare.test.ts > Jupiter's floor, tightened to Bound's minimum (engineering review H-03) > a minimum equal to the quote leaves no tolerance 0ms
+ ✓ packages/jupiter/test/prepare.test.ts > Jupiter's floor, tightened to Bound's minimum (engineering review H-03) > leaves the route alone when its floor already covers the minimum, or when nothing could 0ms
+ ✓ packages/jupiter/test/prepare.test.ts > Jupiter's floor, tightened to Bound's minimum (engineering review H-03) > only the tolerance changes 0ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > a lost connection is unknown: it may have been forwarded 8ms
+ ✓ packages/solana/test/send.test.ts > outcomes are said only once the chain proves them (review FA-07) > an error seen only at processed (a fork, perhaps) is not a failure: the swap lands confirmed later 5ms
+ ✓ packages/solana/test/send.test.ts > outcomes are said only once the chain proves them (review FA-07) > a status node behind the finalized slot cannot make a swap expired, whatever the height (engineering audit S1-H-01) 24ms
+ ✓ packages/solana/test/send.test.ts > outcomes are said only once the chain proves them (review FA-07) > expiry needs the finalized height past the lifetime too, so a lagging node cannot make it expired 12ms
+ ✓ packages/solana/test/send.test.ts > outcomes are said only once the chain proves them (review FA-07) > a failure confirmed by the chain is a failure 6ms
+ ✓ packages/solana/test/send.test.ts > reads that must not be older than a slot (final audit, item 6) > asks for the slot, waits for a node that is behind, and answers at least that recent 805ms
+stdout | packages/verifier/test/extensions.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding 674ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > every combination of the entries a swap can live with is accepted 621ms
+ ✓ packages/solana/test/send.test.ts > reads that must not be older than a slot (final audit, item 6) > a node that stays behind fails the read instead of answering from older state 1667ms
+stdout | packages/jupiter/test/swap.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too 522ms
+ ✓ packages/jupiter/test/swap.test.ts > the strict on-chain minimum model > never lets a weak router threshold lower Bound's slippage floor 3ms
+ ✓ packages/jupiter/test/swap.test.ts > the strict on-chain minimum model > keeps a stricter minimum already accepted by the user 0ms
+ ✓ packages/jupiter/test/swap.test.ts > the strict on-chain minimum model > recognizes the on-chain self-transfer under TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA 0ms
+ ✓ packages/jupiter/test/swap.test.ts > the strict on-chain minimum model > recognizes the on-chain self-transfer under TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb 0ms
+ ✓ packages/jupiter/test/swap.test.ts > the strict on-chain minimum model > does not mistake an instruction without accounts for the minimum check 0ms
+ ✓ packages/jupiter/test/swap.test.ts > the strict on-chain minimum model > does not mistake an ordinary transfer for the minimum check 0ms
+ ✓ packages/jupiter/test/swap.test.ts > route selection > a route over the 64-account limit does not fit 36ms
+ ✓ packages/jupiter/test/swap.test.ts > route selection > a route within the limit compiles 14ms
+ ✓ packages/jupiter/test/swap.test.ts > route selection > any other compile error still surfaces 1ms
+ ✓ packages/jupiter/test/swap.test.ts > the size of a new token account, which decides the rent shown before signing > a classic account is 165 bytes 0ms
+ ✓ packages/jupiter/test/swap.test.ts > the size of a new token account, which decides the rent shown before signing > a Token-2022 account with no extensions still carries the ImmutableOwner marker: 170 0ms
+ ✓ packages/jupiter/test/swap.test.ts > the size of a new token account, which decides the rent shown before signing > PYUSD and USDG accounts are 187 bytes, as on mainnet 0ms
+ ✓ packages/jupiter/test/swap.test.ts > the size of a new token account, which decides the rent shown before signing > CASH accounts are 175 bytes, as on mainnet 0ms
+ ✓ packages/jupiter/test/swap.test.ts > which slippage a route gets > 3% when a leg trades on a Pump.fun bonding curve and the route invokes the curve program 0ms
+ ✓ packages/jupiter/test/swap.test.ts > which slippage a route gets > 0.5% otherwise, including a curve label on a route without the curve program (BR-04) 0ms
+ ✓ packages/jupiter/test/swap.test.ts > which slippage a route gets > a quote shows the minimum of the tolerance its route will be built at 0ms
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > a Token-2022 mint with an extension we refuse never passes 2982ms
+stdout | packages/jupiter/test/client.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > a well-formed quote passes unchanged 1ms
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > a non-numeric amount is refused with a JupiterError 1ms
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > a negative floor is refused with a JupiterError 0ms
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > a missing floor is refused with a JupiterError 0ms
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > a missing swap instruction is refused with a JupiterError 0ms
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > a swap instruction without accounts is refused with a JupiterError 0ms
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > no route plan is refused with a JupiterError 0ms
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > a body that is not an object is refused with a JupiterError 0ms
+ ✓ packages/jupiter/test/client.test.ts > Jupiter /build responses are validated > the client applies the check to every /build answer 4ms
+ ✓ packages/jupiter/test/client.test.ts > a Jupiter under load > a 429 is retried, and the answer that follows is used 7ms
+ ✓ packages/jupiter/test/client.test.ts > a Jupiter under load > after every retry was refused, the page stops asking for a few seconds instead of adding to the load 14ms
+ ✓ packages/jupiter/test/client.test.ts > a Jupiter that does not answer (FA-16) > a request past the timeout ends as a 504 JupiterError, which the pipeline reports as unavailable 22ms
+stdout | packages/verifier/test/certificate.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an area cut short is refused, wherever the cut falls 1677ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > the fixtures mean what they say: ordinary keys are on the curve, program addresses are not 4ms
+ ✓ packages/verifier/test/certificate.test.ts > certificate > USDC → SOL, v0: states what the user approved, bound to the exact bytes 133ms
+ ✓ packages/verifier/test/certificate.test.ts > certificate > USDC → SOL, v1: states what the user approved, bound to the exact bytes 53ms
+ ✓ packages/verifier/test/certificate.test.ts > certificate > USDC → BONK, v0: states what the user approved, bound to the exact bytes 52ms
+ ✓ packages/verifier/test/certificate.test.ts > certificate > USDC → BONK, v1: states what the user approved, bound to the exact bytes 19ms
+ ✓ packages/verifier/test/certificate.test.ts > certificate > a fee in SOL from the wallet is stated as such, with where it goes 34ms
+ ✓ packages/verifier/test/certificate.test.ts > certificate > names the slot the chain state was read at, when the reader recorded one 11ms
+ ✓ packages/verifier/test/certificate.test.ts > certificate > is never issued for a transaction that fails a rule 9ms
+ ✓ packages/verifier/test/certificate.test.ts > certificate > a SOL output names WSOL as the output mint 11ms
+stdout | apps/web/test/diagnose.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/diagnose.test.ts > what a wallet did to the transaction it signed > reports an untouched message as identical, with nothing added 60ms
+ ✓ apps/web/test/diagnose.test.ts > what a wallet did to the transaction it signed > names an appended guard as a suffix and describes it 19ms
+ ✓ apps/web/test/diagnose.test.ts > what a wallet did to the transaction it signed > separates an instruction added before ours from one appended after 18ms
+ ✓ apps/web/test/diagnose.test.ts > what a wallet did to the transaction it signed > refuses to call it an addition when our own instructions came back changed 11ms
+ ✓ apps/web/test/diagnose.test.ts > what a wallet did to the transaction it signed > notices a new signer and a changed fee payer 7ms
+ ✓ apps/web/test/diagnose.test.ts > what a wallet did to the transaction it signed > writes a report that carries the added instruction and its accounts 14ms
+stdout | apps/web/test/tokens.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/tokens.test.ts > the selected mint decides its ATA program > derives distinct classic and Token-2022 accounts from on-chain mint facts 8ms
+ ✓ apps/web/test/tokens.test.ts > the amount a quote is asked for > is the whole amount for a token that charges nothing 1ms
+ ✓ apps/web/test/tokens.test.ts > the amount a quote is asked for > leaves out the tax the token keeps, rounded the way the token program rounds it 0ms
+ ✓ apps/web/test/tokens.test.ts > the amount a quote is asked for > respects the cap a mint puts on its fee 0ms
+ ✓ apps/web/test/tokens.test.ts > the active Token-2022 transfer fee > does not need an epoch for a mint without the extension 1ms
+ ✓ apps/web/test/tokens.test.ts > the active Token-2022 transfer fee > fails closed instead of pricing a taxing mint with epoch zero 1ms
+ ✓ apps/web/test/tokens.test.ts > token warnings come from the chain for a token Jupiter does not vouch for (review BR-11) > a pasted mint with a freeze and a mint authority is warned about, though Jupiter has no audit for it 0ms
+ ✓ apps/web/test/tokens.test.ts > token warnings come from the chain for a token Jupiter does not vouch for (review BR-11) > a pasted mint with neither authority is warned only that it is not verified 1ms
+ ✓ apps/web/test/tokens.test.ts > token warnings come from the chain for a token Jupiter does not vouch for (review BR-11) > a verified token follows Jupiter's audit, so USDC's freeze authority is not a warning on every swap 0ms
+stdout | apps/web/test/received.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/received.test.ts > what actually arrived (review BR-03) > a token output: the wallet account after, less before 2ms
+ ✓ apps/web/test/received.test.ts > what actually arrived (review BR-03) > a token output into a new account starts from zero 0ms
+ ✓ apps/web/test/received.test.ts > what actually arrived (review BR-03) > a SOL output: the wallet's lamports after, less before, plus the network fee and the market's account fee 0ms
+ ✓ apps/web/test/received.test.ts > what actually arrived (review BR-03) > the part of the market's account fee that came back is not swap output (FA-05) 0ms
+ ✓ apps/web/test/received.test.ts > what actually arrived (review BR-03) > unknown when the transaction does not show the account 0ms
+stdout | packages/verifier/test/wallet.test.ts
+[fc-seed] 20260924
+
+stdout | packages/core/test/policy.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/core/test/policy.test.ts > the minimum that keeps what the user accepted (engineering review L-10) > one unit kept at 0.2% needs a minimum of one: its fee rounds down to nothing 2ms
+ ✓ packages/core/test/policy.test.ts > the minimum that keeps what the user accepted (engineering review L-10) > is the least minimum that keeps at least the amount, for every amount and fee tried 91ms
+ ✓ packages/core/test/policy.test.ts > the minimum that keeps what the user accepted (engineering review L-10) > holds for amounts far larger than a test can count through 1ms
+ ✓ packages/core/test/policy.test.ts > which token pays the fee (every swap pays) > SOL, USDC and USDT first, then the input token, then SOL from the wallet 1ms
+ ✓ packages/core/test/policy.test.ts > which token pays the fee (every swap pays) > with no way to receive anything, the swap is fee-free 0ms
+ ✓ packages/verifier/test/wallet.test.ts > R6: what the wallet returns > accepts the identical message signed by W 129ms
+ ✓ packages/verifier/test/wallet.test.ts > R6: what the wallet returns > rejects a changed message 89ms
+ ✓ packages/verifier/test/wallet.test.ts > R6: what the wallet returns > rejects a missing wallet signature 10ms
+ ✓ packages/verifier/test/wallet.test.ts > R6: what the wallet returns > rejects a signature over a different message 14ms
+ ✓ packages/verifier/test/wallet.test.ts > R6: what the wallet returns > rejects a transaction that E has already signed 10ms
+ ✓ packages/verifier/test/wallet.test.ts > R6: what the wallet returns > rejects bytes that are not a transaction 7ms
+stdout | apps/web/test/rebuild.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/rebuild.test.ts > a swap built again after a question (engineering review M-06) > the same rent with its refund lost costs more: the user is asked again 6ms
+ ✓ apps/web/test/rebuild.test.ts > a swap built again after a question (engineering review M-06) > a higher rent that comes back in full costs nothing more 0ms
+ ✓ apps/web/test/rebuild.test.ts > a swap built again after a question (engineering review M-06) > the same costs are not asked about twice 0ms
+ ✓ apps/web/test/rebuild.test.ts > a swap built again after a question (engineering review M-06) > a fee in SOL that is new, or more than 2% higher, costs more (engineering audit S1-M-02) 0ms
+ ✓ apps/web/test/rebuild.test.ts > a swap built again after a question (engineering review M-06) > a larger transfer tax, or a delegate removal not mentioned before, costs more 0ms
+stdout | apps/web/test/wallets.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/wallets.test.ts > wallet chain selection > keeps only accounts that explicitly support Solana mainnet 2ms
+ ✓ apps/web/test/wallets.test.ts > wallet chain selection > does not fall back to an account from another chain 0ms
+ ✓ apps/web/test/wallets.test.ts > the transaction version (review BR-12) > v0 even when the wallet advertises v1, until a build enables it 0ms
+ ✓ apps/web/test/wallets.test.ts > the transaction version (review BR-12) > v1 when the build enables it and the wallet signs it 0ms
+ ✓ apps/web/test/wallets.test.ts > the transaction version (review BR-12) > nothing for a wallet that signs only legacy transactions 0ms
+stdout | apps/web/test/swapLock.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/swapLock.test.ts > the swap lock outlives a wallet left open (review BR-02) > a second tab is refused while the first is still in its wallet, past the first period 8ms
+ ✓ apps/web/test/swapLock.test.ts > the swap lock outlives a wallet left open (review BR-02) > without a refresh the lock lapses after one period 1ms
+ ✓ apps/web/test/swapLock.test.ts > the swap lock outlives a wallet left open (review BR-02) > a tab cannot refresh a lock another tab now holds 1ms
+stdout | packages/verifier/test/architecture.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/verifier/test/architecture.test.ts > verifier independence (plan, section 10) > imports only kit, the token program client, Bound constants and types, and its own files 4ms
+ ✓ packages/verifier/test/architecture.test.ts > verifier independence (plan, section 10) > @bound/core does not depend on the verifier 1ms
+ ✓ packages/verifier/test/architecture.test.ts > verifier independence (plan, section 10) > economic limits come from constants.ts, not only from the policy (audit B-01, B-02) 1ms
+stdout | apps/web/test/scriptIntegrity.test.ts
+[fc-seed] 20260924
+
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > every honest shape the compiler produces is accepted 5047ms
+ ✓ apps/web/test/scriptIntegrity.test.ts > chunksToSign > returns the page chunks with their hashes, as the URLs React writes 2ms
+ ✓ apps/web/test/scriptIntegrity.test.ts > chunksToSign > leaves out bootstrap chunks, polyfills, stylesheets and media 0ms
+ ✓ apps/web/test/scriptIntegrity.test.ts > chunksToSign > signs nothing when there is no manifest content 0ms
+stdout | apps/web/test/history.test.ts
+[fc-seed] 20260924
+
+ ✓ apps/web/test/history.test.ts > persisted swap settlement > uses the signature status for confirmed and failed outcomes 2ms
+ ✓ apps/web/test/history.test.ts > persisted swap settlement > expires only after the recorded last valid block height 0ms
+ ✓ apps/web/test/history.test.ts > persisted swap settlement > keeps old, malformed and processed entries unknown 1ms
+ ✓ packages/verifier/test/property.test.ts > T3: property tests > every attack is rejected 1551ms
+
+ Test Files  23 passed (23)
+      Tests  495 passed (495)
+   Start at  21:39:13
+   Duration  21.20s (transform 5.07s, setup 874ms, import 11.02s, tests 39.01s, environment 2ms)
+
+JUNIT report written to <scratch>/results/unit-HEAD.junit.xml
+exit=0

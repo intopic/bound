@@ -1,0 +1,5 @@
+
+> typecheck
+> tsc -p tsconfig.json --noEmit
+
+exit=0

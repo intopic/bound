@@ -1,0 +1,27 @@
+== seed=20260924 start=2026-09-24T21:40:49Z
+[fc-seed] 20260924
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding 19569ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > every combination of the entries a swap can live with is accepted 28940ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too 15709ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an area cut short is refused, wherever the cut falls 20211ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > the fixtures mean what they say: ordinary keys are on the curve, program addresses are not 2ms
+      Tests  5 passed (5)
+exit=0
+== seed=1 start=2026-09-24T21:42:15Z
+[fc-seed] 1
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding 21232ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > every combination of the entries a swap can live with is accepted 32119ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too 16623ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an area cut short is refused, wherever the cut falls 18071ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > the fixtures mean what they say: ordinary keys are on the curve, program addresses are not 1ms
+      Tests  5 passed (5)
+exit=0
+== seed=777777 start=2026-09-24T21:43:44Z
+[fc-seed] 777777
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding 18146ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > every combination of the entries a swap can live with is accepted 32148ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too 16065ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > an area cut short is refused, wherever the cut falls 19543ms
+ ✓ packages/verifier/test/extensions.test.ts > Token-2022: any combination of extensions (final audit, item 4) > the fixtures mean what they say: ordinary keys are on the curve, program addresses are not 2ms
+      Tests  5 passed (5)
+exit=0

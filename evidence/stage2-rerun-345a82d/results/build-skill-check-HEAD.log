@@ -1,0 +1,6 @@
+skills/bound-protected-swap/lib/bound-verify.mjs matches its source
+skills/bound-protected-swap/bin/bound-verify.mjs matches its source
+skills/bound-protected-swap/reference/AGENT-API.md matches its source
+skills/bound-protected-swap/SHA256SUMS matches its source
+apps/web/lib/server/skillSums.ts matches its source
+exit=0

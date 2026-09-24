@@ -1,0 +1,142 @@
+
+ RUN  v4.1.11 <repo>
+
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > reports the signature before the first request 28ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > a lost connection on the first send keeps watching: it may have landed 6ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > a gateway error (5xx) is ambiguous, not a refusal 4ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > an upstream 4xx is ambiguous without Bound's local-refusal marker 3ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > an internal JSON-RPC error keeps watching because the node may have accepted the send 6ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > a preflight refusal means it was never broadcast 5ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > a refusal from Bound's proxy (4xx) means it was never broadcast 2ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > status reads that keep failing end as unknown, never as "nothing moved" 157ms
+stderr | apps/web/test/agentApi.test.ts > prepare > Jupiter's format changing is a 503 to retry much later, not a price (research audit F-07)
+Jupiter answered with a swap instruction the verifier cannot read: its format changed.
+
+ ✓ apps/web/test/agentApi.test.ts > prepare > builds the protected swap with the fee in it, and a ticket bound to the exact message 133ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > Jupiter's format changing is a 503 to retry much later, not a price (research audit F-07) 27ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > refuses without a valid API key 4ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > refuses while swaps are paused, before anything is built 6ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > refuses malformed requests with the reason 12ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > a minimum the market cannot meet is put back to the agent with the new one, never lowered for it 17ms
+ ✓ apps/web/test/agentApi.test.ts > prepare > a busy Jupiter is a 503 to retry, not a missing route 9ms
+ ✓ apps/web/test/skillExample.test.ts > the skill's example > prepares, verifies on its own RPC, signs as the wallet, finalizes and confirms 107ms
+ ✓ apps/web/test/skillExample.test.ts > the skill's example > an honest answer passes the agent's full check 28ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > the audit's drain: 1,000,000 USDC and 50 SOL to an attacker, with every statement made to match 34ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > an extra Approve of the wallet's input account to the attacker 38ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > signs as E the message W signed, and sends it once 31ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > the same ticket twice gives the same transaction, which can land once 27ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a message changed at the first byte is refused: E does not sign, nothing is sent 22ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a message changed at the middle is refused: E does not sign, nothing is sent 31ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > an extra SetAuthority handing the input account to the attacker 42ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a System Assign of the wallet to another program 35ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a priority fee of 1 SOL 29ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a message changed at the last byte is refused: E does not sign, nothing is sent 20ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > an agent that removes the fee transfer, rebuilds and signs the rest is refused 20ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a transaction W did not sign is refused (R6) 16ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a signature in W's place made by another key is refused 25ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a forged ticket is refused 17ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > another API key cannot finalize this key's ticket 16ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a ticket past its lifetime is refused as expired 21ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > the swap program swapped for the attacker's 46ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a fee of 1%, above the most an agent accepts 29ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > a rotated secret still finalizes the tickets it sealed, while it is listed as previous 32ms
+ ✓ apps/web/test/agentApi.test.ts > finalize > refuses while swaps are paused: E does not sign 28ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > answers with the same transaction and sends nothing more, though the output balance moved 31ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > the same after its lifetime ended, and while swaps are paused: nothing is sent again 26ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a minimum of 1 34ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > a fee above Bound's 0.3% is refused unless the agent raises its limit itself 31ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > unless the agent names another, the fee may go only to Bound's pinned treasury, or nowhere 37ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > the fee sent to another treasury is refused when the agent pins Bound's 32ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > a signature in W's place that is not W's gets no answer, even when it is on chain 43ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > when the network cannot say whether it was sent, this request sends nothing and names the transaction 19ms
+ ✓ apps/web/test/agentApi.test.ts > a finalize repeated after its answer was lost (engineering review H-01) > a transaction the wallet did not sign cannot have been sent, and is refused as such 17ms
+ ✓ apps/web/test/agentApi.test.ts > E, derived rather than stored > the same secret and nonce give the same E on any instance; another nonce or secret, another E 2ms
+ ✓ apps/web/test/agentApi.test.ts > E, derived rather than stored > its private key cannot be exported 1ms
+ ✓ apps/web/test/agentApi.test.ts > review fixes on the API > a swap into a token whose balance moved since prepare is not signed (FA-04) 23ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > processed at expiry is not an outcome: it waits for confirmation 7ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > processed but never confirmed after expiry ends as unknown 7ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > expired only when the cluster has no record of it after the blockhash expired 4ms
+ ✓ packages/solana/test/send.test.ts > C-03: the outcome of a send > an on-chain error is a failure that reverted 3ms
+ ✓ packages/solana/test/send.test.ts > who refused a send that was never broadcast > Bound's kill switch (403 from the relay) is told as a pause, not as a price move 2ms
+ ✓ packages/solana/test/send.test.ts > who refused a send that was never broadcast > the relay's send limit (429) is told as too many requests 2ms
+ ✓ packages/solana/test/send.test.ts > who refused a send that was never broadcast > the RPC's preflight is the network's refusal 2ms
+ ✓ packages/solana/test/send.test.ts > a rate-limited RPC in the production build > has no "429" in its message, so the status must come from the context 1ms
+ ✓ packages/solana/test/send.test.ts > a rate-limited RPC in the production build > is retried, and the answer that follows is returned 5ms
+ ✓ packages/solana/test/send.test.ts > a rate-limited RPC in the production build > a send is never retried by the transport: a 429 may follow a forwarded request (engineering audit S1-H-02) 6ms
+ ✓ packages/solana/test/send.test.ts > a rate-limited RPC in the production build > any other failure is not retried 0ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > accepted by the RPC is sent 1ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > a preflight refusal is rejected: never broadcast 1ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > a preflight refusal of a signature the cluster already has is a second send, not a rejection 1ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > a preflight refusal whose status cannot be read is unknown, not rejected (engineering review H-01) 4ms
+ ✓ packages/solana/test/send.test.ts > one send, for a caller that confirms on its own (the agent API) > a lost connection is unknown: it may have been forwarded 1ms
+ ✓ packages/solana/test/send.test.ts > outcomes are said only once the chain proves them (review FA-07) > an error seen only at processed (a fork, perhaps) is not a failure: the swap lands confirmed later 4ms
+ ✓ packages/solana/test/send.test.ts > outcomes are said only once the chain proves them (review FA-07) > a status node behind the finalized slot cannot make a swap expired, whatever the height (engineering audit S1-H-01) 10ms
+ ✓ packages/solana/test/send.test.ts > outcomes are said only once the chain proves them (review FA-07) > expiry needs the finalized height past the lifetime too, so a lagging node cannot make it expired 10ms
+ ✓ packages/solana/test/send.test.ts > outcomes are said only once the chain proves them (review FA-07) > a failure confirmed by the chain is a failure 3ms
+ ✓ packages/solana/test/send.test.ts > reads that must not be older than a slot (final audit, item 6) > asks for the slot, waits for a node that is behind, and answers at least that recent 803ms
+ ✓ apps/web/test/skillExample.test.ts > a server that lies is refused before the wallet signs (review FA-01) > answers that disagree with what was asked are refused by the plain checks too 60ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > without a floor of its own the agent does not sign: the price would be the server's word (F-02) 27ms
+stderr | apps/web/test/agentApi.test.ts > API keys from the environment > a fee above the verifier's ceiling turns the API off instead of charging another (engineering audit L-01)
+The agent API is off: its fee is 150 bps, above the verifier's ceiling of 100.
+
+ ✓ apps/web/test/agentApi.test.ts > review fixes on the API > a finalize refused by the network hands back no transaction to broadcast (FA-08) 17ms
+ ✓ apps/web/test/agentApi.test.ts > review fixes on the API > a fee-free swap says 0 bps, not the configured fee (FA-16) 13ms
+ ✓ apps/web/test/agentApi.test.ts > API keys from the environment > a fee above the verifier's ceiling turns the API off instead of charging another (engineering audit L-01) 11ms
+ ✓ apps/web/test/agentApi.test.ts > API keys from the environment > two keys with one id: the first one wins, so they never share tickets and limits (FA-16) 0ms
+ ✓ apps/web/test/agentApi.test.ts > the fee, taken like Jupiter's > a sale into SOL names SOL as the fee token and states the minimum the wallet keeps 14ms
+ ✓ apps/web/test/agentApi.test.ts > the fee, taken like Jupiter's > without a treasury wallet the sale pays in USDC, the next token in line, from the input 25ms
+ ✓ apps/web/test/agentApi.test.ts > the skill says its version, and an old copy is asked to update (final audit, M1) > versions compare by major, minor and patch; what is not a version is not judged 0ms
+ ✓ apps/web/test/agentApi.test.ts > the skill says its version, and an old copy is asked to update (final audit, M1) > prepare answers an older skill with 426 and the minimum; a current one, or none named, is served 37ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > a server that sells for almost nothing passes every rule, and is refused by the floor the agent got from Jupiter (F-02) 28ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > the example asks Jupiter for its floor itself and sends it with prepare (F-02) 36ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > route rent the server says the market needs, but that stays with the one-time key, is refused (F-06) 23ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > rent the route keeps is refused beyond the limit the agent sets, 0.001 SOL by default (engineering review M-05) 31ms
+ ✓ apps/web/test/agentApi.test.ts > the skill says its version, and an old copy is asked to update (final audit, M1) > a swap already signed is finalized whatever the skill that signed it 18ms
+ ✓ apps/web/test/agentApi.test.ts > a swap whose fee cannot be collected is refused, never built free (final audit, item 9) > prepare answers 503 fee-unavailable, with a Retry-After, and signs nothing 7ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > lamports left in a Pump market account under the one-time key are refused (engineering review M-05) 31ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > cashback left in a token account of a Pump market account under E is refused (engineering audit U1) 24ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > a simulation that does not report the accounts proves nothing, and is refused (engineering review M-05) 27ms
+ ✓ apps/web/test/skillExample.test.ts > what the rules cannot see, the agent checks itself (research audit) > with too few blocks left to land, the example does not finalize (F-05) 45ms
+ ✓ apps/web/test/skillExample.test.ts > the fee, taken like Jupiter's, as the agent sees it > a sale into SOL pays in SOL out of the output; the minimum the agent checks is what its wallet keeps 27ms
+ ✓ apps/web/test/skillExample.test.ts > the fee, taken like Jupiter's, as the agent sees it > a server that takes a larger fee from the output than it states is refused 22ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > an answer lost after the swap was sent: finalize is asked once more, and the same transaction confirms 30ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > with every answer lost, the outcome is still read for the transaction the wallet signed 31ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > another transaction's confirmed signature from the server is not a success 60ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > "sent" without the signed transaction is not a refusal: the swap it sent confirms 39ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > "rejected" from a server that sent it anyway: the outcome is what the chain shows 37ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > a real refusal before sending is "rejected" once the transaction can no longer land 62ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > a lower lastValidBlockHeight from the server does not end the wait while the swap can still land 45ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > the signature is handed over to keep before finalize is asked 31ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > confirming stops at its deadline while the RPC keeps failing, and says unknown 31ms
+ ✓ apps/web/test/skillExample.test.ts > after signing, the chain is the only witness (engineering review H-01, H-02) > a busy answer keeps its Retry-After, so the agent can wait as told 13ms
+ ✓ apps/web/test/skillExample.test.ts > a fee in SOL for a pair neither token of which can carry it (every swap pays) > the example holds it to a price of its own from Jupiter, and the swap goes through 39ms
+ ✓ apps/web/test/skillExample.test.ts > a fee in SOL for a pair neither token of which can carry it (every swap pays) > without a limit of its own, the agent does not sign it 28ms
+ ✓ apps/web/test/skillExample.test.ts > a fee in SOL for a pair neither token of which can carry it (every swap pays) > a server that charges more SOL than the swap is worth to the agent is refused 49ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > a status node behind the finalized view keeps the outcome unknown; a covering one proves expiry (S1-H-01) 68ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > a status read that never answers does not hold confirm past its deadline (S1-M-04) 82ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > a finalize that never answers ends on time, and the outcome is read for its own signature (S1-M-04) 110ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > a swap that cannot be kept before finalize is not finalized (S1-M-01) 30ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > what a stopped run kept is settled by its own signature on the next start; the unknown stays (S1-M-01) 113ms
+ ✓ apps/web/test/skillExample.test.ts > recovery the delivered example must survive (engineering audit, Stage 1) > one worker per wallet: a second one is refused until the first releases (S1-M-01) 1ms
+ ✓ apps/web/test/skillExample.test.ts > wallets held by a signing service (remote signers) > a service that signs raw bytes is given the checked message, and the swap confirms 41ms
+ ✓ apps/web/test/skillExample.test.ts > wallets held by a signing service (remote signers) > a service that signs a transaction and hands it back unsent works 47ms
+ ✓ apps/web/test/skillExample.test.ts > wallets held by a signing service (remote signers) > a signature that is not the wallet's for this message is refused, and nothing is finalized 32ms
+ ✓ apps/web/test/skillExample.test.ts > wallets held by a signing service (remote signers) > a service that changes the transaction before signing it is refused, and nothing is finalized 43ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > prepare, one signature made by the bot, finalize: confirmed, and no record is left 54ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > finalize checks again: an answer that no longer passes, or a signature that is not the wallet's, sends nothing 68ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > nothing new is prepared while an earlier swap could still land, and recover says which 64ms
+ ✓ packages/solana/test/send.test.ts > reads that must not be older than a slot (final audit, item 6) > a node that stays behind fails the read instead of answering from older state 1604ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > check: an honest answer is safe to sign, a lying one is not 36ms
+ ✓ apps/web/test/skillExample.test.ts > bound-verify, the command for bots in other languages > usage errors exit 2, and the bundled command runs as a command only 190ms
+ ✓ apps/web/test/skillExample.test.ts > the skill names its version (final audit, M1) > SKILL_VERSION is the package's version, and every call to Bound carries it 26ms
+ ✓ apps/web/test/skillExample.test.ts > the same order is never swapped twice (final audit, item 7) > an order that confirmed is not prepared again: the retry is told, with the transaction that did it 38ms
+ ✓ apps/web/test/skillExample.test.ts > the same order is never swapped twice (final audit, item 7) > an order whose last attempt expired may be tried again; one taken by another worker is not sent 83ms
+ ✓ apps/web/test/skillExample.test.ts > the same order is never swapped twice (final audit, item 7) > a stopped run leaves the order pending; recovery settles it, and the order learns its outcome 41ms
+ ✓ apps/web/test/skillExample.test.ts > the same order is never swapped twice (final audit, item 7) > bound-verify: prepare refuses an order that already swapped (exit 5) 60ms
+
+ Test Files  3 passed (3)
+      Tests  126 passed (126)
+   Start at  21:45:23
+   Duration  3.94s (transform 1.56s, setup 0ms, import 2.64s, tests 6.15s, environment 0ms)
+
+exit=0
