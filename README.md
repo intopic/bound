@@ -91,7 +91,7 @@ node tools/agent-key.ts <id>   # an API key for the agent API (AGENT-API.md)
 node skills/bound-protected-swap/examples/swap.ts   # the agent skill's example (SKILL.md); prints its usage
 node tools/build-skill.ts             # rebuild the verifier bundled in the skill (CI checks it)
 node tests/integration/jupiter-floor.ts   # Jupiter's on-chain floor and where it is measured, on mainnet state
-node tools/canary.ts                  # do three protected swaps still build and execute? (upstream changes)
+node tools/canary.ts                  # do six protected swaps, with fees, v1 and Pump.fun, still build and execute?
 node tests/integration/pump-accumulator.ts   # the research behind closing Pump's per-buyer account (FA-05)
 node tests/e2e/pump-card.ts           # what a Pump.fun buy shows before the wallet opens (same server as e2e)
 npm run build:digest      # one hash over everything the browser loads, to compare with a release

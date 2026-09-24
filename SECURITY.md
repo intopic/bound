@@ -340,14 +340,19 @@ Bound simple; it never ran in the setup Bound uses, and bringing it back would b
   (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`). Jupiter counts its limits per organisation, not per
   key: the API's Jupiter key has a quota of its own only if it comes from a separate Jupiter account
   (research audit F-10).
-- Upstream changes: Jupiter, Pump.fun and Token-2022 are redeployed every few days, and a Jupiter
-  instruction the verifier cannot read stops every swap with `route-format` ("waiting for an
-  update"). `node tools/canary.ts` builds and simulates three swaps on mainnet state and fails on
-  such a change; `.github/workflows/canary.yml` runs it every 30 minutes once the repository
+- Upstream changes: Jupiter, Pump.fun and Token-2022 are upgraded while Bound runs (on 24 September
+  2026 the Pump curve program was half a day old and Jupiter's two days; the canary prints the dates
+  each run), and a Jupiter instruction the verifier cannot read stops every swap with `route-format`
+  ("waiting for an update"). `node tools/canary.ts` builds and simulates six swaps on mainnet state,
+  each with its fee where it belongs (SOL on either side, USDC from the output), one as a v1
+  transaction, and Pump.fun buys on the curve and on PumpSwap; it fails on such a change, on a fee
+  that is no longer taken where it should be, and exits 2 when nothing could be checked at all
+  (engineering review M-09). `.github/workflows/canary.yml` runs it every 30 minutes once the repository
   variable `BOUND_CANARY` is `1` (off by default: on a private repository it would use more than the
   free Actions minutes). The page and the API also log Jupiter refusing Bound's key (401, 403) or
   an endpoint that is gone (404, 410) (research audit F-07, F-08).
-- Releases: deploy only tagged commits, and only after CI is green. Actions are pinned by commit, and
+- Releases: deploy only tagged commits, and only after CI is green. The release workflow runs the
+  typecheck, the tests and the skill bundle's check itself before it publishes a digest. Actions are pinned by commit, and
   a second job builds on another runner image and must match the digest (review FA-10). A tag `v*` publishes the build's digest as a GitHub
   release, built with the public settings in the repository variables, which must match
   production's; the live check compares the site with it every three hours and needs

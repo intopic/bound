@@ -1,9 +1,11 @@
 name: Canary
 
-# Does a protected swap still build and execute? tools/canary.ts builds three swaps on mainnet
-# state (nothing is signed or sent) and fails when Jupiter's format, a Pump.fun program or a token
-# program changed under Bound (research audit F-07). A failed run makes GitHub tell the owner of
-# this workflow. Off until the repository variable BOUND_CANARY is set to 1.
+# Does a protected swap still build and execute? tools/canary.ts builds six swaps on mainnet state,
+# each with its fee where it belongs, one as v1, and Pump.fun buys on both markets (nothing is signed
+# or sent). It fails when Jupiter's format, a Pump.fun program or a token program changed under
+# Bound, or a fee is no longer taken where it should be (research audit F-07, engineering review
+# M-09), and exits 2 when nothing could be checked. A failed run makes GitHub tell the owner of this
+# workflow. Off until the repository variable BOUND_CANARY is set to 1.
 on:
   schedule:
     # Every 30 minutes. Each run is about two billed minutes: on a private repository that is some
