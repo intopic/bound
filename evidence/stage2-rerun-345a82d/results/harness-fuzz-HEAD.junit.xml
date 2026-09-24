@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="12" failures="2" errors="0" time="221.14342393">
+    <testsuite name="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" timestamp="2026-09-24T22:55:33.465Z" hostname="vm" tests="12" failures="2" errors="0" skipped="0" time="221.14342393">
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="A: prepare, whatever it is sent &gt; A1: any body, key or header is answered without a 500 and without a send" time="0.42773751">
+            <system-out>
+[coverage A] statuses {&quot;400&quot;:638,&quot;401&quot;:229,&quot;426&quot;:133}
+
+            </system-out>
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="A: prepare, whatever it is sent &gt; A2: a well-formed swap is built bound to exactly its message, unsigned, fee within the cap, and nothing is sent" time="24.335704565">
+            <system-out>
+[coverage A2] {&quot;200&quot;:1000}
+
+            </system-out>
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="B: finalize, with anything changed &gt; sends nothing for a changed ticket, message, signature or key; anything ever sent is the exact message, signed by W and E" time="4.56486543">
+            <system-out>
+[coverage B] {&quot;ticket-other:400&quot;:383,&quot;wallet-signature:400&quot;:422,&quot;wire:400&quot;:394,&quot;message:400&quot;:395,&quot;other-key:400&quot;:377,&quot;ticket-char:400&quot;:388,&quot;no-wallet-signature:400&quot;:418,&quot;junk:400&quot;:427,&quot;ticket-field:400&quot;:390,&quot;ticket-cut:400&quot;:406}
+
+            </system-out>
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="C: finalize, repeated, whatever the network does &gt; one transaction per ticket; nothing sent once landed, while paused, or when the chain cannot be read; every refusal names it" time="31.364031305">
+            <system-out>
+[coverage C] {&quot;steps&quot;:3412,&quot;sends&quot;:772,&quot;landedBefore&quot;:663,&quot;statuses&quot;:{&quot;200&quot;:2094,&quot;503&quot;:1318}}
+
+            </system-out>
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="D: server secrets, rotated &gt; a ticket opens with any listed secret that sealed it, and with no other" time="13.508857336">
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="E: the skill, one worker, one swap, the chain first &gt; M-01: at most one worker holds a wallet&apos;s lock; a worker taken over never frees its successor&apos;s" time="6.25900314">
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="E: the skill, one worker, one swap, the chain first &gt; H-02: swaps from one wallet started together send at most one transaction, and none while one is pending" time="65.243592868">
+            <system-out>
+[coverage H-02] {&quot;[\&quot;unknown\&quot;,\&quot;PendingSwapError\&quot;,\&quot;PendingSwapError\&quot;]&quot;:62,&quot;[\&quot;PendingSwapError\&quot;,\&quot;PendingSwapError\&quot;,\&quot;unknown\&quot;]&quot;:58,&quot;[\&quot;PendingSwapError\&quot;,\&quot;PendingSwapError\&quot;,\&quot;unknown\&quot;,\&quot;PendingSwapError\&quot;]&quot;:36,&quot;[\&quot;PendingSwapError\&quot;,\&quot;unknown\&quot;]&quot;:76,&quot;[\&quot;unknown\&quot;,\&quot;PendingSwapError\&quot;,\&quot;PendingSwapError\&quot;,\&quot;PendingSwapError\&quot;]&quot;:46,&quot;[\&quot;unknown\&quot;,\&quot;PendingSwapError\&quot;]&quot;:68,&quot;[\&quot;PendingSwapError\&quot;,\&quot;PendingSwapError\&quot;,\&quot;PendingSwapError\&quot;,\&quot;unknown\&quot;]&quot;:43,&quot;[\&quot;PendingSwapError\&quot;,\&quot;unknown\&quot;,\&quot;PendingSwapError\&quot;]&quot;:70,&quot;[\&quot;PendingSwapError\&quot;,\&quot;unknown\&quot;,\&quot;PendingSwapError\&quot;,\&quot;PendingSwapError\&quot;]&quot;:41}
+
+            </system-out>
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="E: the skill, one worker, one swap, the chain first &gt; M-03: whatever bookkeeping fails, a swap that went out is answered with its signature and outcome, never as not sent" time="31.515033431">
+            <system-out>
+[coverage M-03] {&quot;cases&quot;:1000,&quot;wentOut&quot;:734,&quot;withBookkeepingError&quot;:109}
+
+            </system-out>
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="E: the skill, one worker, one swap, the chain first &gt; M-03 (bound-verify): whatever bookkeeping fails, finalize of a swap that went out reports it, never sent: false" time="43.521508944">
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="E: the skill, one worker, one swap, the chain first &gt; E5 (bound-verify): every command answers with a result a bot can read, whatever the store does" time="0.195774592">
+            <failure message="Property failed after 9 tests
+{ seed: 20260924, path: &quot;8:1&quot;, endOnFailure: true }
+Counterexample: [{&quot;put&quot;:[],&quot;remove&quot;:[],&quot;list&quot;:[0],&quot;order&quot;:[],&quot;claimOrder&quot;:[],&quot;recordOrder&quot;:[]},&quot;prepare&quot;]
+Shrunk 1 time(s)
+
+Encountered failures were:
+- [{__proto__:null,&quot;put&quot;:[],&quot;remove&quot;:[],&quot;list&quot;:[0],&quot;order&quot;:[],&quot;claimOrder&quot;:[],&quot;recordOrder&quot;:[]},&quot;prepare&quot;]
+- [{&quot;put&quot;:[],&quot;remove&quot;:[],&quot;list&quot;:[0],&quot;order&quot;:[],&quot;claimOrder&quot;:[],&quot;recordOrder&quot;:[]},&quot;prepare&quot;]" type="Error">
+Error: Property failed after 9 tests
+{ seed: 20260924, path: &quot;8:1&quot;, endOnFailure: true }
+Counterexample: [{&quot;put&quot;:[],&quot;remove&quot;:[],&quot;list&quot;:[0],&quot;order&quot;:[],&quot;claimOrder&quot;:[],&quot;recordOrder&quot;:[]},&quot;prepare&quot;]
+Shrunk 1 time(s)
+
+Encountered failures were:
+- [{__proto__:null,&quot;put&quot;:[],&quot;remove&quot;:[],&quot;list&quot;:[0],&quot;order&quot;:[],&quot;claimOrder&quot;:[],&quot;recordOrder&quot;:[]},&quot;prepare&quot;]
+- [{&quot;put&quot;:[],&quot;remove&quot;:[],&quot;list&quot;:[0],&quot;order&quot;:[],&quot;claimOrder&quot;:[],&quot;recordOrder&quot;:[]},&quot;prepare&quot;]
+ ❯ buildError node_modules/fast-check/lib/fast-check.js:2469:16
+ ❯ asyncThrowIfFailed node_modules/fast-check/lib/fast-check.js:2481:8
+
+Caused by: Caused by: AssertionError: prepare {&quot;put&quot;:[],&quot;remove&quot;:[],&quot;list&quot;:[0],&quot;order&quot;:[],&quot;claimOrder&quot;:[],&quot;recordOrder&quot;:[]}: threw: ENOSPC: list #0 failed: expected &apos;string&apos; to be &apos;object&apos; // Object.is equality
+
+Expected: &quot;object&quot;
+Received: &quot;string&quot;
+
+ ❯ evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts:649:78
+ ❯ AsyncProperty.run node_modules/fast-check/lib/fast-check.js:1217:19
+ ❯ asyncPropertyExecution node_modules/fast-check/lib/fast-check.js:2564:14
+ ❯ asyncRunIt node_modules/fast-check/lib/fast-check.js:2557:15
+ ❯ evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts:642:5
+            </failure>
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="F: file-system faults, the same on every commit &gt; M-03 (bound-verify): the disk refusing to remove the record after the swap confirmed is never &quot;not sent&quot;" time="0.199233228">
+        </testcase>
+        <testcase classname="evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts" name="F: file-system faults, the same on every commit &gt; E5 (bound-verify): prepare and recover answer with a result, not an exception, when the state directory cannot be read" time="0.003184227">
+            <failure message="prepare: threw: ENOSPC: no space left on device: expected &apos;string&apos; to be &apos;object&apos; // Object.is equality" type="AssertionError">
+AssertionError: prepare: threw: ENOSPC: no space left on device: expected &apos;string&apos; to be &apos;object&apos; // Object.is equality
+
+Expected: &quot;object&quot;
+Received: &quot;string&quot;
+
+ ❯ evidence/stage2-rerun-345a82d/harness/agent-api-fuzz.harness.ts:686:52
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>
