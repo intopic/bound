@@ -18,7 +18,7 @@ import { findAssociatedTokenPda } from '@solana-program/token';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, BPS_DENOMINATOR, JUPITER_PROGRAM, LAMPORTS_PER_SIGNATURE, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, MAX_CURVE_SLIPPAGE_BPS, MAX_ROUTE_SLIPPAGE_BPS, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
-  MAX_FEE_BPS, MAX_INTERMEDIATE_ACCOUNTS, MAX_LOADED_ACCOUNTS_DATA_SIZE, MINT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, V1_MAX_ACCOUNTS,
+  FEE_TOKENS, MAX_FEE_BPS, MAX_INTERMEDIATE_ACCOUNTS, MAX_LOADED_ACCOUNTS_DATA_SIZE, MINT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, V1_MAX_ACCOUNTS,
   V1_SIZE_LIMIT, WSOL_MINT,
 } from '@bound/core/constants';
 import type { AccountState, ChainSnapshot, Policy, RuleId, Verdict, Violation } from '@bound/core/types';
@@ -330,7 +330,7 @@ type Slot =
   | 'closeIntermediate' | 'closeRouteAccount' | 'routeRefund';
 
 const BEFORE_SWAP: Slot[] = [
-  'createEIn', 'createEOut', 'createWOut', 'revokeWOut', 'createIntermediate', 'transferIn', 'feeTransfer', 'takerRent', 'sync',
+  'createEIn', 'createEOut', 'createWOut', 'revokeWOut', 'createIntermediate', 'transferIn', 'takerRent', 'sync',
 ];
 const AFTER_SWAP: Slot[] = [
   'minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate', 'closeRouteAccount', 'routeRefund',
@@ -373,9 +373,17 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     fail('R2', `policy says the input mint ${p.inputTransferFee ? 'charges' : 'does not charge'} a transfer fee, the mint says otherwise`);
   }
 
-  // Re-derive the policy's numbers and accounts instead of trusting them.
-  const expectedFee = p.treasury ? (p.amountIn * p.feeBps) / BPS_DENOMINATOR : 0n;
-  if (p.fee !== expectedFee || p.swapAmount + p.fee !== p.amountIn || p.swapAmount <= 0n) {
+  // Re-derive the policy's numbers and accounts instead of trusting them. The fee is taken on one
+  // side (like Jupiter's: SOL first, then USDC and USDT, otherwise the input token): on the input,
+  // feeBps of the amount, before the swap; on the output, feeBps of the enforced minimum, after it,
+  // and only in SOL, USDC or USDT.
+  if (p.feeSide !== null && p.feeSide !== 'input' && p.feeSide !== 'output') fail('R2', 'the policy names no fee side Bound knows');
+  if ((p.treasury === null) !== (p.feeSide === null)) fail('R2', 'the policy has a treasury without a fee side, or the other way round');
+  if (p.feeSide === 'output' && !FEE_TOKENS.includes(p.outputMint)) fail('R2', 'a fee on the output is taken only in SOL, USDC or USDT');
+  const expectedFee = !p.treasury ? 0n
+    : p.feeSide === 'output' ? (p.minOut * p.feeBps) / BPS_DENOMINATOR : (p.amountIn * p.feeBps) / BPS_DENOMINATOR;
+  const feeOnInput = p.feeSide === 'input' ? p.fee : 0n;
+  if (p.fee !== expectedFee || p.swapAmount + feeOnInput !== p.amountIn || p.swapAmount <= 0n) {
     fail('R2', 'policy amounts are inconsistent');
   }
   if (p.inputMint === p.outputMint) fail('R2', 'input and output token are the same');
@@ -411,7 +419,9 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     eOut: A ? await ata(E, WSOL_MINT) : null,
     wIn: B ? null : await ata(W, p.inputMint, inputProgram),
     wOut: A ? null : await ata(W, p.outputMint, outputProgram),
-    feeDestination: p.fee === 0n ? null : B ? p.treasury : await ata(p.treasury!, p.inputMint, inputProgram),
+    feeDestination: !p.treasury || !p.feeSide ? null
+      : p.feeSide === 'input' ? (B ? p.treasury : await ata(p.treasury, p.inputMint, inputProgram))
+      : A ? p.treasury : await ata(p.treasury, p.outputMint, outputProgram),
   };
   const acc = p.accounts;
   if (
@@ -545,8 +555,13 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
           x.authority === W && x.decimals === p.inputDecimals;
         const floor = x.program === minOut.program && x.source === minOut.account && x.destination === minOut.account &&
           x.mint === minOut.mint && x.authority === minOut.authority && x.decimals === minOut.decimals;
+        // A fee on a token output comes out of W_out, by W, to the treasury's account for that token.
+        const outputFee = p.feeSide === 'output' && !A && p.fee > 0n && x.program === outputProgram && x.source === wOut
+          && x.mint === p.outputMint && x.authority === W && x.decimals === p.outputDecimals
+          && x.destination === feeDestination && x.amount === p.fee;
         if (ours && x.destination === eIn && x.amount === p.swapAmount) put('transferIn', i);
-        else if (ours && p.fee > 0n && x.destination === feeDestination && x.amount === p.fee) put('feeTransfer', i);
+        else if (ours && p.feeSide === 'input' && p.fee > 0n && x.destination === feeDestination && x.amount === p.fee) put('feeTransfer', i);
+        else if (outputFee) put('feeTransfer', i);
         else if (floor && x.amount === minOut.amount) put('minOutCheck', i);
         else if (floor) fail('R2', `instruction ${i}: minimum-output check for ${x.amount}, expected ${minOut.amount}`);
         else fail('R2', `instruction ${i}: unexpected token transfer of ${x.amount}`);
@@ -554,7 +569,9 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
       }
       case 'systemTransfer':
         if (B && x.from === W && x.to === eIn && x.lamports === p.swapAmount) put('transferIn', i);
-        else if (B && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put('feeTransfer', i);
+        else if (B && p.feeSide === 'input' && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put('feeTransfer', i);
+        // A fee on a SOL output: from the wallet, which E_out has paid out to, to the treasury wallet.
+        else if (A && p.feeSide === 'output' && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put('feeTransfer', i);
         else if (p.takerRent > 0n && x.from === W && x.to === E && x.lamports === p.takerRent) put('takerRent', i);
         else if (p.routeRefund > 0n && x.from === E && x.to === W && x.lamports === p.routeRefund) put('routeRefund', i);
         else fail('R2', `instruction ${i}: unexpected SOL transfer of ${x.lamports} lamports`);
@@ -640,6 +657,18 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (swapIndex >= 0) {
     for (const s of BEFORE_SWAP) for (const i of slots.get(s) ?? []) if (i > swapIndex) fail('R2', `${s} must run before the swap`);
     for (const s of AFTER_SWAP) for (const i of slots.get(s) ?? []) if (i < swapIndex) fail('R5', `${s} must run after the swap`);
+    // A fee on the input is setup; a fee on the output comes out of what arrived: after the minimum
+    // check, and for SOL after E_out has paid out to the wallet, so the wallet keeps minOut - fee.
+    for (const i of slots.get('feeTransfer') ?? []) {
+      if (p.feeSide !== 'output') {
+        if (i > swapIndex) fail('R2', 'feeTransfer must run before the swap');
+        continue;
+      }
+      const first = [...(slots.get('minOutCheck') ?? []), ...(A ? slots.get('closeEOut') ?? [] : [])];
+      if (i < swapIndex || first.some(j => j > i)) {
+        fail('R5', `the fee on the output must follow the minimum check${A ? ' and the close of E_out' : ''}`);
+      }
+    }
   }
   const first = (s: Slot) => slots.get(s)?.[0] ?? -1;
   if (first('createEIn') > first('transferIn')) fail('R2', 'the input account is funded before it is created');

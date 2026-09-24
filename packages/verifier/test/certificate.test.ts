@@ -33,7 +33,11 @@ describe('certificate', () => {
         expect(c.messageSha256).toBe(createHash('sha256').update(Uint8Array.from(tx.messageBytes)).digest('hex'));
         expect(c.input.totalDebit).toBe(s.policy.amountIn);
         expect(c.input.swapAmount + c.input.boundFee).toBe(c.input.totalDebit);
-        expect(c.output.minimumOutput).toBe(s.policy.minOut);
+        // Like Jupiter's fee: a sale into SOL pays in SOL, out of the output; a token bought with
+        // USDC pays in USDC, out of the input. The minimum stated is what the wallet keeps.
+        expect(s.policy.feeSide).toBe(name === 'USDC → SOL' ? 'output' : 'input');
+        expect(c.output.minimumOutput + c.output.boundFee).toBe(s.policy.minOut);
+        expect(c.input.boundFee + c.output.boundFee).toBe(s.policy.fee);
         expect(c.signers).toEqual([s.W, s.E.address]);
         expect(c.directPrograms).toContain(JUPITER_PROGRAM);
         expect(c.directPrograms).toContain(TOKEN_PROGRAM);

@@ -89,7 +89,8 @@ function explain(e: unknown): Response {
     switch (e.code) {
       case 'price-moved':
         return fail(409, e.code, e.message, {
-          newMinOut: e.priceMoved?.newMinOut, newOutAmount: e.priceMoved?.newOutAmount,
+          // What the wallet would keep, after a fee taken from the output: the same unit as minOut.
+          newMinOut: e.priceMoved?.newMinReceived, newOutAmount: e.priceMoved?.newOutAmount,
           retry: 'Send prepare again with minOut set to newMinOut to accept it.',
         });
       case 'costs-more':
@@ -166,7 +167,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       {
         owner: owner as Address, ephemeral: E, inputMint: inMint, outputMint: outMint, amountIn,
         inputDecimals: mints.get(inMint)!.decimals, outputDecimals: mints.get(outMint)!.decimals,
-        acceptedMinOut: minOut, acceptedCostBps: acceptCostBps, version,
+        // The agent's floor is what its wallet keeps; with a fee on the output, Bound enforces more.
+        acceptedMinReceived: minOut, acceptedCostBps: acceptCostBps, version,
       },
     );
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
@@ -191,8 +193,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       lastValidBlockHeight: prepared.lifetime.lastValidBlockHeight,
       ...(height === null ? {} : { blocksLeft: prepared.lifetime.lastValidBlockHeight - BigInt(height) }),
       amounts: {
-        amountIn: p.amountIn, fee: p.fee, feeBps: p.fee === 0n ? 0n : p.feeBps, swapAmount: p.swapAmount,
-        quotedOut: prepared.quote.outAmount, minOut: p.minOut, priceImpactPct: prepared.quote.priceImpactPct,
+        // Like Jupiter's fee: in SOL first, then USDC or USDT, on whichever side; otherwise the input.
+        amountIn: p.amountIn, fee: p.fee, feeMint: p.feeSide === 'output' ? p.outputMint : p.inputMint,
+        feeBps: p.fee === 0n ? 0n : p.feeBps, swapAmount: p.swapAmount,
+        // What the wallet keeps at least, after a fee taken from the output.
+        quotedOut: prepared.quote.outAmount, minOut: prepared.quote.minReceived, priceImpactPct: prepared.quote.priceImpactPct,
       },
       costs: {
         networkFeeLamports: prepared.networkFeeLamports,

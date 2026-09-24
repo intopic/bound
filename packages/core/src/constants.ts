@@ -9,6 +9,14 @@ export const JUPITER_PROGRAM = address('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVT
 
 /** Native SOL is always handled as wrapped SOL (WSOL) inside the protected transaction. */
 export const WSOL_MINT = address('So11111111111111111111111111111111111111112');
+export const USDC_MINT = address('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+export const USDT_MINT = address('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB');
+/**
+ * The tokens the Bound fee is taken in first, on whichever side of the swap they are, the way
+ * Jupiter takes its own: SOL, then USDC, then USDT. Otherwise the fee is in the input token when the
+ * treasury has an account for it, and otherwise the swap is fee-free.
+ */
+export const FEE_TOKENS: readonly string[] = [WSOL_MINT, USDC_MINT, USDT_MINT];
 
 export const LEGACY_SIZE_LIMIT = 1232;
 export const V1_SIZE_LIMIT = 4096;

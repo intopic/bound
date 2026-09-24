@@ -112,14 +112,14 @@ export function protectedInstructions(
       getTransferSolInstruction({ source: W, destination: a.eIn, amount: p.swapAmount }),
       syncNative(a.eIn),
     );
-    if (p.fee > 0n) pre.push(getTransferSolInstruction({ source: W, destination: a.feeDestination!, amount: p.fee }));
+    if (p.feeSide === 'input' && p.fee > 0n) pre.push(getTransferSolInstruction({ source: W, destination: a.feeDestination!, amount: p.fee }));
   } else {
     pre.push(
       getTransferCheckedInstruction({
         source: a.wIn!, mint: p.inputMint, destination: a.eIn, authority: W, amount: p.swapAmount, decimals: p.inputDecimals,
       }, { programAddress: p.inputTokenProgram }),
     );
-    if (p.fee > 0n) {
+    if (p.feeSide === 'input' && p.fee > 0n) {
       pre.push(
         getTransferCheckedInstruction({
           source: a.wIn!, mint: p.inputMint, destination: a.feeDestination!, authority: W, amount: p.fee, decimals: p.inputDecimals,
@@ -170,6 +170,15 @@ export function protectedInstructions(
       },
       getTransferSolInstruction({ source: E, destination: p.owner, amount: p.routeRefund }),
     );
+  }
+  // A fee on the output comes last, out of what arrived: SOL from the wallet once E_out has paid out
+  // to it, a token from W_out once its minimum is checked. The wallet keeps at least minOut - fee.
+  if (p.feeSide === 'output' && p.fee > 0n) {
+    post.push(p.variant === 'A'
+      ? getTransferSolInstruction({ source: W, destination: a.feeDestination!, amount: p.fee })
+      : getTransferCheckedInstruction({
+        source: a.wOut!, mint: p.outputMint, destination: a.feeDestination!, authority: W, amount: p.fee, decimals: p.outputDecimals,
+      }, { programAddress: p.outputTokenProgram }));
   }
   return [...pre, swapInstruction, ...post];
 }

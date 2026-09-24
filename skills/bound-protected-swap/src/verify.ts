@@ -98,10 +98,13 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
   if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1_000_000)) {
     problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
   }
+  // What the wallet keeps: the enforced minimum, less a fee taken from the output (like Jupiter's,
+  // Bound takes its fee in SOL first, then USDC or USDT, on whichever side of the swap they are).
+  const keeps = p.feeSide === 'output' ? p.minOut - p.fee : p.minOut;
   if (!/^\d{1,20}$/.test(limits.minOut ?? '') || BigInt(limits.minOut) === 0n) {
     problems.push('no minimum of your own: set minOut from a price you got yourself (ownMinimum asks Jupiter for one)');
-  } else if (p.minOut < BigInt(limits.minOut)) {
-    problems.push(`the minimum ${p.minOut} is below yours, ${limits.minOut}`);
+  } else if (keeps < BigInt(limits.minOut)) {
+    problems.push(`the minimum ${keeps} is below yours, ${limits.minOut}`);
   }
 
   // Chain state from the agent's own RPC: every account the message names, resolved through its

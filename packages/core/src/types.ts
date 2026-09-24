@@ -5,6 +5,9 @@ export type TxVersion = 0 | 1;
 /** A: SPL -> SOL, B: SOL -> SPL, C: SPL -> SPL (plan, section 5). */
 export type Variant = 'A' | 'B' | 'C';
 
+/** Which side of the swap the Bound fee is taken from; see `Policy.feeSide`. */
+export type FeeSide = 'input' | 'output';
+
 /** What the user asked for: "swap `amountIn` of `inputMint` for `outputMint`". */
 export type Intent = {
   owner: Address;
@@ -33,7 +36,10 @@ export type PolicyAccounts = {
   wIn: Address | null;
   /** ATA(W, outputMint) when the output is SPL. */
   wOut: Address | null;
-  /** ATA(treasury, inputMint) for SPL input, the treasury wallet for SOL input; null when fee = 0. */
+  /**
+   * Where the fee goes: the treasury wallet when the fee is in SOL, otherwise the treasury's account
+   * for the fee's token (the input token, or USDC or USDT on the output). Null when fee-free.
+   */
   feeDestination: Address | null;
   /**
    * The account a Pump.fun market opens in E's name (PDA["user_volume_accumulator", E]) and that
@@ -83,9 +89,19 @@ export type Policy = {
   routeRefundProgram: Address | null;
   amountIn: bigint;
   feeBps: bigint;
+  /**
+   * Which side the fee comes from, the way Jupiter takes its own: SOL first, then USDC and USDT, on
+   * whichever side of the swap they are; otherwise the input token. On the input side the fee is
+   * `feeBps` of `amountIn`, paid before the swap. On the output side it is `feeBps` of `minOut`,
+   * paid after the minimum is checked, so the wallet keeps at least `minOut - fee`. Null when the
+   * swap is fee-free.
+   */
+  feeSide: FeeSide | null;
+  /** In base units of the token of `feeSide`: the input token, or the output token (lamports for SOL). */
   fee: bigint;
+  /** What the route is given: `amountIn` less a fee on the input. */
   swapAmount: bigint;
-  /** Null in test mode, and when the treasury has no account for the input token (audit B-09). */
+  /** Null in test mode, and when the treasury can receive the fee in neither token (audit B-09). */
   treasury: Address | null;
   maxNetworkFeeLamports: bigint;
   jupiterProgram: Address;

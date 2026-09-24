@@ -13,8 +13,8 @@ rest of your wallet.
 ## How it works
 
 1. Bound creates a one-time key **E** in the browser (WebCrypto Ed25519, non-extractable).
-2. In a single transaction, the wallet **W** moves exactly `q − fee` into a temporary account owned
-   by E, pays the Bound fee (0.2%), and only E and that account are given to the one untrusted
+2. In a single transaction, the wallet **W** moves exactly the amount to swap into a temporary account
+   owned by E, pays the Bound fee (0.2%), and only E and that account are given to the one untrusted
    instruction (Jupiter's swap). After the swap, Bound checks that at least the minimum output
    arrived, then closes the temporary accounts back to W.
 3. Before the wallet opens, the **verifier** checks the exact bytes against 7 rules (below).
@@ -35,7 +35,7 @@ only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first, so t
 | --- | --- |
 | R6 | Only W and E sign; W pays; what the wallet returns is exactly what was verified. Because W never appears in the swap, W's signature is never available to it: this is what makes the other rules sufficient |
 | R1 | W and W's token accounts (except the output account) never reach the external program, including through lookup tables; nor do Bound's fee accounts |
-| R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1% |
+| R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1%: taken from the input before the swap, or from a SOL, USDC or USDT output after the minimum is checked |
 | R3 | E and its accounts are fresh |
 | R4 | The network fee paid by W is capped (never above 0.001 SOL) |
 | R5 | One transaction within size limits; every temporary account is closed |
@@ -106,7 +106,7 @@ Fixed at build time (compiled into the page, so the server cannot change them af
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. Pre-create its token accounts for the tokens you charge in: a swap whose input token has no treasury account is fee-free |
+| `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then almost every swap pays, memecoin sales included. A swap the treasury can receive in neither token is fee-free |
 | `NEXT_PUBLIC_BOUND_FEE_BPS` | 20 | 0.2%. The verifier refuses more than 100 (1%) |
 | `NEXT_PUBLIC_BOUND_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Bound v1 swap has landed on mainnet |
 

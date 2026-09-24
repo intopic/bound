@@ -838,7 +838,38 @@ current Pump.fun coins is a cashback coin.
 | F-01 (High) | Six Token-2022 features refused without an isolation reason; xStocks among the most traded | Not changed: the owner's decision. xStocks need three together: a program-address delegate (safe with the destination check above), scaled UI amounts shown right, and a pause check | Open |
 | F-14 | The skill cannot be installed while the repository is private, and is not pinned | At publication: public repository, a tag, the bundle's hash | Open |
 | F-04, F-11, F-12 | SIMD-0553 (draft), instruction-trace overflow, Alpenglow's commitment change | Watched; nothing scheduled on mainnet yet | Open |
-| Suggestion 14 | Most memecoin sales are fee-free (no treasury account for new Pump coins) | A fee in SOL on sales into SOL is the owner's decision | Open |
+| Suggestion 14 | Most memecoin sales are fee-free (no treasury account for new Pump coins) | Decided and built: the fee is taken like Jupiter's (section 0t) | Done |
+
+---
+
+## 0t. The fee, taken like Jupiter's (24 September 2026)
+
+Until now the fee was 0.2% of the input, in the input token, and a swap whose input token the
+treasury held no account for was fee-free. Pump.fun mints new tokens every minute, so nearly every
+memecoin sale paid nothing. The owner kept the price at 0.2% and asked for the fee to be taken the way
+Jupiter takes its own (its fee mint priority: SOL, then stablecoins, on either side).
+
+| Swap | Fee |
+| --- | --- |
+| SOL → anything | 0.2% of the SOL paid in, before the swap (as before) |
+| anything → SOL | 0.2% of the SOL minimum, from the wallet after E_out has paid out |
+| USDC or USDT → token | 0.2% of the input, before the swap (as before) |
+| token → USDC or USDT | 0.2% of the minimum, from `W_out` after its minimum is checked |
+| any other pair | in the input token when the treasury has an account for it; otherwise none |
+
+- `Policy.feeSide` says which side. On the output the fee is `feeBps` of `minOut`, so it is never more
+  than 0.2% of what arrives, and the minimum shown to the user, in the API (`amounts.minOut`) and in
+  the certificate (`output.minimumOutput`) is what the wallet keeps after it. An agent's `minOut` means
+  the same; Bound enforces `ceil(minOut / (1 − 0.2%))` on chain.
+- The verifier re-derives the side's amount and account, takes a fee on the output only in SOL, USDC
+  or USDT, only after the minimum check (and for SOL after E_out is closed), and refuses a policy with
+  a treasury and no side, or the other way round. Certificate version 0.6.0 states the fee on each side.
+- The treasury wallet is read whenever SOL is on either side; while it does not exist, the next token
+  in line pays (BR-06). Its USDC and USDT accounts are read for a sale into them.
+- The page showed a sale into SOL through a Pump curve with the refunded account rent counted as
+  received SOL (FA-05); it now counts only what the swap delivered, less a fee taken from the output.
+- T6 keeps its fee on the input (the VM has no funded treasury wallet); the fee on the output is covered
+  by the verifier's and the pipeline's tests and by T4 on mainnet, whose treasury wallet exists.
 
 ---
 
@@ -873,9 +904,12 @@ Received ≥ minOut                (A: Balance(E_out) ≥ minOut, E_out is fresh
                                   B, C: Balance(W_out) ≥ b0 + minOut, b0 read when the swap was prepared)
 Delivered(Jupiter → W_out or E_out) ≥ quoted × (1 − slippage), measured by Jupiter's program on what
                                  its own instruction delivered, whatever b0 was (research audit)
+Kept ≥ minOut − fee              when the fee is taken from a SOL, USDC or USDT output: fee = feeBps × minOut,
+                                 paid after the minimum check (section 0t)
 Debit(W, input token) = q        Debit(W, other tokens) = 0
 Debit(W, SOL) ≤ min(F_max, 0.001 SOL) + rent(W_out, if created; read from the cluster)
                  + route rent − route refund (≤ 0.005 SOL) (+ q if the input is SOL)
+                 (+ the fee taken from a SOL output, which leaves out of what the swap delivered)
 ```
 
 For B and C, a transfer into `W_out` from someone else between prepare and execution counts toward
@@ -1007,7 +1041,7 @@ the rule the others depend on.
 | Rule | Exact checks |
 | --- | --- |
 | R1 | After resolving lookup tables from the snapshot, the external instruction contains neither W nor W_in, nor the fee account or the treasury. Every other account in it must be in the snapshot, and none may be a token account (Token or Token-2022, ≥ 165 bytes) whose owner field is W, except W_out. W_out must be in the snapshot and have no close authority. Unresolvable lookups fail R1. |
-| R2 | Every trusted instruction is decoded by `parse.ts` (exact data length, account count, roles; unknown discriminators are `invalid`) and must fill exactly one expected slot with exact accounts and amounts. The one trusted instruction of a market's program is Pump's `close_user_volume_accumulator` for E's derived account, after all of Bound's own cleanup, followed by a transfer of exactly `routeRefund` from E to W (FA-05). Exactly one external instruction, and its program must be Jupiter. Setup runs before the swap; the input account is created before it is funded; SyncNative runs after the SOL transfer; W_out is created before it is revoked; exactly one minimum-output check with the policy's floor (plus `b0` for W_out). The fee is at most `MAX_FEE_BPS`; the floor is above 0. Policy amounts and derived accounts are recomputed and compared. |
+| R2 | Every trusted instruction is decoded by `parse.ts` (exact data length, account count, roles; unknown discriminators are `invalid`) and must fill exactly one expected slot with exact accounts and amounts. The one trusted instruction of a market's program is Pump's `close_user_volume_accumulator` for E's derived account, after all of Bound's own cleanup, followed by a transfer of exactly `routeRefund` from E to W (FA-05). Exactly one external instruction, and its program must be Jupiter. Setup runs before the swap; the input account is created before it is funded; SyncNative runs after the SOL transfer; W_out is created before it is revoked; exactly one minimum-output check with the policy's floor (plus `b0` for W_out). The fee is at most `MAX_FEE_BPS`: on the input, a transfer from W_in (or of SOL) before the swap; on the output, only in SOL, USDC or USDT, `feeBps × minOut`, after the minimum check (for SOL a transfer from W after E_out is closed, otherwise from W_out); a treasury without a fee side, or the other way round, is refused (section 0t). The floor is above 0. Policy amounts and derived accounts are recomputed and compared. |
 | R3 | E, E_in, E_out and every intermediate must be absent or empty in the snapshot. |
 | R4 | v0: exactly one `SetComputeUnitLimit` (≤ 1.4M) and one `SetComputeUnitPrice`. v1: no ComputeBudget instructions; the message config may hold only the CU limit, the priority fee and a loaded-accounts data size ≤ 64 MiB. Both: `5000 × signers + priority fee ≤ min(F_max, 0.001 SOL)`, and a policy F_max above 0.001 SOL is itself a violation. |
 | R5 | ≤ 1232 bytes (v0) or ≤ 4096 bytes and ≤ 64 static accounts (v1). The minimum-output check and the closes run after the swap; in variant A the check runs before E_out is closed. E_in, E_out and every intermediate (at most 4) are closed exactly once. |
@@ -1045,7 +1079,7 @@ the rule the others depend on.
 | D13 | DEXes whose per-taker rent is too high to pay on every swap are excluded (`HumidiFi`) | With a fresh E per swap that rent (~0.013 SOL on HumidiFi) would be lost every time. Pump.fun's (~0.0013–0.0015 SOL, PumpSwap and the bonding curve) is paid through `takerRent` and shown (section 0k). |
 | D14 | Intermediate ATA(E, m) are created by Bound (payer W) and closed back to W | Some routes (e.g. Quay) output to ATA(E, output) first. |
 | D15 | A protected route more than 0.5% below the unrestricted one (1% until 23 September 2026) is put to the user (`costs-more`), with a stronger warning past 5%; Bound refuses on its own only past 50%, where the answer is no longer a price. Both numbers come from the same aggregator, so this is a courtesy check, not a guarantee about the market price. Bound does not block a trade it merely dislikes: the difference is shown, and the person decides. Failed simulations trigger route repair (blame the DEX from logs, exclude, rebuild) | Jupiter once returned `outAmount = 0` and once a route 12% worse, so a wide gap is treated as a broken answer. A narrow one is the price of the protection — fewer accounts fit in one transaction, and pools that leave an account behind are excluded — and that is the user's decision, not ours. A simulation that fails at Bound's own minimum-output check, or that Jupiter stops because the price moved past its threshold, is requoted without blaming any DEX (section 0k). |
-| D16 | No fee when the treasury has no account for the input token | The user never pays rent for Bound's account (B-09). Operations pre-create treasury accounts for the tokens where the fee matters. |
+| D16 | The fee is taken like Jupiter's: SOL first, then USDC and USDT, on whichever side; otherwise the input token; otherwise none (section 0t) | The user never pays rent for Bound's account (B-09), and a memecoin sold for SOL still pays, in SOL. Operations fund the treasury wallet and open its USDC and USDT accounts. |
 | D17 | Token icons are fetched by Bound's server | Keeps `img-src 'self' data:` and hides users' IP addresses from hosts chosen by token creators (B-08). |
 | D18 | Fee and treasury are fixed at build time (`NEXT_PUBLIC_BOUND_*`) | The server has no live channel to change them (B-01). |
 | D19 | The minimum the user saw is the minimum enforced; a worse market is a question, never a silent change | Binds the policy to the accepted intent without an extra click in the common case (C-02). |
@@ -1133,8 +1167,8 @@ npm run e2e                             # needs Microsoft Edge
 
 ## 10. Known limitations and open items
 
-- The treasury needs a token account for each input token where the fee is charged; without it the
-  swap is fee-free. Operations must pre-create them for popular tokens.
+- The treasury wallet must exist, and have USDC and USDT accounts, for the fee to be taken in them;
+  otherwise the next token in line pays, and a swap it can receive in no token is fee-free.
 - If the wallet modifies the message (e.g. Phantom injecting Lighthouse assertions), R6 rejects it.
   This is safe but may break UX; Phantom's behaviour with `signTransaction` and a second unsigned
   signer is untested with real funds.

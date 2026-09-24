@@ -10,6 +10,16 @@ const COMPUTE_BUDGET_PROGRAM = address("ComputeBudget111111111111111111111111111
 const JUPITER_PROGRAM = address("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
 /** Native SOL is always handled as wrapped SOL (WSOL) inside the protected transaction. */
 const WSOL_MINT = address("So11111111111111111111111111111111111111112");
+/**
+* The tokens the Bound fee is taken in first, on whichever side of the swap they are, the way
+* Jupiter takes its own: SOL, then USDC, then USDT. Otherwise the fee is in the input token when the
+* treasury has an account for it, and otherwise the swap is fee-free.
+*/
+const FEE_TOKENS = [
+	WSOL_MINT,
+	address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
+	address("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
+];
 const LEGACY_SIZE_LIMIT = 1232;
 const V1_SIZE_LIMIT = 4096;
 /**
@@ -406,7 +416,6 @@ const BEFORE_SWAP = [
 	"revokeWOut",
 	"createIntermediate",
 	"transferIn",
-	"feeTransfer",
 	"takerRent",
 	"sync"
 ];
@@ -460,8 +469,12 @@ async function verify(transaction, policy, snapshot) {
 	const inputMintState = snapshot.accounts.get(p.inputMint);
 	const inputFee = !!inputMintState && inputProgram === TOKEN_2022_PROGRAM && hasTransferFee(inputMintState.data);
 	if (inputMintState && p.inputTransferFee !== inputFee) fail("R2", `policy says the input mint ${p.inputTransferFee ? "charges" : "does not charge"} a transfer fee, the mint says otherwise`);
-	const expectedFee = p.treasury ? p.amountIn * p.feeBps / BPS_DENOMINATOR : 0n;
-	if (p.fee !== expectedFee || p.swapAmount + p.fee !== p.amountIn || p.swapAmount <= 0n) fail("R2", "policy amounts are inconsistent");
+	if (p.feeSide !== null && p.feeSide !== "input" && p.feeSide !== "output") fail("R2", "the policy names no fee side Bound knows");
+	if (p.treasury === null !== (p.feeSide === null)) fail("R2", "the policy has a treasury without a fee side, or the other way round");
+	if (p.feeSide === "output" && !FEE_TOKENS.includes(p.outputMint)) fail("R2", "a fee on the output is taken only in SOL, USDC or USDT");
+	const expectedFee = !p.treasury ? 0n : p.feeSide === "output" ? p.minOut * p.feeBps / BPS_DENOMINATOR : p.amountIn * p.feeBps / BPS_DENOMINATOR;
+	const feeOnInput = p.feeSide === "input" ? p.fee : 0n;
+	if (p.fee !== expectedFee || p.swapAmount + feeOnInput !== p.amountIn || p.swapAmount <= 0n) fail("R2", "policy amounts are inconsistent");
 	if (p.inputMint === p.outputMint) fail("R2", "input and output token are the same");
 	if (p.feeBps < 0n || p.feeBps > 100n) fail("R2", `fee of ${p.feeBps} bps is above the maximum of ${MAX_FEE_BPS}`);
 	if (p.maxNetworkFeeLamports > 1000000n) fail("R4", `configured network fee limit ${p.maxNetworkFeeLamports} is above the absolute maximum`);
@@ -490,7 +503,7 @@ async function verify(transaction, policy, snapshot) {
 		eOut: A ? await ata(E, WSOL_MINT) : null,
 		wIn: B ? null : await ata(W, p.inputMint, inputProgram),
 		wOut: A ? null : await ata(W, p.outputMint, outputProgram),
-		feeDestination: p.fee === 0n ? null : B ? p.treasury : await ata(p.treasury, p.inputMint, inputProgram)
+		feeDestination: !p.treasury || !p.feeSide ? null : p.feeSide === "input" ? B ? p.treasury : await ata(p.treasury, p.inputMint, inputProgram) : A ? p.treasury : await ata(p.treasury, p.outputMint, outputProgram)
 	};
 	const acc = p.accounts;
 	if (acc.eIn !== expected.eIn || acc.eOut !== expected.eOut || acc.wIn !== expected.wIn || acc.wOut !== expected.wOut || acc.feeDestination !== expected.feeDestination || (acc.routeAccount ?? null) !== expected.routeAccount || (acc.routeEventAuthority ?? null) !== expected.routeEventAuthority) fail("R2", "policy accounts do not match their derivation");
@@ -605,8 +618,10 @@ async function verify(transaction, policy, snapshot) {
 		case "transferChecked": {
 			const ours = x.program === inputProgram && x.source === wIn && x.mint === p.inputMint && x.authority === W && x.decimals === p.inputDecimals;
 			const floor = x.program === minOut.program && x.source === minOut.account && x.destination === minOut.account && x.mint === minOut.mint && x.authority === minOut.authority && x.decimals === minOut.decimals;
+			const outputFee = p.feeSide === "output" && !A && p.fee > 0n && x.program === outputProgram && x.source === wOut && x.mint === p.outputMint && x.authority === W && x.decimals === p.outputDecimals && x.destination === feeDestination && x.amount === p.fee;
 			if (ours && x.destination === eIn && x.amount === p.swapAmount) put("transferIn", i);
-			else if (ours && p.fee > 0n && x.destination === feeDestination && x.amount === p.fee) put("feeTransfer", i);
+			else if (ours && p.feeSide === "input" && p.fee > 0n && x.destination === feeDestination && x.amount === p.fee) put("feeTransfer", i);
+			else if (outputFee) put("feeTransfer", i);
 			else if (floor && x.amount === minOut.amount) put("minOutCheck", i);
 			else if (floor) fail("R2", `instruction ${i}: minimum-output check for ${x.amount}, expected ${minOut.amount}`);
 			else fail("R2", `instruction ${i}: unexpected token transfer of ${x.amount}`);
@@ -614,7 +629,8 @@ async function verify(transaction, policy, snapshot) {
 		}
 		case "systemTransfer":
 			if (B && x.from === W && x.to === eIn && x.lamports === p.swapAmount) put("transferIn", i);
-			else if (B && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put("feeTransfer", i);
+			else if (B && p.feeSide === "input" && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put("feeTransfer", i);
+			else if (A && p.feeSide === "output" && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put("feeTransfer", i);
 			else if (p.takerRent > 0n && x.from === W && x.to === E && x.lamports === p.takerRent) put("takerRent", i);
 			else if (p.routeRefund > 0n && x.from === E && x.to === W && x.lamports === p.routeRefund) put("routeRefund", i);
 			else fail("R2", `instruction ${i}: unexpected SOL transfer of ${x.lamports} lamports`);
@@ -687,6 +703,14 @@ async function verify(transaction, policy, snapshot) {
 	if (swapIndex >= 0) {
 		for (const s of BEFORE_SWAP) for (const i of slots.get(s) ?? []) if (i > swapIndex) fail("R2", `${s} must run before the swap`);
 		for (const s of AFTER_SWAP) for (const i of slots.get(s) ?? []) if (i < swapIndex) fail("R5", `${s} must run after the swap`);
+		for (const i of slots.get("feeTransfer") ?? []) {
+			if (p.feeSide !== "output") {
+				if (i > swapIndex) fail("R2", "feeTransfer must run before the swap");
+				continue;
+			}
+			const first = [...slots.get("minOutCheck") ?? [], ...A ? slots.get("closeEOut") ?? [] : []];
+			if (i < swapIndex || first.some((j) => j > i)) fail("R5", `the fee on the output must follow the minimum check${A ? " and the close of E_out" : ""}`);
+		}
 	}
 	const first = (s) => slots.get(s)?.[0] ?? -1;
 	if (first("createEIn") > first("transferIn")) fail("R2", "the input account is funded before it is created");
@@ -865,8 +889,9 @@ async function verifyPrepared(prepared, limits, rpc) {
 	if (p.feeBps > BigInt(limits.maxFeeBps ?? 20)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
 	if (limits.treasury && p.treasury !== null && p.treasury !== limits.treasury) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
 	if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1e6)) problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
+	const keeps = p.feeSide === "output" ? p.minOut - p.fee : p.minOut;
 	if (!/^\d{1,20}$/.test(limits.minOut ?? "") || BigInt(limits.minOut) === 0n) problems.push("no minimum of your own: set minOut from a price you got yourself (ownMinimum asks Jupiter for one)");
-	else if (p.minOut < BigInt(limits.minOut)) problems.push(`the minimum ${p.minOut} is below yours, ${limits.minOut}`);
+	else if (keeps < BigInt(limits.minOut)) problems.push(`the minimum ${keeps} is below yours, ${limits.minOut}`);
 	let snapshot;
 	try {
 		const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);

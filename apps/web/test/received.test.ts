@@ -28,6 +28,14 @@ describe('what actually arrived (review BR-03)', () => {
       .toBe(49_500_000n);
   });
 
+  it("the part of the market's account fee that came back is not swap output (FA-05)", () => {
+    // Received 49,500,000; paid 1,478,280 to the market, of which 1,346,200 came back.
+    const meta = { fee: 20_000n, preBalances: [100_000_000n], postBalances: [100_000_000n + 49_500_000n - 20_000n - 1_478_280n + 1_346_200n] };
+    expect(receivedFromMeta(meta, {
+      owner: W, outputMint: 'So11111111111111111111111111111111111111112', solOutput: true, routeRent: 1_478_280n, routeRefund: 1_346_200n,
+    })).toBe(49_500_000n);
+  });
+
   it('unknown when the transaction does not show the account', () => {
     const meta = { fee: 5_000n, preBalances: [], postBalances: [], postTokenBalances: [] };
     expect(receivedFromMeta(meta, { owner: W, outputMint: BONK, solOutput: false, routeRent: 0n })).toBeNull();

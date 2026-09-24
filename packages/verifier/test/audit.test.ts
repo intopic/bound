@@ -15,9 +15,7 @@ import {
 } from '@bound/core';
 import type { AccountState, RuleId, TxVersion } from '@bound/core';
 import { memoRequired, verify } from '../src/index.ts';
-import {
-  BONK, compileRaw, compileRawV1WithHeap, cuIxs, honest, JUP, LIFETIME, randomAddress, scenario, USDC,
-} from './fixtures.ts';
+import { BONK, compileRaw, compileRawV1WithHeap, cuIxs, honest, JUP, LIFETIME, randomAddress, scenario, USDC } from './fixtures.ts';
 import type { Scenario } from './fixtures.ts';
 
 const rules = (v: { violations: { rule: RuleId }[] }) => [...new Set(v.violations.map(x => x.rule))];
@@ -200,7 +198,8 @@ describe('B-07: the v1 message config is an allowlist', () => {
 describe("B-09: the user never pays rent for Bound's fee account", () => {
   for (const version of [0, 1] as const) {
     it(`without a fee account the swap is fee-free and creates nothing for the treasury, v${version}`, async () => {
-      const s = await scenario({ feeAccountExists: false });
+      // Neither side is SOL, USDC or USDT and the treasury has no account for the input token.
+      const s = await scenario({ input: BONK, output: JUP, feeAccountExists: false });
       expect(s.policy.fee).toBe(0n);
       expect(s.policy.treasury).toBeNull();
       expect(s.policy.swapAmount).toBe(s.policy.amountIn);

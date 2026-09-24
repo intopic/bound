@@ -2,10 +2,10 @@ import { findAssociatedTokenPda } from '@solana-program/token';
 import { getAddressEncoder, getProgramDerivedAddress } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import {
-  BPS_DENOMINATOR, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE,
+  BPS_DENOMINATOR, FEE_TOKENS, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE,
   TOKEN_PROGRAM, WSOL_MINT,
 } from './constants.ts';
-import type { BoundConfig, Intent, Policy, Variant } from './types.ts';
+import type { BoundConfig, FeeSide, Intent, Policy, Variant } from './types.ts';
 
 /** Token amount of a classic SPL token account (offset 64), or 0 for a missing account. */
 export function tokenAmountOf(data: Uint8Array | null | undefined): bigint {
@@ -54,12 +54,46 @@ export function feeFor(amountIn: bigint, config: Pick<BoundConfig, 'feeBps' | 't
   return config.treasury ? (amountIn * config.feeBps) / BPS_DENOMINATOR : 0n;
 }
 
+/**
+ * Which side of the swap the fee is taken from, the way Jupiter takes its own: SOL first, then USDC,
+ * then USDT, on whichever side of the swap they are, when the treasury can receive them; otherwise
+ * the input token, when it can; otherwise none. A memecoin sold for SOL pays in SOL, which the
+ * treasury can always receive, where it could never hold an account for every new token.
+ */
+export function feeSideFor(inputMint: Address, outputMint: Address, canReceive: { input: boolean; output: boolean }): FeeSide | null {
+  for (const mint of FEE_TOKENS) {
+    if (inputMint === mint && canReceive.input) return 'input';
+    if (outputMint === mint && canReceive.output) return 'output';
+  }
+  return canReceive.input ? 'input' : null;
+}
+
+/** A fee on the output: `feeBps` of the minimum Bound enforces, never of more than will surely arrive. */
+export function outputFeeFor(minOut: bigint, feeBps: bigint): bigint {
+  return (minOut * feeBps) / BPS_DENOMINATOR;
+}
+
+/** What the wallet keeps at least: the enforced minimum, less a fee taken from the output. */
+export function minimumReceived(policy: Pick<Policy, 'minOut' | 'fee' | 'feeSide'>): bigint {
+  return policy.feeSide === 'output' ? policy.minOut - policy.fee : policy.minOut;
+}
+
+/**
+ * The least minimum a swap must enforce so that the wallet keeps `received` after a fee of `feeBps`
+ * on the output: ceil(received × 10,000 / (10,000 − feeBps)).
+ */
+export function minimumForReceived(received: bigint, feeBps: bigint): bigint {
+  const keep = BPS_DENOMINATOR - feeBps;
+  return (received * BPS_DENOMINATOR + keep - 1n) / keep;
+}
+
 export class PolicyError extends Error {}
 
-/** The policy with the minimum output of the chosen route (audit B-04). */
+/** The policy with the minimum output of the chosen route (audit B-04); a fee on the output follows it. */
 export function withMinOut(policy: Policy, minOut: bigint): Policy {
   if (minOut <= 0n) throw new PolicyError('The route guarantees no minimum output');
-  return { ...policy, minOut };
+  const fee = policy.feeSide === 'output' ? outputFeeFor(minOut, policy.feeBps) : policy.fee;
+  return { ...policy, minOut, fee };
 }
 
 /** The policy with the rent the chosen route needs E to pay; see `Policy.takerRent`. */
@@ -111,10 +145,19 @@ export async function buildPolicy(args: {
   /** Whether the input mint charges a Token-2022 transfer fee, as read from the chain. */
   inputTransferFee?: boolean;
   /**
-   * Whether ATA(treasury, inputMint) already exists on chain. When it does not, the swap is
-   * fee-free: Bound never makes the user pay rent for Bound's own account (audit B-09).
+   * Whether ATA(treasury, inputMint) already exists on chain (and is not frozen). When the treasury
+   * can receive the fee in neither token, the swap is fee-free: Bound never makes the user pay rent
+   * for Bound's own account (audit B-09). Not read for SOL, which the treasury wallet receives.
    */
   feeAccountExists: boolean;
+  /** The same for ATA(treasury, outputMint); only USDC and USDT are charged on the output as tokens. */
+  outputFeeAccountExists?: boolean;
+  /**
+   * Whether the treasury wallet exists and can receive SOL. A transfer that would open it below the
+   * rent minimum is refused by the runtime, so the fee is then taken in another token or not at all
+   * (review BR-06). True by default.
+   */
+  treasuryWalletReady?: boolean;
   /** Minimum output Bound enforces; usually set later from the chosen route (see `withMinOut`). */
   minOut?: bigint;
 }): Promise<Policy> {
@@ -127,14 +170,24 @@ export async function buildPolicy(args: {
   // Wrapped SOL is always a classic token, whatever the caller was told.
   const inProgram = intent.inputMint === WSOL_MINT ? TOKEN_PROGRAM : args.inputTokenProgram ?? TOKEN_PROGRAM;
   const outProgram = intent.outputMint === WSOL_MINT ? TOKEN_PROGRAM : args.outputTokenProgram ?? TOKEN_PROGRAM;
-  // Variant B pays the fee in SOL to the treasury wallet itself, which needs no token account.
-  const treasury = variant === 'B' || args.feeAccountExists ? config.treasury : null;
-  const fee = feeFor(intent.amountIn, { feeBps: config.feeBps, treasury });
-  const swapAmount = intent.amountIn - fee;
+  // SOL goes to the treasury wallet itself, which needs no token account; a token needs one.
+  const wallet = args.treasuryWalletReady ?? true;
+  const feeSide = config.treasury
+    ? feeSideFor(intent.inputMint, intent.outputMint, {
+      input: intent.inputMint === WSOL_MINT ? wallet : args.feeAccountExists,
+      output: intent.outputMint === WSOL_MINT ? wallet : args.outputFeeAccountExists ?? false,
+    })
+    : null;
+  const treasury = feeSide ? config.treasury : null;
+  const minOut = args.minOut ?? 0n;
+  const fee = feeSide === 'input' ? feeFor(intent.amountIn, { feeBps: config.feeBps, treasury })
+    : feeSide === 'output' ? outputFeeFor(minOut, config.feeBps) : 0n;
+  const swapAmount = intent.amountIn - (feeSide === 'input' ? fee : 0n);
   if (swapAmount <= 0n) throw new PolicyError('Amount is too small to cover the fee');
 
-  const feeDestination =
-    fee === 0n ? null : variant === 'B' ? treasury : await ataOf(treasury!, intent.inputMint, inProgram);
+  const feeMint = feeSide === 'input' ? intent.inputMint : intent.outputMint;
+  const feeDestination = !feeSide ? null
+    : feeMint === WSOL_MINT ? treasury : await ataOf(treasury!, feeMint, feeSide === 'input' ? inProgram : outProgram);
 
   return {
     owner: intent.owner,
@@ -146,12 +199,13 @@ export async function buildPolicy(args: {
     inputTransferFee: args.inputTransferFee ?? false,
     inputDecimals: args.inputDecimals,
     outputDecimals: args.outputDecimals,
-    minOut: args.minOut ?? 0n,
+    minOut,
     takerRent: 0n,
     routeRefund: 0n,
     routeRefundProgram: null,
     amountIn: intent.amountIn,
     feeBps: config.feeBps,
+    feeSide,
     fee,
     swapAmount,
     treasury,

@@ -62,8 +62,16 @@ API, E is derived from Bound's server secret and the ticket's nonce; Bound never
 finalize and never logs nonces.
 
 The rent stays in the user's own new token account and is shown before signing. Bound never makes the
-user pay rent for Bound's own fee account: if the treasury has no account for the input token, that
-swap is fee-free.
+user pay rent for Bound's own fee account.
+
+The fee (0.2%) is taken the way Jupiter takes its own: in SOL first, then USDC, then USDT, on
+whichever side of the swap they are and the treasury can receive them; otherwise in the input token
+when the treasury has an account for it; otherwise the swap is fee-free. On the input it is 0.2% of
+the amount, paid before the swap. On the output it is 0.2% of the enforced minimum, paid after the
+minimum is checked (from the wallet once E_out has paid out, for SOL; from `W_out`, for USDC or
+USDT): the minimum the user sees and accepts is what the wallet keeps after it, and the fee is never
+more than 0.2% of what arrives. This is what lets a memecoin sold for SOL pay, where the treasury
+could never hold an account for every new token.
 
 ## Why it holds: R6 first
 

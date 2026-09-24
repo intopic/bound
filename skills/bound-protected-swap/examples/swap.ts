@@ -57,12 +57,16 @@ export type Prepared = {
   lastValidBlockHeight: string;
   /** Blocks left in the transaction's life when prepare answered (150 at most, about 40 s). */
   blocksLeft?: string;
-  amounts: { amountIn: string; fee: string; feeBps: string; swapAmount: string; quotedOut: string; minOut: string };
+  /**
+   * `fee` is in `feeMint`: SOL first, then USDC or USDT, on whichever side; otherwise the input token.
+   * `minOut` is what the wallet keeps at least, after a fee taken from the output.
+   */
+  amounts: { amountIn: string; fee: string; feeMint?: string; feeBps: string; swapAmount: string; quotedOut: string; minOut: string };
   costs: { networkFeeLamports: string; outputAccountRentLamports: string; routeRentLamports: string; routeRefundLamports: string };
   certificate: {
     messageSha256: string; wallet: string; temporaryAuthority: string;
     input: { mint: string; totalDebit: string; boundFee: string };
-    output: { mint: string; minimumOutput: string };
+    output: { mint: string; minimumOutput: string; boundFee?: string };
   };
   /** What the transaction was built against; held to your intent by the check, never trusted. */
   policy: Record<string, unknown>;
@@ -116,8 +120,14 @@ export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<Solana
   if (p.amounts.amountIn !== intent.amountIn || p.certificate.input.totalDebit !== intent.amountIn) {
     problems.push(`the wallet would pay ${p.certificate.input.totalDebit}, not ${intent.amountIn}`);
   }
-  const maxFee = (BigInt(intent.amountIn) * BigInt(intent.maxFeeBps ?? 20)) / 10_000n;
-  if (BigInt(p.amounts.fee) > maxFee || BigInt(p.certificate.input.boundFee) > maxFee) problems.push(`the Bound fee ${p.amounts.fee} is above ${maxFee}`);
+  // The fee is in the input token, or taken from the output (SOL, USDC or USDT): a share of what is
+  // paid in, or of the minimum that comes out, never more than your limit of either.
+  const onOutput = p.amounts.feeMint !== undefined && p.amounts.feeMint === intent.outputMint && p.amounts.feeMint !== intent.inputMint;
+  const base = onOutput ? BigInt(p.amounts.minOut) + BigInt(p.amounts.fee) : BigInt(intent.amountIn);
+  const maxFee = (base * BigInt(intent.maxFeeBps ?? 20)) / 10_000n;
+  const stated = BigInt(p.certificate.input.boundFee) + BigInt(p.certificate.output.boundFee ?? '0');
+  if (BigInt(p.amounts.fee) > maxFee) problems.push(`the Bound fee ${p.amounts.fee} is above ${maxFee}`);
+  if (stated !== BigInt(p.amounts.fee)) problems.push('the fee the certificate states differs from the one in amounts');
   if (p.certificate.output.minimumOutput !== p.amounts.minOut) problems.push('the enforced minimum differs from the one stated');
   if (intent.minOut && /^\d{1,20}$/.test(intent.minOut) && BigInt(p.amounts.minOut) < BigInt(intent.minOut)) {
     problems.push(`the minimum ${p.amounts.minOut} is below yours, ${intent.minOut}`);

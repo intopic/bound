@@ -96,7 +96,9 @@ try {
   await page.getByText(/Minimum received .* SOL/).waitFor({ timeout: 90_000 });
   check('A. a busy price is retried until it arrives', true);
   check('A. the button says the prices are busy while it retries', labels.includes('Prices are busy, retrying…'), [...new Set(labels)].join(' | '));
-  check('A. and never "No price for this pair"', !labels.includes('No price for this pair right now'));
+  // The labels in the order they were seen, each once per stretch: says when a wrong one appeared.
+  const sequence = labels.filter((l, i) => l !== labels[i - 1]).join(' → ');
+  check('A. and never "No price for this pair"', !labels.includes('No price for this pair right now'), sequence);
 
   // B: every protected route refused.
   await page.getByRole('button', { name: 'Protected swap' }).waitFor({ timeout: 30_000 });

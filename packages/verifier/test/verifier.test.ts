@@ -15,7 +15,7 @@ import {
 } from '@bound/core';
 import type { AccountState, RuleId, TxVersion } from '@bound/core';
 import { verify } from '../src/index.ts';
-import { BONK, compileRaw, cuIxs, honest, LIFETIME, randomAddress, routeV2Data, scenario, USDC } from './fixtures.ts';
+import { BONK, compileRaw, cuIxs, honest, JUP, LIFETIME, randomAddress, routeV2Data, scenario, USDC } from './fixtures.ts';
 import type { Scenario } from './fixtures.ts';
 
 const rules = (v: { violations: { rule: RuleId }[] }) => [...new Set(v.violations.map(x => x.rule))];
@@ -767,5 +767,78 @@ describe("the account a Pump market opens for E: closed last, its rent sent on t
     expect(details(await verify(tx, notPump, s.snapshot)).join()).toContain('not a Pump market');
     const tooMuch = { ...s.policy, routeRefund: MAX_TAKER_RENT_LAMPORTS + 1n };
     expect(rules(await verify(tx, tooMuch, s.snapshot))).toContain('R4');
+  });
+});
+
+describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token", () => {
+  const feeIndex = (ixs: Instruction[], s: Scenario) => ixs.findIndex(ix => {
+    const d = ix.data;
+    const to = ix.accounts?.[ix.programAddress === SYSTEM_PROGRAM ? 1 : 2]?.address;
+    return !!d && to === s.policy.accounts.feeDestination && ix.programAddress !== JUPITER_PROGRAM;
+  });
+
+  it('a sale into SOL pays in SOL, from the wallet after E_out has paid out, as the last instruction', async () => {
+    const s = await scenario({ input: BONK, output: WSOL_MINT, feeAccountExists: false });
+    expect(s.policy.feeSide).toBe('output');
+    expect(s.policy.swapAmount).toBe(s.policy.amountIn);
+    expect(s.policy.fee).toBe((s.policy.minOut * s.policy.feeBps) / 10_000n);
+    expect(s.policy.accounts.feeDestination).toBe(s.treasury);
+    for (const version of [0, 1] as const) expect((await verify(await compileHonest(s, version), s.policy, s.snapshot)).violations).toEqual([]);
+    const ixs = honest(s);
+    expect(feeIndex(ixs, s)).toBe(ixs.length - 1);
+  });
+
+  it('a sale into USDC pays in USDC, from W_out after its minimum is checked', async () => {
+    const s = await scenario({ input: BONK, output: USDC, feeAccountExists: false, outputFeeAccountExists: true });
+    expect(s.policy.feeSide).toBe('output');
+    for (const version of [0, 1] as const) expect((await verify(await compileHonest(s, version), s.policy, s.snapshot)).violations).toEqual([]);
+  });
+
+  it('SOL comes first on either side; USDC before the input token; the input token when it is all there is', async () => {
+    expect((await scenario({ input: USDC, output: WSOL_MINT })).policy.feeSide).toBe('output');
+    expect((await scenario({ input: WSOL_MINT, output: USDC, outputFeeAccountExists: true })).policy.feeSide).toBe('input');
+    expect((await scenario({ input: JUP, output: USDC, outputFeeAccountExists: true })).policy.feeSide).toBe('output');
+    expect((await scenario({ input: JUP, output: BONK })).policy.feeSide).toBe('input');
+    expect((await scenario({ input: JUP, output: BONK, feeAccountExists: false })).policy.feeSide).toBeNull();
+    // Without a treasury wallet, SOL cannot be received and the next token in line pays.
+    expect((await scenario({ input: USDC, output: WSOL_MINT, treasuryWalletReady: false })).policy.feeSide).toBe('input');
+  });
+
+  it('a fee on the output moved before the swap, or before the minimum check, is refused', async () => {
+    for (const opts of [{ input: BONK, output: WSOL_MINT, feeAccountExists: false }, { input: BONK, output: USDC, feeAccountExists: false, outputFeeAccountExists: true }]) {
+      const s = await scenario(opts);
+      const ixs = honest(s);
+      const [fee] = ixs.splice(feeIndex(ixs, s), 1);
+      const early = [...ixs];
+      early.splice(swapIndex(ixs), 0, fee);
+      expect(details(await verify(mutated(s, early), s.policy, s.snapshot)).join()).toContain('the fee on the output must follow');
+      const beforeCheck = [...ixs];
+      beforeCheck.splice(swapIndex(ixs) + 1, 0, fee);
+      expect(details(await verify(mutated(s, beforeCheck), s.policy, s.snapshot)).join()).toContain('the fee on the output must follow');
+    }
+  });
+
+  it('a fee on the output that is larger, or goes elsewhere, is refused', async () => {
+    const s = await scenario({ input: BONK, output: WSOL_MINT, feeAccountExists: false });
+    const ixs = honest(s);
+    const at = feeIndex(ixs, s);
+    const W = createNoopSigner(s.W);
+    const larger = [...ixs];
+    larger[at] = getTransferSolInstruction({ source: W, destination: s.policy.accounts.feeDestination!, amount: s.policy.fee + 1n });
+    expect(rules(await verify(mutated(s, larger), s.policy, s.snapshot))).toContain('R2');
+    const elsewhere = [...ixs];
+    elsewhere[at] = getTransferSolInstruction({ source: W, destination: await randomAddress(), amount: s.policy.fee });
+    expect(rules(await verify(mutated(s, elsewhere), s.policy, s.snapshot))).toContain('R2');
+  });
+
+  it('a policy that takes the fee from an output other than SOL, USDC or USDT, or states another amount, is refused', async () => {
+    const s = await scenario({ input: USDC, output: BONK });
+    const outputSide = { ...s.policy, feeSide: 'output' as const, swapAmount: s.policy.amountIn, fee: (s.policy.minOut * s.policy.feeBps) / 10_000n };
+    expect(details(await verify(await compileHonest(s, 0), outputSide, s.snapshot)).join()).toContain('only in SOL, USDC or USDT');
+    const a = await scenario({ input: BONK, output: WSOL_MINT, feeAccountExists: false });
+    const wrong = { ...a.policy, fee: a.policy.fee + 1n };
+    expect(details(await verify(await compileHonest(a, 0), wrong, a.snapshot)).join()).toContain('policy amounts are inconsistent');
+    const sideless = { ...a.policy, feeSide: null };
+    expect(details(await verify(await compileHonest(a, 0), sideless, a.snapshot)).join()).toContain('treasury without a fee side');
   });
 });

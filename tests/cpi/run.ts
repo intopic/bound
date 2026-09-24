@@ -324,6 +324,9 @@ async function protectedSwap(w: World, variant: Variant, inners: Inner[], extra:
     minOut: variant === 'A' ? MIN_OUT_SOL : MIN_OUT,
     config: { feeBps: FEE_BPS, treasury: w.treasury, maxNetworkFeeLamports: 200_000n, jupiterProgram: w.attackerProgram },
     feeAccountExists: true,
+    // T6 measures the fee in the input token's account, which is what it isolates; the treasury
+    // wallet is not funded in this VM, so a fee on a SOL output is covered by the unit tests instead.
+    treasuryWalletReady: false,
   });
   const policy = withTakerRent(built, takerRent);
   if (policy.swapAmount !== SWAP_AMOUNT) throw new Error(`swap amount ${policy.swapAmount}, expected ${SWAP_AMOUNT}`);

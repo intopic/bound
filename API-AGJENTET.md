@@ -133,6 +133,10 @@ Bound kontrollon nëse swap-i ndodh, jo çfarë ndodh me paratë. Kjo nuk ësht�
    kontrolli i skill-it nuk nënshkruan pa `minOut` të agjentit (`ownMinimum` e merr nga Jupiter-i
    drejtpërdrejt), dhe e simulon transaksionin në RPC-në e agjentit: E duhet të mbetet me 0 lamports
    (auditimi i kërkimit, F-02 dhe F-06).
+6. **Tarifa merret si te Jupiter-i.** 0.2%, në SOL të parën, pastaj USDC ose USDT, cilado anë e
+   swap-it qofshin; përndryshe te tokeni hyrës. Kur merret nga dalja, është 0.2% e minimumit dhe
+   paguhet pasi minimumi kontrollohet; `amounts.minOut` dhe `minOut` i agjentit janë ajo që mbetet në
+   wallet pas saj.
 
 Një agjent që nuk verifikon lokalisht na beson po aq sa klienti i faqes sot: njësoj si faqja, jo më
 shumë.

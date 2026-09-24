@@ -45,7 +45,10 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
 2. **Prepare.** `POST {BOUND_API_URL}/api/v1/prepare` with
    `{ owner, inputMint, outputMint, amountIn, minOut }`. All amounts are integer strings in base
    units (5 USDC is `"5000000"`; SOL is 9 decimals, mint `So11111111111111111111111111111111111111112`).
-   `amountIn` includes Bound's 0.2% fee.
+   `amountIn` includes Bound's 0.2% fee when it is taken in the input token. Like Jupiter's, the
+   fee is taken in SOL first, then USDC or USDT, on whichever side of the swap they are
+   (`amounts.feeMint`); taken from the output, it comes out of what arrives, and `amounts.minOut` is
+   what the wallet keeps after it. Your `minOut` means the same: what the wallet keeps.
 3. **Verify before signing** with `checkPrepared(prepared, intent, rpc)`. Refuse to sign if it
    returns any problem. It checks:
    - that the answer agrees with itself and with what you asked: tokens, amount, wallet, fee at most

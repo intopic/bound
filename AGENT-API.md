@@ -44,10 +44,13 @@ Requests are limited per key (60 per minute per endpoint by default). A `429` me
 
 ## Fee
 
-0.2% of the input amount, in the input token, inside the transaction. It is part of the message you
-sign, and Bound signs only the exact message it built, so a transaction with the fee removed is not
-signed. The fee is shown in `amounts.fee` before you sign; the verifier refuses anything above 1%.
-When the treasury has no account for the input token, the swap is fee-free.
+0.2%, inside the transaction, taken the way Jupiter takes its own: in SOL first, then USDC, then
+USDT, on whichever side of the swap they are; otherwise in the input token. `amounts.feeMint` says
+which. On the input it is 0.2% of `amountIn`; on the output it is 0.2% of the enforced minimum, paid
+after the minimum is checked, and `amounts.minOut` is what your wallet keeps after it. It is part of
+the message you sign, and Bound signs only the exact message it built, so a transaction with the fee
+removed is not signed. The verifier refuses anything above 1%. When the treasury can receive the fee
+in neither token, the swap is fee-free.
 
 ## 1. Prepare
 
@@ -70,7 +73,7 @@ Authorization: Bearer bnd_...
 | `owner` | required | The wallet that pays and receives. It signs first. |
 | `inputMint`, `outputMint` | required | Mint addresses. SOL is `So11111111111111111111111111111111111111112`. |
 | `amountIn` | required | Base units, as a string (`"5000000"` is 5 USDC). The fee comes out of it. |
-| `minOut` | optional | Your own floor, in base units of the output. Bound never enforces less than this. Without it, the floor is the route's quote less 0.5% (3% on a Pump.fun bonding curve), which is Bound's word: the skill's check refuses to sign without a floor of your own, and `ownMinimum` gets one from Jupiter directly. |
+| `minOut` | optional | Your own floor, in base units of the output: what your wallet must keep, after a fee taken from the output. Bound never enforces less than this. Without it, the floor is the route's quote less 0.5% (3% on a Pump.fun bonding curve), which is Bound's word: the skill's check refuses to sign without a floor of your own, and `ownMinimum` gets one from Jupiter directly. |
 | `acceptCostBps` | optional | Accept a protected route this many bps below the open market (see `costs-more`). |
 | `version` | optional | `0` (default). `1` only where the deployment enables it. |
 
@@ -85,8 +88,9 @@ Authorization: Bearer bnd_...
   "temporaryAuthority": "<the one-time key E>",
   "lastValidBlockHeight": "312345678",
   "blocksLeft": "148",
-  "amounts": { "amountIn": "5000000", "fee": "10000", "feeBps": "20", "swapAmount": "4990000",
-               "quotedOut": "42780667", "minOut": "42566764", "priceImpactPct": 0.0001 },
+  "amounts": { "amountIn": "5000000", "fee": "10000", "feeMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+               "feeBps": "20", "swapAmount": "4990000", "quotedOut": "42780667", "minOut": "42566764",
+               "priceImpactPct": 0.0001 },
   "costs": { "networkFeeLamports": "124480", "outputAccountRentLamports": "0", "routeRentLamports": "0", "routeRefundLamports": "0", "tokenTax": null },
   "notices": { "removesDelegate": false },
   "route": ["Kipseli", "AlphaQ"],

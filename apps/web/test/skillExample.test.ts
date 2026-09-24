@@ -17,7 +17,7 @@ import {
   AuthorityType, getApproveInstruction, getSetAuthorityInstruction, getTransferCheckedInstruction,
 } from '@solana-program/token';
 import { getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
-import { ataOf, WSOL_MINT } from '@bound/core';
+import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
 import { DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
@@ -40,8 +40,11 @@ const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter())
   return new Response(JSON.stringify(r), { status: 200, headers: { 'content-type': 'application/json' } });
 };
 
-/** `market`: what Bound's server quotes from, which a compromised server chooses. */
-async function bound(opts: { market?: JupiterClient } = {}) {
+/**
+ * `market`: what Bound's server quotes from, which a compromised server chooses. `treasuryWallet`:
+ * the treasury's wallet exists, so a sale into SOL pays its fee in SOL, out of the output.
+ */
+async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean } = {}) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)],
@@ -49,6 +52,7 @@ async function bound(opts: { market?: JupiterClient } = {}) {
     [POOL, { owner: DEX, data: new Uint8Array(300) }],
     [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)],
     ...await fundedAccounts(wallet.address, USDC),
+    ...(opts.treasuryWallet ? [[TREASURY, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }] as [string, Account]] : []),
   ]);
   const sent: string[] = [];
   const rpc = fakeRpc(accounts, { sent });
@@ -264,5 +268,29 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
       intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' },
     })).rejects.toThrow('only 10 blocks are left');
     expect(b.sent).toHaveLength(0);
+  });
+});
+
+describe("the fee, taken like Jupiter's, as the agent sees it", () => {
+  it('a sale into SOL pays in SOL out of the output; the minimum the agent checks is what its wallet keeps', async () => {
+    const b = await bound({ treasuryWallet: true });
+    const result = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' },
+    });
+    expect(result.outcome).toBe('confirmed');
+    const p = result.prepared;
+    expect(p.amounts.feeMint).toBe(WSOL_MINT);
+    expect(p.amounts.swapAmount).toBe(p.amounts.amountIn);
+    expect(BigInt(p.amounts.minOut) + BigInt(p.amounts.fee)).toBe(BigInt(p.policy.minOut as string));
+    expect(p.certificate.output.boundFee).toBe(p.amounts.fee);
+    expect(p.certificate.output.minimumOutput).toBe(p.amounts.minOut);
+  });
+
+  it('a server that takes a larger fee from the output than it states is refused', async () => {
+    const b = await bound({ treasuryWallet: true });
+    const honest = await honestAnswer(b);
+    const lie = { ...honest, policy: { ...honest.policy, fee: String(BigInt(honest.policy.fee as string) * 2n) } };
+    expect((await checkPrepared(lie, intentFor(b.wallet), b.agentRpc)).join()).toContain('policy amounts are inconsistent');
   });
 });

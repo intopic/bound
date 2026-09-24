@@ -5,7 +5,7 @@ import type { ChainSnapshot, Policy, Violation } from '@bound/core/types';
 import { verify } from './verify.ts';
 
 /** Changes whenever a rule changes; every certificate names the verifier that issued it. */
-export const VERIFIER_VERSION = '0.5.0';
+export const VERIFIER_VERSION = '0.6.0';
 
 /**
  * What a verified transaction does, in terms a person or a wallet can check. It is issued only after
@@ -26,17 +26,24 @@ export type Certificate = {
   input: {
     mint: Address;
     decimals: number;
-    /** Everything that leaves the wallet in the input token: swap amount plus Bound fee. */
+    /** Everything that leaves the wallet in the input token: swap amount plus a Bound fee on the input. */
     totalDebit: bigint;
     swapAmount: bigint;
+    /** The Bound fee when it is taken in the input token; 0 when it is taken from the output. */
     boundFee: bigint;
     feeDestination: Address | null;
   };
   output: {
     mint: Address;
     decimals: number;
-    /** Enforced on chain: if less arrives, the whole transaction reverts. */
+    /**
+     * What the wallet keeps at least, after a Bound fee taken from the output. Enforced on chain:
+     * if less than this plus that fee arrives, the whole transaction reverts.
+     */
     minimumOutput: bigint;
+    /** The Bound fee when it is taken from the output (in SOL, USDC or USDT); 0 otherwise. */
+    boundFee: bigint;
+    feeDestination: Address | null;
   };
   networkFeeLimitLamports: bigint;
   /** Rent W sends the temporary key for an account the route opens in its name; usually 0. */
@@ -89,10 +96,17 @@ export async function certify(transaction: Transaction, policy: Policy, snapshot
         decimals: policy.inputDecimals,
         totalDebit: policy.amountIn,
         swapAmount: policy.swapAmount,
-        boundFee: policy.fee,
-        feeDestination: policy.accounts.feeDestination,
+        boundFee: policy.feeSide === 'input' ? policy.fee : 0n,
+        feeDestination: policy.feeSide === 'input' ? policy.accounts.feeDestination : null,
       },
-      output: { mint: policy.outputMint, decimals: policy.outputDecimals, minimumOutput: policy.minOut },
+      output: {
+        mint: policy.outputMint,
+        decimals: policy.outputDecimals,
+        // Computed here, not with the policy builder's helper: the verifier stands apart from it.
+        minimumOutput: policy.feeSide === 'output' ? policy.minOut - policy.fee : policy.minOut,
+        boundFee: policy.feeSide === 'output' ? policy.fee : 0n,
+        feeDestination: policy.feeSide === 'output' ? policy.accounts.feeDestination : null,
+      },
       networkFeeLimitLamports: feeLimit,
       routeRentLamports: policy.takerRent,
       routeRefundLamports: policy.routeRefund,

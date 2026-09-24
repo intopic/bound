@@ -21,13 +21,15 @@ export type ConfirmedMeta = {
  */
 export function receivedFromMeta(
   meta: ConfirmedMeta,
-  swap: { owner: string; outputMint: string; solOutput: boolean; routeRent: bigint },
+  swap: { owner: string; outputMint: string; solOutput: boolean; routeRent: bigint; routeRefund?: bigint },
 ): bigint | null {
   if (swap.solOutput) {
     const before = meta.preBalances[0];
     const after = meta.postBalances[0];
     if (before === undefined || after === undefined) return null;
-    return BigInt(after) - BigInt(before) + BigInt(meta.fee) + swap.routeRent;
+    // The market's account fee went out and most of it came back (FA-05): neither is swap output.
+    // A Bound fee taken from the output also left the wallet: what is counted is what it kept.
+    return BigInt(after) - BigInt(before) + BigInt(meta.fee) + swap.routeRent - (swap.routeRefund ?? 0n);
   }
   const mine = (list: readonly TokenBalance[] | null | undefined) =>
     (list ?? []).filter(b => b.mint === swap.outputMint && b.owner === swap.owner);

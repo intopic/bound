@@ -12,7 +12,7 @@ import {
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
-import { ataOf, feeFor, WSOL_MINT } from '@bound/core';
+import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
@@ -26,7 +26,9 @@ const secret = (fill: number) => new Uint8Array(32).fill(fill);
 const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
 let n = 0;
-async function world(opts: { height?: bigint; disabled?: boolean; jupiter?: AgentDeps['jupiter']; sendError?: unknown; treasury?: null } = {}) {
+async function world(opts: {
+  height?: bigint; disabled?: boolean; jupiter?: AgentDeps['jupiter']; sendError?: unknown; treasury?: null; treasuryWallet?: boolean;
+} = {}) {
   const W = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
@@ -35,6 +37,8 @@ async function world(opts: { height?: bigint; disabled?: boolean; jupiter?: Agen
     // The treasury has an account for USDC, so the fee is charged.
     [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)],
     ...await fundedAccounts(W.address, USDC),
+    // With a wallet, the treasury takes the fee of a sale into SOL in SOL, out of the output.
+    ...(opts.treasuryWallet ? [[TREASURY, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }] as [string, Account]] : []),
   ]);
   const sent: string[] = [];
   const deps: AgentDeps = {
@@ -365,5 +369,21 @@ describe('API keys from the environment', () => {
       delete process.env.BOUND_API_SECRET;
       delete process.env.BOUND_API_KEYS;
     }
+  });
+});
+
+describe("the fee, taken like Jupiter's", () => {
+  it('a sale into SOL names SOL as the fee token and states the minimum the wallet keeps', async () => {
+    const w = await world({ treasuryWallet: true });
+    const p = await prepared(w) as unknown as { amounts: Record<string, string>; policy: Record<string, string> };
+    expect(p.amounts.feeMint).toBe(WSOL_MINT);
+    expect(p.amounts.swapAmount).toBe(p.amounts.amountIn);
+    expect(BigInt(p.amounts.minOut) + BigInt(p.amounts.fee)).toBe(BigInt(p.policy.minOut));
+  });
+
+  it("without a treasury wallet the sale pays in USDC, the next token in line, from the input", async () => {
+    const w = await world();
+    const p = await prepared(w) as unknown as { amounts: Record<string, string> };
+    expect(p.amounts.feeMint).toBe(USDC);
   });
 });

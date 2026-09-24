@@ -5,8 +5,8 @@ import type { ReactNode } from 'react';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
 import { address, getTransactionEncoder } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
-import { feeFor, JUPITER_PROGRAM, tokenAmountOf } from '@bound/core';
-import type { TxVersion } from '@bound/core';
+import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@bound/core';
+import type { FeeSide, TxVersion } from '@bound/core';
 import {
   BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, prepareProtectedSwap, quotedMinimum,
   revertedOnPrice,
@@ -200,7 +200,7 @@ async function actualReceived(signature: string, prepared: PreparedSwap): Promis
     if (meta) {
       return receivedFromMeta(meta, {
         owner: prepared.policy.owner, outputMint: prepared.policy.outputMint,
-        solOutput: prepared.policy.variant === 'A', routeRent: prepared.policy.takerRent,
+        solOutput: prepared.policy.variant === 'A', routeRent: prepared.policy.takerRent, routeRefund: prepared.policy.routeRefund,
       });
     }
     await new Promise(r => setTimeout(r, 1_000));
@@ -386,7 +386,8 @@ export function SwapApp() {
   // Rent for a new token account, from the cluster (audit C-09).
   const [rent, setRent] = useState<bigint | null>(null);
   // Accounts that decide the Bound fee and the one-time costs shown before signing (audit B-09).
-  const [feeAccountExists, setFeeAccountExists] = useState(true);
+  /** Where the Bound fee is taken, like Jupiter's: SOL first, then USDC and USDT, on either side; else the input. */
+  const [feeSide, setFeeSide] = useState<FeeSide | null>('input');
   const [outputAccountExists, setOutputAccountExists] = useState(true);
   const [clock, setClock] = useState(0);
   const [refreshes, setRefreshes] = useState(0);
@@ -496,8 +497,10 @@ export function SwapApp() {
     refreshBalances().catch(() => setBalances(null));
   }, [refreshBalances]);
 
-  // No treasury account for the input token → the swap is fee-free (Bound never makes the user pay
-  // rent for Bound's account). No output account yet → the user pays its rent once and keeps it.
+  // The fee is taken like Jupiter's: in SOL first, then USDC or USDT, on whichever side of the swap
+  // the treasury can receive them; otherwise in the input token; otherwise not at all (Bound never
+  // makes the user pay rent for Bound's account). No output account yet → the user pays its rent
+  // once and keeps it.
   const refreshAccounts = useCallback(async () => {
     const exists = async (a: Address) =>
       (await getRpc().getAccountInfo(a, { encoding: 'base64', commitment: 'confirmed' }).send()).value !== null;
@@ -508,9 +511,18 @@ export function SwapApp() {
       const data = Uint8Array.from(atob((value.data as unknown as [string, string])[0]), c => c.charCodeAt(0));
       return !(data.length > 108 && data[108] === 2);
     };
-    const fee = TREASURY && tokenIn && tokenIn.id !== SOL_MINT && inFacts && inFacts !== 'missing'
-      ? await receives(await mintAta(TREASURY, tokenIn.id, inFacts))
-      : true;
+    const walletReady = !!TREASURY && (tokenIn?.id === SOL_MINT || tokenOut?.id === SOL_MINT)
+      && await exists(TREASURY).catch(() => false);
+    const inputOk = !!TREASURY && !!tokenIn && tokenIn.id !== SOL_MINT && !!inFacts && inFacts !== 'missing'
+      && await receives(await mintAta(TREASURY, tokenIn.id, inFacts));
+    const outputOk = !!TREASURY && !!tokenOut && tokenOut.id !== SOL_MINT && FEE_TOKENS.includes(tokenOut.id)
+      && !!outFacts && outFacts !== 'missing' && await receives(await mintAta(TREASURY, tokenOut.id, outFacts));
+    const fee = TREASURY && tokenIn && tokenOut
+      ? feeSideFor(address(tokenIn.id), address(tokenOut.id), {
+        input: tokenIn.id === SOL_MINT ? walletReady : inputOk,
+        output: tokenOut.id === SOL_MINT ? walletReady : outputOk,
+      })
+      : null;
     const out = W && tokenOut && tokenOut.id !== SOL_MINT && outFacts && outFacts !== 'missing'
       ? await exists(await mintAta(W, tokenOut.id, outFacts))
       : true;
@@ -522,7 +534,7 @@ export function SwapApp() {
     refreshAccounts()
       .then(r => {
         if (cancelled) return;
-        setFeeAccountExists(r.fee);
+        setFeeSide(r.fee);
         setOutputAccountExists(r.out);
       })
       .catch(() => undefined);
@@ -534,10 +546,12 @@ export function SwapApp() {
   // --- amounts, always with the mints' on-chain decimals (audit C-01)
   const inDecimals = inFacts && inFacts !== 'missing' ? inFacts.decimals : null;
   const outDecimals = outFacts && outFacts !== 'missing' ? outFacts.decimals : null;
-  const chargesFee = !!TREASURY && feeAccountExists;
+  const chargesFee = !!TREASURY && feeSide !== null;
   const amountIn = tokenIn && inDecimals !== null ? parseUnits(amountText, inDecimals) : null;
-  const fee = amountIn && chargesFee ? feeFor(amountIn, { feeBps: FEE_BPS, treasury: TREASURY }) : 0n;
+  // A fee on the input comes out of the amount; a fee on the output out of what arrives.
+  const fee = amountIn && chargesFee && feeSide === 'input' ? feeFor(amountIn, { feeBps: FEE_BPS, treasury: TREASURY }) : 0n;
   const swapAmount = amountIn ? amountIn - fee : null;
+  const outputFee = chargesFee && feeSide === 'output' && quote ? outputFeeFor(quote.minOut, FEE_BPS) : null;
   const price = usablePrice(tokenIn);
   const usdValue = amountIn && price !== null && inDecimals !== null ? (Number(amountIn) / 10 ** inDecimals) * price : null;
 
@@ -746,10 +760,13 @@ export function SwapApp() {
         }
         if (e.code === 'price-moved' && e.priceMoved) {
           const symbol = args.outToken.symbol;
+          // Shown as what the wallet keeps, after a fee taken from the output, like every minimum here.
+          const onOutput = e.priceMoved.newMinReceived !== e.priceMoved.newMinOut;
+          const kept = (m: bigint) => (onOutput ? m - outputFeeFor(m, FEE_BPS) : m);
           const accept = await askAboutOffer({
             kind: 'price',
-            was: `${formatExact(accepted, args.outDecimals)} ${symbol}`,
-            now: `${formatExact(e.priceMoved.newMinOut, args.outDecimals)} ${symbol}`,
+            was: `${formatExact(kept(accepted), args.outDecimals)} ${symbol}`,
+            now: `${formatExact(e.priceMoved.newMinReceived, args.outDecimals)} ${symbol}`,
           });
           if (!accept) return null;
           accepted = e.priceMoved.newMinOut;
@@ -874,13 +891,13 @@ export function SwapApp() {
           prepared = again;
         }
       }
-      texts.minimum = `${formatExact(prepared.quote.minOut, outDecimals)} ${outToken.symbol}`;
+      texts.minimum = `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
       const newAccountRent = prepared.oneTimeCosts.outputAccountRent;
       // What the market keeps: the rent it takes, less what closing its account returns (FA-05).
       const routeRent = prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund;
       setPending({
-        minReceived: `${formatExact(prepared.quote.minOut, outDecimals)} ${outToken.symbol}`,
+        minReceived: `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`,
         networkFee: `${formatExact(prepared.networkFeeLamports, 9)} SOL`,
         oneTimeCost: [
           newAccountRent > 0n ? `${formatExact(newAccountRent, 9)} SOL opens your ${outToken.symbol} account (one time, stays yours)` : '',
@@ -954,7 +971,7 @@ export function SwapApp() {
       refreshBalances().catch(() => undefined);
       refreshAccounts()
         .then(r => {
-          setFeeAccountExists(r.fee);
+          setFeeSide(r.fee);
           setOutputAccountExists(r.out);
         })
         .catch(() => undefined);
@@ -1105,7 +1122,7 @@ export function SwapApp() {
           </div>
           <div className="box-row">
             <span className={`amount ${quote ? '' : 'placeholder'}`}>
-              {quote && outDecimals !== null ? `~${formatUnits(quote.out, outDecimals, 6)}` : quoting ? '…' : '0'}
+              {quote && outDecimals !== null ? `~${formatUnits(quote.out - (outputFee ?? 0n), outDecimals, 6)}` : quoting ? '…' : '0'}
             </span>
             <button className="token" onClick={() => setPicking('out')} disabled={busy}>
               <TokenIcon token={tokenOut} /> {tokenOut?.symbol ?? 'Select'} ▾
@@ -1113,7 +1130,7 @@ export function SwapApp() {
           </div>
           <p className="hint">
             {quote && tokenOut && outDecimals !== null
-              ? `Minimum received ${formatExact(quote.minOut, outDecimals)} ${tokenOut.symbol} · if less would arrive, the swap cancels itself`
+              ? `Minimum received ${formatExact(quote.minOut - (outputFee ?? 0n), outDecimals)} ${tokenOut.symbol} · if less would arrive, the swap cancels itself`
                 + (quote.curve ? ' · 3% tolerance: this token is still on its Pump.fun launch curve and moves fast' : '')
               : ' '}
             {((quote && refreshes >= AUTO_REFRESHES) || (!quote && busyTries > QUOTE_BUSY_RETRIES)) && (
@@ -1156,10 +1173,14 @@ export function SwapApp() {
               {!TREASURY
                 ? '0 (test mode)'
                 : !chargesFee
-                  ? 'Free for this token'
-                  : tokenIn && amountIn && inDecimals !== null
-                    ? `${formatUnits(fee, inDecimals, 6)} ${tokenIn.symbol}`
-                    : '—'}
+                  ? 'Free for this pair'
+                  : feeSide === 'output'
+                    ? outputFee !== null && tokenOut && outDecimals !== null
+                      ? `~${formatUnits(outputFee, outDecimals, 6)} ${tokenOut.symbol}, from what you receive`
+                      : '—'
+                    : tokenIn && amountIn && inDecimals !== null
+                      ? `${formatUnits(fee, inDecimals, 6)} ${tokenIn.symbol}`
+                      : '—'}
             </span>
           </div>
           <div className="detail-row">

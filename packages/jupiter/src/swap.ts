@@ -5,11 +5,11 @@ import {
 } from '@solana/kit';
 import type { Address, FullySignedTransaction, KeyPairSigner, Transaction } from '@solana/kit';
 import {
-  ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, feeFor, LEGACY_SIZE_LIMIT,
+  ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
   LAMPORTS_PER_SIGNATURE, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
-  PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund,
+  PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, minimumForReceived, minimumReceived, outputFeeFor,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@bound/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
@@ -92,6 +92,11 @@ export type SwapRequest = {
    */
   acceptedMinOut?: bigint;
   /**
+   * The same floor stated as what the wallet keeps, after a fee taken from the output (the agent
+   * API's `minOut`). Converted to the minimum the swap must enforce once the fee's side is known.
+   */
+  acceptedMinReceived?: bigint;
+  /**
    * The page's quote already showed a route through a Pump.fun bonding curve. Jupiter is then asked
    * at the curve tolerance first, which saves the second request (latency). Only a hint: a route
    * that turns out not to be a curve route is asked for again at the usual tolerance (BR-01).
@@ -120,6 +125,8 @@ export type PreparedSwap = {
   /** `minOut` is enforced by Bound's own check after the swap (audit B-04), not only by Jupiter. */
   quote: {
     inAmount: bigint; outAmount: bigint; minOut: bigint; route: string[]; priceImpactPct: number; baselineOut: bigint;
+    /** What the wallet keeps at least: `minOut`, less a fee taken from the output. What to show. */
+    minReceived: bigint;
     /** How far below the unrestricted route this one sits, in bps: the cost of the protection. */
     gapBps: bigint;
   };
@@ -179,7 +186,12 @@ export const UNAVAILABLE_MESSAGE = "The price service didn't answer. Nothing was
 export const ROUTE_FORMAT_MESSAGE = "Jupiter answered with a swap instruction Bound can't read yet, so nothing was built and nothing was signed. Protected swaps resume once Bound is updated for it.";
 
 /** For `price-moved`: what the market supports now, to show the user before asking again. */
-export type PriceMoved = { newMinOut: bigint; newOutAmount: bigint };
+export type PriceMoved = {
+  newMinOut: bigint;
+  newOutAmount: bigint;
+  /** `newMinOut` less a fee taken from the output: what the wallet would keep, to show and to accept. */
+  newMinReceived: bigint;
+};
 
 /** For `costs-more`: how far the best protected route sits below the unrestricted one. */
 export type CostsMore = { gapBps: bigint; outAmount: bigint; baselineOut: bigint };
@@ -513,10 +525,16 @@ export async function prepareProtectedSwap(deps: {
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
     .then(BigInt)
     .catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS);
-  // SOL input pays the fee to the treasury wallet itself, so it is read too (BR-06, below).
-  const treasuryWallet = variant === 'B' && settings.treasury ? [settings.treasury] : [];
+  // A fee in SOL goes to the treasury wallet itself, so it is read whenever SOL is on either side
+  // (BR-06, below). A fee on a USDC or USDT output goes to the treasury's account for it.
+  const treasuryWallet = settings.treasury && (req.inputMint === WSOL_MINT || req.outputMint === WSOL_MINT) ? [settings.treasury] : [];
+  const outputFeeCandidates = settings.treasury && req.outputMint !== WSOL_MINT && FEE_TOKENS.includes(req.outputMint)
+    ? await Promise.all(bothPrograms.map(tp => ataOf(settings.treasury!, req.outputMint, tp)))
+    : [];
   const [firstReads, classicRent, extendedRent] = await Promise.all([
-    fetchAccounts(rpc, [req.inputMint, req.outputMint, ...feeCandidates, ...wOutCandidates, ...wInCandidates, ...treasuryWallet]),
+    fetchAccounts(rpc, [
+      req.inputMint, req.outputMint, ...feeCandidates, ...outputFeeCandidates, ...wOutCandidates, ...wInCandidates, ...treasuryWallet,
+    ]),
     wOutCandidates.length ? rentFor(TOKEN_ACCOUNT_SIZE) : Promise.resolve(0n),
     wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
   ]);
@@ -573,11 +591,12 @@ export async function prepareProtectedSwap(deps: {
   // account is treated like a missing one, so the swap is fee-free rather than impossible (FA-12).
   const frozen = (s: { data: Uint8Array } | null | undefined) => !!s && s.data.length >= TOKEN_ACCOUNT_SIZE && s.data[108] === 2;
   const feeAccountExists = feeAccount ? !!firstReads.get(feeAccount) && !frozen(firstReads.get(feeAccount)) : true;
+  const outputFeeAccount = outputFeeCandidates.length ? await ataOf(settings.treasury!, req.outputMint, outputTokenProgram) : null;
+  const outputFeeAccountExists = !!outputFeeAccount && !!firstReads.get(outputFeeAccount) && !frozen(firstReads.get(outputFeeAccount));
   // A SOL fee into a treasury wallet that does not exist yet would open it below the rent minimum,
-  // which the runtime refuses, and every small SOL swap would revert. Such a swap is fee-free, the
-  // same as a token the treasury has no account for (review BR-06; audit B-09).
-  const treasuryCannotReceive = treasuryWallet.length > 0 && !firstReads.get(settings.treasury!)
-    && feeFor(req.amountIn, settings) < await rentFor(0);
+  // which the runtime refuses, and every small swap would revert. Until the wallet exists the fee
+  // is taken in the next token in line, or not at all (review BR-06; audit B-09).
+  const treasuryWalletReady = treasuryWallet.length > 0 && !!firstReads.get(settings.treasury!);
   const policy = await buildPolicy({
     intent: { owner: req.owner, inputMint: req.inputMint, outputMint: req.outputMint, amountIn: req.amountIn },
     ephemeral: E,
@@ -588,8 +607,11 @@ export async function prepareProtectedSwap(deps: {
     // The extension itself, not this epoch's rate: an account that has ever received the token
     // may hold withheld fees, and the cleanup must harvest them whatever the rate is today.
     inputTransferFee: inputTaxes,
-    config: treasuryCannotReceive ? { ...settings, treasury: null } : settings,
+    config: settings,
+    // Like Jupiter's fee: SOL first, then USDC and USDT, on whichever side; otherwise the input token.
     feeAccountExists,
+    outputFeeAccountExists,
+    treasuryWalletReady,
   });
 
   // The token keeps a cut of every transfer, including ours into the temporary account, so the
@@ -715,7 +737,11 @@ export async function prepareProtectedSwap(deps: {
   let floorMisses = 0;
   // Bound computes each route's floor itself and enforces it on chain, never below what the user
   // accepted (audit B-04, C-02).
-  const accepted = req.acceptedMinOut ?? 0n;
+  const accepted = req.acceptedMinReceived !== undefined
+    ? (policy.feeSide === 'output' ? minimumForReceived(req.acceptedMinReceived, policy.feeBps) : req.acceptedMinReceived)
+    : req.acceptedMinOut ?? 0n;
+  /** What the wallet keeps of a minimum: less a fee taken from the output. */
+  const keeps = (minOut: bigint) => (policy.feeSide === 'output' ? minOut - outputFeeFor(minOut, policy.feeBps) : minOut);
   const floorOf = (r: BuildResponse) => strictMinimumOutput(r, slippageFor(r, settings), accepted);
   // Rent the chosen route needs E to pay, measured in simulation (see `measureTakerRent`).
   let takerRent = 0n;
@@ -726,6 +752,7 @@ export async function prepareProtectedSwap(deps: {
     new BoundError('price-moved', 'The price moved beyond the slippage tolerance since you looked. Nothing was signed.', [], {
       newMinOut: routeFloor(r, slippageFor(r, settings)),
       newOutAmount: BigInt(r.outAmount),
+      newMinReceived: keeps(routeFloor(r, slippageFor(r, settings))),
     });
   /**
    * Finds the rent a route needs E to pay. E is funded with the ceiling once, and what it holds
@@ -1106,6 +1133,7 @@ export async function prepareProtectedSwap(deps: {
           inAmount: BigInt(chosen.r.inAmount),
           outAmount: BigInt(chosen.r.outAmount),
           minOut: chosenPolicy.minOut,
+          minReceived: minimumReceived(chosenPolicy),
           route,
           priceImpactPct: Number(chosen.r.priceImpactPct ?? 0),
           baselineOut,

@@ -100,6 +100,10 @@ export async function scenario(opts: {
   output?: Address;
   fee?: boolean;
   feeAccountExists?: boolean;
+  /** Whether the treasury has an account for the output token (USDC or USDT), for a fee on the output. */
+  outputFeeAccountExists?: boolean;
+  /** Whether the treasury wallet exists to receive a fee in SOL; true unless a test says otherwise. */
+  treasuryWalletReady?: boolean;
   intermediates?: number;
   poolCount?: number;
   owner?: KeyPairSigner;
@@ -133,6 +137,8 @@ export async function scenario(opts: {
     minOut: opts.minOut ?? 1_000_000n,
     config: CONFIG(treasury),
     feeAccountExists: opts.feeAccountExists ?? true,
+    outputFeeAccountExists: opts.outputFeeAccountExists,
+    treasuryWalletReady: opts.treasuryWalletReady,
   });
 
   const intermediates: IntermediateAta[] = [];

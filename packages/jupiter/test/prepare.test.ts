@@ -43,7 +43,7 @@ async function prepare(output: Address, opts: {
   chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
   input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
   expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
-  wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean;
+  wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean; acceptedMinReceived?: bigint;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   // The wallet holds the input token, unless a test says otherwise through `chain`.
@@ -63,7 +63,7 @@ async function prepare(output: Address, opts: {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: opts.input ?? USDC, outputMint: output,
       amountIn: opts.amountIn ?? 1_000_000n,
       inputDecimals: opts.inputDecimals ?? DECIMALS[opts.input ?? USDC], outputDecimals: DECIMALS[output], version: opts.version ?? 1,
-      acceptedMinOut: opts.acceptedMinOut, acceptedCostBps: opts.acceptedCostBps, expectCurve: opts.expectCurve,
+      acceptedMinOut: opts.acceptedMinOut, acceptedMinReceived: opts.acceptedMinReceived, acceptedCostBps: opts.acceptedCostBps, expectCurve: opts.expectCurve,
     },
   );
 }
@@ -602,5 +602,55 @@ describe('the reason is named, not blamed on the market (research audit)', () =>
     expect((failure as BoundError).code).toBe('simulation-failed');
     expect((failure as BoundError).message).toContain('before it reaches the market');
     expect(simulations.count).toBe(1);
+  });
+});
+
+describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwise the input token", () => {
+  const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
+  const wallet: [string, Account] = [TREASURY, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }];
+  const lastInstruction = (prepared: Awaited<ReturnType<typeof prepare>>) =>
+    (decompileTransactionMessage(getCompiledTransactionMessageDecoder().decode(prepared.transaction.messageBytes) as never)
+      .instructions as unknown as { programAddress: string; accounts?: { address: string }[] }[]).at(-1)!;
+
+  it('a sale into SOL pays in SOL, out of the output, last; the minimum shown is what the wallet keeps', async () => {
+    const prepared = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet] });
+    const p = prepared.policy;
+    expect(p.feeSide).toBe('output');
+    expect(p.swapAmount).toBe(p.amountIn);
+    expect(p.fee).toBe((p.minOut * settings.feeBps) / 10_000n);
+    expect(prepared.quote.minReceived).toBe(p.minOut - p.fee);
+    expect(prepared.certificate.output.boundFee).toBe(p.fee);
+    expect(prepared.certificate.output.minimumOutput).toBe(p.minOut - p.fee);
+    expect(prepared.certificate.input.boundFee).toBe(0n);
+    const last = lastInstruction(prepared);
+    expect(last.programAddress).toBe(SYSTEM_PROGRAM);
+    expect(last.accounts?.map(a => a.address)).toEqual([p.owner, TREASURY]);
+  });
+
+  it('a sale into USDC pays in USDC out of the output, when the treasury has a USDC account', async () => {
+    const usdcAccount: [string, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
+    const prepared = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [usdcAccount] });
+    expect(prepared.policy.feeSide).toBe('output');
+    expect(prepared.policy.accounts.feeDestination).toBe(usdcAccount[0]);
+    expect(prepared.quote.minReceived).toBe(prepared.policy.minOut - prepared.policy.fee);
+  });
+
+  it("without an account for either token, the swap is fee-free: the user never pays rent for the treasury's", async () => {
+    // USDC is on the input side here, and the treasury has no USDC account in this chain.
+    const prepared = await prepare(BONK, { input: USDC, treasury: TREASURY });
+    expect(prepared.policy.feeSide).toBeNull();
+    expect(prepared.policy.fee).toBe(0n);
+  });
+
+  it("an agent's floor is what the wallet keeps: the enforced minimum covers the fee on top", async () => {
+    const plain = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet] });
+    const floor = plain.quote.minReceived;
+    const prepared = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet], acceptedMinReceived: floor });
+    expect(prepared.quote.minReceived).toBeGreaterThanOrEqual(floor);
+    const failure = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet], acceptedMinReceived: floor * 2n })
+      .catch((e: BoundError) => e);
+    expect((failure as BoundError).code).toBe('price-moved');
+    const moved = (failure as BoundError).priceMoved!;
+    expect(moved.newMinReceived).toBe(moved.newMinOut - (moved.newMinOut * settings.feeBps) / 10_000n);
   });
 });
