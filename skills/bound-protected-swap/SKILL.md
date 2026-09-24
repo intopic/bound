@@ -126,6 +126,14 @@ late or expire (an expired swap costs nothing).
 - Never sign a prepared transaction that `checkPrepared` has not passed, on your own RPC.
 - Never change a prepared transaction, never send one without finalize, and never accept a lower
   minimum, a costlier route or a higher fee without the user's explicit yes.
+- **Keep every signed swap durably before finalize** and settle what a stopped run left before
+  starting another: the example's command line does it (`createFileStore`, `recoverPending`, a
+  state directory), and `protectedSwap` does not finalize when `onSigned` fails to keep it. While an
+  earlier outcome is unknown, start no new swap for that intent.
+- **One worker per wallet** (`acquireLock` in the example, for processes sharing a directory; workers
+  on several machines need a shared store with a lock of its own).
+- Every call to Bound and to your RPC has a time limit (`requestTimeoutMs`); no answer in time is an
+  unknown outcome, read on the chain for your own signature, never "nothing was sent".
 - **One swap per output token at a time**, until it is confirmed or expired. Each swap's minimum
   holds on its own (Jupiter's floor counts only what its route delivered), but Bound's own check
   compares the output account's balance with the one at prepare, so finalize refuses the second

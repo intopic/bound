@@ -53,6 +53,12 @@ export function agentDeps(): AgentDeps | null {
   const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
   const feeBps = BigInt(/^\d{1,3}$/.test(process.env.BOUND_API_FEE_BPS ?? '') ? process.env.BOUND_API_FEE_BPS!
     : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_BOUND_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_BOUND_FEE_BPS! : '30');
+  // A fee the verifier would refuse is a configuration error: the API stays off, rather than charge
+  // a fee nobody chose (engineering audit, Stage 1, L-01).
+  if (feeBps > 100n) {
+    console.error(`The agent API is off: its fee is ${feeBps} bps, above the verifier's ceiling of 100.`);
+    return null;
+  }
   const treasury = process.env.NEXT_PUBLIC_BOUND_TREASURY?.trim() ?? '';
   const identity = `${rpcUrl}|${jupiterApiKey ?? ''}`;
   if (clients?.for !== identity) {
@@ -75,7 +81,7 @@ export function agentDeps(): AgentDeps | null {
     secrets: previous ? [current, previous] : [current],
     keys,
     // The verifier refuses anything above 1% whatever is configured here.
-    feeBps: feeBps <= 100n ? feeBps : 20n,
+    feeBps,
     treasury: isAddress(treasury) ? address(treasury) : null,
     excludeDexes: server.excludeDexes,
     maxNetworkFeeLamports: server.maxNetworkFeeLamports,

@@ -879,7 +879,9 @@ export async function prepareProtectedSwap(deps: {
     ]);
     const temporaryAccounts = BigInt(1 + (variant === 'A' ? 1 : 0) + intermediateCount);
     const need = (variant === 'B' ? req.amountIn : 0n) + temporaryAccounts * temporaryRent
-      + (policy.accounts.wOut && !wOutBefore.exists ? newAccountRent : 0n) + routeRent + settings.maxNetworkFeeLamports + reserve;
+      + (policy.accounts.wOut && !wOutBefore.exists ? newAccountRent : 0n) + routeRent + settings.maxNetworkFeeLamports + reserve
+      // A fee in SOL is paid from the wallet up front (engineering audit, Stage 1, L-01).
+      + (policy.feeSide === 'sol' ? policy.fee : 0n);
     return new BoundError(
       'insufficient-sol',
       `This swap needs about ${solText(need)} SOL in your wallet: ${variant === 'B' ? 'the SOL you swap, ' : ''}the network fee and account deposits, most of which come back in the same transaction.`

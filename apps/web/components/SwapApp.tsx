@@ -12,7 +12,7 @@ import {
   revertedOnPrice,
 } from '@bound/jupiter';
 import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
-import { createEphemeral, fetchAccounts, httpStatusOf } from '@bound/solana';
+import { createEphemeral, fetchAccounts, httpStatusOf, statusesCovering } from '@bound/solana';
 import type { SendOutcome, SendRefusal } from '@bound/solana';
 import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
@@ -26,7 +26,7 @@ import {
 } from '@/lib/client/tokens';
 import type { MintFacts } from '@/lib/client/tokens';
 import { addHistory, isUnsettled, readHistory, settledHistoryStatus, STATUS_LABEL, updateHistory } from '@/lib/client/history';
-import type { HistoryEntry, HistoryStatus } from '@/lib/client/history';
+import type { HistoryEntry, HistoryStatus, SignatureState } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
 import { costsMoreThan, keptByMarket } from '@/lib/client/rebuild';
 import { receivedFromMeta } from '@/lib/client/received';
@@ -145,8 +145,19 @@ const plainRefusal = (reason: string) => PLAIN_REFUSAL[reason] ?? `it uses ${rea
  * What a prepared swap costs beyond what the page showed before the click. It is said before the
  * wallet opens, because on a phone the wallet covers the page (review BR-03).
  */
-function extrasOf(p: PreparedSwap, t: { inSymbol: string; outSymbol: string; inDecimals: number }): string[] {
+function extrasOf(
+  p: PreparedSwap,
+  t: { inSymbol: string; outSymbol: string; inDecimals: number; shownSolFee: bigint | null },
+): string[] {
   const lines: string[] = [];
+  // A fee in SOL is priced when the swap is built. Asked about when the page did not show it before
+  // the click, or showed less than it came to (engineering audit S1-M-02).
+  if (p.policy.feeSide === 'sol' && p.policy.fee > 0n && (t.shownSolFee === null || p.policy.fee * 100n > t.shownSolFee * 105n)) {
+    lines.push(
+      `Bound fee: ${formatExact(p.policy.fee, 9)} SOL from your wallet, ${Number(FEE_BPS) / 100}% of what this swap is worth in SOL now`
+      + (t.shownSolFee !== null ? ` (the page estimated ~${formatExact(t.shownSolFee, 9)} SOL).` : '. Neither token of this pair can carry it.'),
+    );
+  }
   const { routeRent, routeRefund } = p.oneTimeCosts;
   // When closing the account returns all of it (PumpSwap), the market keeps nothing: nothing to ask.
   if (routeRent > 0n && routeRefund > 0n && routeRefund < routeRent) {
@@ -183,10 +194,10 @@ async function outputBalanceUnchanged(p: PreparedSwap): Promise<boolean> {
   return now === p.outputBalanceBefore;
 }
 
-/** Blocks left in a prepared swap's lifetime, at the RPC's confirmed height; 0 when it cannot say. */
-async function blocksLeft(p: PreparedSwap): Promise<bigint> {
+/** Blocks left in a prepared swap's lifetime, at the RPC's confirmed height; null when it cannot say. */
+async function blocksLeft(p: PreparedSwap): Promise<bigint | null> {
   const height = await getRpc().getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
-  return height === null ? 0n : p.lifetime.lastValidBlockHeight - BigInt(height);
+  return height === null ? null : p.lifetime.lastValidBlockHeight - BigInt(height);
 }
 
 
@@ -338,26 +349,22 @@ async function settleHistory(): Promise<HistoryEntry[] | null> {
   const open = readHistory().filter(isUnsettled);
   if (!open.length) return null;
   const rpc = getRpc();
-  const { value } = await rpc
-    .getSignatureStatuses(open.map(h => h.signature as never), { searchTransactionHistory: true })
-    .send();
-  const needsHeight = open.some((h, i) => !value[i] && h.lastValidBlockHeight !== undefined);
-  const blockHeight = needsHeight
-    // Finalized: a lagging status node must not make a landed swap look expired (FA-07).
-    ? await rpc.getBlockHeight({ commitment: 'finalized' }).send().then(BigInt).catch(() => null)
-    : null;
-  // Once the recorded lifetime is over, ask full history again. A status read made just before the
-  // height read may have lagged a transaction that landed near the boundary; one empty read is not
-  // enough evidence for the UI to invite a retry.
+  const signatures = open.map(h => h.signature);
+  // One coherent view (engineering audit S1-H-01): the statuses come from a node that had reached
+  // the finalized slot whose height they are compared with; a lagging node proves no expiry (FA-07).
+  const first = await statusesCovering(rpc, signatures);
+  // Once the recorded lifetime is over, look again: one empty read is not enough evidence for the UI
+  // to invite a retry, and the second view must cover the lifetime too.
   const needsSecondLookup = open.some((h, i) =>
-    settledHistoryStatus(h, value[i] ?? null, blockHeight) === 'expired');
-  const second = needsSecondLookup
-    ? (await rpc.getSignatureStatuses(open.map(h => h.signature as never), { searchTransactionHistory: true }).send()).value
-    : [];
+    settledHistoryStatus(h, first.statuses[i] as SignatureState, first.coveredHeight) === 'expired');
+  const second = needsSecondLookup ? await statusesCovering(rpc, signatures) : null;
+  const covered = !second ? first.coveredHeight
+    : first.coveredHeight === null || second.coveredHeight === null ? null
+      : second.coveredHeight < first.coveredHeight ? second.coveredHeight : first.coveredHeight;
   let list: HistoryEntry[] | null = null;
   for (const [i, h] of open.entries()) {
-    const state = value[i] ?? second[i] ?? null;
-    const next: HistoryStatus | null = settledHistoryStatus(h, state, blockHeight);
+    const state = (first.statuses[i] ?? second?.statuses[i] ?? null) as SignatureState;
+    const next: HistoryStatus | null = settledHistoryStatus(h, state, covered);
     if (next) list = updateHistory(h.signature, next);
   }
   return list;
@@ -864,8 +871,10 @@ export function SwapApp() {
     const early = ahead.current;
     ahead.current = null;
     try {
-      // Every build holds to the minimum the user saw, net of a fee from the output (H-04).
+      // Every build holds to the minimum the user saw, net of a fee from the output (H-04), and a fee
+      // in SOL to the estimate the user saw, if any (S1-M-02).
       const shown = minReceived;
+      const shownSolFee = feeSide === 'sol' ? solFeeEstimate : null;
       const build = (E: KeyPairSigner, acceptedMinReceived: bigint) => prepareAccepted({
         E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinReceived, version, status, expectCurve: quote.curve,
         v1Fallback: v1Fallback(supportedVersions(wallet), V1_ENABLED),
@@ -882,27 +891,28 @@ export function SwapApp() {
       // Its output balance and its time left, read together: one round trip.
       const [unchanged, left] = reused
         ? await Promise.all([outputBalanceUnchanged(reused.prepared), blocksLeft(reused.prepared)])
-        : [false, 0n];
-      const fresh = reused && unchanged && left >= MIN_BLOCKS_FOR_WALLET ? reused : null;
+        : [false, null];
+      const fresh = reused && unchanged && left !== null && left >= MIN_BLOCKS_FOR_WALLET ? reused : null;
       const E = fresh ? fresh.E : await createEphemeral();
       let prepared = fresh ? fresh.prepared : await build(E, shown);
       if (!prepared) return cancelled();
       // Costs the page did not show before the click are shown before the wallet opens (BR-03).
-      const facts = { inSymbol: inToken.symbol, outSymbol: outToken.symbol, inDecimals };
+      const facts = { inSymbol: inToken.symbol, outSymbol: outToken.symbol, inDecimals, shownSolFee };
       const extras = extrasOf(prepared, facts);
-      if (extras.length) {
-        if (!(await askAboutOffer({ kind: 'extras', lines: extras }))) return cancelled();
-        // A swap that waited on a question until too little of its life is left is built again, and
-        // asked about again only if the new build costs more than what was just accepted. The same
-        // after that question too: the wallet never opens on a swap about to expire (M-06).
-        for (let round = 0; (await blocksLeft(prepared)) < MIN_BLOCKS_FOR_WALLET; round++) {
-          if (round === 2) throw new BoundError('expired', 'The swap waited on the questions until its time ran out. Nothing was signed; try again.');
-          setPhase('checking');
-          const again = await build(E, prepared.quote.minReceived);
-          if (!again) return cancelled();
-          if (costsMoreThan(again, prepared) && !(await askAboutOffer({ kind: 'extras', lines: extrasOf(again, facts) }))) return cancelled();
-          prepared = again;
-        }
+      if (extras.length && !(await askAboutOffer({ kind: 'extras', lines: extras }))) return cancelled();
+      // However it got here (a build ahead, a fresh build that took long, a question), the wallet opens
+      // only with at least 100 blocks of the swap's life left. One that ran low is built again, and
+      // asked about again only if it costs more than what was accepted (M-06, engineering audit S1-M-03).
+      for (let round = 0; ; round++) {
+        const left = await blocksLeft(prepared);
+        // A height the RPC cannot give is no reason to stop: the last signature checks expiry itself.
+        if (left === null || left >= MIN_BLOCKS_FOR_WALLET) break;
+        if (round === 2) throw new BoundError('expired', "The swap's time ran out while it was being prepared or while you answered. Nothing was signed; try again.");
+        setPhase('checking');
+        const again = await build(E, prepared.quote.minReceived);
+        if (!again) return cancelled();
+        if (costsMoreThan(again, prepared) && !(await askAboutOffer({ kind: 'extras', lines: extrasOf(again, facts) }))) return cancelled();
+        prepared = again;
       }
       texts.minimum = `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;

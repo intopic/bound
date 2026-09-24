@@ -20,7 +20,8 @@
  */
 import { fetchAddressesForLookupTables, getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@solana/kit';
 import type { Address, Rpc, SolanaRpcApi } from '@solana/kit';
-import { JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM } from '@bound/core/constants';
+import { findAssociatedTokenPda } from '@solana-program/token';
+import { JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '@bound/core/constants';
 import type { ChainSnapshot, Policy } from '@bound/core/types';
 import { readAccounts } from '@bound/solana';
 import { routeAccountFor, verify } from '@bound/verifier';
@@ -176,7 +177,12 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
  * report the accounts proves nothing, and is refused.
  */
 async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>): Promise<string[]> {
-  const watched = [key, ...await Promise.all([PUMP_CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountFor(program, key)))];
+  // E, each Pump market's account in E's name, and the token accounts those hold cashback in (WSOL,
+  // or USDC on a USDC-quoted market): a claim E could make later is value under E too (Stage 1, U1).
+  const markets = await Promise.all([PUMP_CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountFor(program, key)));
+  const cashback = await Promise.all(markets.flatMap(owner => [WSOL_MINT, USDC_MINT].map(async mint =>
+    (await findAssociatedTokenPda({ owner, mint, tokenProgram: TOKEN_PROGRAM }))[0])));
+  const watched = [key, ...markets, ...cashback];
   try {
     const { value } = await rpc
       .simulateTransaction(transaction as never, {
@@ -218,7 +224,9 @@ export async function ownMinimum(args: {
     inputMint: args.inputMint, outputMint: args.outputMint, amount: routed.toString(), taker: args.taker, slippageBps: '50', maxAccounts: '64',
   };
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-  const res = await (args.fetchImpl ?? fetch)(url.toString(), { headers: args.apiKey ? { 'x-api-key': args.apiKey } : {} });
+  const res = await (args.fetchImpl ?? fetch)(url.toString(), {
+    headers: args.apiKey ? { 'x-api-key': args.apiKey } : {}, signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) throw new Error(`Jupiter answered ${res.status} when asked for your own price`);
   const r = (await res.json()) as {
     inputMint?: string; outputMint?: string; inAmount?: string; outAmount?: string; swapInstruction?: { accounts?: { pubkey: string }[] };
@@ -247,12 +255,17 @@ export async function ownSolFeeLimit(args: {
     taker: args.taker, slippageBps: '50', maxAccounts: '64',
   };
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-  const res = await (args.fetchImpl ?? fetch)(url.toString(), { headers: args.apiKey ? { 'x-api-key': args.apiKey } : {} });
+  const res = await (args.fetchImpl ?? fetch)(url.toString(), {
+    headers: args.apiKey ? { 'x-api-key': args.apiKey } : {}, signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) throw new Error(`Jupiter answered ${res.status} when asked for the value of your swap in SOL`);
   const r = (await res.json()) as { inputMint?: string; outputMint?: string; inAmount?: string; outAmount?: string };
   if (r.inputMint !== args.inputMint || r.outputMint !== query.outputMint || r.inAmount !== args.amountIn || !/^\d{1,20}$/.test(r.outAmount ?? '')) {
     throw new Error('Jupiter answered for another trade when asked for the value of your swap in SOL');
   }
   const fee = (BigInt(r.outAmount!) * BigInt(args.maxFeeBps ?? 30)) / 10_000n;
-  return Number(fee + fee / 50n);
+  const limit = fee + fee / 50n;
+  // A limit beyond what a Number holds exactly is refused rather than rounded (Stage 1, U5).
+  if (limit > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('the fee in SOL for this amount is beyond an exact limit; set maxSolFeeLamports yourself');
+  return Number(limit);
 }

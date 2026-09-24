@@ -26,18 +26,22 @@ export type SignatureState = {
   err?: unknown;
 } | null;
 
-/** A persisted swap changes state only when the chain proves the outcome. */
+/**
+ * A persisted swap changes state only when the chain proves the outcome. `coveredHeight`: the
+ * finalized block height the status answer is known to cover (see `statusesCovering`); null when it
+ * covers none, and then no record proves nothing (engineering audit S1-H-01).
+ */
 export function settledHistoryStatus(
   entry: HistoryEntry,
   state: SignatureState,
-  blockHeight: bigint | null,
+  coveredHeight: bigint | null,
 ): HistoryStatus | null {
   // Only a confirmed status is an outcome: an error seen at `processed` may be on a fork (FA-07).
   const confirmed = !!state && (state.confirmationStatus === 'confirmed' || state.confirmationStatus === 'finalized');
   if (confirmed) return state!.err ? 'failed' : 'confirmed';
-  if (state || blockHeight === null || entry.lastValidBlockHeight === undefined) return null;
+  if (state || coveredHeight === null || entry.lastValidBlockHeight === undefined) return null;
   try {
-    return blockHeight > BigInt(entry.lastValidBlockHeight) ? 'expired' : null;
+    return coveredHeight > BigInt(entry.lastValidBlockHeight) ? 'expired' : null;
   } catch {
     // Old or malformed local data is not evidence of expiry.
     return null;

@@ -1,6 +1,6 @@
 # Bound — udhëzuesi i testimit
 
-Sistemi v0.1 është i ndërtuar, i rregulluar pas dy auditimeve dhe i testuar automatikisht. Mbetet vetëm testimi me wallet-in tënd: fillimisht falas në devnet, pastaj një swap i vogël real në mainnet.
+Sistemi v0.1 është i ndërtuar, i rregulluar pas disa auditimeve dhe i testuar automatikisht (numrat e fundit: `AUDIT.md`, seksionet 0u deri 0y). Mbeten testimi me wallet-in tënd (fillimisht falas në devnet, pastaj një swap i vogël real në mainnet) dhe Etapa 2 e auditimit të pavarur: rikuperimi me një RPC që gabon qëllimisht, portofolet reale dhe matjet. Tabela më poshtë është historike: disa numra janë nga datat e para.
 
 ## Çfarë është testuar tashmë automatikisht
 

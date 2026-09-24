@@ -143,7 +143,8 @@ when the account holds exactly its rent. A bonding curve also keeps about 0.0001
 - one RPC provider;
 - v0 transactions first, v1 only as a fallback behind a flag;
 - a skill for agents, not an SDK or MCP server;
-- tokenized stocks refused;
+- tokenized stocks such as xStocks are refused by the Token-2022 rules (a program-controlled permanent
+  delegate, scaled UI amounts), not by a category rule: there is no list of stock tokens;
 - a Token-2022 allowlist;
 - no cap per swap;
 - stateless API;

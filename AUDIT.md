@@ -974,6 +974,38 @@ SOL from the wallet at the swap's value. The verifier's ceiling stays at 1%.
 
 ---
 
+## 0y. The independent audit, Stage 1 (24 September 2026)
+
+An independent Stage 1 review of `8c41f25` (`AUDIT-PROMPT-INDEPENDENT.md`): reading, research, the
+existing tests (454 passing, both typechecks, the skill bundle), `jupiter-floor` (13/15 then 15/15:
+a zero quote from Jupiter on the first run), the canary (7/7) and Jupiter's IDL read from the chain.
+Its verdict: the isolation is substantively enforced; recovery under inconsistent RPC answers,
+durable bot recovery and parts of the page's consent and freshness needed work. The owner asked for
+all of it to be fixed. Stage 2 (reproduction with fault injection, real wallets, measurements) is the
+auditor's; each fix below comes with a test that fails on `8c41f25`.
+
+| Finding | What it was | Fix |
+| --- | --- | --- |
+| S1-H-01 | "Expired" came from two reads that could come from different nodes: no record from a lagging status node, and a finalized height from an advanced one. A landed swap could read as expired, and an agent could swap again | `statusesCovering` (`packages/solana`): the finalized slot and height from one answer (`getEpochInfo`), the full history from a node whose `context.slot` has reached that slot; otherwise no expiry. Used by the page's send and history and the skill's `confirm` |
+| S1-H-02 | The RPC transport retried a 429 for every method, sends included: an attempt that was forwarded and answered 429 could be hidden behind a later "never broadcast" | The transport never repeats `sendTransaction`; the sender sees the first answer and re-broadcasts the same bytes itself |
+| S1-M-01 | The bot example kept nothing on disk and had no lock: a restart after sending, or two workers, could swap twice | `createFileStore` (flushed and renamed, one file per signature), `recoverPending` (settles what a stopped run left, by its own signature, before anything new starts; unknown blocks new swaps), `acquireLock` (one worker per wallet). `Signed` now carries the wallet-signed bytes and the ticket; `onSigned` failing stops finalize |
+| S1-M-02 | A fee in SOL introduced or raised between the quote and the build was not asked about | The extras question states it when the page did not show it or showed over 5% less; a rebuild with a new or more than 2% higher SOL fee is asked about again (`lib/client/rebuild.ts`) |
+| S1-M-03 | The 100-block gate ran only after a question | It runs before every wallet opening, whatever the path; a height the RPC cannot give does not block (the last signature checks expiry) |
+| S1-M-04 | The example's deadline did not bound a request that never answered | `AbortSignal.timeout` on every call to Bound, every RPC call in `confirm` (bounded by what is left of the deadline) and the skill's own price requests |
+| S1-L-01 | Claims that said more or less than the code: README's "fee-free" pairs, SECURITY's SOL outflow without the SOL fee, "tokenized stocks refused" as a category, TESTIMI's "only the wallet test remains", the API falling back to 20 bps on an invalid fee, the funding estimate without the SOL fee | Corrected; an invalid API fee turns the API off; the estimate counts the SOL fee |
+| U1 | Cashback could sit in a token account of a Pump market account under E | The skill also watches the WSOL and USDC accounts of both markets' accounts under E |
+| U5 | `ownSolFeeLimit` converted a bigint to a Number | A limit beyond `MAX_SAFE_INTEGER` is refused, not rounded |
+| U6 | The canary did not require the Pump refund | A Pump buy without the refund warns |
+| Simulation | The shared `simulate` read missing watched accounts as zero | A simulation that does not report the watched accounts is a failed simulation |
+
+Tests: `send.test.ts` (a lagging status node, the transport and sends), `skillExample.test.ts` (a
+lagging node, a stuck status read, a finalize that never answers, `onSigned` failing, recovery from
+the store, the lock, cashback in a market's token account), `rebuild.test.ts` (SOL fee), `agentApi`
+(invalid fee), history. 465 unit tests. Mainnet: `statusesCovering` against the public RPC (a landed
+signature found finalized, the covered height reported), the canary 7/7, the browser smoke 18/18.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

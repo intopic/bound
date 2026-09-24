@@ -23,6 +23,14 @@ describe('a swap built again after a question (engineering review M-06)', () => 
     expect(costsMoreThan(swap(1_346_200n, 1_000_000n), swap(1_346_200n, 1_000_000n))).toBe(false);
   });
 
+  it('a fee in SOL that is new, or more than 2% higher, costs more (engineering audit S1-M-02)', () => {
+    const withSolFee = (fee: bigint) => ({ ...swap(0n, 0n), policy: { feeSide: 'sol', fee } });
+    expect(costsMoreThan(withSolFee(100_000n), swap(0n, 0n))).toBe(true);
+    expect(costsMoreThan(withSolFee(103_000n), withSolFee(100_000n))).toBe(true);
+    expect(costsMoreThan(withSolFee(101_000n), withSolFee(100_000n))).toBe(false);
+    expect(costsMoreThan({ ...swap(0n, 0n), policy: { feeSide: 'input', fee: 500n } }, swap(0n, 0n))).toBe(false);
+  });
+
   it('a larger transfer tax, or a delegate removal not mentioned before, costs more', () => {
     expect(costsMoreThan(swap(0n, 0n, { tax: 10n }), swap(0n, 0n, { tax: 5n }))).toBe(true);
     expect(costsMoreThan(swap(0n, 0n, { removesDelegate: true }), swap(0n, 0n))).toBe(true);

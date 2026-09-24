@@ -182,7 +182,10 @@ pause.
 
 **Before preparing again for the same swap**, make sure the transaction you signed can no longer
 land: its signature has no record on your RPC and the finalized block height is past
-`lastValidBlockHeight`. An answer from finalize, `rejected` or an error, speaks only for that one
+`lastValidBlockHeight`, **read as one view**. Take the finalized slot and height from one answer
+(`getEpochInfo` at `finalized`), and accept "no record" only from a status answer whose `context.slot`
+is at least that slot. A provider may answer from several nodes, and a lagging node's silence proves
+nothing. An answer from finalize, `rejected` or an error, speaks only for that one
 request; an earlier finalize of the ticket whose answer was lost may have sent it. Take the last
 block from your own RPC too (your block height when you sign, plus 150, plus a margin for a
 lagging node): the blockhash is older than that, so the server's figure cannot shorten the wait.

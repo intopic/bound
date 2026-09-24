@@ -449,6 +449,22 @@ describe('review fixes on the API', () => {
 });
 
 describe('API keys from the environment', () => {
+  it('a fee above the verifier\'s ceiling turns the API off instead of charging another (engineering audit L-01)', async () => {
+    const { agentDeps } = await import('../lib/server/agent/config.ts');
+    process.env.BOUND_API_SECRET = Buffer.alloc(32, 1).toString('base64');
+    process.env.BOUND_API_KEYS = `a:${sha('key-one')}`;
+    process.env.BOUND_API_FEE_BPS = '150';
+    try {
+      expect(agentDeps()).toBeNull();
+      process.env.BOUND_API_FEE_BPS = '30';
+      expect(agentDeps()?.feeBps).toBe(30n);
+    } finally {
+      delete process.env.BOUND_API_SECRET;
+      delete process.env.BOUND_API_KEYS;
+      delete process.env.BOUND_API_FEE_BPS;
+    }
+  });
+
   it('two keys with one id: the first one wins, so they never share tickets and limits (FA-16)', async () => {
     const { agentDeps } = await import('../lib/server/agent/config.ts');
     process.env.BOUND_API_SECRET = Buffer.alloc(32, 1).toString('base64');

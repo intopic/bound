@@ -9,7 +9,8 @@ For every swap Bound builds:
    build time (0.3% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`). When
    the route opens an account in the temporary key's name and charges it the rent (both of
    Pump.fun's markets do, once per buyer), it can also reach exactly that rent, which is measured in simulation, capped at
-   0.005 SOL (`MAX_TAKER_RENT_LAMPORTS`) and stated before signing. Nothing else in SOL.
+   0.005 SOL (`MAX_TAKER_RENT_LAMPORTS`) and stated before signing. Nothing else in SOL, apart
+   from Bound's own fee when a pair pays it in SOL from the wallet (below).
 2. It never receives the wallet W or any token account of W except the output account `W_out`. Any
    delegate on `W_out` is revoked by a trusted instruction before the swap runs, and a `W_out` with
    a close authority is refused.
@@ -47,6 +48,8 @@ network fee (≤ F_max, and never above 0.001 SOL)
   (1,346,200 or 1,478,280 lamports ≈ 0.0013–0.0015 SOL on Pump.fun's markets, September 2026;
   at most 0.005 SOL), of which the account's own rent comes back in the same transaction
   (1,346,200 lamports: all of it on PumpSwap, all but 132,080 on a bonding curve that grows)
++ Bound's fee in SOL, only for a pair neither token of which can carry it
+  (0.3% of the swap's value in SOL when it is built; shown before the wallet opens)
 ```
 
 The account the route rent pays for, Pump.fun's per-buyer volume accumulator, is closed at the end of

@@ -29,7 +29,11 @@ async function signedTransaction() {
 
 type Status = { confirmationStatus: 'processed' | 'confirmed' | 'finalized'; err: unknown } | null;
 /** Each read takes the next scripted value; the last one repeats. 'throw' simulates a failed read. */
-function fakeRpc(script: { firstSend?: 'ok' | Error; statuses?: (Status | 'throw')[]; heights?: bigint[]; finalizedHeights?: bigint[] }) {
+function fakeRpc(script: {
+  firstSend?: 'ok' | Error; statuses?: (Status | 'throw')[]; heights?: bigint[]; finalizedHeights?: bigint[];
+  /** The slot the node answering each status read had reached; the finalized slot is 500,000. */
+  statusSlots?: bigint[];
+}) {
   let sends = 0;
   let statusReads = 0;
   let heightReads = 0;
@@ -44,15 +48,23 @@ function fakeRpc(script: { firstSend?: 'ok' | Error; statuses?: (Status | 'throw
     }),
     getSignatureStatuses: () => ({
       send: async () => {
+        const slot = next(script.statusSlots ?? [1_000_000n], statusReads);
         const s = next(script.statuses ?? [null], statusReads++);
         if (s === 'throw') throw new Error('status read failed');
-        return { value: [s] };
+        return { context: { slot }, value: [s] };
       },
     }),
     getBlockHeight: (config?: { commitment?: string }) => ({
       send: async () => (config?.commitment === 'finalized' && script.finalizedHeights
         ? next(script.finalizedHeights, finalizedReads++)
         : next(script.heights ?? [1n], heightReads++)),
+    }),
+    // The finalized slot and height, in one answer, as a node reports them.
+    getEpochInfo: () => ({
+      send: async () => ({
+        absoluteSlot: 500_000n,
+        blockHeight: script.finalizedHeights ? next(script.finalizedHeights, finalizedReads++) : next(script.heights ?? [1n], heightReads++),
+      }),
     }),
   } as unknown as SolanaRpc;
   return { rpc, reads: () => statusReads };
@@ -184,6 +196,19 @@ describe('a rate-limited RPC in the production build', () => {
     expect(calls).toBe(3);
   });
 
+  it('a send is never retried by the transport: a 429 may follow a forwarded request (engineering audit S1-H-02)', async () => {
+    let calls = 0;
+    const transport = (async () => {
+      calls++;
+      throw productionError(429);
+    }) as unknown as Parameters<typeof retryingTransport>[0];
+    await expect(retryingTransport(transport, 5, 1)({ payload: { method: 'sendTransaction' } } as never)).rejects.toThrow();
+    expect(calls).toBe(1);
+    calls = 0;
+    await expect(retryingTransport(transport, 2, 1)({ payload: { method: 'getBalance' } } as never)).rejects.toThrow();
+    expect(calls).toBe(3);
+  });
+
   it('any other failure is not retried', async () => {
     let calls = 0;
     const transport = (async () => {
@@ -228,6 +253,15 @@ describe('outcomes are said only once the chain proves them (review FA-07)', () 
   it('an error seen only at processed (a fork, perhaps) is not a failure: the swap lands confirmed later', async () => {
     const processedError: Status = { confirmationStatus: 'processed', err: { InstructionError: [3, { Custom: 1 }] } };
     expect((await run({ statuses: [processedError, confirmed] })).result.status).toBe('confirmed');
+  });
+
+  it('a status node behind the finalized slot cannot make a swap expired, whatever the height (engineering audit S1-H-01)', async () => {
+    // Another node reports a finalized height well past the lifetime; the node that says "no record"
+    // had not reached that slot, so its silence proves nothing.
+    const { result } = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 50n], statusSlots: [1n] });
+    expect(result.status).toBe('unknown');
+    const covered = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 50n] });
+    expect(covered.result.status).toBe('expired');
   });
 
   it('expiry needs the finalized height past the lifetime too, so a lagging node cannot make it expired', async () => {

@@ -22,9 +22,13 @@
  *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
  *                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
  *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
+ *
+ * Unattended, the command line keeps every signed swap in a state directory (BOUND_STATE_DIR or
+ * --state, default ./.bound-state) before finalize, settles what a stopped run left there before it
+ * starts another, and holds a lock per wallet so that two workers never swap from it at once.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createKeyPairSignerFromBytes, createSolanaRpc, getCompiledTransactionMessageDecoder, getPublicKeyFromAddress,
@@ -119,11 +123,13 @@ export class BoundApiError extends Error {
 
 type Fetch = typeof fetch;
 
-async function call<T>(fetchImpl: Fetch, url: string, key: string, body: unknown): Promise<T> {
+/** Each call to Bound ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
+async function call<T>(fetchImpl: Fetch, url: string, key: string, body: unknown, timeoutMs = 30_000): Promise<T> {
   const res = await fetchImpl(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const json = (await res.json()) as { error?: { code: string; message: string } } & T;
   if (!res.ok) {
@@ -219,18 +225,22 @@ export type Outcome = 'confirmed' | 'failed' | 'expired' | 'unknown';
  * Settles one transaction on your own RPC, by its signature, until it lands, can no longer land, or
  * `maxWaitMs` passes. With `signedTransaction` (the fully signed bytes, checked to be this very
  * transaction), it re-broadcasts every few seconds: the same bytes land at most once. Only a confirmed
- * status is an outcome, since an error seen at `processed` may be on a fork (FA-07); and `expired`
- * needs the finalized height past the lifetime and no record in the full history, so a lagging node
- * cannot make a landed swap look expired.
+ * status is an outcome, since an error seen at `processed` may be on a fork (FA-07). `expired` needs
+ * one coherent view, twice: a finalized height past the lifetime, and no record in the full history
+ * from a node that had reached that height's slot. A load-balanced RPC may answer the two reads from
+ * different nodes, and a lagging node's silence proves nothing (engineering audit S1-H-01). Every
+ * request is bounded by what is left of `maxWaitMs`, so one that never answers cannot hold the agent
+ * past it (S1-M-04).
  */
 export async function confirm(
   rpc: Rpc<SolanaRpcApi>,
   signature: string,
   lastValidBlockHeight: bigint,
-  opts: { signedTransaction?: string; pollMs?: number; maxWaitMs?: number } = {},
+  opts: { signedTransaction?: string; pollMs?: number; maxWaitMs?: number; requestTimeoutMs?: number } = {},
 ): Promise<Outcome> {
   const pollMs = opts.pollMs ?? 1_000;
   const deadline = Date.now() + (opts.maxWaitMs ?? 180_000);
+  const bounded = () => ({ abortSignal: AbortSignal.timeout(Math.max(1, Math.min(opts.requestTimeoutMs ?? 10_000, deadline - Date.now()))) });
   const settled = (s: { confirmationStatus?: string | null } | null | undefined) =>
     !!s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized');
   let pastLifetime = false;
@@ -239,21 +249,28 @@ export async function confirm(
   while (Date.now() < deadline) {
     // A failed read says nothing about the transaction: keep reading until the deadline.
     try {
-      const [status] = (await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: pastLifetime }).send()).value;
-      if (settled(status)) return status!.err ? 'failed' : 'confirmed';
       if (!pastLifetime) {
-        if ((await rpc.getBlockHeight({ commitment: 'confirmed' }).send()) > lastValidBlockHeight) pastLifetime = true;
+        const [status] = (await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: false }).send(bounded())).value;
+        if (settled(status)) return status!.err ? 'failed' : 'confirmed';
+        if ((await rpc.getBlockHeight({ commitment: 'confirmed' }).send(bounded())) > lastValidBlockHeight) pastLifetime = true;
         else if (opts.signedTransaction && Date.now() - lastSend > 3_000) {
           lastSend = Date.now();
-          await rpc.sendTransaction(opts.signedTransaction as never, { encoding: 'base64', skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
+          await rpc.sendTransaction(opts.signedTransaction as never, { encoding: 'base64', skipPreflight: true, maxRetries: 0n }).send(bounded()).catch(() => undefined);
         }
-      } else if (!status && (await rpc.getBlockHeight({ commitment: 'finalized' }).send()) > lastValidBlockHeight && ++empty >= 2) {
-        return 'expired';
+      } else {
+        // It can no longer be included: the finalized slot and height in one answer, then the full
+        // history from a node that had reached that slot.
+        const finalized = await rpc.getEpochInfo({ commitment: 'finalized' }).send(bounded());
+        const { context, value: [late] } = await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send(bounded());
+        if (settled(late)) return late!.err ? 'failed' : 'confirmed';
+        const height = (finalized as { blockHeight?: bigint | number }).blockHeight;
+        const covered = height !== undefined && BigInt(context.slot) >= BigInt(finalized.absoluteSlot) && BigInt(height) > lastValidBlockHeight;
+        if (!late && covered && ++empty >= 2) return 'expired';
       }
     } catch {
       // keep reading
     }
-    await wait(pastLifetime ? pollMs * 2 : pollMs);
+    await wait(Math.max(0, Math.min(pastLifetime ? pollMs * 2 : pollMs, deadline - Date.now())));
   }
   return 'unknown';
 }
@@ -271,8 +288,104 @@ async function isThisTransaction(wire: string, mine: Transaction, temporaryAutho
   }
 }
 
-/** What to keep before finalize: with it, a process that stops can still find out what happened. */
-export type Signed = { signature: string; lastValidBlockHeight: bigint; ticket: string };
+/**
+ * What to keep before finalize: with it, a process that stops can still find out what happened, and
+ * ask finalize again with the same ticket and bytes (the same transaction lands at most once).
+ */
+export type Signed = {
+  signature: string;
+  lastValidBlockHeight: bigint;
+  ticket: string;
+  /** The transaction as your wallet signed it, base64. */
+  signedTransaction: string;
+  messageSha256: string;
+  /** When it was signed, in ms since the epoch. */
+  signedAt: number;
+};
+
+/** Where signed swaps wait for their outcome. Unattended, it must survive the process (S1-M-01). */
+export type PendingStore = {
+  put(signed: Signed): Promise<void>;
+  remove(signature: string): Promise<void>;
+  list(): Promise<Signed[]>;
+};
+
+/**
+ * Pending swaps as files in `dir`, one per signature, each written to a temporary file, flushed to
+ * disk and renamed into place, so a record is either whole or absent.
+ */
+export function createFileStore(dir: string): PendingStore {
+  mkdirSync(dir, { recursive: true });
+  const file = (signature: string) => join(dir, `pending-${signature}.json`);
+  return {
+    async put(s) {
+      const temporary = `${file(s.signature)}.tmp`;
+      const fd = openSync(temporary, 'w');
+      try {
+        writeSync(fd, JSON.stringify({ ...s, lastValidBlockHeight: s.lastValidBlockHeight.toString() }));
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      renameSync(temporary, file(s.signature));
+    },
+    async remove(signature) {
+      rmSync(file(signature), { force: true });
+    },
+    async list() {
+      return readdirSync(dir).filter(f => f.startsWith('pending-') && f.endsWith('.json')).map(f => {
+        const json = JSON.parse(readFileSync(join(dir, f), 'utf8')) as Omit<Signed, 'lastValidBlockHeight'> & { lastValidBlockHeight: string };
+        return { ...json, lastValidBlockHeight: BigInt(json.lastValidBlockHeight) };
+      });
+    },
+  };
+}
+
+/**
+ * Settles the swaps a stopped run left in `store`, each by its own signature on your RPC, and removes
+ * those whose outcome is final. Returns what is still unknown: while anything is, start no new swap
+ * for the same intent (S1-M-01).
+ */
+export async function recoverPending(
+  store: PendingStore, rpc: Rpc<SolanaRpcApi>, opts: { pollMs?: number; maxWaitMs?: number } = {},
+): Promise<{ settled: { signature: string; outcome: Outcome }[]; unknown: string[] }> {
+  const settled: { signature: string; outcome: Outcome }[] = [];
+  const unknown: string[] = [];
+  for (const s of await store.list()) {
+    const outcome = await confirm(rpc, s.signature, s.lastValidBlockHeight, opts);
+    if (outcome === 'unknown') unknown.push(s.signature);
+    else {
+      settled.push({ signature: s.signature, outcome });
+      await store.remove(s.signature);
+    }
+  }
+  return { settled, unknown };
+}
+
+/**
+ * One worker per wallet at a time, across processes sharing `dir`: the lock file is created only if
+ * it does not exist. A lock older than `staleMs` is left by a process that died, and is taken over.
+ * Returns the release. Workers on other machines need a shared store with a lock of its own.
+ */
+export function acquireLock(dir: string, owner: string, staleMs = 10 * 60_000): () => void {
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `lock-${owner}`);
+  const take = () => {
+    const fd = openSync(path, 'wx');
+    writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
+    closeSync(fd);
+  };
+  try {
+    take();
+  } catch {
+    if (Date.now() - statSync(path).mtimeMs < staleMs) {
+      throw new Error(`Another swap from ${owner} is running (lock ${path}); nothing was started.`);
+    }
+    rmSync(path, { force: true });
+    take();
+  }
+  return () => rmSync(path, { force: true });
+}
 
 /**
  * The whole flow. A price that moved or a costlier route is not accepted silently: it throws.
@@ -285,10 +398,15 @@ export type Signed = { signature: string; lastValidBlockHeight: bigint; ticket: 
 export async function protectedSwap(args: {
   apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; wallet: KeyPairSigner; intent: Omit<Intent, 'owner'>;
   fetchImpl?: Fetch; pollMs?: number; jupiterApiKey?: string;
-  /** Called with the transaction's signature before finalize, to persist: see `Signed`. */
+  /**
+   * Called before finalize with what to keep (see `Signed`). Unattended, persist it durably here
+   * (`createFileStore`): if this throws, nothing is finalized.
+   */
   onSigned?: (signed: Signed) => void | Promise<void>;
   /** How long to wait for an outcome, in ms; `unknown` after that (default 3 minutes). */
   maxWaitMs?: number;
+  /** How long one call to Bound or to your RPC may take, in ms (default 30 s and 10 s). */
+  requestTimeoutMs?: number;
 }): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string }> {
   const fetchImpl = args.fetchImpl ?? fetch;
   const owner = args.wallet.address;
@@ -303,7 +421,7 @@ export async function protectedSwap(args: {
     ...(intent.minOut ? { minOut: intent.minOut } : {}),
     ...(intent.acceptCostBps ? { acceptCostBps: intent.acceptCostBps } : {}),
     ...(intent.version !== undefined ? { version: intent.version } : {}),
-  });
+  }, args.requestTimeoutMs);
   // A fee in SOL from the wallet: held to a price of your own, asked of Jupiter here.
   if ((prepared.policy as { feeSide?: unknown }).feeSide === 'sol' && intent.maxSolFeeLamports === undefined) {
     intent.maxSolFeeLamports = await ownSolFeeLimit({
@@ -325,7 +443,9 @@ export async function protectedSwap(args: {
   // lives 150 blocks, so a server that states less cannot end the wait while it could still land.
   const ownLimit = height + 150n + LAG_BLOCKS;
   const lastValid = stated > ownLimit ? stated : ownLimit;
-  await args.onSigned?.({ signature, lastValidBlockHeight: lastValid, ticket: prepared.ticket });
+  await args.onSigned?.({
+    signature, lastValidBlockHeight: lastValid, ticket: prepared.ticket, signedTransaction, messageSha256: prepared.messageSha256, signedAt: Date.now(),
+  });
 
   // Asked once more when no answer came back, or none that reads (the same bytes can land only
   // once). A refusal (4xx) is not asked again: it says this request sent nothing, and the chain
@@ -334,7 +454,7 @@ export async function protectedSwap(args: {
   let refused: BoundApiError | null = null;
   for (let attempt = 0; attempt < 2 && !done && !refused; attempt++) {
     try {
-      done = await call<Finalized>(fetchImpl, `${args.apiUrl}/api/v1/finalize`, args.apiKey, { ticket: prepared.ticket, signedTransaction });
+      done = await call<Finalized>(fetchImpl, `${args.apiUrl}/api/v1/finalize`, args.apiKey, { ticket: prepared.ticket, signedTransaction }, args.requestTimeoutMs);
     } catch (e) {
       if (e instanceof BoundApiError && e.status < 500) refused = e;
       else if (attempt === 0) await wait(args.pollMs ?? 1_000);
@@ -344,6 +464,7 @@ export async function protectedSwap(args: {
   const bytes = done?.signedTransaction && await isThisTransaction(done.signedTransaction, mine, prepared.temporaryAuthority)
     ? done.signedTransaction : undefined;
   const outcome = await confirm(args.rpc, signature, lastValid, { signedTransaction: bytes, pollMs: args.pollMs, maxWaitMs: args.maxWaitMs });
+  // Kept or not, the caller decides what to do with a pending record: an unknown outcome stays pending.
   const refusal = refused ? refused.code : done?.status === 'rejected' ? done.refusal ?? 'network' : undefined;
   // Refused by Bound, and the chain shows it can no longer land: that refusal is what happened.
   if (outcome === 'expired' && refusal) return { signature, outcome: 'rejected', prepared, refusal };
@@ -360,7 +481,7 @@ async function main() {
   const need = (name: string) => process.env[name] ?? (console.error(`Set ${name}.`), process.exit(2));
   const [inputMint, outputMint, amountIn] = [flag('in'), flag('out'), flag('amount')];
   if (!inputMint || !outputMint || !amountIn) {
-    console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1] [--owner <address> --dry-run]');
+    console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1] [--state <dir>] [--owner <address> --dry-run]');
     process.exit(2);
   }
   const apiUrl = need('BOUND_API_URL').replace(/\/+$/, '');
@@ -394,12 +515,31 @@ async function main() {
   }
 
   const wallet = await createKeyPairSignerFromBytes(new Uint8Array(JSON.parse(readFileSync(need('BOUND_WALLET_KEYPAIR'), 'utf8'))));
-  const result = await protectedSwap({
-    apiUrl, apiKey, rpc, wallet, intent, jupiterApiKey,
-    // Written before finalize: if this process stops, this signature is how to find out what happened.
-    onSigned: s => console.error(`Signed transaction ${s.signature}; it can land until block ${s.lastValidBlockHeight}. Check it before swapping again if this stops.`),
-  });
-  console.log(JSON.stringify({ signature: result.signature, outcome: result.outcome, refusal: result.refusal, amounts: result.prepared.amounts }, null, 2));
+  const stateDir = flag('state') ?? process.env.BOUND_STATE_DIR ?? '.bound-state';
+  const store = createFileStore(stateDir);
+  const release = acquireLock(stateDir, wallet.address);
+  try {
+    // What a stopped run left is settled first; while any outcome is unknown, no new swap starts.
+    const { settled, unknown } = await recoverPending(store, rpc);
+    for (const s of settled) console.error(`An earlier swap, ${s.signature}, ended ${s.outcome}.`);
+    if (unknown.length) {
+      console.error(`The outcome of an earlier swap is still unknown: ${unknown.join(', ')}. Check it before swapping again; nothing new was started.`);
+      process.exitCode = 3;
+      return;
+    }
+    const result = await protectedSwap({
+      apiUrl, apiKey, rpc, wallet, intent, jupiterApiKey,
+      // Kept on disk before finalize: if this process stops, the next run settles it first.
+      onSigned: async s => {
+        await store.put(s);
+        console.error(`Signed transaction ${s.signature}; it can land until block ${s.lastValidBlockHeight}.`);
+      },
+    });
+    if (result.outcome !== 'unknown') await store.remove(result.signature);
+    console.log(JSON.stringify({ signature: result.signature, outcome: result.outcome, refusal: result.refusal, amounts: result.prepared.amounts }, null, 2));
+  } finally {
+    release();
+  }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

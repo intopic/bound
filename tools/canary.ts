@@ -113,6 +113,11 @@ async function swap(
     const run = await executes(prepared);
     if (!run.ok && /6001|"Custom":1\b/.test(run.error) && round === 0) continue; // the price moved: once more
     const refund = prepared.policy.routeRefund > 0n ? `, the market's account closed and ${prepared.policy.routeRefund} lamports returned` : '';
+    // A Pump market's account holding only its rent is closed and refunded; a buy without that refund
+    // is worth a look (a cashback coin, or no room for the close), though it still executed.
+    if (run.ok && (want === 'Pump.fun' || want === 'Pump.fun Amm') && prepared.policy.routeRefund === 0n) {
+      report('warn', name, "executed, but the market's account under the one-time key was not closed and refunded");
+    }
     const side = prepared.policy.feeSide;
     const fee = side ? `, fee ${prepared.policy.fee} ${side === 'sol' ? 'lamports in SOL, from the wallet' : `from the ${side}`}` : '';
     report(run.ok ? 'ok' : 'fail', name, run.ok ? `built, verified and executed: ${route}${fee}${refund}` : `the final transaction fails: ${run.error}`);

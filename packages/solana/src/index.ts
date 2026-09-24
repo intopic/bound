@@ -29,14 +29,19 @@ type Transport = ReturnType<typeof createDefaultRpcTransport>;
 /**
  * Retries rate-limited requests (HTTP 429) with exponential backoff. The wait is jittered, so the
  * pages that were refused together do not all come back at the same moment and be refused again.
+ *
+ * Never a send: a 429 may come back after the request was forwarded, and a later attempt refused
+ * outright would hide that earlier one behind a definitive "never broadcast" (engineering audit
+ * S1-H-02). The sender sees the first answer and decides; re-broadcasting is its job.
  */
 export function retryingTransport(transport: Transport, maxRetries = 5, baseMs = 500): Transport {
   return (async (config: Parameters<Transport>[0]) => {
+    const method = (config as { payload?: { method?: unknown } }).payload?.method;
     for (let attempt = 0; ; attempt++) {
       try {
         return await transport(config);
       } catch (e) {
-        if (attempt >= maxRetries || httpStatusOf(e) !== 429) throw e;
+        if (attempt >= maxRetries || httpStatusOf(e) !== 429 || method === 'sendTransaction') throw e;
         await new Promise(r => setTimeout(r, baseMs * 2 ** attempt * (0.5 + Math.random())));
       }
     }
@@ -44,9 +49,8 @@ export function retryingTransport(transport: Transport, maxRetries = 5, baseMs =
 }
 
 /**
- * An RPC client that retries rate-limited requests. Every method the pipeline uses is safe to
- * repeat: reads, simulations, and re-sends of an already signed transaction (the same signature
- * can only land once).
+ * An RPC client that retries rate-limited requests: reads and simulations, which are safe to repeat.
+ * A send is answered as it was; the sender re-broadcasts the same bytes itself (S1-H-02).
  */
 export function createRetryingRpc(url: string, maxRetries = 5): SolanaRpc {
   const transport = createDefaultRpcTransport({ url: url as `https://${string}` });
@@ -177,6 +181,14 @@ export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: 
     .send();
   const logs = [...(value.logs ?? [])];
   const after = (value as { accounts?: readonly ({ lamports: bigint | number; data?: readonly string[] } | null)[] | null }).accounts;
+  // Accounts asked to be watched and not reported are not accounts at zero: what they hold after
+  // the swap is unknown, so the simulation says nothing (engineering audit, Stage 1).
+  if (value.err === null && watch.length && (!Array.isArray(after) || after.length !== watch.length)) {
+    return {
+      ok: false, error: 'the RPC did not report the accounts it was asked to watch', units: Number(value.unitsConsumed ?? 0n),
+      logs, blame: null, failedInstruction: null, lamportsAfter: [], sizesAfter: [],
+    };
+  }
   return {
     ok: value.err === null,
     error: value.err === null ? null : JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
@@ -230,6 +242,28 @@ export function refusedBeforeBroadcast(e: unknown): boolean {
     return status >= 400 && status < 500 && headers?.get('x-bound-not-forwarded') === '1';
   }
   return false;
+}
+
+/** A signature's status as the RPC reports it. */
+export type SignatureState = { confirmationStatus?: string | null; err?: unknown } | null;
+
+/**
+ * The statuses of `signatures` from full history, with the finalized block height that answer is
+ * known to cover (engineering audit S1-H-01). The finalized slot and height come from one answer;
+ * the statuses must come from a node that had reached at least that slot. A signature with no
+ * record whose lifetime ended below the covered height can no longer have landed. When the node
+ * that answered lags that slot, or the height is not reported, `coveredHeight` is null and "no
+ * record" proves nothing: a load-balanced provider may answer the two reads from different nodes.
+ */
+export async function statusesCovering(
+  rpc: SolanaRpc, signatures: readonly string[],
+): Promise<{ statuses: SignatureState[]; coveredHeight: bigint | null }> {
+  const finalized = await rpc.getEpochInfo({ commitment: 'finalized' }).send();
+  const { context, value } = await rpc.getSignatureStatuses(signatures as never, { searchTransactionHistory: true }).send();
+  const height = (finalized as { blockHeight?: bigint | number }).blockHeight;
+  const covered = height !== undefined && context?.slot !== undefined && BigInt(context.slot) >= BigInt(finalized.absoluteSlot)
+    ? BigInt(height) : null;
+  return { statuses: value.map(s => (s ?? null) as SignatureState), coveredHeight: covered };
 }
 
 /**
@@ -325,20 +359,18 @@ export async function sendAndConfirm(args: {
 
   // The blockhash has expired, so the transaction can no longer be included. Stop re-broadcasting
   // and read the full status history: seen but only `processed` is not an outcome yet. "Expired" is
-  // said only when the finalized height is past the lifetime too, so that a status node lagging
-  // behind the node that answered the height cannot make a landed swap look expired (FA-07).
+  // said only from one coherent view: a finalized height past the lifetime, and no record from a
+  // node that had reached that height's slot, twice (FA-07, engineering audit S1-H-01).
   async function settleAfterExpiry(): Promise<SendResult> {
     let notFound = 0;
     let seen = false;
     for (let i = 0; i < t.settleTries; i++) {
       try {
-        const s = await lookup(true);
+        const { statuses, coveredHeight } = await statusesCovering(rpc, [signature]);
+        const s = statuses[0];
         if (settled(s)) return s!.err ? done('failed', stringify(s!.err)) : done('confirmed');
         seen ||= !!s;
-        if (!s) {
-          const finalized = await rpc.getBlockHeight({ commitment: 'finalized' }).send();
-          if (finalized > lastValidBlockHeight && ++notFound >= 2) return done('expired');
-        }
+        if (!s && coveredHeight !== null && coveredHeight > lastValidBlockHeight && ++notFound >= 2) return done('expired');
       } catch {
         // keep settling
       }

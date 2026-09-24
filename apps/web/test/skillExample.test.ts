@@ -23,7 +23,12 @@ import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccou
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
-import { BoundApiError, checkPrepared, confirm, protectedSwap } from '../../../skills/bound-protected-swap/examples/swap.ts';
+import {
+  acquireLock, BoundApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending,
+} from '../../../skills/bound-protected-swap/examples/swap.ts';
+import { mkdtempSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
 import { routeAccountFor } from '@bound/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
@@ -295,12 +300,25 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
     const rpc = {
       ...b.agentRpc,
       simulateTransaction: () => ({
-        send: async () => ({ value: { err: null, logs: [], accounts: [null, { lamports: 1_346_200n }, null] } }),
+        send: async () => ({ value: { err: null, logs: [], accounts: [null, { lamports: 1_346_200n }, null, null, null, null, null] } }),
       }),
     } as unknown as Rpc<SolanaRpcApi>;
     const problems = await checkPrepared(honest, intentFor(b.wallet), rpc);
     expect(problems.join()).toContain('a market account under the one-time key would keep 1346200 lamports');
     expect(market).toBeTruthy();
+  });
+
+  it('cashback left in a token account of a Pump market account under E is refused (engineering audit U1)', async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    // E and both market accounts are empty; the curve market's WSOL account holds cashback E could claim.
+    const rpc = {
+      ...b.agentRpc,
+      simulateTransaction: () => ({
+        send: async () => ({ value: { err: null, logs: [], accounts: [null, null, null, { lamports: 2_100_000n }, null, null, null] } }),
+      }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    expect((await checkPrepared(honest, intentFor(b.wallet), rpc)).join()).toContain('a market account under the one-time key would keep 2100000 lamports');
   });
 
   it('a simulation that does not report the accounts proves nothing, and is refused (engineering review M-05)', async () => {
@@ -356,14 +374,20 @@ const swapIntent = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000'
  * chain once Bound's server has sent it and the height has reached `landAt`; `others` are other
  * transactions the chain has confirmed.
  */
-function chainOf(b: Awaited<ReturnType<typeof bound>>, opts: { landAt?: bigint; others?: string[] } = {}) {
+function chainOf(b: Awaited<ReturnType<typeof bound>>, opts: { landAt?: bigint; others?: string[]; statusSlot?: bigint } = {}) {
   let height = 0n;
   const onChain = (s: string) => (b.sent.some(w => signatureOfWire(w) === s) && height >= (opts.landAt ?? 0n)) || !!opts.others?.includes(s);
   return {
     ...b.agentRpc,
     getBlockHeight: () => ({ send: async () => (height += 40n) }),
+    // One node's finalized view: its slot and height together (slots here equal heights).
+    getEpochInfo: () => ({ send: async () => ({ absoluteSlot: height, blockHeight: height }) }),
+    // Statuses from a node that has reached `statusSlot`, ahead of the finalized view unless a test lags it.
     getSignatureStatuses: (signatures: string[]) => ({
-      send: async () => ({ value: signatures.map(s => (onChain(s) ? { confirmationStatus: 'confirmed', err: null } : null)) }),
+      send: async () => ({
+        context: { slot: opts.statusSlot ?? height + 1_000n },
+        value: signatures.map(s => (onChain(s) ? { confirmationStatus: 'confirmed', err: null } : null)),
+      }),
     }),
   } as unknown as Rpc<SolanaRpcApi>;
 }
@@ -540,5 +564,85 @@ describe('a fee in SOL for a pair neither token of which can carry it (every swa
     const problems = await checkPrepared(inflated, { owner: b.wallet.address, ...pair, minOut: '1', maxSolFeeLamports: ownLimit }, b.agentRpc);
     expect(problems.join()).toContain('above your limit');
     expect(await checkPrepared(honest, { owner: b.wallet.address, ...pair, minOut: '1', maxSolFeeLamports: ownLimit }, b.agentRpc)).toEqual([]);
+  });
+});
+
+describe('recovery the delivered example must survive (engineering audit, Stage 1)', () => {
+  const never = (signal?: AbortSignal) => new Promise<never>((_, reject) => {
+    signal?.addEventListener('abort', () => reject(new DOMException('The operation timed out.', 'TimeoutError')));
+  });
+
+  it('a status node behind the finalized view keeps the outcome unknown; a covering one proves expiry (S1-H-01)', async () => {
+    const b = await bound();
+    const lagging = chainOf(b, { statusSlot: 1n });
+    expect(await confirm(lagging, 'unseen', 50n, { pollMs: 1, maxWaitMs: 60 })).toBe('unknown');
+    expect(await confirm(chainOf(b), 'unseen', 50n, { pollMs: 1, maxWaitMs: 2_000 })).toBe('expired');
+  });
+
+  it('a status read that never answers does not hold confirm past its deadline (S1-M-04)', async () => {
+    const stuck = {
+      getSignatureStatuses: () => ({ send: (o?: { abortSignal?: AbortSignal }) => never(o?.abortSignal) }),
+      getBlockHeight: () => ({ send: (o?: { abortSignal?: AbortSignal }) => never(o?.abortSignal) }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    const started = Date.now();
+    expect(await confirm(stuck, 'sig', 1_000n, { pollMs: 1, maxWaitMs: 80, requestTimeoutMs: 20 })).toBe('unknown');
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('a finalize that never answers ends on time, and the outcome is read for its own signature (S1-M-04)', async () => {
+    const b = await bound();
+    const silent = (async (url: string, init: RequestInit) => (url.endsWith('/api/v1/finalize')
+      ? never(init.signal ?? undefined) : b.fetchImpl(url, init))) as unknown as typeof fetch;
+    const result = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: silent, pollMs: 1, requestTimeoutMs: 20, intent: swapIntent,
+    });
+    // Nothing reached the chain, and nothing is called rejected: it did not land and can no longer land.
+    expect(result.outcome).toBe('expired');
+    expect(b.sent).toHaveLength(0);
+  });
+
+  it('a swap that cannot be kept before finalize is not finalized (S1-M-01)', async () => {
+    const b = await bound();
+    let finalizes = 0;
+    const counting = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/finalize')) finalizes++;
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    await expect(protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: counting, pollMs: 1, intent: swapIntent,
+      onSigned: () => { throw new Error('disk full'); },
+    })).rejects.toThrow('disk full');
+    expect(finalizes).toBe(0);
+    expect(b.sent).toHaveLength(0);
+  });
+
+  it('what a stopped run kept is settled by its own signature on the next start; the unknown stays (S1-M-01)', async () => {
+    const b = await bound();
+    const dir = mkdtempSync(join(tmpdir(), 'bound-pending-'));
+    const store = createFileStore(dir);
+    // A swap that was sent and landed while the process was down, and one the chain says nothing about yet.
+    let kept: Parameters<typeof store.put>[0] | null = null;
+    const landed = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent,
+      onSigned: async s => { kept = s; await store.put(s); },
+    });
+    expect(landed.outcome).toBe('confirmed');
+    expect(kept!.signedTransaction).toBeTruthy();
+    await store.put({ ...kept!, signature: 'still-unknown-signature', lastValidBlockHeight: 10n ** 12n });
+    const rpc = chainOf(b);
+    const { settled, unknown } = await recoverPending(store, rpc, { pollMs: 1, maxWaitMs: 60 });
+    expect(settled).toEqual([{ signature: landed.signature, outcome: 'confirmed' }]);
+    expect(unknown).toEqual(['still-unknown-signature']);
+    expect(readdirSync(dir).filter(f => f.startsWith('pending-'))).toEqual(['pending-still-unknown-signature.json']);
+  });
+
+  it('one worker per wallet: a second one is refused until the first releases (S1-M-01)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bound-lock-'));
+    const release = acquireLock(dir, 'wallet-one');
+    expect(() => acquireLock(dir, 'wallet-one')).toThrow('Another swap');
+    const other = acquireLock(dir, 'wallet-two');
+    release();
+    other();
+    acquireLock(dir, 'wallet-one')();
   });
 });

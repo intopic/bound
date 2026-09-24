@@ -106,7 +106,7 @@ Fixed at build time (compiled into the page, so the server cannot change them af
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then almost every swap pays, memecoin sales included. A swap the treasury can receive in neither token is fee-free |
+| `NEXT_PUBLIC_BOUND_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then every swap pays, memecoin sales included; a pair neither token of which the treasury can receive pays in SOL from the wallet, at the swap's value (AUDIT.md 0w). Fee-free only while the treasury wallet does not exist, or when the pair cannot be priced in SOL |
 | `NEXT_PUBLIC_BOUND_FEE_BPS` | 30 | 0.3%. The verifier refuses more than 100 (1%) |
 | `NEXT_PUBLIC_BOUND_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Bound v1 swap has landed on mainnet |
 
