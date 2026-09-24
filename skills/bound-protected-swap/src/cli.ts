@@ -8,9 +8,16 @@
  *   bound-verify prepare    {"intent": {...}}                       0 ok: sign `message`   1 refused   3 settle first   4 Bound said no
  *   bound-verify finalize   {"checked": ..., "signature": "..."}    0 confirmed   1 not swapped   3 unknown: recover before anything new
  *   bound-verify recover                                            0 all settled   3 something is still unknown
+ *   bound-verify resolve    {"signature": "...", "outcome": "..."}  0 settled   1 refused (it could still land, or is not kept)
  *   bound-verify check      {"prepared": ..., "intent": {...}}      0 safe to sign   1 refused   (for bots that call the API themselves)
  *   2 on any usage or configuration error; 5 when `intent.id` names an order that already swapped or
  *   whose transaction may still land (the same order is never swapped twice).
+ *
+ * Finalize asked again for a swap it already kept (the same signature) is not a new send: it asks
+ * Bound once more for the same bytes and reads the chain, and always answers with that signature and
+ * its outcome (third audit, F4). `resolve` settles by hand, after you looked it up in a full history
+ * (an explorer), a kept swap whose outcome the chain can no longer prove: `outcome` is `confirmed`,
+ * `failed` or `expired`; the chain's own answer is used instead whenever your RPC still has one.
  *
  * `intent` is the example's `Intent`: owner, inputMint, outputMint, amountIn (base units, strings),
  * and optionally minOut, maxFeeBps, maxNetworkFeeLamports, maxRouteCostLamports, maxSolFeeLamports,
@@ -27,6 +34,7 @@ import { createSolanaRpc, getBase58Encoder, getSignatureFromTransaction, getTran
 import type { Address, Rpc, SignatureBytes, SolanaRpcApi } from '@solana/kit';
 import {
   acquireLock, BoundApiError, checkPrepared, createFileStore, finalizeSigned, pendingFor, PendingSwapError, prepareChecked, recoverPending,
+  resolvePending, resumeSigned,
 } from '../examples/swap.ts';
 import type { Checked, Intent, OrderBook, OrderRecord, PendingStore, Prepared } from '../examples/swap.ts';
 import { ownMinimum, ownSolFeeLimit } from '../lib/bound-verify.mjs';
@@ -48,7 +56,7 @@ export type CliDeps = {
 
 export type CliResult = { code: number; output: Record<string, unknown> };
 
-const COMMANDS = ['prepare', 'finalize', 'recover', 'check'] as const;
+const COMMANDS = ['prepare', 'finalize', 'recover', 'resolve', 'check'] as const;
 const usage = (message: string): CliResult => ({ code: 2, output: { ok: false, error: message } });
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const isIntent = (v: unknown): v is Intent => {
@@ -85,8 +93,43 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
   }
 
   if (command === 'recover') {
-    const { settled, unknown } = await recoverPending(store, deps.rpc, { pollMs: deps.pollMs, maxWaitMs: deps.maxWaitMs, orders: store });
-    return { code: unknown.length ? 3 : 0, output: { ok: unknown.length === 0, settled, unknown } };
+    try {
+      const { settled, unknown, bookkeepingErrors } = await recoverPending(store, deps.rpc, { pollMs: deps.pollMs, maxWaitMs: deps.maxWaitMs, orders: store });
+      // What stays kept (an unknown outcome, or a record that could not be updated) is settled again next time.
+      const open = unknown.length > 0 || bookkeepingErrors.length > 0;
+      return {
+        code: open ? 3 : 0,
+        output: {
+          ok: !open, settled, unknown, ...(bookkeepingErrors.length ? { bookkeepingErrors } : {}),
+          ...(unknown.length ? { next: 'Check each unknown signature before swapping again. One the network can no longer prove: look it up in a full history (an explorer), then `bound-verify resolve`.' } : {}),
+        },
+      };
+    } catch (e) {
+      return { code: 3, output: { ok: false, error: `The kept swaps could not be read or settled: ${messageOf(e)}. Nothing new may start until they are.` } };
+    }
+  }
+
+  if (command === 'resolve') {
+    const { signature, outcome } = body as { signature?: unknown; outcome?: unknown };
+    if (typeof signature !== 'string' || (outcome !== 'confirmed' && outcome !== 'failed' && outcome !== 'expired')) {
+      return usage('resolve reads {"signature": "<a kept swap>", "outcome": "confirmed" | "failed" | "expired"}, once you looked it up in a full history.');
+    }
+    const kept = (await store.list()).find(s => s.signature === signature);
+    if (!kept) return { code: 1, output: { ok: false, error: `No kept swap has the signature ${signature}. Nothing was changed.` } };
+    let release: () => void;
+    try {
+      release = acquireLock(deps.stateDir, kept.owner ?? 'unknown-wallet');
+    } catch (e) {
+      return { code: 1, output: { ok: false, error: messageOf(e) } };
+    }
+    try {
+      const resolved = await resolvePending(store, deps.rpc, signature, outcome, { orders: store, requestTimeoutMs: deps.requestTimeoutMs });
+      return { code: 0, output: { ok: true, ...resolved } };
+    } catch (e) {
+      return { code: 1, output: { ok: false, error: messageOf(e) } };
+    } finally {
+      release();
+    }
   }
 
   if (!deps.apiUrl || !deps.apiKey) return usage('Set BOUND_API_URL and BOUND_API_KEY.');
@@ -134,6 +177,26 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       return usage('finalize reads {"checked": <prepare\'s checked, unchanged>, "signature": "<base58>"} or {"checked": ..., "signedTransaction": "<base64>"}.');
     }
     const { prepared, intent } = checked;
+    // The chain's answer is the result; a record that could not be updated is said beside it, with
+    // the signature, never in its place (final audit, M-03).
+    const settle = async (result: { signature: string; outcome: string; refusal?: string }, orderId: string | undefined, resumed: boolean): Promise<CliResult> => {
+      let bookkeepingError: string | undefined;
+      try {
+        if (orderId) await store.recordOrder(orderId, { signature: result.signature, state: (result.outcome === 'unknown' ? 'pending' : result.outcome) as OrderRecord['state'] });
+        if (result.outcome !== 'unknown') await store.remove(result.signature);
+      } catch (e) {
+        bookkeepingError = messageOf(e);
+      }
+      return {
+        code: result.outcome === 'confirmed' ? 0 : result.outcome === 'unknown' ? 3 : 1,
+        output: {
+          ok: result.outcome === 'confirmed', signature: result.signature, outcome: result.outcome,
+          ...(result.refusal ? { refusal: result.refusal } : {}), amounts: prepared.amounts,
+          ...(resumed ? { resumed: true } : {}),
+          ...(bookkeepingError ? { bookkeepingError } : {}),
+        },
+      };
+    };
     let release: () => void;
     try {
       release = acquireLock(deps.stateDir, prepared.wallet);
@@ -155,6 +218,27 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
           return undefined;
         }
       })();
+      // A swap already kept under this signature may have been sent: it is asked again and settled,
+      // never checked as a first send, and the answer always carries its signature (third audit, F4).
+      const kept = incoming ? (await store.list()).find(s => s.signature === incoming) : undefined;
+      if (kept) {
+        signedAs = kept.signature;
+        const result = await resumeSigned({
+          ...api, rpc: deps.rpc, signed: kept, fetchImpl: deps.fetchImpl, pollMs: deps.pollMs, maxWaitMs: deps.maxWaitMs, requestTimeoutMs: deps.requestTimeoutMs,
+        });
+        return settle(result, kept.intentId ?? intent.id, true);
+      }
+      // Its order says it is this very transaction, but the swap's own record is gone: it may have landed.
+      const recorded = intent.id && incoming ? await store.order(intent.id) : null;
+      if (recorded && recorded.signature === incoming) {
+        return {
+          code: recorded.state === 'confirmed' ? 0 : recorded.state === 'pending' ? 3 : 1,
+          output: {
+            ok: recorded.state === 'confirmed', signature: incoming, outcome: recorded.state === 'pending' ? 'unknown' : recorded.state, recorded: true,
+            ...(recorded.state === 'pending' ? { error: 'This transaction is recorded pending for its order, but its own record is gone: check its signature before anything new.' } : {}),
+          },
+        };
+      }
       const waiting = await pendingFor(store, prepared.wallet, incoming);
       if (waiting.length) {
         return { code: 3, output: { ok: false, sent: false, pending: waiting, error: 'An earlier swap from this wallet may still land: run `bound-verify recover` first. Nothing was sent.' } };
@@ -195,23 +279,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
           signedAs = s.signature;
         },
       });
-      // The chain's answer is the result; a record that could not be updated is said beside it, with
-      // the signature, never in its place (final audit, M-03).
-      let bookkeepingError: string | undefined;
-      try {
-        if (intent.id) await store.recordOrder(intent.id, { signature: result.signature, state: result.outcome === 'unknown' ? 'pending' : result.outcome });
-        if (result.outcome !== 'unknown') await store.remove(result.signature);
-      } catch (e) {
-        bookkeepingError = messageOf(e);
-      }
-      return {
-        code: result.outcome === 'confirmed' ? 0 : result.outcome === 'unknown' ? 3 : 1,
-        output: {
-          ok: result.outcome === 'confirmed', signature: result.signature, outcome: result.outcome,
-          ...(result.refusal ? { refusal: result.refusal } : {}), amounts: prepared.amounts,
-          ...(bookkeepingError ? { bookkeepingError } : {}),
-        },
-      };
+      return settle(result, intent.id, false);
     } catch (e) {
       // After the swap was kept it may have been sent: its signature and an unknown outcome, never
       // "not sent" (final audit, M-03). Before that, nothing was sent.

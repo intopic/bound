@@ -71,6 +71,10 @@ export default async function Page() {
             vaults.
           </li>
           <li>The checks run in this page, which Bound serves: open Bound only at its own address.</li>
+          <li>
+            Bound keeps your swaps in this browser to follow their outcome, so it needs this site&apos;s data allowed. While
+            the network cannot yet say whether your last swap went through, it starts no new one from the same wallet.
+          </li>
         </ul>
       </section>
 

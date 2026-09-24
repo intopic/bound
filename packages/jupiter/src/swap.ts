@@ -362,8 +362,8 @@ export function strictMinimumOutput(
 /**
  * The fee in lamports for a swap no token of which can carry it: `feeBps` of what `amount` of the
  * input is worth in SOL, as Jupiter prices it for the one-time key (never the wallet). Undefined when
- * Jupiter cannot price it, or answers for another trade: the swap is then fee-free. A busy Jupiter
- * is busy, as for the route itself.
+ * Jupiter cannot price it, or answers for another trade: with a treasury, the swap is then refused
+ * (`fee-unavailable`), never built for free. A busy Jupiter is busy, as for the route itself.
  */
 export async function feeInSol(
   jupiter: JupiterClient,
@@ -664,18 +664,18 @@ export async function prepareProtectedSwap(deps: {
   }
 
   // A token account frozen by its issuer (a stablecoin's blacklist, say) cannot receive: a frozen fee
-  // account is treated like a missing one, so the swap is fee-free rather than impossible (FA-12).
+  // account is treated like a missing one, and the fee goes to the next side in line (FA-12).
   const frozen = (s: { data: Uint8Array } | null | undefined) => !!s && s.data.length >= TOKEN_ACCOUNT_SIZE && s.data[108] === 2;
   const feeAccountExists = feeAccount ? !!firstReads.get(feeAccount) && !frozen(firstReads.get(feeAccount)) : true;
   const outputFeeAccount = outputFeeCandidates.length ? await ataOf(settings.treasury!, req.outputMint, outputTokenProgram) : null;
   const outputFeeAccountExists = !!outputFeeAccount && !!firstReads.get(outputFeeAccount) && !frozen(firstReads.get(outputFeeAccount));
   // A SOL fee into a treasury wallet that does not exist yet would open it below the rent minimum,
   // which the runtime refuses, and every small swap would revert. Until the wallet exists the fee
-  // is taken in the next token in line, or not at all (review BR-06; audit B-09).
+  // is taken in the next token in line, or the swap is refused (review BR-06; audit B-09; item 9).
   const treasuryWalletReady = treasuryWallet.length > 0 && !!firstReads.get(settings.treasury!);
   // A pair that neither token can carry the fee for pays it in SOL from the wallet: feeBps of what the
   // swap is worth in SOL, asked of Jupiter now, like the route itself. A pair Jupiter cannot price in
-  // SOL stays fee-free rather than unswappable.
+  // SOL cannot pay it, and is refused below (`fee-unavailable`).
   const tokenCarries = feeSideFor(req.inputMint, req.outputMint, {
     input: req.inputMint === WSOL_MINT ? treasuryWalletReady : feeAccountExists,
     output: req.outputMint === WSOL_MINT ? treasuryWalletReady : outputFeeAccountExists,
@@ -1117,10 +1117,12 @@ export async function prepareProtectedSwap(deps: {
     // The account the market opened in E's name holds most of that rent. It is closed after the swap,
     // once E owns no token account, and its lamports go on to W (review FA-05). What it holds comes
     // from the simulation that measured the rent; the swap with the close is simulated once more and
-    // must leave E with nothing. If any of that fails, the swap goes ahead without it, as before.
-    // Only an account that holds exactly its rent is closed. One that also holds cashback (Pump's
-    // cashback coins) would make the exact refund depend on the price at landing, and the swap would
-    // revert whenever it moved (research audit F-03); it is left as before FA-05, the market's fee.
+    // must leave E with nothing. If any of that fails, this route is not offered, and a narrower one
+    // is tried (final audit, H-01). Only an account that holds exactly its rent can be closed: one
+    // that also holds cashback (Pump's cashback coins) would make the exact refund depend on the price
+    // at landing (research audit F-03), so such a route is refused, never left with value under E.
+    // Rent a route takes for an account of any other market is caught by the final simulation, which
+    // refuses every account the route opens and leaves open (third audit, F5).
     if (sim.ok && takerRent > 0n && opened) {
       const held = sim.lamportsAfter[1] ?? 0n;
       const rentOnly = held > 0n && held === await rentFor(sim.sizesAfter[1] ?? 0);
@@ -1254,13 +1256,31 @@ export async function prepareProtectedSwap(deps: {
 
       // The exact transaction the wallet will sign, simulated once more (final audit, H-01, and the
       // shared contract's point 4): it must execute, and leave nothing under E. A simulation that
-      // does not report those accounts reads as failed, never as empty.
-      const last = await simulate(rpc, final.transaction, underKey);
+      // does not report those accounts reads as failed, never as empty. Watched with them: every
+      // account the route is given that did not exist before the swap, besides the wallet's own output
+      // account and the treasury. What a market opens and leaves open may hold a claim tied to E,
+      // whichever market it is, so none may stay open (third audit, F5).
+      const existed = (a: Address) => {
+        const state = snapshot.accounts.get(a);
+        return !!state && (state.lamports > 0n || state.data.length > 0);
+      };
+      const kept = new Set<string>([policy.accounts.wOut, settings.treasury].filter((a): a is Address => !!a));
+      const opened = [...new Set(swapAccounts)].filter(a => !existed(a) && !kept.has(a) && !underKey.includes(a));
+      const last = await simulate(rpc, final.transaction, [...underKey, ...opened]);
       if (!last.ok) {
         attempts.push({ excluded, route, simulation: `final transaction: ${last.error ?? 'failed'}`, blamed: null });
         continue;
       }
-      if (last.lamportsAfter.some(l => l > 0n)) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+      if (last.lamportsAfter.slice(0, underKey.length).some(l => l > 0n)) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+      const leftOpen = opened.filter((_, i) => (last.lamportsAfter[underKey.length + i] ?? 0n) > 0n);
+      if (leftOpen.length) {
+        // Another route, without the markets on this one, may open nothing it leaves behind.
+        attempts[attempts.length - 1].simulation = `the route leaves open ${leftOpen.length} account(s) it creates: ${leftOpen.join(', ')}`;
+        const before = learned.length;
+        for (const label of route) if (!excluded.includes(label) && !learned.includes(label)) learned.push(label);
+        if (learned.length === before) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+        continue;
+      }
 
       return {
         oneTimeCosts: {

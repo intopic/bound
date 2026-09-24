@@ -62,10 +62,19 @@ it only in its exact IDL shape, for E's own account (the PDA is derived, not rea
 programs, and only **after E's last token account is closed**: when it runs, E's signature reaches
 nothing but the lamports it returns. A Pump program changed by its upgrade authority could keep
 those lamports; the transfer to W would then fail and the whole swap revert, costing the network
-fee. When closing is not possible (the transaction would not fit, or the simulation says no), the
-swap goes ahead without it, as before, and that rent stays under a discarded key. Through the agent
-API, E is derived from Bound's server secret and the ticket's nonce; Bound never re-derives it after
-finalize and never logs nonces.
+fee. When closing is not possible (the transaction would not fit, the account also holds a cashback
+coin's cashback, or the simulation says no), that route is not offered: a narrower one is tried, and
+without one the swap is refused (final audit, H-01). Rent any other market takes for an account it
+opens is caught the same way: before the wallet signs, the exact transaction is simulated, and every
+account the route is given that did not exist before the swap must end closed, besides the wallet's
+own output account (third audit, F5). The page, the agent API and the agent's own check all do it.
+A simulation is not the landing: a market that behaves differently a few seconds later is outside
+what Bound can check without a program of its own on chain.
+
+Through the agent API, E is derived from Bound's server secret and the ticket's nonce, so whoever
+holds that secret can derive it again. Bound does so only to countersign the same message when
+finalize is asked again for a ticket, and never logs nonces. That is why nothing may remain under E,
+or in an account the route opened, after the swap.
 
 The rent stays in the user's own new token account and is shown before signing. Bound never makes the
 user pay rent for Bound's own fee account.
@@ -75,9 +84,12 @@ in SOL first, then USDC, then USDT, on
 whichever side of the swap they are and the treasury can receive them; otherwise in the input token
 when the treasury has an account for it; otherwise in SOL from the wallet, 0.3% of what the swap is
 worth in SOL as Jupiter prices it for the one-time key when the swap is built, paid before the swap
-to the treasury wallet; otherwise (no treasury wallet yet, or no price in SOL) the swap is
-fee-free. The verifier checks where that SOL fee goes and when, not its price: the page shows it
-before the wallet opens, and an agent's check holds it to a price of the agent's own. On the input it is 0.3% of
+to the treasury wallet. A deployment with a treasury builds no swap without its fee: when none of
+these can be collected (the treasury wallet does not exist yet, or there is no price in SOL), the
+swap is refused (`fee-unavailable`), and one too small to carry a fee of about $1 of swap is
+refused too (`amount-too-small`). Only test mode, without a treasury, is fee-free. The verifier
+checks where that SOL fee goes and when, not its price: the page shows it before the wallet opens,
+and an agent's check holds it to a price of the agent's own. On the input it is 0.3% of
 the amount, paid before the swap. On the output it is 0.3% of the enforced minimum, paid after the
 minimum is checked (from the wallet once E_out has paid out, for SOL; from `W_out`, for USDC or
 USDT): the minimum the user sees and accepts is what the wallet keeps after it, and the fee is never
@@ -121,6 +133,7 @@ The guarantee holds if these are correct and unmodified:
 | Bound's server | Serves the genuine page, and relays RPC answers and token metadata | CI compares two builds and the page uses partial SRI (details below). The server cannot change the fee or the treasury (compiled into the page); F_max from the server is capped by the verifier; decimals are checked against the mint on chain |
 | RPC | Returns true lookup tables and account state | v1 has no lookup tables, but account state (owners, balances, decimals, authorities) still comes from the RPC; v0 tables come from the same single provider (see "One RPC provider") |
 | Wallet | Signs what it is given | The returned message is re-verified byte for byte before E signs |
+| Jupiter's on-chain program | Its floor measures what its route instruction delivered to the destination account | Pinned by address; only its two known route formats are accepted, and the verifier requires the floor at the account the minimum is checked on |
 
 The largest remaining risk is a modified frontend (compromised server or supply chain). Serve it
 from a reproducible build, keep dependencies minimal, and review every dependency update. What
@@ -132,19 +145,29 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   than the minimum output reverts the transaction.
 - A compromised Jupiter API response: rejected by the verifier (R1–R7) if it breaks isolation. A
   bad price, or a route label, is not something the verifier can detect.
-- Changes after verification (wallet, extension, network): rejected by the wallet-return check (R6).
+- Changes to the transaction after verification (by the wallet or a browser extension): rejected by
+  the wallet-return check (R6), which compares the message byte for byte and the wallet's signature.
+  It does not freeze the chain: state that changes between the check and the landing (a balance, a
+  pool, a token's settings) is met by what the transaction enforces on chain (the exact debits, the
+  minimum-output check, Jupiter's floor), or the transaction reverts.
 - A compromised Bound server that still serves the genuine page: it sees mints, amounts, E's public
   key and the user's address, never the wallet's key. (The agent API is different: its server holds
   the secret E is derived from, and an agent that skips the verification in the skill trusts the
   server with its whole wallet; see AGENT-API.md.) It can pause swaps, change the alpha limit and
-  the excluded DEXes, and lower F_max, but it cannot raise the fee above 1%, the network fee above
-  0.001 SOL, or send the fee anywhere else. It also relays RPC answers, Jupiter's answers and token
-  metadata. Wrong decimals are caught against the chain, but a relay that under-reports the balance
-  of the user's output account and forges a route through its own pool can defeat Bound's minimum
-  for a token output, and take the whole swap amount from a user who already holds that token
-  (review BR-01). Jupiter's on-chain threshold does not help against a forged route. The defence
-  is serving the genuine page and relays from a published, monitored release (section "Verifying
-  the code you are running").
+  the excluded DEXes, and lower F_max, but it cannot raise a fee taken from the input or the output
+  above 1%, the network fee above 0.001 SOL, or send the fee anywhere else. A fee paid in SOL from
+  the wallet (a pair neither token of which can carry it) is priced by Jupiter when the swap is
+  built: the verifier pins where it goes, not its price, so the page shows it before the wallet
+  opens and an agent's check holds it to a price of its own. The server also relays RPC answers,
+  Jupiter's answers and token metadata. Wrong decimals are caught against the chain. A relay that
+  under-reports the balance of the user's output account weakens Bound's own minimum-output check
+  for a token output, which counts from that balance (review BR-01); what still holds the route to
+  the whole minimum is Jupiter's on-chain floor, which the verifier requires at that same account
+  and which measures what Jupiter's instruction delivered there, whatever else is in it
+  (engineering review H-03). That rests on Jupiter's program, pinned by its address, doing what its
+  published program does (see the trusted computing base above). The defence against a relay that
+  lies is serving the genuine page and relays from a published, monitored release (section
+  "Verifying the code you are running").
 
 ## Not covered
 
@@ -175,13 +198,61 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   would pass it unnoticed. What protects the user is the minimum output they accepted, which is
   enforced on chain. A guarantee about the market price would need an independent price source.
 
+- Two different transactions for the same order from workers that share no order book. The agent
+  API keeps no state, by design (no database): the skill keeps one swap per wallet and per order for
+  every worker that shares its state directory, and workers on several machines must share an order
+  book of their own (AGENT-API.md). The page keeps one swap per wallet in this browser.
+
+## What an outcome proves
+
+A swap is reported `confirmed` (or `failed`) once the network confirms it: a supermajority of the
+stake voted for its block. That is the finality Bound acts on; `finalized` comes some 13 seconds
+later. A confirmed block is not expected to be rolled back, but an integrator that needs rooted
+finality should wait for it.
+
+`expired` is said only when the chain proves that the transaction never landed and never will: its
+signature has no record, the finalized block height is past its last valid block, and the node that
+answered still holds every block the transaction could have landed in. A node answers from its status
+cache, which holds its last 300 blocks, before any ledger history or archive; that history can be
+pruned or missing, and an archive that fails answers "no record" as well. So "no record" is proof
+only for some 30 seconds after the transaction's lifetime (third audit, F1). Past that it proves
+nothing, and the outcome stays unknown:
+
+- on the page, the wallet starts no new swap until the network settles the last one; if it never
+  can, the person looks it up on Solscan and sets it aside themselves ("I've checked it");
+- for an agent, `recover` leaves it unknown, and `bound-verify resolve` (or `resolvePending`) settles
+  it once the operator has looked it up in a full history. The chain's own answer, when the RPC
+  still has one, is used instead of the operator's.
+
+The page keeps each swap in the browser before sending it, and sends nothing when the browser will
+not keep the record (third audit, F3): a closed tab or a lost connection never loses track of a
+transaction that may have landed. This holds while the person keeps this browser's site data.
+
+## What works and what is refused
+
+| Class | Bound's answer |
+| --- | --- |
+| SOL, classic SPL tokens | Swapped |
+| Token-2022 with metadata, groups, close authority, confidential-transfer extensions, an unset transfer hook, default state initialized | Swapped; a confidential balance is not what is swapped |
+| Token-2022 with a transfer fee (input, output or a hop) | Swapped; the tax is stated before the wallet opens |
+| Token-2022 with a permanent delegate that is an ordinary key | Swapped, with a warning; a delegate a program signs for is refused |
+| Active transfer hook, default state frozen, pausable, non-transferable, interest-bearing, scaled UI amount, required memo, unknown extensions | Refused, with the reason |
+| An account the issuer froze, or freezes later | Fails in simulation, or reverts: nothing moves |
+| Pump.fun bonding curve and PumpSwap | Swapped; the per-buyer account is closed and its rent returned, or the route is refused |
+| Any other market that opens an account and leaves it open | Refused (third audit, F5) |
+| Routes too large for one transaction | Refused: Bound never splits a swap |
+| Wallets that sign and return (Wallet Standard `signTransaction`) | Supported; the real-wallet test is still to be done |
+| Sign-and-send-only wallets, multisig vaults | Cannot sign first: not supported |
+| v1 transactions | Built only when enabled and only for a route too big for v0 |
+
 ## The temporary key (D7)
 
 E is a non-extractable WebCrypto key: its private bytes cannot be exported, not even by Bound's own
 code. That is not the same as "cannot be used": while the page is open, script running in it could
 ask E to sign. This does not break the guarantee, because E's accounts are empty outside the
 transaction and nothing moves without W's signature, but it is one more reason the page's CSP
-matters.
+matters. Through the agent API, E is derived from the server's secret instead (see "Guarantee"), so
+it is only as discarded as that secret is kept.
 
 ## Certificate
 
@@ -316,7 +387,7 @@ tables. What depends on it, from the v1 review (AUDIT.md section 0m):
 | Simulation | The route rent sent to E | Up to the 0.005 SOL cap, stated before signing |
 | Whether the treasury has an account | Fee on or off | Only Bound's revenue |
 | Blockhash, fee, epoch | Lifetime, the fee check, tax pricing | Expiry or a revert, never a loss |
-| Statuses, block height | What the page reports | A landed swap could be shown as expired |
+| Statuses, block height | What the page and an agent report | For some 30 seconds after a swap's lifetime, a landed swap could be shown as expired; past it, "no record" is never read as expired (section "What an outcome proves") |
 
 What does not depend on it: that W's signature never reaches the external program, the exact debit
 templates, the fee caps, and the bytes the wallet signs.

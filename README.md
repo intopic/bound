@@ -1,7 +1,8 @@
 # Bound — Protected Swap (v0.1)
 
-Swap any SPL or Token-2022 token, or SOL, on Solana without giving the swap program authority over the
-rest of your wallet.
+Swap SOL and SPL or Token-2022 tokens on Solana without giving the swap program authority over the
+rest of your wallet. Every token whose setup Bound can prove harmless to the swap is supported; any
+other is refused with the reason (SECURITY.md, "What works and what is refused").
 
 > **What you approve is all the swap can touch.** The external swap program can move at most the
 > amount you approve, plus a market's one-time account fee when one is shown before your wallet
@@ -35,10 +36,10 @@ only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first, so t
 | --- | --- |
 | R6 | Only W and E sign; W pays; what the wallet returns is exactly what was verified. Because W never appears in the swap, W's signature is never available to it: this is what makes the other rules sufficient |
 | R1 | W and W's token accounts (except the output account) never reach the external program, including through lookup tables; nor do Bound's fee accounts |
-| R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1%: taken from the input before the swap, from a SOL, USDC or USDT output after the minimum is checked, or, for a pair neither token of which can carry it, in SOL from the wallet before the swap |
+| R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1% when taken from the input before the swap or from a SOL, USDC or USDT output after the minimum is checked. For a pair neither token of which can carry it, the fee is paid in SOL from the wallet before the swap, priced by Jupiter when it is built: the verifier pins where it goes, and the page shows it (an agent holds it to its own price) before the wallet signs |
 | R3 | E and its accounts are fresh |
 | R4 | The network fee paid by W is capped (never above 0.001 SOL) |
-| R5 | One transaction within size limits; every temporary account is closed |
+| R5 | One transaction within size limits; every temporary account is closed. Before the wallet opens, the exact transaction is simulated: nothing may stay under E, and no account the route opens may stay open |
 | R7 | Input, output and intermediate mints are classic SPL, or Token-2022 carrying only extensions that cannot touch the swap (metadata, groups, close authority, confidential transfers and their fee, an unset transfer hook, accounts initialized by default, a permanent delegate that is an ordinary key, and a transfer fee on the swap's own mints) |
 
 ## Repository

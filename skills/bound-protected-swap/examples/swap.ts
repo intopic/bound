@@ -40,7 +40,7 @@ import {
   getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder, verifySignature,
 } from '@solana/kit';
 import type { Address, Rpc, SignatureBytes, SignatureDictionary, SolanaRpcApi, Transaction, TransactionPartialSigner } from '@solana/kit';
-import { ownMinimum, ownSolFeeLimit, verifyPrepared } from '../lib/bound-verify.mjs';
+import { ownMinimum, ownSolFeeLimit, pastProof, provesNeverLanded, verifyPrepared } from '../lib/bound-verify.mjs';
 
 export type Intent = {
   owner: string;
@@ -68,6 +68,11 @@ export type Intent = {
    * neither of which can carry it). `protectedSwap` asks Jupiter for your own when it is missing.
    */
   maxSolFeeLamports?: number;
+  /**
+   * One ceiling for all the SOL the swap may cost and not return, in lamports: the network fee up to
+   * its enforced cap, rent the route keeps, and Bound's fee when paid in SOL (optional).
+   */
+  maxSolCostLamports?: number;
   /** A gap to the open market the user already accepted, from a `costs-more` answer (bps, as a string). */
   acceptCostBps?: string;
   /** 1 for a v1 transaction, where the deployment offers it; 0 (the default) otherwise. */
@@ -95,7 +100,11 @@ export type Prepared = {
    * `minOut` is what the wallet keeps at least, after a fee taken from the output.
    */
   amounts: { amountIn: string; fee: string; feeMint?: string; feeBps: string; swapAmount: string; quotedOut: string; minOut: string };
-  costs: { networkFeeLamports: string; outputAccountRentLamports: string; routeRentLamports: string; routeRefundLamports: string };
+  /**
+   * `keptSolLamports`: the SOL the swap costs and does not return (the network fee, rent the route
+   * keeps, Bound's fee when paid in SOL). A new output account's rent is apart: it stays the wallet's.
+   */
+  costs: { networkFeeLamports: string; outputAccountRentLamports: string; routeRentLamports: string; routeRefundLamports: string; keptSolLamports?: string };
   certificate: {
     messageSha256: string; wallet: string; temporaryAuthority: string;
     input: { mint: string; totalDebit: string; boundFee: string };
@@ -280,35 +289,60 @@ export function signerFromSignTransaction(address: string, sign: (transaction: s
 }
 
 /**
- * `expired`: it did not land and can no longer land. `unknown`: no outcome could be read in time;
- * it may still be on chain, so check its signature before any new swap.
+ * `expired`: it did not land and can no longer land. `unknown`: no outcome could be proven; it may
+ * be on chain, so look it up before any new swap (`resolvePending` once you have).
  */
 export type Outcome = 'confirmed' | 'failed' | 'expired' | 'unknown';
+
+type StatusState = { confirmationStatus?: string | null; err?: unknown } | null;
+
+/**
+ * One look at the chain: the signature's status from full history, with the finalized height the
+ * answering node had reached and the highest height it can have reached (see `provesNeverLanded`).
+ */
+async function lookUp(rpc: Rpc<SolanaRpcApi>, signature: string, bounded: () => { abortSignal: AbortSignal }) {
+  // The finalized slot and height in one answer, then the full history from a node that had reached that slot.
+  const finalized = await rpc.getEpochInfo({ commitment: 'finalized' }).send(bounded());
+  const { context, value: [status] } = await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send(bounded());
+  const height = (finalized as { blockHeight?: bigint | number }).blockHeight;
+  const ahead = BigInt(context.slot) - BigInt(finalized.absoluteSlot);
+  const covered = height !== undefined && ahead >= 0n;
+  return {
+    status: (status ?? null) as StatusState,
+    view: { coveredHeight: covered ? BigInt(height) : null, reachHeight: covered ? BigInt(height) + ahead : null },
+  };
+}
 
 /**
  * Settles one transaction on your own RPC, by its signature, until it lands, can no longer land, or
  * `maxWaitMs` passes. With `signedTransaction` (the fully signed bytes, checked to be this very
  * transaction), it re-broadcasts every few seconds: the same bytes land at most once. Only a confirmed
- * status is an outcome, since an error seen at `processed` may be on a fork (FA-07). `expired` needs
- * one coherent view, twice: a finalized height past the lifetime, and no record in the full history
- * from a node that had reached that height's slot. A load-balanced RPC may answer the two reads from
- * different nodes, and a lagging node's silence proves nothing (engineering audit S1-H-01). Every
- * request is bounded by what is left of `maxWaitMs`, so one that never answers cannot hold the agent
- * past it (S1-M-04).
+ * status is an outcome, since an error seen at `processed` may be on a fork (FA-07).
+ *
+ * `expired` needs one coherent view, twice: a finalized height past the lifetime, no record in the
+ * full history from a node that had reached that height's slot (a load-balanced RPC may answer the
+ * two reads from different nodes, engineering audit S1-H-01), and that node's status cache still
+ * holding every block the transaction could have landed in, from `earliestHeight` (your RPC's height
+ * when you signed) on. Older than that, "no record" may only mean a pruned history or an archive that
+ * failed, so the outcome stays `unknown` and is returned as soon as that is clear (third audit, F1).
+ * Without `earliestHeight` nothing is proven expired. Every request is bounded by what is left of
+ * `maxWaitMs`, so one that never answers cannot hold the agent past it (S1-M-04).
  */
 export async function confirm(
   rpc: Rpc<SolanaRpcApi>,
   signature: string,
   lastValidBlockHeight: bigint,
-  opts: { signedTransaction?: string; pollMs?: number; maxWaitMs?: number; requestTimeoutMs?: number } = {},
+  opts: { signedTransaction?: string; pollMs?: number; maxWaitMs?: number; requestTimeoutMs?: number; earliestHeight?: bigint } = {},
 ): Promise<Outcome> {
   const pollMs = opts.pollMs ?? 1_000;
   const deadline = Date.now() + (opts.maxWaitMs ?? 180_000);
   const bounded = () => ({ abortSignal: AbortSignal.timeout(Math.max(1, Math.min(opts.requestTimeoutMs ?? 10_000, deadline - Date.now()))) });
   const settled = (s: { confirmationStatus?: string | null } | null | undefined) =>
     !!s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized');
+  const earliest = opts.earliestHeight;
   let pastLifetime = false;
   let empty = 0;
+  let unprovable = 0;
   let lastSend = 0;
   while (Date.now() < deadline) {
     // A failed read says nothing about the transaction: keep reading until the deadline.
@@ -322,14 +356,13 @@ export async function confirm(
           await rpc.sendTransaction(opts.signedTransaction as never, { encoding: 'base64', skipPreflight: true, maxRetries: 0n }).send(bounded()).catch(() => undefined);
         }
       } else {
-        // It can no longer be included: the finalized slot and height in one answer, then the full
-        // history from a node that had reached that slot.
-        const finalized = await rpc.getEpochInfo({ commitment: 'finalized' }).send(bounded());
-        const { context, value: [late] } = await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send(bounded());
+        // It can no longer be included: one coherent view of the full history.
+        const { status: late, view } = await lookUp(rpc, signature, bounded);
         if (settled(late)) return late!.err ? 'failed' : 'confirmed';
-        const height = (finalized as { blockHeight?: bigint | number }).blockHeight;
-        const covered = height !== undefined && BigInt(context.slot) >= BigInt(finalized.absoluteSlot) && BigInt(height) > lastValidBlockHeight;
-        if (!late && covered && ++empty >= 2) return 'expired';
+        if (!late && earliest !== undefined && provesNeverLanded(view, lastValidBlockHeight, earliest) && ++empty >= 2) return 'expired';
+        // Past the window in which "no record" proves anything, waiting longer proves nothing either.
+        const over = view.coveredHeight !== null && view.coveredHeight > lastValidBlockHeight;
+        if (!late && over && (earliest === undefined || pastProof(view, earliest)) && ++unprovable >= 2) return 'unknown';
       }
     } catch {
       // keep reading
@@ -369,6 +402,12 @@ export type Signed = {
   intentId?: string;
   /** The wallet that signed it: one swap per wallet may be pending at a time (final audit, H-02). */
   owner?: string;
+  /**
+   * Your RPC's block height when it was signed: nothing sent after it can land below it. What lets
+   * "no record" prove the swap expired (see `confirm`); a record without it stays unknown until
+   * settled by hand (`resolvePending`).
+   */
+  signedHeight?: bigint;
 };
 
 /** What happened to an order: its last transaction, and that transaction's state. */
@@ -484,7 +523,10 @@ export function createFileStore(dir: string): PendingStore & OrderBook {
       const temporary = `${file(s.signature)}.tmp`;
       const fd = openSync(temporary, 'w');
       try {
-        writeSync(fd, JSON.stringify({ ...s, lastValidBlockHeight: s.lastValidBlockHeight.toString() }));
+        writeSync(fd, JSON.stringify({
+          ...s, lastValidBlockHeight: s.lastValidBlockHeight.toString(),
+          ...(s.signedHeight !== undefined ? { signedHeight: s.signedHeight.toString() } : {}),
+        }));
         fsyncSync(fd);
       } finally {
         closeSync(fd);
@@ -496,8 +538,11 @@ export function createFileStore(dir: string): PendingStore & OrderBook {
     },
     async list() {
       return readdirSync(dir).filter(f => f.startsWith('pending-') && f.endsWith('.json')).map(f => {
-        const json = JSON.parse(readFileSync(join(dir, f), 'utf8')) as Omit<Signed, 'lastValidBlockHeight'> & { lastValidBlockHeight: string };
-        return { ...json, lastValidBlockHeight: BigInt(json.lastValidBlockHeight) };
+        const json = JSON.parse(readFileSync(join(dir, f), 'utf8')) as Omit<Signed, 'lastValidBlockHeight' | 'signedHeight'> & { lastValidBlockHeight: string; signedHeight?: string };
+        return {
+          ...json, lastValidBlockHeight: BigInt(json.lastValidBlockHeight),
+          ...(json.signedHeight !== undefined ? { signedHeight: BigInt(json.signedHeight) } : {}),
+        } as Signed;
       });
     },
   };
@@ -506,24 +551,59 @@ export function createFileStore(dir: string): PendingStore & OrderBook {
 /**
  * Settles the swaps a stopped run left in `store`, each by its own signature on your RPC, and removes
  * those whose outcome is final. Returns what is still unknown: while anything is, start no new swap
- * for the same intent (S1-M-01).
+ * for the same intent (S1-M-01). A swap that "no record" can no longer prove expired stays unknown
+ * however long ago it was sent (third audit, F1): look it up in a full history, then `resolvePending`.
+ * An outcome whose record could not be updated is returned all the same, beside the error, and its
+ * pending record stays for the next run (third audit, F4).
  */
 export async function recoverPending(
   store: PendingStore, rpc: Rpc<SolanaRpcApi>, opts: { pollMs?: number; maxWaitMs?: number; orders?: OrderBook } = {},
-): Promise<{ settled: { signature: string; outcome: Outcome }[]; unknown: string[] }> {
+): Promise<{ settled: { signature: string; outcome: Outcome }[]; unknown: string[]; bookkeepingErrors: { signature: string; error: string }[] }> {
   const settled: { signature: string; outcome: Outcome }[] = [];
   const unknown: string[] = [];
+  const bookkeepingErrors: { signature: string; error: string }[] = [];
   for (const s of await store.list()) {
-    const outcome = await confirm(rpc, s.signature, s.lastValidBlockHeight, opts);
-    if (outcome === 'unknown') unknown.push(s.signature);
-    else {
+    const outcome = await confirm(rpc, s.signature, s.lastValidBlockHeight, { ...opts, earliestHeight: s.signedHeight });
+    if (outcome === 'unknown') {
+      unknown.push(s.signature);
+      continue;
+    }
+    settled.push({ signature: s.signature, outcome });
+    try {
       // The order learns its outcome before the record that says it was pending goes away.
       if (s.intentId && opts.orders) await opts.orders.recordOrder(s.intentId, { signature: s.signature, state: outcome });
-      settled.push({ signature: s.signature, outcome });
       await store.remove(s.signature);
+    } catch (e) {
+      bookkeepingErrors.push({ signature: s.signature, error: e instanceof Error ? e.message : String(e) });
     }
   }
-  return { settled, unknown };
+  return { settled, unknown, bookkeepingErrors };
+}
+
+/**
+ * Settles by hand a kept swap whose outcome the chain can no longer prove (`unknown` long after it was
+ * sent: see `confirm`), once you have looked its signature up in a full history, such as an explorer.
+ * The chain's own answer comes first: a status your RPC still has is used instead of yours. Refused
+ * while the transaction could still land, and while it is seen but not settled.
+ */
+export async function resolvePending(
+  store: PendingStore, rpc: Rpc<SolanaRpcApi>, signature: string, outcome: 'confirmed' | 'failed' | 'expired',
+  opts: { orders?: OrderBook; requestTimeoutMs?: number } = {},
+): Promise<{ signature: string; outcome: 'confirmed' | 'failed' | 'expired'; by: 'chain' | 'you' }> {
+  const kept = (await store.list()).find(s => s.signature === signature);
+  if (!kept) throw new Error(`No kept swap has the signature ${signature}. Nothing was changed.`);
+  const bounded = () => ({ abortSignal: AbortSignal.timeout(opts.requestTimeoutMs ?? 10_000) });
+  const { status, view } = await lookUp(rpc, signature, bounded);
+  const onChain = status && (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized')
+    ? (status.err ? 'failed' as const : 'confirmed' as const) : null;
+  if (!onChain && status) throw new Error(`The network has seen ${signature} but not settled it yet: wait and recover again. Nothing was changed.`);
+  if (!onChain && (view.coveredHeight === null || view.coveredHeight <= kept.lastValidBlockHeight)) {
+    throw new Error(`${signature} can still land until block ${kept.lastValidBlockHeight}: recover it instead. Nothing was changed.`);
+  }
+  const settledAs = onChain ?? outcome;
+  if (kept.intentId && opts.orders) await opts.orders.recordOrder(kept.intentId, { signature, state: settledAs });
+  await store.remove(signature);
+  return { signature, outcome: settledAs, by: onChain ? 'chain' : 'you' };
 }
 
 /**
@@ -654,7 +734,6 @@ export async function finalizeSigned(args: {
   requestTimeoutMs?: number;
 }): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string }> {
   const { prepared, signedTransaction } = args;
-  const fetchImpl = args.fetchImpl ?? fetch;
   const mine = getTransactionDecoder().decode(Buffer.from(signedTransaction, 'base64'));
   const built = getTransactionDecoder().decode(Buffer.from(prepared.transaction, 'base64'));
   if (!sameBytes(mine.messageBytes, built.messageBytes)) throw new Error('Not finalizing: this is not the transaction Bound prepared. Nothing was sent.');
@@ -667,41 +746,72 @@ export async function finalizeSigned(args: {
   const height = BigInt(await args.rpc.getBlockHeight({ commitment: 'confirmed' }).send({ abortSignal: AbortSignal.timeout(args.requestTimeoutMs ?? 10_000) }));
   const stated = BigInt(prepared.lastValidBlockHeight);
   if (stated - height < MIN_BLOCKS_TO_FINALIZE) {
-    throw new Error(`Not finalizing: only ${stated - height} blocks are left before this swap expires, too few to land. Nothing was sent; prepare it again.`);
+    throw new Error(`Not finalizing: only ${stated - height} blocks are left before this swap expires, too few to land. This call sent nothing; prepare it again (a swap an earlier call finalized is settled with resumeSigned or recoverPending, not here).`);
   }
   // The last block it can land in, on your own clock: its blockhash is older than this height and
   // lives 150 blocks, so a server that states less cannot end the wait while it could still land.
   const ownLimit = height + 150n + LAG_BLOCKS;
   const lastValid = stated > ownLimit ? stated : ownLimit;
-  await args.onSigned?.({
+  const signed: Signed = {
     signature, lastValidBlockHeight: lastValid, ticket: prepared.ticket, signedTransaction, messageSha256: prepared.messageSha256, signedAt: Date.now(),
-    owner: prepared.wallet,
-  });
+    owner: prepared.wallet, signedHeight: height,
+  };
+  await args.onSigned?.(signed);
+  return { ...await askAndConfirm(args, signed, mine, prepared.temporaryAuthority), prepared };
+}
 
-  // Asked once more when no answer came back, or none that reads (the same bytes can land only
-  // once). A refusal (4xx) is not asked again: it says this request sent nothing, and the chain
-  // says the rest.
+/**
+ * Finalize asked for a kept swap, then its outcome read on your RPC. Asked once more when no answer
+ * came back, or none that reads (the same bytes can land only once). A refusal (4xx) is not asked
+ * again: it says this request sent nothing, and the chain says the rest.
+ */
+async function askAndConfirm(
+  args: { apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; fetchImpl?: Fetch; pollMs?: number; maxWaitMs?: number; requestTimeoutMs?: number },
+  signed: Signed, mine: Transaction, temporaryAuthority: string,
+): Promise<{ signature: string; outcome: Outcome | 'rejected'; refusal?: string }> {
+  const fetchImpl = args.fetchImpl ?? fetch;
+  const { signature } = signed;
   let done: Finalized | null = null;
   let refused: BoundApiError | null = null;
   for (let attempt = 0; attempt < 2 && !done && !refused; attempt++) {
     try {
-      done = await call<Finalized>(fetchImpl, `${args.apiUrl}/api/v1/finalize`, args.apiKey, { ticket: prepared.ticket, signedTransaction }, args.requestTimeoutMs);
+      done = await call<Finalized>(fetchImpl, `${args.apiUrl}/api/v1/finalize`, args.apiKey, { ticket: signed.ticket, signedTransaction: signed.signedTransaction }, args.requestTimeoutMs);
     } catch (e) {
       if (e instanceof BoundApiError && e.status < 500) refused = e;
       else if (attempt === 0) await wait(args.pollMs ?? 1_000);
     }
   }
   // Bytes from the server are re-broadcast only when they are this very transaction, signed by E.
-  const bytes = done?.signedTransaction && await isThisTransaction(done.signedTransaction, mine, prepared.temporaryAuthority)
+  const bytes = done?.signedTransaction && await isThisTransaction(done.signedTransaction, mine, temporaryAuthority)
     ? done.signedTransaction : undefined;
-  const outcome = await confirm(args.rpc, signature, lastValid, {
-    signedTransaction: bytes, pollMs: args.pollMs, maxWaitMs: args.maxWaitMs, requestTimeoutMs: args.requestTimeoutMs,
+  const outcome = await confirm(args.rpc, signature, signed.lastValidBlockHeight, {
+    signedTransaction: bytes, pollMs: args.pollMs, maxWaitMs: args.maxWaitMs, requestTimeoutMs: args.requestTimeoutMs, earliestHeight: signed.signedHeight,
   });
   // Kept or not, the caller decides what to do with a pending record: an unknown outcome stays pending.
   const refusal = refused ? refused.code : done?.status === 'rejected' ? done.refusal ?? 'network' : undefined;
   // Refused by Bound, and the chain shows it can no longer land: that refusal is what happened.
-  if (outcome === 'expired' && refusal) return { signature, outcome: 'rejected', prepared, refusal };
-  return { signature, outcome, prepared, ...(refusal ? { refusal } : {}) };
+  if (outcome === 'expired' && refusal) return { signature, outcome: 'rejected', refusal };
+  return { signature, outcome, ...(refusal ? { refusal } : {}) };
+}
+
+/**
+ * A swap kept before an earlier finalize (see `Signed`), asked again: no check meant for a first
+ * send applies, since the transaction may already have been sent (third audit, F4). Bound is asked
+ * to finalize the same bytes once more (it looks the transaction up first, and the same bytes land
+ * only once), and the outcome is read on your RPC for the kept signature. Always answers with that
+ * signature and its outcome.
+ */
+export async function resumeSigned(args: {
+  apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; signed: Signed;
+  fetchImpl?: Fetch; pollMs?: number; maxWaitMs?: number; requestTimeoutMs?: number;
+}): Promise<{ signature: string; outcome: Outcome | 'rejected'; refusal?: string }> {
+  const mine = getTransactionDecoder().decode(Buffer.from(args.signed.signedTransaction, 'base64'));
+  if (getSignatureFromTransaction(mine) !== args.signed.signature) throw new Error('The kept record does not carry its own transaction. Nothing was sent.');
+  // E is the transaction's other signer: the wallet pays, so it signs first, and there are exactly two.
+  const message = getCompiledTransactionMessageDecoder().decode(mine.messageBytes);
+  const signers = message.staticAccounts.slice(0, message.header.numSignerAccounts);
+  const temporaryAuthority = signers.find(a => a !== signers[0]) ?? '';
+  return askAndConfirm(args, args.signed, mine, temporaryAuthority);
 }
 
 /**
@@ -830,10 +940,14 @@ async function main() {
   const release = acquireLock(stateDir, wallet.address);
   try {
     // What a stopped run left is settled first; while any outcome is unknown, no new swap starts.
-    const { settled, unknown } = await recoverPending(store, rpc, { orders: store });
+    const { settled, unknown, bookkeepingErrors } = await recoverPending(store, rpc, { orders: store });
     for (const s of settled) console.error(`An earlier swap, ${s.signature}, ended ${s.outcome}.`);
-    if (unknown.length) {
-      console.error(`The outcome of an earlier swap is still unknown: ${unknown.join(', ')}. Check it before swapping again; nothing new was started.`);
+    for (const b of bookkeepingErrors) console.error(`Its record could not be updated (${b.error}); the next run settles ${b.signature} again.`);
+    if (unknown.length || bookkeepingErrors.length) {
+      if (unknown.length) {
+        console.error(`The outcome of an earlier swap is still unknown: ${unknown.join(', ')}. Check it before swapping again; nothing new was started. `
+          + 'If the network can no longer prove it, look it up in a full history (an explorer), then settle it with `bound-verify resolve`.');
+      }
       process.exitCode = 3;
       return;
     }

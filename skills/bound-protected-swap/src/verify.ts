@@ -26,6 +26,9 @@ import type { ChainSnapshot, Policy } from '@bound/core/types';
 import { readAccounts } from '@bound/solana';
 import { routeAccountFor, verify } from '@bound/verifier';
 
+/** When "no record" proves a transaction never landed (third audit, F1); `confirm` in the example uses them. */
+export { pastProof, provesNeverLanded, STATUS_CACHE_BLOCKS } from '@bound/solana';
+
 /**
  * Bound's treasury wallet, pinned like the fee: unless the agent names another, Bound's fee may go
  * here or nowhere, whatever the server says.
@@ -66,6 +69,13 @@ export type AgentLimits = {
    * cannot see. Required for such a swap; `ownSolFeeLimit` asks Jupiter for it.
    */
   maxSolFeeLamports?: number;
+  /**
+   * One ceiling for all the SOL the swap may cost and not return, in lamports (optional; third
+   * audit, priority 4): the network fee the transaction can pay (its compute budget, as the verifier
+   * reads it), rent the route keeps, and Bound's fee when paid in SOL. A new output account's rent
+   * is not in it: that account stays the wallet's own.
+   */
+  maxSolCostLamports?: number;
 };
 
 /** The parts of a /api/v1/prepare answer the check reads. */
@@ -152,6 +162,7 @@ export async function verifyPrepared(
   // Chain state from the agent's own RPC: every account the message names, resolved through its
   // lookup tables, and the accounts the policy derives.
   let snapshot: ChainSnapshot;
+  let snapshotAddresses: Address[] = [];
   try {
     const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes) as unknown as {
       staticAccounts: Address[];
@@ -170,33 +181,50 @@ export async function verifyPrepared(
     ];
     const { accounts, slot } = await readAccounts(rpc as never, addresses, { timeoutMs });
     snapshot = { accounts, lookupTables, slot };
+    snapshotAddresses = [...compiled.staticAccounts, ...resolved];
   } catch (e) {
     return [...problems, `the chain state could not be read from your RPC: ${(e as Error).message}`];
   }
 
   const verdict = await verify(transaction, p, snapshot);
   for (const v of verdict.violations) problems.push(`${v.rule}: ${v.detail}`);
+  if (limits.maxSolCostLamports !== undefined && verdict.networkFeeLamports !== undefined) {
+    const solCost = verdict.networkFeeLamports + routeCost + (p.feeSide === 'sol' ? p.fee : 0n);
+    if (solCost > BigInt(limits.maxSolCostLamports)) {
+      problems.push(`the swap may cost ${solCost} lamports of SOL that do not come back, above your limit of ${limits.maxSolCostLamports} (maxSolCostLamports)`);
+    }
+  }
+  // Every account the transaction names that did not exist before it: what the route opens, besides
+  // the wallet's own output account (and the treasury, which receives but is never created here).
+  const exists = (a: Address) => { const s = snapshot.accounts.get(a); return !!s && (s.lamports > 0n || s.data.length > 0); };
+  const keep = new Set<string>([p.accounts.wOut, p.treasury].filter((a): a is Address => !!a));
+  const fresh = [...new Set(snapshotAddresses)].filter(a => !exists(a) && !keep.has(a));
   // Simulated on state not older than the snapshot just read (final audit, item 6).
-  problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc, snapshot.slot, timeoutMs));
+  problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc, snapshot.slot, timeoutMs, fresh));
   return problems;
 }
 
 /**
- * What stays under the one-time key after the swap, simulated on the agent's own RPC: in its own
- * account, and in the account each Pump.fun market opens in its name. Every lamport the wallet sends
- * it (a market's account rent) must be spent by the route or come back in the same transaction; a
- * server that stated more than the route needs, a smaller refund, or a market account left open
- * would otherwise leave lamports under a key it can derive (research audit F-06, engineering
- * review M-05). An account that does not exist afterwards holds nothing; an answer that does not
- * report the accounts proves nothing, and is refused.
+ * What stays behind after the swap, simulated on the agent's own RPC: under the one-time key, in the
+ * account each Pump.fun market opens in its name, and in any other account the route opens. Every
+ * lamport the wallet sends E (a market's account rent) must be spent by the route or come back in the
+ * same transaction; a server that stated more than the route needs, a smaller refund, or a market
+ * account left open would otherwise leave lamports under a key it can derive (research audit F-06,
+ * engineering review M-05). An account the route opens and leaves open may hold a claim tied to E
+ * whatever market it belongs to, so none may stay (third audit, F5). An account that does not exist
+ * afterwards holds nothing; an answer that does not report the accounts proves nothing, and is refused.
  */
-async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>, minContextSlot = 0n, timeoutMs = 10_000): Promise<string[]> {
+async function leftUnderKey(
+  transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>, minContextSlot = 0n, timeoutMs = 10_000, fresh: readonly Address[] = [],
+): Promise<string[]> {
   // E, each Pump market's account in E's name, and the token accounts those hold cashback in (WSOL,
   // or USDC on a USDC-quoted market): a claim E could make later is value under E too (Stage 1, U1).
   const markets = await Promise.all([PUMP_CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountFor(program, key)));
   const cashback = await Promise.all(markets.flatMap(owner => [WSOL_MINT, USDC_MINT].map(async mint =>
     (await findAssociatedTokenPda({ owner, mint, tokenProgram: TOKEN_PROGRAM }))[0])));
-  const watched = [key, ...markets, ...cashback];
+  const underKey = [key, ...markets, ...cashback];
+  const opened = fresh.filter(a => !underKey.includes(a));
+  const watched = [...underKey, ...opened];
   try {
     const { value } = await rpc
       .simulateTransaction(transaction as never, {
@@ -213,8 +241,10 @@ async function leftUnderKey(transaction: string, key: Address, rpc: Rpc<SolanaRp
     const held = after.map(a => BigInt(a?.lamports ?? 0));
     const problems: string[] = [];
     if (held[0] !== 0n) problems.push(`the one-time key would keep ${held[0]} lamports after the swap`);
-    const inMarkets = held.slice(1).reduce((sum, x) => sum + x, 0n);
+    const inMarkets = held.slice(1, underKey.length).reduce((sum, x) => sum + x, 0n);
     if (inMarkets !== 0n) problems.push(`a market account under the one-time key would keep ${inMarkets} lamports after the swap`);
+    const left = opened.filter((_, i) => held[underKey.length + i] !== 0n);
+    if (left.length) problems.push(`the route would leave open ${left.length} account(s) it creates (${left.join(', ')}), holding lamports no one returns`);
     return problems;
   } catch (e) {
     return [`the swap could not be simulated on your RPC: ${(e as Error).message}`];

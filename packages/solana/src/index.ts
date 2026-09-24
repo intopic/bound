@@ -283,22 +283,60 @@ export function refusedBeforeBroadcast(e: unknown): boolean {
 export type SignatureState = { confirmationStatus?: string | null; err?: unknown } | null;
 
 /**
- * The statuses of `signatures` from full history, with the finalized block height that answer is
- * known to cover (engineering audit S1-H-01). The finalized slot and height come from one answer;
- * the statuses must come from a node that had reached at least that slot. A signature with no
- * record whose lifetime ended below the covered height can no longer have landed. When the node
- * that answered lags that slot, or the height is not reported, `coveredHeight` is null and "no
- * record" proves nothing: a load-balanced provider may answer the two reads from different nodes.
+ * What one look at the chain can say about signatures that have no record.
+ * `coveredHeight`: a finalized block height the answering node had reached. `reachHeight`: the
+ * highest block height that node can have reached (the finalized height plus the slots its answer
+ * was ahead of it). Both are null when the node lagged the finalized slot or no height was reported.
  */
-export async function statusesCovering(
-  rpc: SolanaRpc, signatures: readonly string[], timeoutMs?: number,
-): Promise<{ statuses: SignatureState[]; coveredHeight: bigint | null }> {
+export type StatusView = { statuses: SignatureState[]; coveredHeight: bigint | null; reachHeight: bigint | null };
+
+/**
+ * The statuses of `signatures` from full history, with the heights that answer covers (engineering
+ * audit S1-H-01). The finalized slot and height come from one answer; the statuses must come from a
+ * node that had reached at least that slot, since a load-balanced provider may answer the two reads
+ * from different nodes and a lagging node's silence proves nothing. Whether "no record" proves that
+ * a transaction never landed is `provesNeverLanded`'s to say.
+ */
+export async function statusesCovering(rpc: SolanaRpc, signatures: readonly string[], timeoutMs?: number): Promise<StatusView> {
   const finalized = await rpc.getEpochInfo({ commitment: 'finalized' }).send(timeoutMs ? { abortSignal: AbortSignal.timeout(timeoutMs) } : undefined);
   const { context, value } = await rpc.getSignatureStatuses(signatures as never, { searchTransactionHistory: true }).send(timeoutMs ? { abortSignal: AbortSignal.timeout(timeoutMs) } : undefined);
   const height = (finalized as { blockHeight?: bigint | number }).blockHeight;
-  const covered = height !== undefined && context?.slot !== undefined && BigInt(context.slot) >= BigInt(finalized.absoluteSlot)
-    ? BigInt(height) : null;
-  return { statuses: value.map(s => (s ?? null) as SignatureState), coveredHeight: covered };
+  const ahead = context?.slot !== undefined ? BigInt(context.slot) - BigInt(finalized.absoluteSlot) : null;
+  const covered = height !== undefined && ahead !== null && ahead >= 0n;
+  return {
+    statuses: value.map(s => (s ?? null) as SignatureState),
+    coveredHeight: covered ? BigInt(height) : null,
+    reachHeight: covered ? BigInt(height) + ahead : null,
+  };
+}
+
+/**
+ * A node finds a transaction's status in its status cache, which holds the transactions of its last
+ * 300 rooted blocks (Agave's MAX_RECENT_BLOCKHASHES), and only then in its ledger history or an
+ * archive. That history can be pruned or missing, and an archive that fails answers "no record" as
+ * well (Agave maps a BigTable error to none). So "no record" proves that a transaction never landed
+ * only while the node's cache still holds every block it could have landed in (third audit, F1).
+ */
+export const STATUS_CACHE_BLOCKS = 300n;
+/** Kept in hand below the edge of that cache. */
+export const STATUS_CACHE_MARGIN_BLOCKS = 30n;
+/** A blockhash can be used in the 150 blocks after its own: the first block a transaction can land in is `lastValid - 149`. */
+export const BLOCKHASH_LIFE_BLOCKS = 150n;
+
+/**
+ * Does `view` prove that a transaction with no record in it never landed, and never will? It can
+ * land in blocks `earliest` to `lastValid`: the finalized chain must be past `lastValid`, and the
+ * answering node's cache must still reach down to `earliest`. Past that window, "no record" is no
+ * proof at all: the outcome stays unknown until someone looks it up in a full history.
+ */
+export function provesNeverLanded(view: Pick<StatusView, 'coveredHeight' | 'reachHeight'>, lastValid: bigint, earliest: bigint): boolean {
+  return view.coveredHeight !== null && view.reachHeight !== null && view.coveredHeight > lastValid
+    && view.reachHeight + STATUS_CACHE_MARGIN_BLOCKS < earliest + STATUS_CACHE_BLOCKS;
+}
+
+/** Has the window in which "no record" could prove anything closed for good (see `provesNeverLanded`)? */
+export function pastProof(view: Pick<StatusView, 'coveredHeight'>, earliest: bigint): boolean {
+  return view.coveredHeight !== null && view.coveredHeight + STATUS_CACHE_MARGIN_BLOCKS >= earliest + STATUS_CACHE_BLOCKS;
 }
 
 /**
@@ -397,18 +435,21 @@ export async function sendAndConfirm(args: {
 
   // The blockhash has expired, so the transaction can no longer be included. Stop re-broadcasting
   // and read the full status history: seen but only `processed` is not an outcome yet. "Expired" is
-  // said only from one coherent view: a finalized height past the lifetime, and no record from a
-  // node that had reached that height's slot, twice (FA-07, engineering audit S1-H-01).
+  // said only from one coherent view, twice: a finalized height past the lifetime, and no record
+  // from a node that had reached that height's slot and whose status cache still holds every block
+  // the transaction could have landed in (FA-07, engineering audit S1-H-01, third audit F1).
   async function settleAfterExpiry(): Promise<SendResult> {
+    const earliest = lastValidBlockHeight - BLOCKHASH_LIFE_BLOCKS + 1n;
     let notFound = 0;
     let seen = false;
     for (let i = 0; i < t.settleTries; i++) {
       try {
-        const { statuses, coveredHeight } = await statusesCovering(rpc, [signature], t.requestMs);
-        const s = statuses[0];
+        const view = await statusesCovering(rpc, [signature], t.requestMs);
+        const s = view.statuses[0];
         if (settled(s)) return s!.err ? done('failed', stringify(s!.err)) : done('confirmed');
         seen ||= !!s;
-        if (!s && coveredHeight !== null && coveredHeight > lastValidBlockHeight && ++notFound >= 2) return done('expired');
+        if (!s && provesNeverLanded(view, lastValidBlockHeight, earliest) && ++notFound >= 2) return done('expired');
+        if (!s && pastProof(view, earliest)) break;
       } catch {
         // keep settling
       }

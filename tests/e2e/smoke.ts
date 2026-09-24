@@ -10,7 +10,7 @@
  *   node tests/e2e/smoke.ts [http://localhost:3000]
  */
 import { chromium } from 'playwright-core';
-import { getAddressEncoder, address } from '@solana/kit';
+import { getAddressEncoder, address, getBase58Decoder } from '@solana/kit';
 import { mkdirSync } from 'node:fs';
 
 const URL = process.argv[2] ?? 'http://localhost:3000';
@@ -113,7 +113,7 @@ try {
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
   check('page loads with USDC → SOL preselected', await page.getByRole('button', { name: /SOL/ }).first().isVisible());
   check('protection panel is shown', await page.getByText('Wallet authority protected').isVisible());
-  check('protection is one plain line', await page.getByText('The swap can use only the amount you swap.').isVisible());
+  check('protection is one plain line', await page.getByText('The swap can use only the amount you swap, and').isVisible());
   check('test mode banner without a treasury', await page.getByText('Test mode: no Bound fee is charged.').isVisible());
   await page.screenshot({ path: `${OUT}/1-start.png` });
 
@@ -243,6 +243,52 @@ try {
     await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 30_000 });
     await p.waitForTimeout(8_000);
     check('trying three amounts costs a few price requests, not one build per amount', builds <= 8, `${builds} answered by Jupiter, ${refused} refused as busy`);
+    await p.close();
+  }
+
+  // Third audit, F2: a swap from this wallet that the chain has not settled holds the next one back,
+  // whatever the time. One that can no longer land, and that nothing proves either way, the person
+  // sets aside by hand once they looked it up.
+  {
+    const p = await context.newPage();
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    const signature = getBase58Decoder().decode(crypto.getRandomValues(new Uint8Array(64)));
+    await p.evaluate(([addr, sig]) => localStorage.setItem('bound.history.v1', JSON.stringify([{
+      at: Date.now() - 86_400_000, signature: sig, status: 'unknown', owner: addr, lastValidBlockHeight: '1', over: true,
+      paid: '5 USDC', received: '', exposed: '5 USDC',
+    }])), [SIM_WALLET, signature]);
+    await p.reload({ waitUntil: 'networkidle' });
+    await p.getByRole('button', { name: 'Connect wallet' }).first().click();
+    await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
+    await p.getByLabel('Amount to pay').fill('5');
+    const waiting = p.getByRole('button', { name: 'Waiting for your last swap' });
+    await waiting.waitFor({ timeout: 20_000 });
+    const held = await waiting.isDisabled();
+    await p.screenshot({ path: `${OUT}/8-waiting.png` });
+    await p.getByRole('button', { name: "I've checked it" }).click();
+    const freed = await p.getByRole('button', { name: 'Waiting for your last swap' }).waitFor({ state: 'detached', timeout: 20_000 }).then(() => true, () => false);
+    check('an unsettled swap from this wallet holds the next one back until it is settled or set aside', held && freed);
+    await p.close();
+  }
+
+  // Third audit, F3: a browser that will not keep the swap's record sends nothing, and says so before
+  // the wallet opens.
+  {
+    const p = await context.newPage();
+    await p.addInitScript(() => {
+      Storage.prototype.setItem = function setItem() { throw new DOMException('Site data is blocked.', 'SecurityError'); };
+    });
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.getByRole('button', { name: 'Connect wallet' }).first().click();
+    await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
+    await p.getByLabel('Amount to pay').fill('5');
+    await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 30_000 });
+    await p.getByRole('button', { name: 'Protected swap' }).click();
+    const banner = p.locator('.banner.error').first();
+    await banner.waitFor({ timeout: 20_000 });
+    const said = (await banner.innerText()).replace(/\s+/g, ' ');
+    const calls = await p.evaluate(() => (window as unknown as { __signCalls?: number }).__signCalls ?? 0);
+    check("a browser that won't keep the record opens no wallet and sends nothing", calls === 0 && /isn't saving this site's data/.test(said) && /Nothing was sent/.test(said), said.slice(0, 120));
     await p.close();
   }
 

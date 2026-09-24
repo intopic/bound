@@ -1162,6 +1162,39 @@ The treasury changed the same day, at the owner's request, to
 
 ---
 
+## 0ze. The third audit: what "no record" proves, one swap per order, what a route leaves open (25 September 2026)
+
+A static audit of `c965c42` (it ran nothing). Every finding was checked against the code, and F1's
+premise against Agave's own source: the status cache keeps the transactions of the last
+`MAX_RECENT_BLOCKHASHES` (300) rooted blocks (`runtime/src/status_cache.rs`, `purge_roots`), and
+`getSignatureStatuses` reads that cache on the processed bank first, then the ledger, then BigTable,
+whose errors it turns into "no record" (`rpc/src/rpc.rs`). All five findings and the documentation
+drift held. The API stays without a database, at the owner's choice.
+
+| Finding | Verdict | Fix |
+| --- | --- | --- |
+| F1 (High) "No record" read as "never landed" | Right. The send loop proved it within 30 s of the lifetime, where it holds, but the code did not say so, and recovery (the agent's `recoverPending`, the page's next visit) could read a pruned history or a failed archive as expiry and reopen an executed order | `provesNeverLanded` (`@bound/solana`): expired only while the answering node's cache must still hold every block the transaction could land in: the finalized height past its last valid block, and that node's height (finalized height plus the slots its answer is ahead) below the first such block plus 300, less 30. The first block is the page's `lastValid - 149`, and for an agent the height its own RPC reported when it signed (`Signed.signedHeight`, kept on disk). Past the window: `unknown`, said at once (`pastProof`), never expired. By hand: `resolvePending` / `bound-verify resolve`, refused while it could still land, and the chain's answer first when the RPC still has one. The page: "I've checked it", offered only once the swap can no longer land |
+| F2 (High) One order, two transactions | Right for the page: after `unknown` the lock held 150 s more and the button ignored history. Right for the API as a statement: it keeps no state | The page: a swap from this wallet that the chain has not settled blocks the next one, whatever the time (`unsettledFor`, entries now carry `owner`), and is looked up again every 10 s while the page is visible (30 s once only a full history could tell). The API stays stateless, by the owner's choice; SKILL.md, AGENT-API.md and SECURITY.md say that one swap per order is the caller's order book's to keep. Lock takeover: a paused worker that resumes is stopped by the pending and order checks made just before finalize, and what it signed has expired by then; said in SKILL.md |
+| F3 (Medium) The page could lose a sent swap | Right: a failed write was ignored, and the 50-entry cap could drop an unsettled entry | `historyWorks()` before the wallet opens; `addHistory` throws `HistoryNotSaved` unless the record reads back, and the send stops before its first request ("Nothing was sent and no funds moved"). Unsettled entries are never dropped to make room |
+| F4 (Medium) A repeated `finalize` could say "not sent" | Right: the same signature went through the first-send checks (the RPC, the order already pending, blocks left) | `bound-verify finalize` for a kept signature is not a first send: `resumeSigned` asks Bound again for the same bytes and reads the chain, and the answer always carries the signature and outcome (`resumed`). Recovery returns each outcome even when its record cannot be updated (`bookkeepingErrors`), and keeps the record for the next run; the command reports a store it cannot read instead of failing |
+| F5 (Medium) "Nothing remains under E" covered seven accounts | Right: rent could be measured for any route, but only Pump's account was closed or watched | The final simulation on the page and in the API, and the agent's own check, watch every account the transaction names that did not exist before it, besides the wallet's output account and the treasury: one the route leaves open refuses the route, and the next attempt leaves out its markets. A simulation is not the landing; without a program of our own that stays said |
+| Documentation | Right, all six | SECURITY.md: the Pump close and every other market's account; E derived again by a repeated finalize, and why nothing may remain; no fee-free fallback with a treasury; R6 catches changed bytes, not a changed chain; one account of Jupiter's floor versus a relay that lies, with Jupiter's program in the trusted computing base; the 1% cap qualified for a fee in SOL. New sections "What an outcome proves" (confirmed is what Bound acts on; expired only in the window) and "What works and what is refused". README, the skill and the page no longer say "any token" |
+
+Also from the report: one ceiling for SOL. Prepare answers `costs.keptSolLamports` (network fee,
+rent the route keeps, a fee in SOL), and the agent may set `maxSolCostLamports`, which the check
+computes from the bytes: the verifier now returns the network fee R4 read (`Verdict.networkFeeLamports`,
+verifier 0.8.2; no rule changed). The page's protection line adds "and a market's account fee when one
+is shown", and the stale comments in the pipeline about fee-free fallbacks and the Pump close are
+gone. Rent fallbacks were checked: they are shown amounts or upper bounds, and the one that decides
+safety (a market account holding exactly its rent) refuses when the RPC does not answer.
+
+Tests: `send.test.ts` (a late look, a node far ahead), `history.test.ts` (the window, storage that
+refuses, unsettled entries kept, one wallet blocked), `skillExample.test.ts` (late recovery, an
+older record, `resolve` by code and command, a repeated finalize with the RPC down, bookkeeping,
+an account left open, the SOL ceiling) and `prepare.test.ts` (a route that leaves an account open).
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

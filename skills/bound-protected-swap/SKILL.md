@@ -1,6 +1,6 @@
 ---
 name: bound-protected-swap
-description: Swap tokens on Solana through Bound's agent API, so the swap program can only touch the approved amount and a minimum output is enforced on chain. Use when an agent or bot needs to swap any Solana token (SOL, USDC, SPL, Token-2022, Pump.fun) from a wallet it controls and must not give the route authority over the rest of that wallet.
+description: Swap tokens on Solana through Bound's agent API, so the swap program can only touch the approved amount and a minimum output is enforced on chain. Use when an agent or bot needs to swap Solana tokens (SOL, USDC, SPL, Token-2022, Pump.fun) from a wallet it controls and must not give the route authority over the rest of that wallet.
 ---
 
 # Bound protected swap
@@ -73,10 +73,14 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
      on-chain floor is present, measured on your output account and reaches the whole minimum, and
      the minimum is enforced after the swap;
    - a simulation of the transaction on your RPC, after which nothing may stay under the one-time
-     key: not in its own account, and not in the account a Pump.fun market opens in its name;
+     key (not in its own account, and not in the account a Pump.fun market opens in its name) and no
+     account the route opens may stay open, whatever market it belongs to;
    - rent the route keeps (`costs.routeRentLamports` less `costs.routeRefundLamports`), accepted only
      up to your `maxRouteCostLamports`, 0.001 SOL unless you set it (the example's
      `--max-route-cost-lamports`). A Pump.fun bonding curve keeps about 0.00013 SOL of every buy.
+   - optionally, one ceiling for all the SOL the swap costs and does not return
+     (`maxSolCostLamports`): the network fee, rent the route keeps, and Bound's fee when paid in SOL.
+     Prepare's `costs.keptSolLamports` states the same sum.
 4. **Sign as the wallet only**: `signAsWallet(wallet, prepared.transaction)` in the example, which
    uses the wallet's signature only once it verifies. Do not modify the transaction; a changed message, including a removed fee, is refused at finalize. The
    transaction's id is now known: it is the wallet's signature (`getSignatureFromTransaction`).
@@ -94,8 +98,12 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
    with a valid signature from the one-time key. The outcome is the chain's: confirmed, failed, or
    expired once the finalized block height is past the last block it could land in and the
    signature has no record. Take that last block from your own RPC (your height when you sign,
-   plus 150, plus a margin), never from the server alone. A swap is done only when confirmed; `sent`
-   is not done.
+   plus 150, plus a margin), never from the server alone. "No record" proves expiry only while the
+   RPC's node still holds every block the swap could have landed in, some 30 seconds after its
+   lifetime (the example passes `confirm` the height you signed at). Later it proves nothing: the
+   swap stays `unknown` until you look it up in a full history (an explorer) and settle it with
+   `bound-verify resolve` or `resolvePending`. A swap is done only when confirmed (a supermajority
+   voted for it; wait for `finalized` if you need rooted finality); `sent` is not done.
 7. **Prepare again only when the chain says the first one can no longer land.** A `rejected` status
    or an error from finalize speaks for that one request: an earlier finalize whose answer was lost
    may have sent the transaction. The example reports `rejected` only after the chain confirms the
@@ -149,11 +157,17 @@ late or expire (an expired swap costs nothing).
   earlier outcome is unknown, start no new swap for that intent.
 - **One worker per wallet** (`acquireLock` in the example, for processes sharing a directory; workers
   on several machines need a shared store with a lock of its own). The lock names its holder, and a
-  worker whose lock was taken over never removes its successor's.
+  worker whose lock was taken over never removes its successor's. A worker that was only paused and
+  resumes after a takeover is stopped by the pending and order checks made just before finalize, and
+  a transaction it signed long before has expired by then.
 - **One swap per wallet in flight.** With a pending store (`protectedSwap`'s `pending`, the command
   line's state directory), nothing is prepared or sent while another swap from the same wallet may
   still land (`PendingSwapError`; `bound-verify` exits 3), with or without an order id. The same
-  signed bytes may always be asked again: they land at most once.
+  signed bytes may always be asked again: they land at most once. `bound-verify finalize` asked again
+  for a swap it kept answers with that swap's signature and outcome, never "not sent"; in code,
+  `resumeSigned` does the same for a kept record.
+- **Bound's API keeps no state** (no database): it cannot tell two transactions for the same order
+  apart. Your order book is what does, so every worker that may take an order must share it.
 - **The chain's answer is the answer.** A record that cannot be written or removed after a swap was
   sent is reported beside its outcome (`bookkeepingError`), with the signature, never as "not sent".
 - **Give every order an id** (`intent.id`, the example's `--id`), the same on every retry of that
@@ -186,9 +200,10 @@ It needs Node 22.18 or later and `npm ci` in this folder, and reads `SOLANA_RPC_
 
 | Command | Input (stdin) | Exit code |
 | --- | --- | --- |
-| `recover` | none | 0 all settled; 3 an earlier outcome is still unknown: start nothing new |
+| `recover` | none | 0 all settled; 3 an earlier outcome is still unknown, or its record could not be updated (`bookkeepingErrors`): start nothing new |
+| `resolve` | `{"signature": "<a kept swap>", "outcome": "confirmed" \| "failed" \| "expired"}` | 0 settled (the chain's answer is used when your RPC has one); 1 refused: it could still land, or no swap with that signature is kept. Only after you looked the signature up in a full history (an explorer), for a swap `recover` can no longer prove |
 | `prepare` | `{"intent": {"owner", "inputMint", "outputMint", "amountIn", "id", ...}}` | 0 sign `message`; 1 refused; 3 settle first; 4 Bound said no (`error.code`, as below); 5 this order (`id`) already swapped or may still land |
-| `finalize` | `{"checked": <prepare's checked, unchanged>, "signature": "<base58>"}` | 0 confirmed; 1 not swapped; 3 unknown: run `recover` before anything new |
+| `finalize` | `{"checked": <prepare's checked, unchanged>, "signature": "<base58>"}` | 0 confirmed; 1 not swapped; 3 unknown: run `recover` before anything new. Asked again for a swap it kept, it answers with that swap's signature and outcome (`resumed`) |
 | `check` | `{"prepared": <prepare answer>, "intent": {...}}` | 0 safe to sign; 1 refused (for bots that call the API themselves) |
 
 `message` is the transaction's message in base64: sign those bytes with the wallet's ed25519 key and

@@ -106,7 +106,8 @@ Authorization: Bearer bnd_...
   "amounts": { "amountIn": "5000000", "fee": "127700", "feeMint": "So11111111111111111111111111111111111111112",
                "feeBps": "30", "swapAmount": "5000000", "quotedOut": "42780667", "minOut": "42439063",
                "priceImpactPct": 0.0001 },
-  "costs": { "networkFeeLamports": "124480", "outputAccountRentLamports": "0", "routeRentLamports": "0", "routeRefundLamports": "0", "tokenTax": null },
+  "costs": { "networkFeeLamports": "124480", "outputAccountRentLamports": "0", "routeRentLamports": "0", "routeRefundLamports": "0",
+             "keptSolLamports": "124480", "tokenTax": null },
   "notices": { "removesDelegate": false },
   "route": ["Kipseli", "AlphaQ"],
   "certificate": { "...": "what this exact transaction does, bound to messageSha256" },
@@ -124,9 +125,14 @@ fee, optionally Bound's treasury address) and your own minimum, which is require
 yourself, never Bound's (`ownMinimum` asks Jupiter for one). It holds `policy` to those limits, reads
 every account the message names from your RPC, runs the verifier's rules on the exact bytes, and
 simulates the transaction there: nothing may stay under the one-time key, in its own account or in
-the account a Pump.fun market opens in its name. Rent the route keeps (`costs.routeRentLamports`
-less `costs.routeRefundLamports`) is accepted only up to your `maxRouteCostLamports`, 0.001 SOL
-unless you set it (a Pump.fun bonding curve keeps about 0.00013 SOL of every buy). The `certificate` and `amounts` are Bound's statements; the check is what makes them
+the account a Pump.fun market opens in its name, and no account the route opens may stay open,
+whatever market it belongs to. Rent the route keeps (`costs.routeRentLamports` less
+`costs.routeRefundLamports`) is accepted only up to your `maxRouteCostLamports`, 0.001 SOL unless you
+set it (a Pump.fun bonding curve keeps about 0.00013 SOL of every buy). `costs.keptSolLamports` is
+all the SOL the swap costs and does not return, in one number: the network fee, rent the route keeps,
+and Bound's fee when it is paid in SOL (a new output account's rent is apart: that account stays
+yours). To hold it to one ceiling of your own, set `maxSolCostLamports`; the check computes it from
+the bytes, not from this statement. The `certificate` and `amounts` are Bound's statements; the check is what makes them
 evidence, and holds the amounts stated to the policy the bytes are checked against.
 
 `notices.networkBusy` means the network fee is at its limit, so the swap may land late or expire.
@@ -197,7 +203,16 @@ nothing. An answer from finalize, `rejected` or an error, speaks only for that o
 request; an earlier finalize of the ticket whose answer was lost may have sent it. Take the last
 block from your own RPC too (your block height when you sign, plus 150, plus a margin for a
 lagging node): the blockhash is older than that, so the server's figure cannot shorten the wait.
-The skill's example does all of this (`protectedSwap`, `confirm`).
+
+"No record" is proof only while the node that answers still holds every block the transaction could
+have landed in. A node answers first from its status cache, its last 300 blocks, and only then from
+its ledger history or an archive, which can be pruned or missing; an archive that fails answers "no
+record" too. So accept it only when the answering node's height (the finalized height plus the slots
+its `context.slot` is ahead of the finalized slot) is below the height you signed at plus 300, less a
+margin: in practice, the half-minute after the lifetime. Later, the outcome is unknown until you look
+the signature up in a full history. The skill's example does all of this (`protectedSwap`, `confirm`
+with `earliestHeight`, `recoverPending`), and `bound-verify resolve` settles by hand a swap it can no
+longer prove.
 
 ## Errors
 
@@ -233,12 +248,16 @@ have sent it, so check it before preparing again (see above). `price-moved` and 
 - No permission over your wallet outlives the transaction. On Pump.fun routes the market opens a
   per-buyer account under the one-time key; Bound closes it at the end of the same transaction and
   sends its rent back to your wallet (`costs.routeRefundLamports`). When that cannot be done (the
-  account also holds a cashback coin's cashback, or the close does not fit in the transaction), the
-  account stays under the key with its rent. Bound's server can derive the key again from its
-  secret, so whoever holds that secret could collect it: the skill's check simulates the
-  transaction and refuses one that leaves anything under the key or in that account, and rent that
-  does not come back beyond your limit. Bound derives a key only for its ticket's finalize,
-  repeated or not, and never logs the nonces it derives from.
+  account also holds a cashback coin's cashback, or the close does not fit in the transaction), that
+  route is refused, and so is any route that opens an account of another market and leaves it
+  open. Bound's server can derive the key again from its secret, so whoever holds that secret could
+  collect what stayed under it: that is why nothing may, and why the skill's check simulates the
+  transaction on your RPC and refuses one that leaves anything under the key or any account the
+  route opened, and rent that does not come back beyond your limit. Bound derives a key only for its
+  ticket's finalize, repeated or not, and never logs the nonces it derives from.
+- It keeps no state (no database): two prepares for the same order are two different transactions
+  to it. One swap per order is kept by your order book (the skill's `OrderBook`, shared by every
+  worker that may take the order), not by Bound.
 - It can refuse or delay: a signed transaction it holds back simply expires, in about 40 seconds.
 - It sees the addresses and amounts of the swaps you ask for, as any swap API does.
 

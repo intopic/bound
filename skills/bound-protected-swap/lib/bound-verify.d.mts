@@ -41,6 +41,12 @@ export type AgentLimits = {
    * Jupiter for it.
    */
   maxSolFeeLamports?: number;
+  /**
+   * One ceiling for all the SOL the swap may cost and not return, in lamports (optional): the network
+   * fee the transaction can pay, rent the route keeps, and Bound's fee when paid in SOL. A new output
+   * account's rent is not in it: that account stays the wallet's own.
+   */
+  maxSolCostLamports?: number;
 };
 
 /** The parts of a /api/v1/prepare answer the check reads. */
@@ -54,8 +60,8 @@ export type PreparedSwap = {
 /**
  * Runs Bound's full verifier on the prepared transaction, with chain state read from `rpc` (the
  * agent's own RPC) and the policy held to `limits`, then simulates it there: nothing may stay under
- * the one-time key, in its own account or in a Pump.fun market's account in its name. Returns the
- * problems found; sign only when empty.
+ * the one-time key, in its own account or in a Pump.fun market's account in its name, and no account
+ * the route opens may stay open. Returns the problems found; sign only when empty.
  */
 export function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>, opts?: { requestTimeoutMs?: number }): Promise<string[]>;
 
@@ -77,3 +83,21 @@ export function ownSolFeeLimit(args: {
   inputMint: string; amountIn: string; taker: string;
   maxFeeBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
 }): Promise<number>;
+
+/**
+ * The transactions of a node's last 300 rooted blocks, which it answers a status from before any
+ * history or archive. "No record" proves nothing outside them.
+ */
+export declare const STATUS_CACHE_BLOCKS: 300n;
+
+/**
+ * Does one view of the chain prove that a transaction with no record in it never landed, and never
+ * will? `coveredHeight`: a finalized height the answering node had reached; `reachHeight`: the highest
+ * height it can have reached. The transaction can land in blocks `earliest` to `lastValid`.
+ */
+export function provesNeverLanded(
+  view: { coveredHeight: bigint | null; reachHeight: bigint | null }, lastValid: bigint, earliest: bigint,
+): boolean;
+
+/** Has the window in which "no record" could prove anything about that transaction closed for good? */
+export function pastProof(view: { coveredHeight: bigint | null }, earliest: bigint): boolean;

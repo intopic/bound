@@ -239,6 +239,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         routeRentLamports: prepared.oneTimeCosts.routeRent,
         // Returned to the wallet in the same transaction when Bound closes the market's account (FA-05).
         routeRefundLamports: prepared.oneTimeCosts.routeRefund,
+        // All the SOL the swap costs and does not return, in one number (third audit, priority 4):
+        // the network fee, rent the route keeps, and Bound's fee when paid in SOL. A new output
+        // account's rent is apart: it stays the wallet's own.
+        keptSolLamports: prepared.networkFeeLamports + prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund
+          + (p.feeSide === 'sol' ? p.fee : 0n),
         tokenTax: prepared.tokenTax,
       },
       // networkBusy: the priority fee is at its limit, so the swap may land late or expire (FA-15).

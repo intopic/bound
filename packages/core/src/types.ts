@@ -143,4 +143,8 @@ export type ChainSnapshot = {
 
 export type RuleId = 'R1' | 'R2' | 'R3' | 'R4' | 'R5' | 'R6' | 'R7';
 export type Violation = { rule: RuleId; detail: string };
-export type Verdict = { ok: boolean; violations: Violation[] };
+/**
+ * `networkFeeLamports`: the most the transaction can pay in network fees (signatures and priority),
+ * as R4 read it; absent when the check stopped before R4.
+ */
+export type Verdict = { ok: boolean; violations: Violation[]; networkFeeLamports?: bigint };

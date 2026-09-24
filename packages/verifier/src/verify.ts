@@ -816,5 +816,5 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     if (bad) fail('R7', `mint ${mint}: ${bad}`);
   }
 
-  return { ok: violations.length === 0, violations };
+  return { ok: violations.length === 0, violations, networkFeeLamports: signatureFee + priorityFee };
 }

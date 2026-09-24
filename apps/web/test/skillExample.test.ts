@@ -24,10 +24,10 @@ import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import {
-  acquireLock, BoundApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending,
+  acquireLock, BoundApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   BoundOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
 } from '../../../skills/bound-protected-swap/examples/swap.ts';
-import type { OrderBook } from '../../../skills/bound-protected-swap/examples/swap.ts';
+import type { OrderBook, Signed } from '../../../skills/bound-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/bound-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
@@ -315,8 +315,8 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
     // The agent's RPC reports the market's account under E still holding its rent after the swap.
     const rpc = {
       ...b.agentRpc,
-      simulateTransaction: () => ({
-        send: async () => ({ value: { err: null, logs: [], accounts: [null, { lamports: 1_346_200n }, null, null, null, null, null] } }),
+      simulateTransaction: (_tx: unknown, config: { accounts: { addresses: string[] } }) => ({
+        send: async () => ({ value: { err: null, logs: [], accounts: config.accounts.addresses.map((_, i) => (i === 1 ? { lamports: 1_346_200n } : null)) } }),
       }),
     } as unknown as Rpc<SolanaRpcApi>;
     const problems = await checkPrepared(honest, intentFor(b.wallet), rpc);
@@ -330,8 +330,8 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
     // E and both market accounts are empty; the curve market's WSOL account holds cashback E could claim.
     const rpc = {
       ...b.agentRpc,
-      simulateTransaction: () => ({
-        send: async () => ({ value: { err: null, logs: [], accounts: [null, null, null, { lamports: 2_100_000n }, null, null, null] } }),
+      simulateTransaction: (_tx: unknown, config: { accounts: { addresses: string[] } }) => ({
+        send: async () => ({ value: { err: null, logs: [], accounts: config.accounts.addresses.map((_, i) => (i === 3 ? { lamports: 2_100_000n } : null)) } }),
       }),
     } as unknown as Rpc<SolanaRpcApi>;
     expect((await checkPrepared(honest, intentFor(b.wallet), rpc)).join()).toContain('a market account under the one-time key would keep 2100000 lamports');
@@ -388,20 +388,23 @@ const swapIntent = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000'
 /**
  * The agent's own RPC on a chain that moves on: 40 blocks at every height read. A transaction is on
  * chain once Bound's server has sent it and the height has reached `landAt`; `others` are other
- * transactions the chain has confirmed.
+ * transactions the chain has confirmed. `from`: the height before the first read. The fake server's
+ * transactions live until block 1,000, so a test that proves expiry starts the chain within their
+ * life, as a real one is: "no record" proves nothing about a transaction signed long before (F1).
  */
-function chainOf(b: Awaited<ReturnType<typeof bound>>, opts: { landAt?: bigint; others?: string[]; statusSlot?: bigint } = {}) {
-  let height = 0n;
+function chainOf(b: Awaited<ReturnType<typeof bound>>, opts: { landAt?: bigint; others?: string[]; statusSlot?: bigint; from?: bigint } = {}) {
+  let height = opts.from ?? 0n;
   const onChain = (s: string) => (b.sent.some(w => signatureOfWire(w) === s) && height >= (opts.landAt ?? 0n)) || !!opts.others?.includes(s);
   return {
     ...b.agentRpc,
     getBlockHeight: () => ({ send: async () => (height += 40n) }),
     // One node's finalized view: its slot and height together (slots here equal heights).
     getEpochInfo: () => ({ send: async () => ({ absoluteSlot: height, blockHeight: height }) }),
-    // Statuses from a node that has reached `statusSlot`, ahead of the finalized view unless a test lags it.
+    // Statuses from a node that has reached `statusSlot`: 30 ahead of the finalized view, as a processed
+    // node is, unless a test lags it or runs it far ahead.
     getSignatureStatuses: (signatures: string[]) => ({
       send: async () => ({
-        context: { slot: opts.statusSlot ?? height + 1_000n },
+        context: { slot: opts.statusSlot ?? height + 30n },
         value: signatures.map(s => (onChain(s) ? { confirmationStatus: 'confirmed', err: null } : null)),
       }),
     }),
@@ -453,7 +456,7 @@ describe('after signing, the chain is the only witness (engineering review H-01,
     const liar = (async (url: string, init: RequestInit) => url.endsWith('/api/v1/finalize')
       ? new Response(JSON.stringify({ signature: other, status: 'sent', signedTransaction: Buffer.alloc(300, 1).toString('base64'), lastValidBlockHeight: '1000' }), { status: 200 })
       : b.fetchImpl(url, init)) as unknown as typeof fetch;
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { others: [other] }), wallet: b.wallet, fetchImpl: liar, pollMs: 1, intent: swapIntent });
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { others: [other], from: 860n }), wallet: b.wallet, fetchImpl: liar, pollMs: 1, intent: swapIntent });
     expect(result.outcome).toBe('expired');
     expect(result.signature).not.toBe(other);
     expect(b.sent).toHaveLength(0);
@@ -481,7 +484,7 @@ describe('after signing, the chain is the only witness (engineering review H-01,
   it('a real refusal before sending is "rejected" once the transaction can no longer land', async () => {
     const preflight = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
     const b = await bound({ sendError: preflight });
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { from: 860n }), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
     expect(result).toMatchObject({ outcome: 'rejected', refusal: 'network' });
     expect(b.sent).toHaveLength(0);
   });
@@ -592,7 +595,7 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
     const b = await bound();
     const lagging = chainOf(b, { statusSlot: 1n });
     expect(await confirm(lagging, 'unseen', 50n, { pollMs: 1, maxWaitMs: 60 })).toBe('unknown');
-    expect(await confirm(chainOf(b), 'unseen', 50n, { pollMs: 1, maxWaitMs: 2_000 })).toBe('expired');
+    expect(await confirm(chainOf(b), 'unseen', 50n, { pollMs: 1, maxWaitMs: 2_000, earliestHeight: 0n })).toBe('expired');
   });
 
   it('a status read that never answers does not hold confirm past its deadline (S1-M-04)', async () => {
@@ -610,7 +613,7 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
     const silent = (async (url: string, init: RequestInit) => (url.endsWith('/api/v1/finalize')
       ? never(init.signal ?? undefined) : b.fetchImpl(url, init))) as unknown as typeof fetch;
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: silent, pollMs: 1, requestTimeoutMs: 20, intent: swapIntent,
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { from: 860n }), wallet: b.wallet, fetchImpl: silent, pollMs: 1, requestTimeoutMs: 20, intent: swapIntent,
     });
     // Nothing reached the chain, and nothing is called rejected: it did not land and can no longer land.
     expect(result.outcome).toBe('expired');
@@ -992,5 +995,144 @@ describe('the Stage 2 audit: one swap per wallet, owned locks, outcomes kept apa
     const problems = await checkPrepared(honest, intentFor(b.wallet), stuck, { requestTimeoutMs: 50 });
     expect(Date.now() - started).toBeLessThan(3_000);
     expect(problems.join()).toContain('could not be read from your RPC');
+  });
+});
+
+describe('the third audit: what "no record" proves, a finalize asked again, what a route leaves open', () => {
+  /** A swap kept before finalize: its transaction could land in blocks 900 to 1,075. */
+  const keptSwap = (signature: string, owner: string, more: Partial<Signed> = {}): Signed => ({
+    signature, lastValidBlockHeight: 1_075n, signedHeight: 900n, ticket: 't', signedTransaction: '', messageSha256: '', signedAt: 0, owner, ...more,
+  });
+
+  it('F1: recovered long after it was sent, a swap the chain has no record of stays unknown, said at once', async () => {
+    const b = await bound();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f1-')));
+    await store.put(keptSwap('long-ago', b.wallet.address, { intentId: 'order-1' }));
+    await store.claimOrder('order-1', { signature: 'long-ago', state: 'pending' });
+    // Days later: the chain is far past it, and no node's status cache reaches back that far.
+    const started = Date.now();
+    const { settled, unknown } = await recoverPending(store, chainOf(b, { from: 500_000n }), { pollMs: 1, maxWaitMs: 60_000, orders: store });
+    expect(settled).toEqual([]);
+    expect(unknown).toEqual(['long-ago']);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    // The order is not reopened: it stays pending, so the same order is not swapped again.
+    expect(await store.order('order-1')).toMatchObject({ state: 'pending' });
+  });
+
+  it('F1: right after its lifetime, the same silence does prove it expired', async () => {
+    const b = await bound();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f1b-')));
+    await store.put(keptSwap('just-expired', b.wallet.address));
+    const { settled } = await recoverPending(store, chainOf(b, { from: 1_050n }), { pollMs: 1, maxWaitMs: 5_000 });
+    expect(settled).toEqual([{ signature: 'just-expired', outcome: 'expired' }]);
+  });
+
+  it('F1: a kept swap without the height it was signed at (an older copy) is never proven expired', async () => {
+    const b = await bound();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f1c-')));
+    await store.put(keptSwap('no-height', b.wallet.address, { signedHeight: undefined }));
+    const { unknown } = await recoverPending(store, chainOf(b, { from: 1_050n }), { pollMs: 1, maxWaitMs: 5_000 });
+    expect(unknown).toEqual(['no-height']);
+  });
+
+  it('F1: settled by hand once looked up: refused while it could still land, and the chain answers first', async () => {
+    const b = await bound();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f1d-')));
+    await store.put(keptSwap('by-hand', b.wallet.address, { intentId: 'order-2' }));
+    await store.put(keptSwap('landed-after-all', b.wallet.address));
+    await expect(resolvePending(store, chainOf(b, { from: 900n }), 'by-hand', 'expired')).rejects.toThrow('can still land');
+    const later = chainOf(b, { from: 500_000n, others: ['landed-after-all'] });
+    expect(await resolvePending(store, later, 'by-hand', 'expired', { orders: store })).toEqual({ signature: 'by-hand', outcome: 'expired', by: 'you' });
+    expect(await store.order('order-2')).toMatchObject({ state: 'expired' });
+    // The operator said expired; the RPC still has it confirmed, and that is what is recorded.
+    expect(await resolvePending(store, later, 'landed-after-all', 'expired')).toEqual({ signature: 'landed-after-all', outcome: 'confirmed', by: 'chain' });
+    expect(await store.list()).toEqual([]);
+    await expect(resolvePending(store, later, 'never-kept', 'expired')).rejects.toThrow('No kept swap');
+  });
+
+  it('F1: bound-verify resolve, the same by hand for bots', async () => {
+    const b = await bound();
+    const stateDir = mkdtempSync(join(tmpdir(), 'bound-f1e-'));
+    await createFileStore(stateDir).put(keptSwap('by-hand', b.wallet.address));
+    const deps = (rpc: Rpc<SolanaRpcApi>) => ({ rpc, stateDir, pollMs: 1, maxWaitMs: 60 });
+    expect((await runCli('resolve', { signature: 'by-hand', outcome: 'gone' }, deps(chainOf(b)))).code).toBe(2);
+    const early = await runCli('resolve', { signature: 'by-hand', outcome: 'expired' }, deps(chainOf(b, { from: 900n })));
+    expect(early.code).toBe(1);
+    expect(String(early.output.error)).toContain('can still land');
+    const done = await runCli('resolve', { signature: 'by-hand', outcome: 'expired' }, deps(chainOf(b, { from: 500_000n })));
+    expect(done).toMatchObject({ code: 0, output: { ok: true, signature: 'by-hand', outcome: 'expired', by: 'you' } });
+    expect((await runCli('recover', {}, deps(chainOf(b)))).code).toBe(0);
+  });
+
+  it('F4: finalize asked again for a kept swap is not a first send: it answers with the signature and its outcome, whatever the checks would say now', async () => {
+    const b = await bound();
+    const stateDir = mkdtempSync(join(tmpdir(), 'bound-f4-'));
+    let finalizes = 0;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/finalize')) finalizes++;
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    // Nothing shows up, and the height never passes the lifetime: the outcome stays unknown.
+    const stuck = { ...chainOf(b, { landAt: 10n ** 12n }), getBlockHeight: () => ({ send: async () => 1n }) } as unknown as Rpc<SolanaRpcApi>;
+    const deps = { rpc: stuck, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'order-f4' };
+    const ready = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
+    const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(ready.message, 'base64')));
+    const first = await runCli('finalize', { checked: ready.checked, signature }, deps);
+    expect(first).toMatchObject({ code: 3, output: { outcome: 'unknown' } });
+    // The agent's RPC no longer reads accounts: the check for a first send would refuse, and the
+    // order is already pending. Neither may turn into "not sent".
+    const blind = { ...stuck, getMultipleAccounts: () => ({ send: async () => { throw new Error('RPC unavailable'); } }) } as unknown as Rpc<SolanaRpcApi>;
+    const again = await runCli('finalize', { checked: ready.checked, signature }, { ...deps, rpc: blind });
+    expect(again.code).toBe(3);
+    expect(again.output).toMatchObject({ signature: first.output.signature, outcome: 'unknown', resumed: true });
+    expect(again.output.sent).toBeUndefined();
+    // Bound was asked again for the same bytes, which land at most once.
+    expect(finalizes).toBe(2);
+    expect(new Set(b.sent.map(signatureOfWire))).toEqual(new Set([first.output.signature]));
+  });
+
+  it('F4: an outcome whose record cannot be updated is still returned by recovery, and the record stays for the next run', async () => {
+    const b = await bound();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f4b-')));
+    await store.put(keptSwap('landed', b.wallet.address, { intentId: 'order-3' }));
+    const failing: OrderBook = { order: async () => null, claimOrder: async () => true, recordOrder: async () => { throw new Error('ENOSPC'); } };
+    const { settled, bookkeepingErrors } = await recoverPending(store, chainOf(b, { others: ['landed'] }), { pollMs: 1, maxWaitMs: 60, orders: failing });
+    expect(settled).toEqual([{ signature: 'landed', outcome: 'confirmed' }]);
+    expect(bookkeepingErrors).toEqual([{ signature: 'landed', error: 'ENOSPC' }]);
+    expect((await store.list()).map(s => s.signature)).toEqual(['landed']);
+  });
+
+  it('F5: an account the route opens and leaves open is refused, whatever market it belongs to', async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    let watched: string[] = [];
+    // E and the Pump accounts end empty; one account the transaction created (not the wallet's own
+    // output account) is still open after the swap.
+    const rpc = {
+      ...b.agentRpc,
+      simulateTransaction: (_tx: unknown, config: { accounts: { addresses: string[] } }) => ({
+        send: async () => {
+          watched = config.accounts.addresses;
+          return { value: { err: null, logs: [], accounts: watched.map((_, i) => (i === 7 ? { lamports: 2_039_280n } : null)) } };
+        },
+      }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    const problems = await checkPrepared(honest, intentFor(b.wallet), rpc);
+    expect(watched.length).toBeGreaterThan(7);
+    expect(watched).not.toContain(TREASURY);
+    expect(problems.join()).toContain(`the route would leave open 1 account(s) it creates (${watched[7]})`);
+    // With every account closed, the same answer passes.
+    expect(await checkPrepared(honest, intentFor(b.wallet), b.agentRpc)).toEqual([]);
+  });
+
+  it('priority 4: one ceiling for all the SOL a swap may cost and not return', async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    const kept = BigInt(honest.costs.keptSolLamports ?? '-1');
+    expect(kept).toBe(BigInt(honest.costs.networkFeeLamports) + BigInt(honest.costs.routeRentLamports) - BigInt(honest.costs.routeRefundLamports));
+    expect(await checkPrepared(honest, { ...intentFor(b.wallet), maxSolCostLamports: 1_000_000 }, b.agentRpc)).toEqual([]);
+    const tight = await checkPrepared(honest, { ...intentFor(b.wallet), maxSolCostLamports: 1 }, b.agentRpc);
+    expect(tight.join()).toContain('(maxSolCostLamports)');
   });
 });

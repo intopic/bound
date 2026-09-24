@@ -31,7 +31,7 @@ type Status = { confirmationStatus: 'processed' | 'confirmed' | 'finalized'; err
 /** Each read takes the next scripted value; the last one repeats. 'throw' simulates a failed read. */
 function fakeRpc(script: {
   firstSend?: 'ok' | Error; statuses?: (Status | 'throw')[]; heights?: bigint[]; finalizedHeights?: bigint[];
-  /** The slot the node answering each status read had reached; the finalized slot is 500,000. */
+  /** The slot the node answering each status read had reached; the finalized slot is 500,000 (a processed node is some 40 ahead). */
   statusSlots?: bigint[];
 }) {
   let sends = 0;
@@ -48,7 +48,7 @@ function fakeRpc(script: {
     }),
     getSignatureStatuses: () => ({
       send: async () => {
-        const slot = next(script.statusSlots ?? [1_000_000n], statusReads);
+        const slot = next(script.statusSlots ?? [500_040n], statusReads);
         const s = next(script.statuses ?? [null], statusReads++);
         if (s === 'throw') throw new Error('status read failed');
         return { context: { slot }, value: [s] };
@@ -262,6 +262,20 @@ describe('outcomes are said only once the chain proves them (review FA-07)', () 
     expect(result.status).toBe('unknown');
     const covered = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 50n] });
     expect(covered.result.status).toBe('expired');
+  });
+
+  it('long after the lifetime, "no record" proves nothing: the node may have forgotten it (third audit, F1)', async () => {
+    // The status cache holds the last 300 blocks; this transaction could land from block -49 on.
+    const late = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 500n] });
+    expect(late.result.status).toBe('unknown');
+    // It stops looking as soon as that is clear, rather than asking until it gives up: one read
+    // while it could still land, one of the full history after.
+    expect(late.reads).toBe(2);
+  });
+
+  it('a status node far ahead of the finalized view proves nothing either: its cache may start past the swap (F1)', async () => {
+    const { result } = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 10n], statusSlots: [505_000n] });
+    expect(result.status).toBe('unknown');
   });
 
   it('expiry needs the finalized height past the lifetime too, so a lagging node cannot make it expired', async () => {

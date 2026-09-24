@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Bound — Protected Swap',
-  description: 'Swap any Solana token without giving the swap program authority over the rest of your wallet.',
+  description: 'Swap Solana tokens without giving the swap program authority over the rest of your wallet.',
 };
 
 export const viewport: Viewport = {

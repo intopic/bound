@@ -12,7 +12,7 @@ import {
   ataOf, ATA_PROGRAM, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
 } from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
-import { BoundError, DEFAULT_SETTINGS, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
+import { BoundError, DEFAULT_SETTINGS, LEFT_UNDER_KEY_MESSAGE, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
 import type { SwapSettings } from '../src/swap.ts';
 import { jupiterFloor, jupiterRouteArgs } from '@bound/verifier';
 import type { JupiterRouteArgs } from '@bound/verifier';
@@ -47,7 +47,7 @@ async function prepare(output: Address, opts: {
   input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
   expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
   wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean; acceptedMinReceived?: bigint;
-  minFee?: SwapSettings['minFee'];
+  minFee?: SwapSettings['minFee']; leavesOpen?: readonly string[];
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   // The wallet holds the input token, unless a test says otherwise through `chain`.
@@ -59,7 +59,7 @@ async function prepare(output: Address, opts: {
       rpc: fakeRpc(accounts, {
         feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent, priceMoves: opts.priceMoves,
         walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations, cashback: opts.cashback,
-        pumpSlippage: opts.pumpSlippage, failBeforeSwap: opts.failBeforeSwap,
+        pumpSlippage: opts.pumpSlippage, failBeforeSwap: opts.failBeforeSwap, leavesOpen: opts.leavesOpen,
       }),
       jupiter: opts.jupiter ?? fakeJupiter(), settings: { ...settings, treasury: opts.treasury ?? null, ...(opts.minFee ? { minFee: opts.minFee } : {}) },
     },
@@ -809,5 +809,22 @@ describe('the smallest swap, about $1, so that none costs more to build than it 
     const feeAccount: [Address, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
     const small = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n });
     expect(small.policy.fee).toBeGreaterThan(0n);
+  });
+});
+
+describe('an account the route opens and leaves open is refused, whatever market it is (third audit, F5)', () => {
+  it('the route is not offered, a route without its markets is looked for, and none left means no route', async () => {
+    const opened = (await generateKeyPairSigner()).address;
+    const asked: BuildParams[] = [];
+    const refused = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ extraAccounts: [opened], asked }), leavesOpen: [opened] }).catch((e: BoundError) => e);
+    expect((refused as BoundError).code).toBe('no-route');
+    expect((refused as BoundError).message).toBe(LEFT_UNDER_KEY_MESSAGE);
+    expect(asked.some(p => p.excludeDexes?.includes('Whirlpool'))).toBe(true);
+  });
+
+  it('an account the route names that is new but ends empty, or one that already existed, is no obstacle', async () => {
+    const fresh = (await generateKeyPairSigner()).address;
+    const built = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ extraAccounts: [fresh, POOL] }) });
+    expect(built.policy.minOut).toBeGreaterThan(0n);
   });
 });

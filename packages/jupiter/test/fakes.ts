@@ -156,6 +156,8 @@ export function fakeRpc(
     landOnSend?: boolean;
     /** Reading a status fails. */
     statusFails?: boolean;
+    /** Accounts the route opens and leaves open, holding their rent after the swap (third audit, F5). */
+    leavesOpen?: readonly string[];
   } = {},
 ): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
@@ -254,6 +256,7 @@ export function fakeRpc(
             if (a === (await routeAccountOf(PUMP, taker as Address)) && need > 0n && !closesRouteAccount && swapAccounts.includes(a)) {
               return { lamports: held, data: [b64(new Uint8Array(ROUTE_ACCOUNT_SIZE)), 'base64'] };
             }
+            if (opts.leavesOpen?.includes(a) && swapAccounts.includes(a)) return { lamports: 2_039_280n, data: [b64(new Uint8Array(165)), 'base64'] };
             return null;
           })),
         },

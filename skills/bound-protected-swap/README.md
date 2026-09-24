@@ -1,7 +1,7 @@
 # Bound protected swap
 
-Swap any Solana token from a wallet your agent or bot controls, so that the swap's route can only
-touch the amount you approve. Bound builds the transaction; this folder checks it on **your own
+Swap Solana tokens from a wallet your agent or bot controls, so that the swap's route can only
+touch the amount you approve (any token Bound's checks accept; others are refused with the reason). Bound builds the transaction; this folder checks it on **your own
 RPC** before your wallet signs, and reads the outcome on the chain.
 
 ```bash

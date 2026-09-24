@@ -25,7 +25,9 @@ import {
   amountReachingRoute, loadTokens, mintAta, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
 } from '@/lib/client/tokens';
 import type { MintFacts } from '@/lib/client/tokens';
-import { addHistory, isUnsettled, readHistory, settledHistoryStatus, STATUS_LABEL, updateHistory } from '@/lib/client/history';
+import {
+  addHistory, historyWorks, HistoryNotSaved, isUnsettled, lifetimeOver, readHistory, settledHistoryStatus, STATUS_LABEL, unsettledFor, updateHistory,
+} from '@/lib/client/history';
 import type { HistoryEntry, HistoryStatus, SignatureState } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
 import { costsMoreThan, keptByMarket } from '@/lib/client/rebuild';
@@ -245,8 +247,19 @@ const AUTO_REFRESHES = 3;
 /** Token amounts are 64-bit on Solana; beyond this nothing on chain can hold the balance. */
 const MAX_U64 = 2n ** 64n - 1n;
 const solscan = (signature: string) => `https://solscan.io/tx/${signature}`;
+/** How often a swap the wallet waits on is looked up again (third audit, F2). */
+const SETTLE_EVERY_MS = 10_000;
+const SETTLE_BY_HAND_MS = 30_000;
+
+/** Said when this browser will not keep a swap's record: without it, a swap whose answer is lost could be forgotten. */
+const NO_STORAGE: Notice = {
+  kind: 'error', title: "Your browser isn't saving this site's data",
+  body: 'Bound keeps every swap it sends in this browser, so that a lost connection or a closed tab never loses track of it. '
+    + 'Allow site data (storage) for this site, or free some space, and try again. Nothing was sent and no funds moved.',
+};
 
 function explainError(e: unknown): Notice {
+  if (e instanceof HistoryNotSaved) return NO_STORAGE;
   if (e instanceof BoundError) {
     const titles: Record<BoundError['code'], string> = {
       'unsupported-token': 'This token is not supported yet',
@@ -359,12 +372,15 @@ function outcomeNotice(
     default:
       return {
         kind: 'info', title: "We couldn't confirm the result yet",
-        body: 'The swap may still go through or may already have. Check it on Solscan before trying again.', link,
+        body: 'The swap may still go through or may already have. Bound keeps checking, and starts no new swap from this wallet until the network settles it.', link,
       };
   }
 }
 
-/** Pending or unknown swaps from earlier visits, settled from the chain (audit C-03). */
+/**
+ * Pending or unknown swaps, settled from the chain (audit C-03): on every visit, and every few
+ * seconds while one of them holds the wallet's next swap back (third audit, F2).
+ */
 async function settleHistory(): Promise<HistoryEntry[] | null> {
   const open = readHistory().filter(isUnsettled);
   if (!open.length) return null;
@@ -374,18 +390,24 @@ async function settleHistory(): Promise<HistoryEntry[] | null> {
   // the finalized slot whose height they are compared with; a lagging node proves no expiry (FA-07).
   const first = await statusesCovering(rpc, signatures);
   // Once the recorded lifetime is over, look again: one empty read is not enough evidence for the UI
-  // to invite a retry, and the second view must cover the lifetime too.
+  // to invite a retry, and the second view must prove it too (the lower covered height, the higher
+  // reach: the two together must still hold every block the swap could have landed in).
   const needsSecondLookup = open.some((h, i) =>
-    settledHistoryStatus(h, first.statuses[i] as SignatureState, first.coveredHeight) === 'expired');
+    settledHistoryStatus(h, first.statuses[i] as SignatureState, first) === 'expired');
   const second = needsSecondLookup ? await statusesCovering(rpc, signatures) : null;
-  const covered = !second ? first.coveredHeight
-    : first.coveredHeight === null || second.coveredHeight === null ? null
-      : second.coveredHeight < first.coveredHeight ? second.coveredHeight : first.coveredHeight;
+  const lower = (a: bigint | null, b: bigint | null) => (a === null || b === null ? null : a < b ? a : b);
+  const higher = (a: bigint | null, b: bigint | null) => (a === null || b === null ? null : a > b ? a : b);
+  const view = !second ? first : {
+    coveredHeight: lower(first.coveredHeight, second.coveredHeight),
+    reachHeight: higher(first.reachHeight, second.reachHeight),
+  };
   let list: HistoryEntry[] | null = null;
   for (const [i, h] of open.entries()) {
     const state = (first.statuses[i] ?? second?.statuses[i] ?? null) as SignatureState;
-    const next: HistoryStatus | null = settledHistoryStatus(h, state, covered);
+    const next: HistoryStatus | null = settledHistoryStatus(h, state, view);
     if (next) list = updateHistory(h.signature, next);
+    // It can no longer land, and nothing proves whether it did: unknown until someone looks it up.
+    else if (lifetimeOver(h, view) && !h.over) list = updateHistory(h.signature, 'unknown', undefined, { over: true });
   }
   return list;
 }
@@ -682,6 +704,9 @@ export function SwapApp() {
   const blocker = useMemo((): string | null => {
     if (status && !status.enabled) return 'Protected swaps are paused';
     if (!W) return null;
+    // A swap from this wallet that the chain has not settled holds the next one back, whatever the
+    // time: a retry waits for the chain's answer, so the same swap never runs twice (third audit, F2).
+    if (unsettledFor(history, W).length) return 'Waiting for your last swap';
     if (!tokenIn || !tokenOut) return 'Select tokens';
     if (tokenIn.id === tokenOut.id) return 'Choose two different tokens';
     if (inFacts === 'missing' || outFacts === 'missing') return 'That address is not a token';
@@ -715,7 +740,20 @@ export function SwapApp() {
     return null;
     // `clock` re-evaluates the age of the quote.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes, busyTries]);
+  }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes, busyTries, history]);
+
+  // --- a swap this wallet waits on is looked up again while the page is visible: every 10 s while it
+  // could still land or be proven expired, every 30 s once only a full history could tell (F2).
+  const waitingOn = W ? unsettledFor(history, W) : [];
+  const onlyByHand = waitingOn.length > 0 && waitingOn.every(h => h.over);
+  useEffect(() => {
+    if (!waitingOn.length || phase !== 'idle') return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      settleHistory().then(list => list && setHistory(list)).catch(() => undefined);
+    }, onlyByHand ? SETTLE_BY_HAND_MS : SETTLE_EVERY_MS);
+    return () => clearInterval(timer);
+  }, [waitingOn.length, onlyByHand, phase]);
 
   // --- connect
   async function connect(w: Wallet) {
@@ -894,6 +932,12 @@ export function SwapApp() {
       });
       return;
     }
+    // A swap is sent only once its record is kept, so this browser must keep one: asked before the
+    // wallet opens, not after the user signed (third audit, F3).
+    if (!historyWorks()) {
+      setNotice(NO_STORAGE);
+      return;
+    }
     // Decision A: one Bound swap at a time into the same token, across tabs.
     const lock = acquireSwapLock(W, outToken.id);
     if (!lock) {
@@ -1009,13 +1053,15 @@ export function SwapApp() {
         rpc: getRpc(), prepared: toSend, walletSignedBytes: signed, ephemeral: E,
         onStatus: (s, signature) => {
           if (s !== 'sending') return;
-          // Recorded before anything is sent, so it is never lost (C-03).
-          sent.signature = signature;
+          // Recorded before anything is sent, and never sent unless recorded, so it is never lost
+          // (C-03, third audit F3): `addHistory` throws when this browser did not keep the record,
+          // and the send stops before its first request.
           setHistory(addHistory({
-            at: Date.now(), signature, status: 'pending',
+            at: Date.now(), signature, status: 'pending', owner: W,
             lastValidBlockHeight: toSend.lifetime.lastValidBlockHeight.toString(),
             ...texts, received: `at least ${texts.minimum}`,
           }));
+          sent.signature = signature;
         },
       });
       if (result.status === 'confirmed') {
@@ -1232,7 +1278,7 @@ export function SwapApp() {
           <p className="protection-title">
             <ShieldIcon /> Wallet authority protected
           </p>
-          <p className="protection-note">The swap can use only the amount you swap. It can&apos;t touch anything else in your wallet.</p>
+          <p className="protection-note">The swap can use only the amount you swap, and a market&apos;s account fee when one is shown. It can&apos;t touch anything else in your wallet.</p>
         </div>
 
         <div className="details">
@@ -1312,6 +1358,27 @@ export function SwapApp() {
         <button className="primary" onClick={onButton} disabled={busy || (!!W && !!blocker)}>
           {buttonLabel}
         </button>
+
+        {waitingOn.length > 0 && !busy && notice?.link !== solscan(waitingOn[0].signature) && (
+          <div className="banner info" role="status">
+            <p className="banner-title">Your last swap hasn&apos;t settled yet</p>
+            <p>
+              {waitingOn[0].over
+                ? "It can no longer go through, but the network can't prove whether it already did. Look it up on Solscan; once you have, you can swap again."
+                : 'Bound starts no new swap from this wallet until the network says whether the last one went through, so the same swap never runs twice. It checks again every few seconds.'}
+            </p>
+            <a href={solscan(waitingOn[0].signature)} target="_blank" rel="noreferrer">
+              View on Solscan
+            </a>
+            {waitingOn[0].over && (
+              <div className="banner-actions">
+                <button className="ghost" onClick={() => setHistory(updateHistory(waitingOn[0].signature, 'checked'))}>
+                  I&apos;ve checked it
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {notice && (
           <div className={`banner ${notice.kind}`} role="status">
