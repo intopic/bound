@@ -12,7 +12,8 @@ import {
   ataOf, ATA_PROGRAM, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
 } from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
-import { BoundError, DEFAULT_SETTINGS, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
+import { BoundError, DEFAULT_SETTINGS, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
+import type { SwapSettings } from '../src/swap.ts';
 import { jupiterFloor, jupiterRouteArgs } from '@bound/verifier';
 import type { JupiterRouteArgs } from '@bound/verifier';
 import { JupiterError } from '../src/client.ts';
@@ -46,6 +47,7 @@ async function prepare(output: Address, opts: {
   input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
   expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
   wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean; acceptedMinReceived?: bigint;
+  minFee?: SwapSettings['minFee'];
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   // The wallet holds the input token, unless a test says otherwise through `chain`.
@@ -59,7 +61,7 @@ async function prepare(output: Address, opts: {
         walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations, cashback: opts.cashback,
         pumpSlippage: opts.pumpSlippage, failBeforeSwap: opts.failBeforeSwap,
       }),
-      jupiter: opts.jupiter ?? fakeJupiter(), settings: { ...settings, treasury: opts.treasury ?? null },
+      jupiter: opts.jupiter ?? fakeJupiter(), settings: { ...settings, treasury: opts.treasury ?? null, ...(opts.minFee ? { minFee: opts.minFee } : {}) },
     },
     {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: opts.input ?? USDC, outputMint: output,
@@ -788,5 +790,24 @@ describe("Jupiter's floor, tightened to Bound's minimum (engineering review H-03
     const after = withFloorAtLeast(before, 999_000n);
     const changed = [...before.data].flatMap((b, i) => (b !== after.data![i] ? [i] : []));
     expect(changed).toEqual([24]);
+  });
+});
+
+describe('the smallest swap, about $1, so that none costs more to build than it brings (the owner rule)', () => {
+  const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
+  it('a fee in USDC below 3,000 base units ($0.003, the fee of $1) is refused; at $1 the swap is built', async () => {
+    const feeAccount: [Address, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
+    const small = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n, minFee: MIN_FEE }).catch((e: BoundError) => e);
+    expect((small as BoundError).code).toBe('amount-too-small');
+    expect((small as BoundError).message).toContain('about $1');
+    // settings.feeBps is the test default (20): $1.5 carries 3,000 units, the floor.
+    const enough = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 1_500_000n, minFee: MIN_FEE });
+    expect(enough.policy.fee).toBeGreaterThanOrEqual(MIN_FEE.stableUnits);
+  });
+
+  it('without the setting (test mode, a deployment that wants none) nothing is refused for its size', async () => {
+    const feeAccount: [Address, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
+    const small = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n });
+    expect(small.policy.fee).toBeGreaterThan(0n);
   });
 });

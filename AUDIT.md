@@ -969,11 +969,13 @@ SOL from the wallet at the swap's value. The verifier's ceiling stays at 1%.
   `BOUND_API_FEE_BPS`, if set) must say 30, then a rebuild.
 - The skill pins it: an agent's check refuses a fee above 30 bps unless the agent raises
   `maxFeeBps` itself, and `ownMinimum` and `ownSolFeeLimit` count 30 bps.
-- The skill pins the treasury too (24 September 2026): `BOUND_TREASURY`,
-  `6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm`. An agent's check refuses a fee paid to any other
-  wallet unless the agent names another treasury itself (for another Bound deployment). The
-  deployment's `NEXT_PUBLIC_BOUND_TREASURY` must be this address. While the wallet holds no token
-  accounts, every fee arrives in SOL (section 0w); it must hold some SOL first, or no fee is taken.
+- The skill pins the treasury too: `BOUND_TREASURY`, `5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw`
+  since 25 September 2026 (the owner's choice; `6jyyUacz…ModhQm` before). An agent's check refuses a
+  fee paid to any other wallet unless the agent names another treasury itself (for another Bound
+  deployment). The deployment's `NEXT_PUBLIC_BOUND_TREASURY` must be this address. The wallet exists
+  (it holds its rent minimum), so a fee in SOL can arrive; it has no USDC or USDT account, so pairs
+  with those pay in SOL, and a token it already holds an account for pays in that token when sold
+  (section 0t).
 - Against the research of 24 September 2026: trading bots around 1%, Phantom 0.85%, MetaMask 0.875%;
   Jupiter's own swap page 0 to 0.1% on most pairs, 0.5% on tokens under a day old.
 
@@ -1129,6 +1131,34 @@ one, TRTF, came to 1,234 bytes with the close, 2 over v0's 1,232, and is refused
 open (as v1 it builds, at 1,428 bytes, with the deposit returned; v1 stays off until a Bound v1 swap
 has landed). A refusal of that kind now says why ("would leave a market's deposit under the swap's
 one-time key") instead of "every route failed in simulation".
+
+---
+
+## 0zd. What a swap costs Bound, and a limit on it (25 September 2026)
+
+Measured in the browser against mainnet (Jupiter without a key, the test wallet): opening the page
+asks Jupiter once and the RPC three times; an idle page, nothing; an amount asks for a price and
+builds the swap ahead of the click (4 Jupiter, 9 RPC); the price refreshes itself three times and
+then waits; the click builds and verifies (2 Jupiter, 12 RPC), and sending and confirming add some
+10 to 20 RPC reads. A swap costs some 6 to 10 Jupiter requests and 35 to 50 RPC requests, a small
+share of a 0.3% fee at any size above a dollar. What cost more than it should: trying three amounts
+a second and a half apart asked Jupiter 18 times, because a build ahead started for every amount and
+none was cancelled.
+
+The owner's rule, applied:
+
+- A build ahead of the click starts only once the amount has stayed the same for 2 s, one at a time,
+  and at most three a minute per page (`AHEAD_SETTLE_MS`, `AHEAD_PER_MINUTE`). The click builds as
+  before when none is ready. Three amounts now cost 7 answered requests (browser smoke).
+- The smallest swap is about $1: the page says so before asking anything (`MIN_SWAP_USD`), and the
+  pipeline refuses a fee below 3,000 base units of USDC or USDT, or 20,000 lamports of SOL
+  (`MIN_FEE`, `amount-too-small`), on the page and in the agent API. A fee in another token has no
+  price there and is not held to it. Test mode, without a treasury, has no minimum.
+- Unchanged: no price is asked before an amount is entered; the price refreshes itself three times,
+  only while the page is visible; nothing is built ahead while Jupiter is busy.
+
+The treasury changed the same day, at the owner's request, to
+`5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw` (section 0x), pinned in the skill.
 
 ---
 

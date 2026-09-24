@@ -8,7 +8,7 @@ import type { Address, KeyPairSigner } from '@solana/kit';
 import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@bound/core';
 import type { FeeSide, TxVersion } from '@bound/core';
 import {
-  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, prepareProtectedSwap, quotedMinimum,
+  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, quotedMinimum,
   revertedOnPrice,
 } from '@bound/jupiter';
 import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
@@ -110,6 +110,12 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
 const MIN_BLOCKS_FOR_WALLET = 100n;
 /** A swap built ahead of the click is used only this soon after its build started (its price). */
 const AHEAD_MAX_AGE_MS = 20_000;
+/** A build ahead starts only once the amount has stayed the same this long (the owner's rule). */
+const AHEAD_SETTLE_MS = 2_000;
+/** And at most this many a minute, per page. */
+const AHEAD_PER_MINUTE = 3;
+/** The smallest swap Bound takes, in dollars, when the price is known (the pipeline holds to it too). */
+const MIN_SWAP_USD = 1;
 /**
  * Under load. A price Jupiter refused as busy is asked for again this many times, later each time;
  * after a busy answer the page builds nothing ahead of the click for a while, because every user
@@ -685,6 +691,8 @@ export function SwapApp() {
     if (!amountIn || amountIn <= 0n) return 'Enter an amount';
     if (amountIn > MAX_U64) return 'Amount is too large';
     if (swapAmount !== null && swapAmount <= 0n) return 'Amount is too small';
+    // Said before anything is asked of Jupiter or the chain; the pipeline holds to it too.
+    if (TREASURY && usdValue !== null && usdValue < MIN_SWAP_USD) return `Minimum swap: ${formatUsd(MIN_SWAP_USD)}`;
     if (balances && amountIn > balances.tokenIn) return `Insufficient ${tokenIn.symbol}`;
     const solNeeded = SOL_RESERVE_LAMPORTS + (tokenIn.id === SOL_MINT ? amountIn : 0n);
     if (balances && balances.sol < solNeeded) return 'Not enough SOL for network fees';
@@ -761,6 +769,8 @@ export function SwapApp() {
       excludeDexes: s.excludeDexes,
       maxNetworkFeeLamports: BigInt(s.maxNetworkFeeLamports),
       jupiterProgram: JUPITER_PROGRAM,
+      // The smallest swap, about $1: none costs more to build than its fee brings.
+      ...(TREASURY ? { minFee: MIN_FEE } : {}),
     },
   });
 
@@ -828,7 +838,13 @@ export function SwapApp() {
   // Built once per amount, for its first price (and again when the user refreshes it), not on every
   // automatic refresh; and not while Jupiter is busy, since a build nobody clicks on still spends
   // the site's shared quota.
-  const ahead = useRef<{ key: string; startedAt: number; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
+  //
+  // What a build ahead may cost (the owner's rule): it starts only once the amount has stayed the same
+  // for AHEAD_SETTLE_MS, one at a time, and at most AHEAD_PER_MINUTE a minute. Someone trying amounts
+  // costs a build or two, not one per keystroke; the click builds as before when none is ready.
+  const ahead = useRef<{ key: string; startedAt: number; settled: boolean; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
+  const aheadStarts = useRef<number[]>([]);
+  const [aheadSettledAt, setAheadSettledAt] = useState(0);
   useEffect(() => {
     if (phase !== 'idle' || blocker || !wallet || !W || !tokenIn || !tokenOut || !amountIn || !quote || !status || minReceived === null) return;
     if (inDecimals === null || outDecimals === null) return;
@@ -837,19 +853,32 @@ export function SwapApp() {
     if (version === null) return;
     const key = aheadKey(W, tokenIn.id, tokenOut.id, amountIn, quote.at, version, minReceived);
     if (ahead.current?.key === key) return;
+    // One at a time: a build still running for an older amount is left to finish, then this runs again.
+    if (ahead.current && !ahead.current.settled) return;
+    const now = Date.now();
+    aheadStarts.current = aheadStarts.current.filter(t => now - t < 60_000);
+    if (aheadStarts.current.length >= AHEAD_PER_MINUTE) return;
     const request = {
       owner: W, inputMint: address(tokenIn.id), outputMint: address(tokenOut.id), amountIn,
       inputDecimals: inDecimals, outputDecimals: outDecimals, acceptedMinReceived: minReceived, expectCurve: quote.curve, version,
     };
-    const task = (async () => {
-      const E = await createEphemeral();
-      return { prepared: await prepareProtectedSwap(swapDeps(status), { ...request, ephemeral: E }), E };
-    })().catch((e: unknown) => {
-      if (busyError(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
-      return null;
-    });
-    ahead.current = { key, startedAt: Date.now(), task };
-  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals, refreshes, minReceived]);
+    const timer = setTimeout(() => {
+      aheadStarts.current.push(Date.now());
+      const entry = { key, startedAt: Date.now(), settled: false, task: null as unknown as Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> };
+      entry.task = (async () => {
+        const E = await createEphemeral();
+        return { prepared: await prepareProtectedSwap(swapDeps(status), { ...request, ephemeral: E }), E };
+      })().catch((e: unknown) => {
+        if (busyError(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
+        return null;
+      }).finally(() => {
+        entry.settled = true;
+        setAheadSettledAt(Date.now());
+      });
+      ahead.current = entry;
+    }, AHEAD_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals, refreshes, minReceived, aheadSettledAt]);
 
   // --- the protected swap: build + verify → wallet signs first → re-verify → E signs last → send
   async function swap() {

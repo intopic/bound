@@ -221,6 +221,31 @@ try {
     await p.close();
   }
 
+  // The owner's rule on cost: someone trying amounts costs a build or two ahead of the click, not one
+  // per amount. Three amounts a second and a half apart asked Jupiter 18 times before the rule.
+  {
+    const p = await context.newPage();
+    // Answers Jupiter gave, not its 429s: without a key it refuses bursts, and the page asks again.
+    let builds = 0;
+    let refused = 0;
+    p.on('response', r => {
+      if (!r.url().includes('/api/jupiter/build')) return;
+      if (r.status() === 429) refused++;
+      else builds++;
+    });
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.getByRole('button', { name: 'Connect wallet' }).first().click();
+    await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
+    for (const amount of ['7', '9', '12']) {
+      await p.getByLabel('Amount to pay').fill(amount);
+      await p.waitForTimeout(1_500);
+    }
+    await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 30_000 });
+    await p.waitForTimeout(8_000);
+    check('trying three amounts costs a few price requests, not one build per amount', builds <= 8, `${builds} answered by Jupiter, ${refused} refused as busy`);
+    await p.close();
+  }
+
   const relevant = errors.filter(e => !/favicon/i.test(e));
   check('no errors in the browser console', relevant.length === 0, relevant.join(' | ').slice(0, 300) || `${jupiter429} Jupiter 429(s), retried`);
 } finally {

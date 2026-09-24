@@ -35,6 +35,8 @@ export type AgentDeps = {
   v1: boolean;
   /** Requests per minute per API key, for each endpoint. */
   perMinute: number;
+  /** The smallest fee a swap may carry (about $1 of swap); none when unset. */
+  minFee?: { lamports: bigint; stableUnits: bigint } | null;
   /**
    * The oldest skill version prepare serves (BOUND_MIN_SKILL_VERSION), or none. Only prepare asks:
    * a swap already signed is always finalized, whatever the copy of the skill that signed it.
@@ -191,6 +193,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
           excludeDexes: deps.excludeDexes,
           maxNetworkFeeLamports: deps.maxNetworkFeeLamports,
           jupiterProgram: JUPITER_PROGRAM,
+          ...(deps.minFee ? { minFee: deps.minFee } : {}),
         },
       },
       {

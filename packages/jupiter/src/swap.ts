@@ -8,7 +8,7 @@ import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
   LAMPORTS_PER_SIGNATURE, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
-  V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, USDC_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
+  V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
   PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@bound/core';
@@ -47,7 +47,27 @@ export type SwapSettings = BoundConfig & {
   /** v0 priority price; v1 uses `priorityFeeLamports`. */
   microLamportsPerComputeUnit: bigint;
   priorityFeeLamports: bigint;
+  /**
+   * The smallest fee a swap may carry, so that every swap pays for what building it costs (about $1
+   * of swap at 0.3%): in lamports when it is paid in SOL, in base units when in USDC or USDT. A fee
+   * in another token has no price here and is not held to it. None when unset (tests, test mode).
+   */
+  minFee?: { lamports: bigint; stableUnits: bigint };
 };
+
+/** About $1 of swap at 0.3%: 3,000 base units of USDC or USDT, 20,000 lamports of SOL. */
+export const MIN_FEE = { lamports: 20_000n, stableUnits: 3_000n } as const;
+export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Bound takes, about $1. Swap a larger amount.";
+
+/** Is a fee of `fee` in `feeMint` below the smallest one `minFee` allows? */
+function belowMinFee(fee: bigint, feeMint: Address, minFee: SwapSettings['minFee']): boolean {
+  if (!minFee) return false;
+  if (feeMint === WSOL_MINT) return fee < minFee.lamports;
+  if (feeMint === USDC_MINT || feeMint === USDT_MINT) return fee < minFee.stableUnits;
+  return false;
+}
+const feeMintOf = (p: Pick<Policy, 'feeSide' | 'inputMint' | 'outputMint'>): Address =>
+  p.feeSide === 'output' ? p.outputMint : p.feeSide === 'input' ? p.inputMint : WSOL_MINT;
 
 export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'> = {
   feeBps: 30n,
@@ -693,6 +713,10 @@ export async function prepareProtectedSwap(deps: {
     throw new BoundError('fee-unavailable', treasuryWalletReady ? FEE_UNPRICED_MESSAGE : FEE_UNAVAILABLE_MESSAGE);
   }
   if (settings.treasury && policy.feeSide !== 'output' && policy.fee <= 0n) throw new BoundError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
+  // The smallest swap, so that none costs more to build than its fee brings (the owner's rule).
+  if (settings.treasury && policy.feeSide !== 'output' && belowMinFee(policy.fee, feeMintOf(policy), settings.minFee)) {
+    throw new BoundError('amount-too-small', MIN_SWAP_MESSAGE);
+  }
 
   // The token keeps a cut of every transfer, including ours into the temporary account, so the
   // route must be quoted for what actually lands there.
@@ -1140,6 +1164,9 @@ export async function prepareProtectedSwap(deps: {
       // A fee on the output is a share of the minimum, known only now: a swap too small to carry it
       // is refused like any other swap whose fee cannot be collected (final audit, item 9).
       if (settings.treasury && chosenPolicy.fee <= 0n) throw new BoundError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
+      if (settings.treasury && belowMinFee(chosenPolicy.fee, feeMintOf(chosenPolicy), settings.minFee)) {
+        throw new BoundError('amount-too-small', MIN_SWAP_MESSAGE);
+      }
       const swapAccounts = chosen.r.swapInstruction.accounts.map(a => address(a.pubkey));
       // The snapshot for the verifier and the fresh blockhash, together (idea 21).
       const writable = chosen.r.swapInstruction.accounts.filter(a => a.isWritable).map(a => address(a.pubkey)).slice(0, 128);

@@ -32,7 +32,7 @@ The user provides these; never ask for them in chat, and never print or log them
   service that signs a transaction and hands it back unsent) as `wallet` to `protectedSwap`. The
   service's signature is used only once it verifies against the checked message, and a service that
   changes the transaction is refused. One that can only sign and send cannot be used: Bound signs last.
-- Bound's treasury is pinned in the skill: `6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm`. The fee goes there or
+- Bound's treasury is pinned in the skill: `5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw`. The fee goes there or
   nowhere; a swap whose fee goes to any other wallet is refused. `BOUND_TREASURY` names another
   treasury only for another Bound deployment.
 - `JUPITER_API_KEY`: for the agent's own price (free at https://developers.jup.ag/portal). Get one:
@@ -125,7 +125,8 @@ names the transaction (`signature`, `lastValidBlockHeight`); follow step 7 befor
 - `503 fee-unavailable`: Bound cannot collect its fee on this swap right now (its treasury is not
   ready, or the pair cannot be priced in SOL), so it built nothing. Wait the `Retry-After` and try
   again; Bound never builds a swap free instead.
-- `422 amount-too-small`: the amount is too small to carry Bound's fee. Swap a larger amount.
+- `422 amount-too-small`: the amount is below the smallest swap Bound takes, about $1 (a fee of 3,000
+  base units of USDC or USDT, or 20,000 lamports). Swap a larger amount.
 - `426 skill-outdated`: this copy of the skill is older than the deployment serves (`minimum`).
   Replace the skill folder with the current one; a swap already signed still finalizes.
 - `400 transaction-changed` / `wallet-changed-transaction`: the signed transaction differs from the

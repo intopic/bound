@@ -1,5 +1,5 @@
 import { address, isAddress } from '@solana/kit';
-import { createJupiterClient } from '@bound/jupiter';
+import { createJupiterClient, MIN_FEE } from '@bound/jupiter';
 import type { JupiterClient } from '@bound/jupiter';
 import { createRetryingRpc } from '@bound/solana';
 import type { SolanaRpc } from '@bound/solana';
@@ -91,6 +91,8 @@ export function agentDeps(): AgentDeps | null {
     v1: process.env.NEXT_PUBLIC_BOUND_ENABLE_V1 === '1',
     perMinute: Number.isInteger(perMinute) && perMinute > 0 ? perMinute : 60,
     minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
+    // The smallest swap, about $1, so that no swap costs more to build than it brings.
+    minFee: MIN_FEE,
   };
 }
 
