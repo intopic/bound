@@ -50,6 +50,12 @@ export type AgentLimits = {
    * curve keeps about 0.00013 SOL of every buy for growing its own account.
    */
   maxRouteCostLamports?: number;
+  /**
+   * The most Bound's fee may be in lamports when it is paid in SOL from the wallet: a swap between
+   * two tokens neither of which can carry it pays `feeBps` of its value in SOL, at a price the rules
+   * cannot see. Required for such a swap; `ownSolFeeLimit` asks Jupiter for it.
+   */
+  maxSolFeeLamports?: number;
 };
 
 /** The parts of a /api/v1/prepare answer the check reads. */
@@ -105,6 +111,14 @@ export async function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits
   if (limits.treasury && p.treasury !== null && p.treasury !== limits.treasury) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
   if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1_000_000)) {
     problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
+  }
+  // A fee in SOL from the wallet is priced by the server; the agent holds it to a price of its own.
+  if (p.feeSide === 'sol') {
+    if (limits.maxSolFeeLamports === undefined) {
+      problems.push('the Bound fee is paid in SOL at a price the check cannot see: set maxSolFeeLamports from a price you got yourself (ownSolFeeLimit asks Jupiter)');
+    } else if (p.fee > BigInt(limits.maxSolFeeLamports)) {
+      problems.push(`the Bound fee in SOL is ${p.fee} lamports, above your limit of ${limits.maxSolFeeLamports}`);
+    }
   }
   // Rent that does not come back is a cost of its own, apart from the network fee (M-05).
   const routeCost = p.takerRent - p.routeRefund;
@@ -215,4 +229,30 @@ export async function ownMinimum(args: {
   const curve = r.swapInstruction?.accounts?.some(a => a.pubkey === PUMP_CURVE_PROGRAM) ?? false;
   const below = BigInt(args.maxBelowBps ?? (curve ? 500 : 200));
   return ((BigInt(r.outAmount!) * (10_000n - below)) / 10_000n).toString();
+}
+
+/**
+ * The most Bound's fee in SOL may be for a swap that neither token can carry the fee for, from a
+ * price the agent asks Jupiter for itself: `maxFeeBps` (default 50) of what `amountIn` of the input
+ * is worth in SOL, plus 2% for the price moving between the server's quote and this one. In
+ * lamports.
+ */
+export async function ownSolFeeLimit(args: {
+  inputMint: string; amountIn: string; taker: string;
+  maxFeeBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
+}): Promise<number> {
+  const url = new URL(args.jupiterUrl ?? 'https://api.jup.ag/swap/v2/build');
+  const query = {
+    inputMint: args.inputMint, outputMint: 'So11111111111111111111111111111111111111112', amount: args.amountIn,
+    taker: args.taker, slippageBps: '50', maxAccounts: '64',
+  };
+  for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
+  const res = await (args.fetchImpl ?? fetch)(url.toString(), { headers: args.apiKey ? { 'x-api-key': args.apiKey } : {} });
+  if (!res.ok) throw new Error(`Jupiter answered ${res.status} when asked for the value of your swap in SOL`);
+  const r = (await res.json()) as { inputMint?: string; outputMint?: string; inAmount?: string; outAmount?: string };
+  if (r.inputMint !== args.inputMint || r.outputMint !== query.outputMint || r.inAmount !== args.amountIn || !/^\d{1,20}$/.test(r.outAmount ?? '')) {
+    throw new Error('Jupiter answered for another trade when asked for the value of your swap in SOL');
+  }
+  const fee = (BigInt(r.outAmount!) * BigInt(args.maxFeeBps ?? 50)) / 10_000n;
+  return Number(fee + fee / 50n);
 }

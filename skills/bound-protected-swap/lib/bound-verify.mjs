@@ -478,10 +478,12 @@ async function verify(transaction, policy, snapshot) {
 	const inputMintState = snapshot.accounts.get(p.inputMint);
 	const inputFee = !!inputMintState && inputProgram === TOKEN_2022_PROGRAM && hasTransferFee(inputMintState.data);
 	if (inputMintState && p.inputTransferFee !== inputFee) fail("R2", `policy says the input mint ${p.inputTransferFee ? "charges" : "does not charge"} a transfer fee, the mint says otherwise`);
-	if (p.feeSide !== null && p.feeSide !== "input" && p.feeSide !== "output") fail("R2", "the policy names no fee side Bound knows");
+	if (p.feeSide !== null && p.feeSide !== "input" && p.feeSide !== "output" && p.feeSide !== "sol") fail("R2", "the policy names no fee side Bound knows");
 	if (p.treasury === null !== (p.feeSide === null)) fail("R2", "the policy has a treasury without a fee side, or the other way round");
 	if (p.feeSide === "output" && !FEE_TOKENS.includes(p.outputMint)) fail("R2", "a fee on the output is taken only in SOL, USDC or USDT");
-	const expectedFee = !p.treasury ? 0n : p.feeSide === "output" ? p.minOut * p.feeBps / BPS_DENOMINATOR : p.amountIn * p.feeBps / BPS_DENOMINATOR;
+	if (p.feeSide === "sol" && (A || B)) fail("R2", "a fee in SOL from the wallet is only for a swap with no SOL on either side");
+	if (p.feeSide === "sol" && p.fee < 0n) fail("R2", "policy amounts are inconsistent");
+	const expectedFee = !p.treasury ? 0n : p.feeSide === "output" ? p.minOut * p.feeBps / BPS_DENOMINATOR : p.feeSide === "sol" ? p.fee : p.amountIn * p.feeBps / BPS_DENOMINATOR;
 	const feeOnInput = p.feeSide === "input" ? p.fee : 0n;
 	if (p.fee !== expectedFee || p.swapAmount + feeOnInput !== p.amountIn || p.swapAmount <= 0n) fail("R2", "policy amounts are inconsistent");
 	if (p.inputMint === p.outputMint) fail("R2", "input and output token are the same");
@@ -512,7 +514,7 @@ async function verify(transaction, policy, snapshot) {
 		eOut: A ? await ata(E, WSOL_MINT) : null,
 		wIn: B ? null : await ata(W, p.inputMint, inputProgram),
 		wOut: A ? null : await ata(W, p.outputMint, outputProgram),
-		feeDestination: !p.treasury || !p.feeSide ? null : p.feeSide === "input" ? B ? p.treasury : await ata(p.treasury, p.inputMint, inputProgram) : A ? p.treasury : await ata(p.treasury, p.outputMint, outputProgram)
+		feeDestination: !p.treasury || !p.feeSide ? null : p.feeSide === "sol" ? p.treasury : p.feeSide === "input" ? B ? p.treasury : await ata(p.treasury, p.inputMint, inputProgram) : A ? p.treasury : await ata(p.treasury, p.outputMint, outputProgram)
 	};
 	const acc = p.accounts;
 	if (acc.eIn !== expected.eIn || acc.eOut !== expected.eOut || acc.wIn !== expected.wIn || acc.wOut !== expected.wOut || acc.feeDestination !== expected.feeDestination || (acc.routeAccount ?? null) !== expected.routeAccount || (acc.routeEventAuthority ?? null) !== expected.routeEventAuthority) fail("R2", "policy accounts do not match their derivation");
@@ -641,6 +643,7 @@ async function verify(transaction, policy, snapshot) {
 			if (B && x.from === W && x.to === eIn && x.lamports === p.swapAmount) put("transferIn", i);
 			else if (B && p.feeSide === "input" && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put("feeTransfer", i);
 			else if (A && p.feeSide === "output" && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put("feeTransfer", i);
+			else if (p.feeSide === "sol" && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put("feeTransfer", i);
 			else if (p.takerRent > 0n && x.from === W && x.to === E && x.lamports === p.takerRent) put("takerRent", i);
 			else if (p.routeRefund > 0n && x.from === E && x.to === W && x.lamports === p.routeRefund) put("routeRefund", i);
 			else fail("R2", `instruction ${i}: unexpected SOL transfer of ${x.lamports} lamports`);
@@ -901,6 +904,10 @@ async function verifyPrepared(prepared, limits, rpc) {
 	if (p.feeBps > BigInt(limits.maxFeeBps ?? 50)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
 	if (limits.treasury && p.treasury !== null && p.treasury !== limits.treasury) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
 	if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1e6)) problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
+	if (p.feeSide === "sol") {
+		if (limits.maxSolFeeLamports === void 0) problems.push("the Bound fee is paid in SOL at a price the check cannot see: set maxSolFeeLamports from a price you got yourself (ownSolFeeLimit asks Jupiter)");
+		else if (p.fee > BigInt(limits.maxSolFeeLamports)) problems.push(`the Bound fee in SOL is ${p.fee} lamports, above your limit of ${limits.maxSolFeeLamports}`);
+	}
 	const routeCost = p.takerRent - p.routeRefund;
 	const maxRouteCost = BigInt(limits.maxRouteCostLamports ?? 1e6);
 	if (routeCost > maxRouteCost) problems.push(`the route keeps ${routeCost} lamports of rent that do not come back, above your limit of ${maxRouteCost} (maxRouteCostLamports)`);
@@ -999,5 +1006,29 @@ async function ownMinimum(args) {
 	const below = BigInt(args.maxBelowBps ?? (curve ? 500 : 200));
 	return (BigInt(r.outAmount) * (10000n - below) / 10000n).toString();
 }
+/**
+* The most Bound's fee in SOL may be for a swap that neither token can carry the fee for, from a
+* price the agent asks Jupiter for itself: `maxFeeBps` (default 50) of what `amountIn` of the input
+* is worth in SOL, plus 2% for the price moving between the server's quote and this one. In
+* lamports.
+*/
+async function ownSolFeeLimit(args) {
+	const url = new URL(args.jupiterUrl ?? "https://api.jup.ag/swap/v2/build");
+	const query = {
+		inputMint: args.inputMint,
+		outputMint: "So11111111111111111111111111111111111111112",
+		amount: args.amountIn,
+		taker: args.taker,
+		slippageBps: "50",
+		maxAccounts: "64"
+	};
+	for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
+	const res = await (args.fetchImpl ?? fetch)(url.toString(), { headers: args.apiKey ? { "x-api-key": args.apiKey } : {} });
+	if (!res.ok) throw new Error(`Jupiter answered ${res.status} when asked for the value of your swap in SOL`);
+	const r = await res.json();
+	if (r.inputMint !== args.inputMint || r.outputMint !== query.outputMint || r.inAmount !== args.amountIn || !/^\d{1,20}$/.test(r.outAmount ?? "")) throw new Error("Jupiter answered for another trade when asked for the value of your swap in SOL");
+	const fee = BigInt(r.outAmount) * BigInt(args.maxFeeBps ?? 50) / 10000n;
+	return Number(fee + fee / 50n);
+}
 //#endregion
-export { ownMinimum, verifyPrepared };
+export { ownMinimum, ownSolFeeLimit, verifyPrepared };

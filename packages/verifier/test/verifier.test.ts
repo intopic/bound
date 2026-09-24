@@ -839,6 +839,46 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     expect(rules(await verify(mutated(s, elsewhere), s.policy, s.snapshot))).toContain('R2');
   });
 
+  it('a pair neither token of which can carry the fee pays it in SOL, from the wallet, before the swap', async () => {
+    const s = await scenario({ input: JUP, output: BONK, feeAccountExists: false, solFee: 1_234_567n });
+    expect(s.policy.feeSide).toBe('sol');
+    expect(s.policy.fee).toBe(1_234_567n);
+    expect(s.policy.swapAmount).toBe(s.policy.amountIn);
+    expect(s.policy.accounts.feeDestination).toBe(s.treasury);
+    for (const version of [0, 1] as const) expect((await verify(await compileHonest(s, version), s.policy, s.snapshot)).violations).toEqual([]);
+    const ixs = honest(s);
+    expect(feeIndex(ixs, s)).toBeLessThan(swapIndex(ixs));
+  });
+
+  it('a fee in SOL that is larger, goes elsewhere, comes after the swap, or is left out, is refused', async () => {
+    const s = await scenario({ input: JUP, output: BONK, feeAccountExists: false, solFee: 1_234_567n });
+    const ixs = honest(s);
+    const at = feeIndex(ixs, s);
+    const W = createNoopSigner(s.W);
+    const larger = [...ixs];
+    larger[at] = getTransferSolInstruction({ source: W, destination: s.policy.accounts.feeDestination!, amount: s.policy.fee + 1n });
+    expect(rules(await verify(mutated(s, larger), s.policy, s.snapshot))).toContain('R2');
+    const elsewhere = [...ixs];
+    elsewhere[at] = getTransferSolInstruction({ source: W, destination: await randomAddress(), amount: s.policy.fee });
+    expect(rules(await verify(mutated(s, elsewhere), s.policy, s.snapshot))).toContain('R2');
+    const late = [...ixs];
+    const [fee] = late.splice(at, 1);
+    late.splice(swapIndex(late) + 1, 0, fee);
+    expect(details(await verify(mutated(s, late), s.policy, s.snapshot)).join()).toContain('feeTransfer must run before the swap');
+    const left = ixs.filter((_, i) => i !== at);
+    expect((await verify(mutated(s, left), s.policy, s.snapshot)).ok).toBe(false);
+  });
+
+  it('a fee in SOL is only for a pair without SOL, and without a price or a treasury wallet the pair is fee-free', async () => {
+    const a = await scenario({ input: BONK, output: WSOL_MINT, feeAccountExists: false });
+    const solSide = { ...a.policy, feeSide: 'sol' as const };
+    expect(details(await verify(await compileHonest(a, 0), solSide, a.snapshot)).join()).toContain('only for a swap with no SOL');
+    expect((await scenario({ input: JUP, output: BONK, feeAccountExists: false })).policy.feeSide).toBeNull();
+    expect((await scenario({ input: JUP, output: BONK, feeAccountExists: false, solFee: 5n, treasuryWalletReady: false })).policy.feeSide).toBeNull();
+    // A token the treasury holds an account for still pays in that token, exactly.
+    expect((await scenario({ input: JUP, output: BONK, solFee: 5n })).policy.feeSide).toBe('input');
+  });
+
   it('a policy that takes the fee from an output other than SOL, USDC or USDT, or states another amount, is refused', async () => {
     const s = await scenario({ input: USDC, output: BONK });
     const outputSide = { ...s.policy, feeSide: 'output' as const, swapAmount: s.policy.amountIn, fee: (s.policy.minOut * s.policy.feeBps) / 10_000n };

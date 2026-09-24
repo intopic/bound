@@ -57,15 +57,21 @@ export function feeFor(amountIn: bigint, config: Pick<BoundConfig, 'feeBps' | 't
 /**
  * Which side of the swap the fee is taken from, the way Jupiter takes its own: SOL first, then USDC,
  * then USDT, on whichever side of the swap they are, when the treasury can receive them; otherwise
- * the input token, when it can; otherwise none. A memecoin sold for SOL pays in SOL, which the
- * treasury can always receive, where it could never hold an account for every new token.
+ * the input token, when it can; otherwise SOL from the wallet, when the swap could be priced in SOL
+ * (`sol`); otherwise none. A memecoin sold for SOL pays in SOL, which the treasury can always
+ * receive, where it could never hold an account for every new token; a swap between two such
+ * tokens pays in SOL too, at its value.
  */
-export function feeSideFor(inputMint: Address, outputMint: Address, canReceive: { input: boolean; output: boolean }): FeeSide | null {
+export function feeSideFor(
+  inputMint: Address, outputMint: Address, canReceive: { input: boolean; output: boolean; sol?: boolean },
+): FeeSide | null {
   for (const mint of FEE_TOKENS) {
     if (inputMint === mint && canReceive.input) return 'input';
     if (outputMint === mint && canReceive.output) return 'output';
   }
-  return canReceive.input ? 'input' : null;
+  if (canReceive.input) return 'input';
+  // No token of the swap can carry it: the fee is paid in SOL from the wallet (see `Policy.feeSide`).
+  return canReceive.sol ? 'sol' : null;
 }
 
 /** A fee on the output: `feeBps` of the minimum Bound enforces, never of more than will surely arrive. */
@@ -164,6 +170,11 @@ export async function buildPolicy(args: {
   treasuryWalletReady?: boolean;
   /** Minimum output Bound enforces; usually set later from the chosen route (see `withMinOut`). */
   minOut?: bigint;
+  /**
+   * The fee in lamports when no token of the swap can carry it: `feeBps` of what the swap is worth
+   * in SOL, priced by the caller. Without it (or at 0) such a swap is fee-free.
+   */
+  solFee?: bigint;
 }): Promise<Policy> {
   const { intent, ephemeral, config } = args;
   if (intent.inputMint === intent.outputMint) throw new PolicyError('Input and output token are the same');
@@ -180,16 +191,18 @@ export async function buildPolicy(args: {
     ? feeSideFor(intent.inputMint, intent.outputMint, {
       input: intent.inputMint === WSOL_MINT ? wallet : args.feeAccountExists,
       output: intent.outputMint === WSOL_MINT ? wallet : args.outputFeeAccountExists ?? false,
+      sol: wallet && (args.solFee ?? 0n) > 0n,
     })
     : null;
   const treasury = feeSide ? config.treasury : null;
   const minOut = args.minOut ?? 0n;
   const fee = feeSide === 'input' ? feeFor(intent.amountIn, { feeBps: config.feeBps, treasury })
-    : feeSide === 'output' ? outputFeeFor(minOut, config.feeBps) : 0n;
+    : feeSide === 'output' ? outputFeeFor(minOut, config.feeBps)
+      : feeSide === 'sol' ? args.solFee! : 0n;
   const swapAmount = intent.amountIn - (feeSide === 'input' ? fee : 0n);
   if (swapAmount <= 0n) throw new PolicyError('Amount is too small to cover the fee');
 
-  const feeMint = feeSide === 'input' ? intent.inputMint : intent.outputMint;
+  const feeMint = feeSide === 'input' ? intent.inputMint : feeSide === 'output' ? intent.outputMint : WSOL_MINT;
   const feeDestination = !feeSide ? null
     : feeMint === WSOL_MINT ? treasury : await ataOf(treasury!, feeMint, feeSide === 'input' ? inProgram : outProgram);
 

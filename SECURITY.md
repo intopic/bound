@@ -70,7 +70,11 @@ user pay rent for Bound's own fee account.
 The fee (0.5%) is taken in the order Jupiter prefers for its own (its pricing and token list differ):
 in SOL first, then USDC, then USDT, on
 whichever side of the swap they are and the treasury can receive them; otherwise in the input token
-when the treasury has an account for it; otherwise the swap is fee-free. On the input it is 0.5% of
+when the treasury has an account for it; otherwise in SOL from the wallet, 0.5% of what the swap is
+worth in SOL as Jupiter prices it for the one-time key when the swap is built, paid before the swap
+to the treasury wallet; otherwise (no treasury wallet yet, or no price in SOL) the swap is
+fee-free. The verifier checks where that SOL fee goes and when, not its price: the page shows it
+before the wallet opens, and an agent's check holds it to a price of the agent's own. On the input it is 0.5% of
 the amount, paid before the swap. On the output it is 0.5% of the enforced minimum, paid after the
 minimum is checked (from the wallet once E_out has paid out, for SOL; from `W_out`, for USDC or
 USDT): the minimum the user sees and accepts is what the wallet keeps after it, and the fee is never
@@ -346,7 +350,7 @@ Bound simple; it never ran in the setup Bound uses, and bringing it back would b
 - Upstream changes: Jupiter, Pump.fun and Token-2022 are upgraded while Bound runs (on 24 September
   2026 the Pump curve program was half a day old and Jupiter's two days; the canary prints the dates
   each run), and a Jupiter instruction the verifier cannot read stops every swap with `route-format`
-  ("waiting for an update"). `node tools/canary.ts` builds and simulates six swaps on mainnet state,
+  ("waiting for an update"). `node tools/canary.ts` builds and simulates seven swaps on mainnet state,
   each with its fee where it belongs (SOL on either side, USDC from the output), one as a v1
   transaction, and Pump.fun buys on the curve and on PumpSwap; it fails on such a change, on a fee
   that is no longer taken where it should be, and exits 2 when nothing could be checked at all

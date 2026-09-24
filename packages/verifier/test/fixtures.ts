@@ -104,6 +104,8 @@ export async function scenario(opts: {
   outputFeeAccountExists?: boolean;
   /** Whether the treasury wallet exists to receive a fee in SOL; true unless a test says otherwise. */
   treasuryWalletReady?: boolean;
+  /** The fee in lamports for a pair neither token of which can carry it, as a builder priced it. */
+  solFee?: bigint;
   intermediates?: number;
   poolCount?: number;
   owner?: KeyPairSigner;
@@ -139,6 +141,7 @@ export async function scenario(opts: {
     feeAccountExists: opts.feeAccountExists ?? true,
     outputFeeAccountExists: opts.outputFeeAccountExists,
     treasuryWalletReady: opts.treasuryWalletReady,
+    solFee: opts.solFee,
   });
 
   const intermediates: IntermediateAta[] = [];

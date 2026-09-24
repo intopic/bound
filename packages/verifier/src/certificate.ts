@@ -5,7 +5,7 @@ import type { ChainSnapshot, Policy, Violation } from '@bound/core/types';
 import { verify } from './verify.ts';
 
 /** Changes whenever a rule changes; every certificate names the verifier that issued it. */
-export const VERIFIER_VERSION = '0.7.0';
+export const VERIFIER_VERSION = '0.8.0';
 
 /**
  * What a verified transaction does, in terms a person or a wallet can check. It is issued only after
@@ -45,6 +45,12 @@ export type Certificate = {
     boundFee: bigint;
     feeDestination: Address | null;
   };
+  /**
+   * The Bound fee when neither token of the swap can carry it: paid in SOL from the wallet to the
+   * treasury wallet, before the swap, at what the swap was worth in SOL when it was built; 0
+   * otherwise. The verifier checks where it goes and when, not the price it was computed at.
+   */
+  solFee: { lamports: bigint; destination: Address | null };
   networkFeeLimitLamports: bigint;
   /** Rent W sends the temporary key for an account the route opens in its name; usually 0. */
   routeRentLamports: bigint;
@@ -110,6 +116,10 @@ export async function certify(transaction: Transaction, policy: Policy, snapshot
         minimumOutput: policy.feeSide === 'output' ? policy.minOut - policy.fee : policy.minOut,
         boundFee: policy.feeSide === 'output' ? policy.fee : 0n,
         feeDestination: policy.feeSide === 'output' ? policy.accounts.feeDestination : null,
+      },
+      solFee: {
+        lamports: policy.feeSide === 'sol' ? policy.fee : 0n,
+        destination: policy.feeSide === 'sol' ? policy.accounts.feeDestination : null,
       },
       networkFeeLimitLamports: feeLimit,
       routeRentLamports: policy.takerRent,

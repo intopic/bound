@@ -670,6 +670,36 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     expect(moved.newMinReceived).toBe(moved.newMinOut - (moved.newMinOut * settings.feeBps) / 10_000n);
   });
 
+  it('a pair neither token of which can carry the fee pays it in SOL, at its value priced for the one-time key', async () => {
+    const asked: BuildParams[] = [];
+    const prepared = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: fakeJupiter({ asked }) });
+    expect(prepared.policy.feeSide).toBe('sol');
+    const pricing = asked.find(p => p.outputMint === WSOL_MINT)!;
+    // Jupiter never learns the wallet: the value is asked for the one-time key, for the whole amount.
+    expect(pricing.taker).toBe(prepared.policy.ephemeral);
+    expect(pricing.amount).toBe(prepared.policy.amountIn);
+    expect(prepared.policy.fee).toBe((OUT * settings.feeBps) / 10_000n);
+    expect(prepared.policy.swapAmount).toBe(prepared.policy.amountIn);
+    expect(prepared.certificate.solFee.lamports).toBe(prepared.policy.fee);
+  });
+
+  it('without a treasury wallet, or a price in SOL, such a pair is fee-free; a busy Jupiter is busy', async () => {
+    expect((await prepare(USDC, { input: BONK, treasury: TREASURY })).policy.feeSide).toBeNull();
+    const base = fakeJupiter();
+    const pricedWith = (error: JupiterError): JupiterClient => ({
+      ...base,
+      build: async (p: BuildParams) => {
+        if (p.outputMint === WSOL_MINT) throw error;
+        return base.build(p);
+      },
+    });
+    const unpriced = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(new JupiterError('Jupiter 400: No routes found', 400)) });
+    expect(unpriced.policy.feeSide).toBeNull();
+    const busy = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(new JupiterError('Jupiter 429', 429)) })
+      .catch((e: BoundError) => e);
+    expect((busy as BoundError).code).toBe('busy');
+  });
+
   it('a fee side that changes between the quote and the build keeps the minimum the page showed (engineering review H-04)', async () => {
     // Quoted while the treasury had no wallet: fee-free, and the page showed this minimum.
     const quoted = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY });

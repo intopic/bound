@@ -48,7 +48,10 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
    `amountIn` includes Bound's 0.5% fee when it is taken in the input token. In the order Jupiter prefers for its own, the
    fee is taken in SOL first, then USDC or USDT, on whichever side of the swap they are
    (`amounts.feeMint`); taken from the output, it comes out of what arrives, and `amounts.minOut` is
-   what the wallet keeps after it. Your `minOut` means the same: what the wallet keeps.
+   what the wallet keeps after it. Your `minOut` means the same: what the wallet keeps. A swap between
+   two tokens neither of which can carry it pays the fee in SOL from the wallet, 0.5% of its value in
+   SOL (`policy.feeSide` is `sol`); hold it to a price of your own with `maxSolFeeLamports`
+   (`ownSolFeeLimit` from `lib/bound-verify.mjs` asks Jupiter; the example does it).
 3. **Verify before signing** with `checkPrepared(prepared, intent, rpc)`. Refuse to sign if it
    returns any problem. It checks:
    - that the answer agrees with itself and with what you asked: tokens, amount, wallet, fee at most

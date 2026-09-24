@@ -390,12 +390,17 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   // Re-derive the policy's numbers and accounts instead of trusting them. The fee is taken on one
   // side (like Jupiter's: SOL first, then USDC and USDT, otherwise the input token): on the input,
   // feeBps of the amount, before the swap; on the output, feeBps of the enforced minimum, after it,
-  // and only in SOL, USDC or USDT.
-  if (p.feeSide !== null && p.feeSide !== 'input' && p.feeSide !== 'output') fail('R2', 'the policy names no fee side Bound knows');
+  // and only in SOL, USDC or USDT. A pair without SOL pays in SOL from the wallet instead (`sol`),
+  // before the swap, at a price the verifier cannot see: that amount is the policy's own statement,
+  // held to a price by the page that built it or by the agent's own (the skill).
+  if (p.feeSide !== null && p.feeSide !== 'input' && p.feeSide !== 'output' && p.feeSide !== 'sol') fail('R2', 'the policy names no fee side Bound knows');
   if ((p.treasury === null) !== (p.feeSide === null)) fail('R2', 'the policy has a treasury without a fee side, or the other way round');
   if (p.feeSide === 'output' && !FEE_TOKENS.includes(p.outputMint)) fail('R2', 'a fee on the output is taken only in SOL, USDC or USDT');
+  if (p.feeSide === 'sol' && (A || B)) fail('R2', 'a fee in SOL from the wallet is only for a swap with no SOL on either side');
+  if (p.feeSide === 'sol' && p.fee < 0n) fail('R2', 'policy amounts are inconsistent');
   const expectedFee = !p.treasury ? 0n
-    : p.feeSide === 'output' ? (p.minOut * p.feeBps) / BPS_DENOMINATOR : (p.amountIn * p.feeBps) / BPS_DENOMINATOR;
+    : p.feeSide === 'output' ? (p.minOut * p.feeBps) / BPS_DENOMINATOR
+      : p.feeSide === 'sol' ? p.fee : (p.amountIn * p.feeBps) / BPS_DENOMINATOR;
   const feeOnInput = p.feeSide === 'input' ? p.fee : 0n;
   if (p.fee !== expectedFee || p.swapAmount + feeOnInput !== p.amountIn || p.swapAmount <= 0n) {
     fail('R2', 'policy amounts are inconsistent');
@@ -434,6 +439,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     wIn: B ? null : await ata(W, p.inputMint, inputProgram),
     wOut: A ? null : await ata(W, p.outputMint, outputProgram),
     feeDestination: !p.treasury || !p.feeSide ? null
+      : p.feeSide === 'sol' ? p.treasury
       : p.feeSide === 'input' ? (B ? p.treasury : await ata(p.treasury, p.inputMint, inputProgram))
       : A ? p.treasury : await ata(p.treasury, p.outputMint, outputProgram),
   };
@@ -592,6 +598,8 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
         else if (B && p.feeSide === 'input' && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put('feeTransfer', i);
         // A fee on a SOL output: from the wallet, which E_out has paid out to, to the treasury wallet.
         else if (A && p.feeSide === 'output' && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put('feeTransfer', i);
+        // A fee in SOL for a pair without SOL: from the wallet to the treasury wallet, before the swap.
+        else if (p.feeSide === 'sol' && p.fee > 0n && x.from === W && x.to === feeDestination && x.lamports === p.fee) put('feeTransfer', i);
         else if (p.takerRent > 0n && x.from === W && x.to === E && x.lamports === p.takerRent) put('takerRent', i);
         else if (p.routeRefund > 0n && x.from === E && x.to === W && x.lamports === p.routeRefund) put('routeRefund', i);
         else fail('R2', `instruction ${i}: unexpected SOL transfer of ${x.lamports} lamports`);

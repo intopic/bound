@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { minimumForReceived, outputFeeFor } from '../src/index.ts';
+import { feeSideFor, minimumForReceived, outputFeeFor, WSOL_MINT } from '../src/index.ts';
+import type { Address } from '@solana/kit';
 
 /** What the wallet keeps of a minimum, after a fee from the output. */
 const keeps = (gross: bigint, feeBps: bigint) => gross - outputFeeFor(gross, feeBps);
@@ -26,5 +27,25 @@ describe('the minimum that keeps what the user accepted (engineering review L-10
       expect(keeps(gross, 20n)).toBeGreaterThanOrEqual(received);
       expect(keeps(gross - 1n, 20n)).toBeLessThan(received);
     }
+  });
+});
+
+describe('which token pays the fee (every swap pays)', () => {
+  const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' as Address;
+  const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263' as Address;
+  const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm' as Address;
+  const none = { input: false, output: false };
+
+  it('SOL, USDC and USDT first, then the input token, then SOL from the wallet', () => {
+    expect(feeSideFor(BONK, WSOL_MINT, { input: false, output: true, sol: true })).toBe('output');
+    expect(feeSideFor(USDC, BONK, { input: true, output: false, sol: true })).toBe('input');
+    expect(feeSideFor(BONK, WIF, { input: true, output: false, sol: true })).toBe('input');
+    expect(feeSideFor(BONK, WIF, { ...none, sol: true })).toBe('sol');
+    expect(feeSideFor(USDC, BONK, { ...none, sol: true })).toBe('sol');
+  });
+
+  it('with no way to receive anything, the swap is fee-free', () => {
+    expect(feeSideFor(BONK, WIF, none)).toBeNull();
+    expect(feeSideFor(BONK, WIF, { ...none, sol: false })).toBeNull();
   });
 });

@@ -9,7 +9,7 @@ import {
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
   LAMPORTS_PER_SIGNATURE, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
-  PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, minimumForReceived, minimumReceived, outputFeeFor,
+  PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@bound/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
@@ -328,6 +328,30 @@ export function strictMinimumOutput(
 }
 
 /**
+ * The fee in lamports for a swap no token of which can carry it: `feeBps` of what `amount` of the
+ * input is worth in SOL, as Jupiter prices it for the one-time key (never the wallet). Undefined when
+ * Jupiter cannot price it, or answers for another trade: the swap is then fee-free. A busy Jupiter
+ * is busy, as for the route itself.
+ */
+export async function feeInSol(
+  jupiter: JupiterClient,
+  args: { inputMint: Address; amount: bigint; taker: Address; slippageBps: number; feeBps: bigint },
+): Promise<bigint | undefined> {
+  try {
+    const r = await jupiter.build({
+      inputMint: args.inputMint, outputMint: WSOL_MINT, amount: args.amount, taker: args.taker, slippageBps: args.slippageBps, maxAccounts: 64,
+    });
+    if (r.inputMint !== args.inputMint || r.outputMint !== WSOL_MINT || BigInt(r.inAmount) !== args.amount || !/^\d{1,20}$/.test(r.outAmount)) {
+      return undefined;
+    }
+    return (BigInt(r.outAmount) * args.feeBps) / 10_000n;
+  } catch (e) {
+    if (e instanceof JupiterError && e.status === 429) throw new BoundError('busy', BUSY_MESSAGE);
+    return undefined;
+  }
+}
+
+/**
  * Jupiter's instruction with its own floor raised to Bound's minimum, when the minimum the user
  * accepted is above the route's (engineering review H-03). Jupiter's floor counts only what its
  * route delivered to the output account, so it holds when other tokens reach that account at the
@@ -544,9 +568,10 @@ export async function prepareProtectedSwap(deps: {
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
     .then(BigInt)
     .catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS);
-  // A fee in SOL goes to the treasury wallet itself, so it is read whenever SOL is on either side
-  // (BR-06, below). A fee on a USDC or USDT output goes to the treasury's account for it.
-  const treasuryWallet = settings.treasury && (req.inputMint === WSOL_MINT || req.outputMint === WSOL_MINT) ? [settings.treasury] : [];
+  // A fee in SOL goes to the treasury wallet itself, so it is read whenever there is a treasury: SOL
+  // on either side pays there (BR-06, below), and so does a pair no token of which can carry the fee.
+  // A fee on a USDC or USDT output goes to the treasury's account for it.
+  const treasuryWallet = settings.treasury ? [settings.treasury] : [];
   const outputFeeCandidates = settings.treasury && req.outputMint !== WSOL_MINT && FEE_TOKENS.includes(req.outputMint)
     ? await Promise.all(bothPrograms.map(tp => ataOf(settings.treasury!, req.outputMint, tp)))
     : [];
@@ -616,6 +641,22 @@ export async function prepareProtectedSwap(deps: {
   // which the runtime refuses, and every small swap would revert. Until the wallet exists the fee
   // is taken in the next token in line, or not at all (review BR-06; audit B-09).
   const treasuryWalletReady = treasuryWallet.length > 0 && !!firstReads.get(settings.treasury!);
+  // A pair that neither token can carry the fee for pays it in SOL from the wallet: feeBps of what the
+  // swap is worth in SOL, asked of Jupiter now, like the route itself. A pair Jupiter cannot price in
+  // SOL stays fee-free rather than unswappable.
+  const tokenCarries = feeSideFor(req.inputMint, req.outputMint, {
+    input: req.inputMint === WSOL_MINT ? treasuryWalletReady : feeAccountExists,
+    output: req.outputMint === WSOL_MINT ? treasuryWalletReady : outputFeeAccountExists,
+  });
+  const solFee = settings.treasury && treasuryWalletReady && tokenCarries === null
+    ? await feeInSol(jupiter, {
+      inputMint: req.inputMint,
+      amount: req.amountIn - (inputFee ? transferFeeOn(req.amountIn, inputFee) : 0n),
+      taker: E,
+      slippageBps: settings.slippageBps,
+      feeBps: settings.feeBps,
+    })
+    : undefined;
   const policy = await buildPolicy({
     intent: { owner: req.owner, inputMint: req.inputMint, outputMint: req.outputMint, amountIn: req.amountIn },
     ephemeral: E,
@@ -631,6 +672,7 @@ export async function prepareProtectedSwap(deps: {
     feeAccountExists,
     outputFeeAccountExists,
     treasuryWalletReady,
+    solFee,
   });
 
   // The token keeps a cut of every transfer, including ours into the temporary account, so the

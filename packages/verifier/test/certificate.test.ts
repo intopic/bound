@@ -50,6 +50,15 @@ describe('certificate', () => {
     }
   }
 
+  it('a fee in SOL from the wallet is stated as such, with where it goes', async () => {
+    const s = await scenario({ input: BONK, output: USDC, feeAccountExists: false, solFee: 777_000n });
+    const result = await certify(compileHonest(s, 0), s.policy, s.snapshot);
+    if (!result.ok) throw new Error(JSON.stringify(result.violations));
+    expect(result.certificate.solFee).toEqual({ lamports: 777_000n, destination: s.treasury });
+    expect(result.certificate.input.boundFee + result.certificate.output.boundFee).toBe(0n);
+    expect(result.certificate.input.swapAmount).toBe(s.policy.amountIn);
+  });
+
   it('names the slot the chain state was read at, when the reader recorded one', async () => {
     const s = await scenario();
     const tx = await compileHonest(s, 0);

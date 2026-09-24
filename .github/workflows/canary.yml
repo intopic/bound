@@ -1,6 +1,6 @@
 name: Canary
 
-# Does a protected swap still build and execute? tools/canary.ts builds six swaps on mainnet state,
+# Does a protected swap still build and execute? tools/canary.ts builds seven swaps on mainnet state,
 # each with its fee where it belongs, one as v1, and Pump.fun buys on both markets (nothing is signed
 # or sent). It fails when Jupiter's format, a Pump.fun program or a token program changed under
 # Bound, or a fee is no longer taken where it should be (research audit F-07, engineering review

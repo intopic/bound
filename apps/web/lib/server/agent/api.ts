@@ -1,6 +1,6 @@
 import { getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import { JUPITER_PROGRAM, tokenAmountOf } from '@bound/core';
+import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@bound/core';
 import type { TxVersion } from '@bound/core';
 import { BoundError, countersignProtectedSwap, DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
 import type { JupiterClient } from '@bound/jupiter';
@@ -197,8 +197,10 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       lastValidBlockHeight: prepared.lifetime.lastValidBlockHeight,
       ...(height === null ? {} : { blocksLeft: prepared.lifetime.lastValidBlockHeight - BigInt(height) }),
       amounts: {
-        // Like Jupiter's fee: in SOL first, then USDC or USDT, on whichever side; otherwise the input.
-        amountIn: p.amountIn, fee: p.fee, feeMint: p.feeSide === 'output' ? p.outputMint : p.inputMint,
+        // Like Jupiter's fee: in SOL first, then USDC or USDT, on whichever side; otherwise the input;
+        // and SOL from the wallet for a pair neither token of which can carry it (`policy.feeSide` sol).
+        amountIn: p.amountIn, fee: p.fee,
+        feeMint: p.feeSide === 'output' ? p.outputMint : p.feeSide === 'sol' ? WSOL_MINT : p.inputMint,
         feeBps: p.fee === 0n ? 0n : p.feeBps, swapAmount: p.swapAmount,
         // What the wallet keeps at least, after a fee taken from the output.
         quotedOut: prepared.quote.outAmount, minOut: prepared.quote.minReceived, priceImpactPct: prepared.quote.priceImpactPct,

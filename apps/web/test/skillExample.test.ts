@@ -19,7 +19,7 @@ import {
 } from '@solana-program/token';
 import { getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
 import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
-import { DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
+import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
@@ -47,13 +47,13 @@ const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter())
  * `market`: what Bound's server quotes from, which a compromised server chooses. `treasuryWallet`:
  * the treasury's wallet exists, so a sale into SOL pays its fee in SOL, out of the output.
  */
-async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown } = {}) {
+async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean } = {}) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
-    [USDC, mint(6)], [WSOL_MINT, mint(9)],
+    [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
     [DEX, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }],
     [POOL, { owner: DEX, data: new Uint8Array(300) }],
-    [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)],
+    ...(opts.treasuryUsdc === false ? [] : [[await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)] as [string, Account]]),
     ...await fundedAccounts(wallet.address, USDC),
     ...(opts.treasuryWallet ? [[TREASURY, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }] as [string, Account]] : []),
   ]);
@@ -483,5 +483,55 @@ describe('after signing, the chain is the only witness (engineering review H-01,
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(BoundApiError);
     expect(err).toMatchObject({ code: 'busy', retryAfter: 5 });
+  });
+});
+
+describe('a fee in SOL for a pair neither token of which can carry it (every swap pays)', () => {
+  // USDC for BONK, with a treasury that has a wallet but no USDC account: the fee is paid in SOL.
+  const pair = { inputMint: USDC, outputMint: BONK, amountIn: '1000000' };
+  const solFeeWorld = () => bound({ treasuryWallet: true, treasuryUsdc: false });
+  const prepareFor = async (b: Awaited<ReturnType<typeof bound>>) => {
+    const res = await b.fetchImpl('http://bound.test/api/v1/prepare', {
+      method: 'POST', headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ owner: b.wallet.address, ...pair }),
+    });
+    return (await res.json()) as Prepared;
+  };
+
+  it('the example holds it to a price of its own from Jupiter, and the swap goes through', async () => {
+    const b = await solFeeWorld();
+    const result = await protectedSwap({
+      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: { ...pair, minOut: '1' },
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(result.prepared.amounts.feeMint).toBe(WSOL_MINT);
+    expect(result.prepared.certificate.solFee?.lamports).toBe(result.prepared.amounts.fee);
+    expect(BigInt(result.prepared.amounts.fee)).toBeGreaterThan(0n);
+  });
+
+  it('without a limit of its own, the agent does not sign it', async () => {
+    const b = await solFeeWorld();
+    const answer = await prepareFor(b);
+    const problems = await checkPrepared(answer, { owner: b.wallet.address, ...pair, minOut: '1' }, b.agentRpc);
+    expect(problems.join()).toContain('set maxSolFeeLamports');
+  });
+
+  it('a server that charges more SOL than the swap is worth to the agent is refused', async () => {
+    const b = await solFeeWorld();
+    const honest = await prepareFor(b);
+    const fee = BigInt(honest.amounts.fee);
+    const treasuryTransfer = (ix: Instruction) => ix.programAddress === SYSTEM_PROGRAM && ix.accounts?.[1]?.address === TREASURY;
+    const ixs = honestInstructions(honest).map(ix => (treasuryTransfer(ix)
+      ? getTransferSolInstruction({ source: createNoopSigner(b.wallet.address), destination: TREASURY, amount: fee * 3n })
+      : ix));
+    const lie = await lyingAnswer(honest, b.wallet.address, ixs, { ...honest.policy, fee: String(fee * 3n) });
+    const inflated = {
+      ...lie, amounts: { ...lie.amounts, fee: String(fee * 3n) },
+      certificate: { ...lie.certificate, solFee: { lamports: String(fee * 3n), destination: TREASURY } },
+    };
+    const ownLimit = Number(fee + fee / 50n);
+    const problems = await checkPrepared(inflated, { owner: b.wallet.address, ...pair, minOut: '1', maxSolFeeLamports: ownLimit }, b.agentRpc);
+    expect(problems.join()).toContain('above your limit');
+    expect(await checkPrepared(honest, { owner: b.wallet.address, ...pair, minOut: '1', maxSolFeeLamports: ownLimit }, b.agentRpc)).toEqual([]);
   });
 });

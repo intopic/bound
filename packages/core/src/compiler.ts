@@ -126,6 +126,8 @@ export function protectedInstructions(
         }, { programAddress: p.inputTokenProgram }),
       );
     }
+    // A pair no token of which can carry the fee pays it in SOL, from the wallet to the treasury wallet.
+    if (p.feeSide === 'sol' && p.fee > 0n) pre.push(getTransferSolInstruction({ source: W, destination: a.feeDestination!, amount: p.fee }));
   }
 
   // Rent for an account the route opens in E's name, and nothing more: the exact amount was

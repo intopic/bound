@@ -45,6 +45,8 @@ type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number; at: 
 type Pending = {
   minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
   tokenTax: string | null; busyNetwork: string | null;
+  /** Bound's fee when it is paid in SOL from the wallet: its exact amount, priced when the swap was built. */
+  solFee: string | null;
 };
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
 /** A question the page puts to the user mid-swap, with nothing signed yet. */
@@ -510,8 +512,9 @@ export function SwapApp() {
       const data = Uint8Array.from(atob((value.data as unknown as [string, string])[0]), c => c.charCodeAt(0));
       return !(data.length > 108 && data[108] === 2);
     };
-    const walletReady = !!TREASURY && (tokenIn?.id === SOL_MINT || tokenOut?.id === SOL_MINT)
-      && await exists(TREASURY).catch(() => false);
+    // The treasury wallet receives a fee in SOL: on a pair with SOL, and on one that neither token
+    // can carry the fee for, which pays it in SOL from the wallet.
+    const walletReady = !!TREASURY && await exists(TREASURY).catch(() => false);
     const inputOk = !!TREASURY && !!tokenIn && tokenIn.id !== SOL_MINT && !!inFacts && inFacts !== 'missing'
       && await receives(await mintAta(TREASURY, tokenIn.id, inFacts));
     const outputOk = !!TREASURY && !!tokenOut && tokenOut.id !== SOL_MINT && FEE_TOKENS.includes(tokenOut.id)
@@ -520,6 +523,7 @@ export function SwapApp() {
       ? feeSideFor(address(tokenIn.id), address(tokenOut.id), {
         input: tokenIn.id === SOL_MINT ? walletReady : inputOk,
         output: tokenOut.id === SOL_MINT ? walletReady : outputOk,
+        sol: walletReady,
       })
       : null;
     const out = W && tokenOut && tokenOut.id !== SOL_MINT && outFacts && outFacts !== 'missing'
@@ -556,6 +560,10 @@ export function SwapApp() {
   const minReceived = quote ? quote.minOut - (outputFee ?? 0n) : null;
   const price = usablePrice(tokenIn);
   const usdValue = amountIn && price !== null && inDecimals !== null ? (Number(amountIn) / 10 ** inDecimals) * price : null;
+  // A fee in SOL is priced when the swap is built; before that it is estimated from USD prices.
+  const solPrice = usablePrice(popular.find(t => t.id === SOL_MINT) ?? null);
+  const solFeeEstimate = chargesFee && feeSide === 'sol' && usdValue !== null && solPrice !== null
+    ? BigInt(Math.floor(((usdValue * Number(FEE_BPS)) / 10_000 / solPrice) * 1e9)) : null;
 
   // --- a clock for quote freshness: ticks while the page is visible and idle, and only until the
   // price has refreshed itself a few times. After that the page waits for the user.
@@ -919,6 +927,9 @@ export function SwapApp() {
           ? `${inToken.symbol} charges ${prepared.tokenTax.inputBps / 100}% on every transfer. Moving your ${inToken.symbol} into the protected account costs `
             + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Bound.`
           : null,
+        solFee: prepared.policy.feeSide === 'sol' && prepared.policy.fee > 0n
+          ? `${formatExact(prepared.policy.fee, 9)} SOL from your wallet, at the swap's value in SOL now`
+          : null,
       });
       setPhase('wallet');
       lock.refresh();
@@ -1183,6 +1194,10 @@ export function SwapApp() {
                     ? outputFee !== null && tokenOut && outDecimals !== null
                       ? `~${formatUnits(outputFee, outDecimals, 6)} ${tokenOut.symbol}, from what you receive`
                       : '—'
+                    : feeSide === 'sol'
+                      ? solFeeEstimate !== null
+                        ? `~${formatUnits(solFeeEstimate, 9, 6)} SOL, from your wallet`
+                        : 'In SOL, from your wallet'
                     : tokenIn && amountIn && inDecimals !== null
                       ? `${formatUnits(fee, inDecimals, 6)} ${tokenIn.symbol}`
                       : '—'}
@@ -1221,6 +1236,7 @@ export function SwapApp() {
               <p>
                 Minimum output enforced on successful execution: <strong>{pending.minReceived}</strong>. If less would arrive,
                 the whole transaction reverts. Network fee: {pending.networkFee}.
+                {pending.solFee && <> Bound fee: {pending.solFee}.</>}
                 {pending.oneTimeCost && <> Also: {pending.oneTimeCost}.</>}
                 {pending.removesDelegate && <> {pending.removesDelegate}</>}
                 {pending.tokenTax && <> {pending.tokenTax}</>}

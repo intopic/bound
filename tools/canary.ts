@@ -11,6 +11,8 @@
  *   SOL → USDC        the fee in SOL, from the input
  *   USDT → USDC       the fee in USDC, from the output account
  *   USDC → SOL (v1)   the same as the first, as a v1 transaction
+ *   USDC → BONK       the fee in SOL from the wallet, at the swap's value (a treasury with no account
+ *                     for either token: a validator's identity wallet stands in)
  *   a Pump.fun buy    on a bonding curve, and on PumpSwap: the market's account closed and refunded
  *
  * Nothing is signed or sent. A public wallet holding SOL, USDC and USDT stands in for the treasury,
@@ -25,9 +27,9 @@
  */
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { JUPITER_PROGRAM, WSOL_MINT } from '@bound/core';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
 import type { FeeSide, TxVersion } from '@bound/core';
-import { createEphemeral, createRetryingRpc, fetchMints, httpStatusOf } from '@bound/solana';
+import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints, httpStatusOf } from '@bound/solana';
 import { BoundError, createJupiterClient, DEFAULT_SETTINGS, JupiterError, prepareProtectedSwap } from '@bound/jupiter';
 import type { PreparedSwap } from '@bound/jupiter';
 
@@ -47,6 +49,7 @@ const settings = { ...DEFAULT_SETTINGS, treasury: TREASURY, jupiterProgram: JUPI
 const OWNER = address('GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE');
 const USDC = address('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const USDT = address('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB');
+const BONK = address('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263');
 const PROGRAMS: [string, Address][] = [
   ['Jupiter', JUPITER_PROGRAM],
   ['Pump.fun curve', address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P')],
@@ -82,14 +85,14 @@ async function executes(prepared: PreparedSwap): Promise<{ ok: boolean; error: s
  */
 async function swap(
   name: string, inputMint: Address, outputMint: Address, amountIn: bigint,
-  opts: { want?: string; feeSide?: FeeSide; version?: TxVersion } = {},
+  opts: { want?: string; feeSide?: FeeSide; version?: TxVersion; treasury?: Address } = {},
 ): Promise<'done' | 'elsewhere' | 'failed'> {
   const { want } = opts;
   const mints = await fetchMints(rpc, [inputMint, outputMint]);
   for (let round = 0; round < 2; round++) {
     let prepared: PreparedSwap;
     try {
-      prepared = await prepareProtectedSwap({ rpc, jupiter, settings }, {
+      prepared = await prepareProtectedSwap({ rpc, jupiter, settings: { ...settings, treasury: opts.treasury ?? TREASURY } }, {
         owner: OWNER, ephemeral: await createEphemeral(), inputMint, outputMint, amountIn,
         inputDecimals: mints.get(inputMint)!.decimals, outputDecimals: mints.get(outputMint)!.decimals,
         version: opts.version ?? 0, acceptedCostBps: 5_000n,
@@ -110,7 +113,8 @@ async function swap(
     const run = await executes(prepared);
     if (!run.ok && /6001|"Custom":1\b/.test(run.error) && round === 0) continue; // the price moved: once more
     const refund = prepared.policy.routeRefund > 0n ? `, the market's account closed and ${prepared.policy.routeRefund} lamports returned` : '';
-    const fee = prepared.policy.feeSide ? `, fee ${prepared.policy.fee} from the ${prepared.policy.feeSide}` : '';
+    const side = prepared.policy.feeSide;
+    const fee = side ? `, fee ${prepared.policy.fee} ${side === 'sol' ? 'lamports in SOL, from the wallet' : `from the ${side}`}` : '';
     report(run.ok ? 'ok' : 'fail', name, run.ok ? `built, verified and executed: ${route}${fee}${refund}` : `the final transaction fails: ${run.error}`);
     return run.ok ? 'done' : 'failed';
   }
@@ -140,6 +144,24 @@ await swap('USDC → SOL', USDC, WSOL_MINT, 10_000_000n, { feeSide: 'output' });
 await swap('SOL → USDC', WSOL_MINT, USDC, 50_000_000n, { feeSide: 'input' });
 await swap('USDT → USDC', USDT, USDC, 10_000_000n, { feeSide: 'output' });
 await swap('USDC → SOL (v1)', USDC, WSOL_MINT, 10_000_000n, { feeSide: 'output', version: 1 });
+
+/**
+ * A wallet that holds SOL and no account for any of `mints`: a validator's identity, which pays its
+ * votes in SOL and trades nothing. It stands in for a treasury that can take the fee in no token.
+ */
+async function walletWithout(mints: Address[]): Promise<Address | null> {
+  const { current } = await rpc.getVoteAccounts().send();
+  for (const v of current.slice(0, 40)) {
+    const id = address(v.nodePubkey);
+    const accounts = await Promise.all(mints.map(m => ataOf(id, m)));
+    const reads = await fetchAccounts(rpc, [id, ...accounts]);
+    if (reads.get(id)?.owner === SYSTEM_PROGRAM && accounts.every(a => !reads.get(a))) return id;
+  }
+  return null;
+}
+const solOnly = await walletWithout([USDC, BONK]);
+if (solOnly) await swap('USDC → BONK (fee in SOL)', USDC, BONK, 10_000_000n, { feeSide: 'sol', treasury: solOnly });
+else report('warn', 'USDC → BONK (fee in SOL)', 'no wallet found to stand in for a treasury without token accounts');
 
 // Pump.fun tokens: the newest still on their bonding curve, the trending ones mostly on PumpSwap.
 type Listed = { id: string; symbol: string };

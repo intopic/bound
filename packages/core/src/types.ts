@@ -5,8 +5,8 @@ export type TxVersion = 0 | 1;
 /** A: SPL -> SOL, B: SOL -> SPL, C: SPL -> SPL (plan, section 5). */
 export type Variant = 'A' | 'B' | 'C';
 
-/** Which side of the swap the Bound fee is taken from; see `Policy.feeSide`. */
-export type FeeSide = 'input' | 'output';
+/** Which side of the swap the Bound fee is taken from, or `sol` from the wallet; see `Policy.feeSide`. */
+export type FeeSide = 'input' | 'output' | 'sol';
 
 /** What the user asked for: "swap `amountIn` of `inputMint` for `outputMint`". */
 export type Intent = {
@@ -93,11 +93,22 @@ export type Policy = {
    * Which side the fee comes from, the way Jupiter takes its own: SOL first, then USDC and USDT, on
    * whichever side of the swap they are; otherwise the input token. On the input side the fee is
    * `feeBps` of `amountIn`, paid before the swap. On the output side it is `feeBps` of `minOut`,
-   * paid after the minimum is checked, so the wallet keeps at least `minOut - fee`. Null when the
-   * swap is fee-free.
+   * paid after the minimum is checked, so the wallet keeps at least `minOut - fee`.
+   *
+   * `sol`: a pair that neither token can carry the fee for (no SOL, USDC or USDT on it, and no
+   * treasury account for its input) pays it in SOL from the wallet, before the swap: `feeBps` of
+   * what the swap is worth in SOL, priced by whoever built the policy when it was built. The
+   * verifier cannot see a price, so this amount is checked by the builder's quote (the page) or
+   * against the agent's own price (the skill).
+   *
+   * Null when the swap is fee-free: the treasury can receive nothing (test mode, no wallet yet), or
+   * the swap could not be priced in SOL.
    */
   feeSide: FeeSide | null;
-  /** In base units of the token of `feeSide`: the input token, or the output token (lamports for SOL). */
+  /**
+   * In base units of the token of `feeSide`: the input token, or the output token (lamports for
+   * SOL); lamports for `sol`.
+   */
   fee: bigint;
   /** What the route is given: `amountIn` less a fee on the input. */
   swapAmount: bigint;

@@ -928,6 +928,36 @@ fee-free only when the treasury can receive none), and the verifier's ceiling st
 
 ---
 
+## 0w. Every swap pays: the fee in SOL for a pair no token of which can carry it (24 September 2026)
+
+The owner asked for a fee on every swap. Until now a swap between two tokens with no SOL, USDC or
+USDT on it, whose input the treasury held no account for, was fee-free: every new memecoin traded
+for another. Such a swap now pays in SOL, from the wallet.
+
+- Side `sol` (`Policy.feeSide`), chosen last: SOL, USDC or USDT on either side still come first,
+  then the input token when the treasury has an account for it. Only then, if the treasury wallet
+  exists, the swap is priced in SOL and pays `feeBps` of that value. Without a treasury wallet, or
+  when Jupiter cannot price the input in SOL, it stays fee-free rather than unswappable.
+- The price: Jupiter's quote for the whole amount of the input into SOL, asked for the one-time key
+  (Jupiter never learns the wallet), at the time the swap is built (`feeInSol`). A busy Jupiter is
+  `busy`, as for the route.
+- The transaction: a System transfer from the wallet to the treasury wallet, before the swap. The
+  route gets the whole amount (`swapAmount = amountIn`); the minimum is untouched.
+- The verifier (0.8.0) accepts the side only for a pair without SOL, requires that transfer exactly
+  once, from W, to the treasury wallet, for the amount the policy states, before the swap; it cannot
+  check the price. The certificate states it (`solFee`).
+- The page shows an estimate before the click (from the USD prices it has) and the exact amount on
+  the card while the wallet is open. The API names SOL as `amounts.feeMint`. The skill requires a
+  limit of the agent's own (`maxSolFeeLamports`); `ownSolFeeLimit` asks Jupiter for the value itself
+  and allows 2% for the price moving, and the example does this before its check.
+- Tests: the rule, the verifier (placement, amount, destination, a pair with SOL), the certificate,
+  the pipeline (pricing for E, no wallet, no price, a busy Jupiter), the skill (its own limit, none,
+  a server charging three times the value). Mainnet: the canary's USDC → BONK, with a validator's
+  identity wallet standing in for a treasury with no token accounts, paid 440,254 lamports for 10
+  USDC, built, verified and executed in simulation (7/7).
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

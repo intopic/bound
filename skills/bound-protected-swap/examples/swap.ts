@@ -31,7 +31,7 @@ import {
   getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder, partiallySignTransaction, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Rpc, SolanaRpcApi, Transaction } from '@solana/kit';
-import { ownMinimum, verifyPrepared } from '../lib/bound-verify.mjs';
+import { ownMinimum, ownSolFeeLimit, verifyPrepared } from '../lib/bound-verify.mjs';
 
 export type Intent = {
   owner: string;
@@ -54,6 +54,11 @@ export type Intent = {
   treasury?: string;
   /** The most market rent that does not come back you accept, in lamports (default 0.001 SOL). */
   maxRouteCostLamports?: number;
+  /**
+   * The most Bound's fee may be when it is paid in SOL from the wallet (a swap between two tokens
+   * neither of which can carry it). `protectedSwap` asks Jupiter for your own when it is missing.
+   */
+  maxSolFeeLamports?: number;
   /** A gap to the open market the user already accepted, from a `costs-more` answer (bps, as a string). */
   acceptCostBps?: string;
   /** 1 for a v1 transaction, where the deployment offers it; 0 (the default) otherwise. */
@@ -79,6 +84,8 @@ export type Prepared = {
     messageSha256: string; wallet: string; temporaryAuthority: string;
     input: { mint: string; totalDebit: string; boundFee: string };
     output: { mint: string; minimumOutput: string; boundFee?: string };
+    /** Bound's fee when it is paid in SOL from the wallet; 0 otherwise. */
+    solFee?: { lamports: string; destination: string | null };
   };
   /** What the transaction was built against; held to your intent by the check, never trusted. */
   policy: Record<string, unknown>;
@@ -153,12 +160,14 @@ export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<Solana
     problems.push(`the wallet would pay ${p.certificate.input.totalDebit}, not ${intent.amountIn}`);
   }
   // The fee is in the input token, or taken from the output (SOL, USDC or USDT): a share of what is
-  // paid in, or of the minimum that comes out, never more than your limit of either.
+  // paid in, or of the minimum that comes out, never more than your limit of either. Paid in SOL
+  // from the wallet, it is held to your own price by the verifier's check (maxSolFeeLamports).
+  const inSol = (p.policy as { feeSide?: unknown }).feeSide === 'sol';
   const onOutput = p.amounts.feeMint !== undefined && p.amounts.feeMint === intent.outputMint && p.amounts.feeMint !== intent.inputMint;
   const base = onOutput ? BigInt(p.amounts.minOut) + BigInt(p.amounts.fee) : BigInt(intent.amountIn);
   const maxFee = (base * BigInt(intent.maxFeeBps ?? 50)) / 10_000n;
-  const stated = BigInt(p.certificate.input.boundFee) + BigInt(p.certificate.output.boundFee ?? '0');
-  if (BigInt(p.amounts.fee) > maxFee) problems.push(`the Bound fee ${p.amounts.fee} is above ${maxFee}`);
+  const stated = BigInt(p.certificate.input.boundFee) + BigInt(p.certificate.output.boundFee ?? '0') + BigInt(p.certificate.solFee?.lamports ?? '0');
+  if (!inSol && BigInt(p.amounts.fee) > maxFee) problems.push(`the Bound fee ${p.amounts.fee} is above ${maxFee}`);
   if (stated !== BigInt(p.amounts.fee)) problems.push('the fee the certificate states differs from the one in amounts');
   if (p.certificate.output.minimumOutput !== p.amounts.minOut) problems.push('the enforced minimum differs from the one stated');
   // The amounts shown are the policy's own, the one the verifier holds the bytes to: the fee, what
@@ -295,6 +304,12 @@ export async function protectedSwap(args: {
     ...(intent.acceptCostBps ? { acceptCostBps: intent.acceptCostBps } : {}),
     ...(intent.version !== undefined ? { version: intent.version } : {}),
   });
+  // A fee in SOL from the wallet: held to a price of your own, asked of Jupiter here.
+  if ((prepared.policy as { feeSide?: unknown }).feeSide === 'sol' && intent.maxSolFeeLamports === undefined) {
+    intent.maxSolFeeLamports = await ownSolFeeLimit({
+      inputMint: intent.inputMint, amountIn: intent.amountIn, taker: owner, maxFeeBps: intent.maxFeeBps, apiKey: args.jupiterApiKey, fetchImpl,
+    });
+  }
   const problems = await checkPrepared(prepared, intent, args.rpc);
   if (problems.length) throw new Error(`Not signing: ${problems.join('; ')}`);
   const signedTransaction = await signAsWallet(args.wallet, prepared.transaction);
@@ -369,7 +384,10 @@ async function main() {
       owner, inputMint, outputMint, amountIn, minOut,
       ...(intent.acceptCostBps ? { acceptCostBps: intent.acceptCostBps } : {}), ...(intent.version ? { version: 1 } : {}),
     });
-    const problems = await checkPrepared(prepared, { ...intent, owner, minOut }, rpc);
+    const maxSolFeeLamports = (prepared.policy as { feeSide?: unknown }).feeSide === 'sol'
+      ? await ownSolFeeLimit({ inputMint, amountIn, taker: owner, maxFeeBps: intent.maxFeeBps, apiKey: jupiterApiKey })
+      : undefined;
+    const problems = await checkPrepared(prepared, { ...intent, owner, minOut, maxSolFeeLamports }, rpc);
     console.log(JSON.stringify({ yourFloor: minOut, amounts: prepared.amounts, costs: prepared.costs, blocksLeft: prepared.blocksLeft, problems }, null, 2));
     process.exitCode = problems.length ? 1 : 0;
     return;

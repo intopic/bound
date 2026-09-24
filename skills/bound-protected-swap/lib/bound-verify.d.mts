@@ -26,6 +26,12 @@ export type AgentLimits = {
    * curve keeps about 0.00013 SOL of every buy for growing its own account.
    */
   maxRouteCostLamports?: number;
+  /**
+   * The most Bound's fee may be in lamports when it is paid in SOL from the wallet (a swap between
+   * two tokens neither of which can carry it). Required for such a swap; `ownSolFeeLimit` asks
+   * Jupiter for it.
+   */
+  maxSolFeeLamports?: number;
 };
 
 /** The parts of a /api/v1/prepare answer the check reads. */
@@ -52,3 +58,13 @@ export function ownMinimum(args: {
   inputMint: string; outputMint: string; amountIn: string; taker: string;
   maxFeeBps?: number; maxBelowBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
 }): Promise<string>;
+
+/**
+ * The most Bound's fee in SOL may be, from a price the agent asks Jupiter for itself: `maxFeeBps`
+ * (default 50) of what `amountIn` of the input is worth in SOL, plus 2% for the price moving. In
+ * lamports.
+ */
+export function ownSolFeeLimit(args: {
+  inputMint: string; amountIn: string; taker: string;
+  maxFeeBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
+}): Promise<number>;

@@ -49,8 +49,15 @@ USDT, on whichever side of the swap they are; otherwise in the input token. `amo
 which. On the input it is 0.5% of `amountIn`; on the output it is 0.5% of the enforced minimum, paid
 after the minimum is checked, and `amounts.minOut` is what your wallet keeps after it. It is part of
 the message you sign, and Bound signs only the exact message it built, so a transaction with the fee
-removed is not signed. The verifier refuses anything above 1%. When the treasury can receive the fee
-in neither token, the swap is fee-free.
+removed is not signed. The verifier refuses anything above 1%.
+
+A swap between two tokens neither of which can carry the fee (no SOL, USDC or USDT on it, and no
+treasury account for the input) pays it in SOL from your wallet, before the swap: 0.5% of what the
+swap is worth in SOL, as Jupiter prices it when prepare builds it. `amounts.feeMint` is then SOL,
+`policy.feeSide` is `sol` and `certificate.solFee` states it. The rules cannot see a price, so the
+skill's check requires a limit of your own for it (`maxSolFeeLamports`; `ownSolFeeLimit` asks Jupiter
+for one, and the example does this itself). Without a treasury wallet, or when the swap cannot be
+priced in SOL, it is fee-free.
 
 ## 1. Prepare
 
