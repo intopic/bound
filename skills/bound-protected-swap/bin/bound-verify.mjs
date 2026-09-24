@@ -31,7 +31,8 @@ const USDC_MINT = address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 /**
 * The tokens the Bound fee is taken in first, on whichever side of the swap they are, the way
 * Jupiter takes its own: SOL, then USDC, then USDT. Otherwise the fee is in the input token when the
-* treasury has an account for it, and otherwise the swap is fee-free.
+* treasury has an account for it, and otherwise in SOL from the wallet at the swap's value (`sol`);
+* fee-free only while the treasury wallet does not exist or the pair cannot be priced in SOL.
 */
 const FEE_TOKENS = [
 	WSOL_MINT,
@@ -1048,7 +1049,7 @@ async function ownSolFeeLimit(args) {
 *                                                bin/bound-verify.mjs
 *   BOUND_TREASURY=<address>                     (optional: only for another Bound deployment;
 *                                                Bound's own treasury is pinned in the skill)
-*   JUPITER_API_KEY=...                          (optional: for your own price; keyless allows one call every 2 s)
+*   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
 *
 *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
 *                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
@@ -1072,13 +1073,20 @@ var BoundApiError = class extends Error {
 		this.retryAfter = e.retryAfter ?? null;
 	}
 };
+/**
+* This copy of the skill, as its package.json says. Sent with every call to Bound (x-bound-skill), so
+* that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
+* answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
+*/
+const SKILL_VERSION = "1.0.0";
 /** Each call to Bound ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call(fetchImpl, url, key, body, timeoutMs = 3e4) {
 	const res = await fetchImpl(url, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
-			authorization: `Bearer ${key}`
+			authorization: `Bearer ${key}`,
+			"x-bound-skill": SKILL_VERSION
 		},
 		body: JSON.stringify(body),
 		signal: AbortSignal.timeout(timeoutMs)
@@ -1456,6 +1464,7 @@ async function main$1() {
 		version: process.argv.includes("--v1") ? 1 : void 0
 	};
 	const jupiterApiKey = process.env.JUPITER_API_KEY || void 0;
+	if (!jupiterApiKey) console.error("JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.");
 	const rpc = createSolanaRpc(need("SOLANA_RPC_URL"));
 	if (process.argv.includes("--dry-run")) {
 		const owner = flag("owner") ?? (console.error("--dry-run needs --owner <address>."), process.exit(2));
@@ -1562,7 +1571,7 @@ if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import
 * as `signedTransaction`. Finalize checks everything again before anything is sent.
 *
 * Environment: SOLANA_RPC_URL (your own RPC; always), BOUND_API_URL and BOUND_API_KEY (prepare,
-* finalize), JUPITER_API_KEY (optional), BOUND_STATE_DIR (default ./.bound-state), BOUND_TREASURY
+* finalize), JUPITER_API_KEY (Jupiter throttles keyless calls), BOUND_STATE_DIR (default ./.bound-state), BOUND_TREASURY
 * (only for another Bound deployment).
 */
 const COMMANDS = [
@@ -1827,6 +1836,7 @@ async function main() {
 	if (!COMMANDS.includes(command)) return print(usage(`usage: bound-verify <${COMMANDS.join("|")}> < input.json`));
 	const rpcUrl = process.env.SOLANA_RPC_URL;
 	if (!rpcUrl) return print(usage("Set SOLANA_RPC_URL to your own RPC."));
+	if (!process.env.JUPITER_API_KEY && command !== "recover") process.stderr.write("JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.\n");
 	let input = {};
 	if (command !== "recover") try {
 		input = JSON.parse(await readStdin());

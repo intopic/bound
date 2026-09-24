@@ -35,7 +35,7 @@ only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first, so t
 | --- | --- |
 | R6 | Only W and E sign; W pays; what the wallet returns is exactly what was verified. Because W never appears in the swap, W's signature is never available to it: this is what makes the other rules sufficient |
 | R1 | W and W's token accounts (except the output account) never reach the external program, including through lookup tables; nor do Bound's fee accounts |
-| R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1%: taken from the input before the swap, or from a SOL, USDC or USDT output after the minimum is checked |
+| R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1%: taken from the input before the swap, from a SOL, USDC or USDT output after the minimum is checked, or, for a pair neither token of which can carry it, in SOL from the wallet before the swap |
 | R3 | E and its accounts are fresh |
 | R4 | The network fee paid by W is capped (never above 0.001 SOL) |
 | R5 | One transaction within size limits; every temporary account is closed |
@@ -115,12 +115,26 @@ Server only (never sent to the browser):
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `RPC_URL` | public mainnet RPC | Solana RPC. The public one rate-limits and refuses browser sends; run on a provider (Helius is the chosen one, see SECURITY.md) |
-| `JUPITER_API_KEY` | — | Optional; keyless access has lower limits |
+| `JUPITER_API_KEY` | — | Required for any real use (free at developers.jup.ag/portal): Jupiter asks for a key on every endpoint and throttles keyless requests after one or two, so quotes fail as "busy". `/api/status` says whether it is set |
 | `BOUND_MAX_USD_PER_SWAP` | unset | Optional cap per swap in USD. Unset means no limit, the intended setting: the guarantee does not depend on the amount. While a cap applies, tokens without a USD price are blocked |
 | `BOUND_DISABLED` | 0 | Kill switch: `1` makes the server refuse new swaps |
 | `BOUND_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limit is per instance; add a rule in the hosting firewall too |
 | `BOUND_EXCLUDE_DEXES` | `HumidiFi` | DEXes whose per-taker rent is too high to pay on every swap |
 | `BOUND_MAX_NETWORK_FEE_LAMPORTS` | 500000 | F_max, capped at 1,000,000 by the verifier |
+
+### Deploy: the firewall
+
+The app's own limits are per instance and in memory; the hosting firewall is what holds under load,
+and what stops a script from spending Bound's RPC (Helius) and Jupiter quota through its proxies.
+Bound's proxies already refuse requests other websites make from their visitors' browsers
+(`Sec-Fetch-Site: cross-site`). On Vercel, add rate-limit rules per client IP, for example:
+
+| Path | Limit | Why |
+| --- | --- | --- |
+| `/api/rpc` | 300 per minute | The page's chain reads; sends are also limited by the app (60 per minute) |
+| `/api/jupiter/*` | 90 per minute | Quotes and token search, on Bound's Jupiter key |
+| `/api/token-icon` | 600 per minute | Icons, cached a day |
+| `/api/v1/*` | 120 per minute | The agent API; each key has its own limit too (`BOUND_API_PER_MINUTE`) |
 
 ## Scope of v0.1
 

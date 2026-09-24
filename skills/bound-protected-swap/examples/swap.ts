@@ -21,7 +21,7 @@
  *                                                bin/bound-verify.mjs
  *   BOUND_TREASURY=<address>                     (optional: only for another Bound deployment;
  *                                                Bound's own treasury is pinned in the skill)
- *   JUPITER_API_KEY=...                          (optional: for your own price; keyless allows one call every 2 s)
+ *   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
  *
  *   node swap.ts --in <mint> --out <mint> --amount <base units> [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
  *                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
@@ -127,11 +127,18 @@ export class BoundApiError extends Error {
 
 type Fetch = typeof fetch;
 
+/**
+ * This copy of the skill, as its package.json says. Sent with every call to Bound (x-bound-skill), so
+ * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
+ * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
+ */
+export const SKILL_VERSION = '1.0.0';
+
 /** Each call to Bound ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call<T>(fetchImpl: Fetch, url: string, key: string, body: unknown, timeoutMs = 30_000): Promise<T> {
   const res = await fetchImpl(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`, 'x-bound-skill': SKILL_VERSION },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -591,6 +598,7 @@ async function main() {
     version: process.argv.includes('--v1') ? 1 as const : undefined,
   };
   const jupiterApiKey = process.env.JUPITER_API_KEY || undefined;
+  if (!jupiterApiKey) console.error('JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.');
   // Your own RPC: the verification is worth what the chain state it reads is worth.
   const rpc = createSolanaRpc(need('SOLANA_RPC_URL'));
 

@@ -316,3 +316,36 @@ describe("the relay passes Bound's close of a Pump market's account (FA-05)", ()
     expect(res.status).toBe(200);
   });
 });
+
+describe("Bound's proxies serve Bound's own page (final audit, M2)", () => {
+  const crossSite = { 'sec-fetch-site': 'cross-site', 'x-vercel-forwarded-for': uniqueIp() };
+
+  it("another website's page cannot spend Bound's RPC, Jupiter or icon quota through its visitors", async () => {
+    const upstream = upstreamOk();
+    vi.stubGlobal('fetch', upstream);
+    expect((await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }, { 'sec-fetch-site': 'cross-site' }), 'https://rpc.test')).status).toBe(403);
+    expect((await proxyBuild(new Request('http://bound.test/api/jupiter/build?wrapAndUnwrapSol=false', { headers: crossSite }))).status).toBe(403);
+    expect((await proxyIcon(new Request('http://bound.test/api/token-icon?mint=So11111111111111111111111111111111111111112', { headers: crossSite }))).status).toBe(403);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("Bound's own page, and a client that is not a browser, are served as before", async () => {
+    vi.stubGlobal('fetch', upstreamOk());
+    for (const site of ['same-origin', undefined]) {
+      const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }, site ? { 'sec-fetch-site': site } : {}), 'https://rpc.test');
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it('/api/status says whether the deployment has a Jupiter key (final audit, H1)', async () => {
+    const { publicStatus } = await import('../lib/server/config.ts');
+    delete process.env.JUPITER_API_KEY;
+    expect(publicStatus().jupiterKey).toBe(false);
+    process.env.JUPITER_API_KEY = 'test-key';
+    try {
+      expect(publicStatus().jupiterKey).toBe(true);
+    } finally {
+      delete process.env.JUPITER_API_KEY;
+    }
+  });
+});

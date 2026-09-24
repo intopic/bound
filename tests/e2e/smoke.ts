@@ -138,7 +138,8 @@ try {
   const signCalls = await page.evaluate(() => (window as unknown as { __signCalls?: number }).__signCalls ?? 0);
   const signAt = await page.evaluate(() => (window as unknown as { __signAt?: number }).__signAt ?? 0);
   check('the wallet was asked to sign once', signCalls === 1, `${signCalls} call(s), ${signAt - clickedAt} ms from click to wallet (quotes, reads, simulation, verification)`);
-  check('an unsigned return is stopped by R6', /didn't sign/i.test(text) && /R6/.test(text), text.replace(/\s+/g, ' '));
+  // Stopped by R6, said in plain words: the rule's name goes to the console, not to the person swapping.
+  check('an unsigned return is stopped by R6', /didn't sign/i.test(text) && /Nothing was sent/.test(text) && !/\(R\d/.test(text), text.replace(/\s+/g, ' '));
   check('nothing was sent', !rpcMethods.includes('sendTransaction'), `RPC methods used: ${[...new Set(rpcMethods)].join(', ')}`);
   check(
     "Jupiter never receives the wallet's address",
@@ -168,6 +169,13 @@ try {
   await m.getByRole('button', { name: 'Connect wallet' }).first().click();
   check('mobile without a wallet offers "open in Phantom"', await m.getByRole('link', { name: 'Phantom' }).isVisible());
   await m.screenshot({ path: `${OUT}/5-mobile.png`, fullPage: true });
+
+  // The page that says what is and is not guaranteed, one tap from the swap (final audit, M3).
+  await m.getByRole('link', { name: 'How Bound protects you' }).click();
+  await m.getByRole('heading', { name: 'How Bound protects you' }).waitFor({ timeout: 15_000 });
+  const howOverflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  check('"How Bound protects you" opens from the swap page and fits a phone', !howOverflow);
+  await m.screenshot({ path: `${OUT}/7-how.png`, fullPage: true });
 
   const relevant = errors.filter(e => !/favicon/i.test(e));
   check('no errors in the browser console', relevant.length === 0, relevant.join(' | ').slice(0, 300) || `${jupiter429} Jupiter 429(s), retried`);

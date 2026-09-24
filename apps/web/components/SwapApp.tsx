@@ -256,7 +256,9 @@ function explainError(e: unknown): Notice {
     };
     // Load or an upstream change, not the swap: the message already says that nothing was signed.
     if (e.code === 'busy' || e.code === 'unavailable' || e.code === 'route-format') return { kind: 'info', title: titles[e.code], body: e.message };
-    const rules = e.violations.length ? ` (${[...new Set(e.violations.map(v => v.rule))].join(', ')})` : '';
+    // The rule behind a refusal is for whoever investigates, not for the person swapping (final audit).
+    if (e.violations.length) console.warn('Bound refused this swap:', e.violations);
+    const rules = '';
     if (e.code === 'wallet-changed-transaction') {
       const details = e.violations.map(v => v.detail);
       const title = details.includes('the wallet did not sign')
@@ -311,7 +313,7 @@ function outcomeNotice(
     case 'confirmed':
       return {
         kind: 'success', title: t.received ? `Swapped ${t.paid} for ${t.received}` : `Swapped ${t.paid} for at least ${t.minimum}`,
-        body: `${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}Only ${t.exposed} was exposed to the swap; nothing else in your wallet was.`,
+        body: `${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could spend only ${t.exposed} from your wallet.`,
         link,
       };
     case 'failed':
@@ -1090,6 +1092,8 @@ export function SwapApp() {
                 <a href={`https://phantom.app/ul/browse/${deepLink}?ref=${origin}`}>Phantom</a>
                 {' · '}
                 <a href={`https://solflare.com/ul/v1/browse/${deepLink}?ref=${origin}`}>Solflare</a>
+                {' · '}
+                <a href={`https://backpack.app/ul/v1/browse/${deepLink}?ref=${origin}`}>Backpack</a>
               </p>
             </div>
           ) : (
@@ -1315,7 +1319,7 @@ export function SwapApp() {
           Bound never asks for your seed phrase.
           {status?.maxUsdPerSwap != null && ` Swaps are limited to ${formatUsd(status.maxUsdPerSwap)} while we run in alpha.`}
         </p>
-        <p>What you approve is all the swap can touch.</p>
+        <p>What you approve is all the swap can touch. <a href="/how">How Bound protects you</a></p>
         <p>
           Bound works with any token pair Jupiter can route and Bound can safely isolate. It protects your wallet, not the
           price or value of the token you buy.

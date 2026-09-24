@@ -1,7 +1,7 @@
 import { readBodyLimited, UPSTREAM_TIMEOUT_MS } from './body';
 import { notBoundShaped } from './boundShape';
 import { serverConfig } from './config';
-import { clientKey, rateLimited } from './rateLimit';
+import { clientKey, fromAnotherSite, rateLimited } from './rateLimit';
 
 /** The only RPC methods the dApp needs. Everything else is refused. */
 const ALLOWED_METHODS = new Set([
@@ -30,6 +30,7 @@ const rpcError = (id: unknown, code: number, message: string, status: number, no
 
 export async function proxyRpc(req: Request, target: string | null): Promise<Response> {
   if (!target) return rpcError(null, -32601, 'Not configured', 404);
+  if (fromAnotherSite(req)) return rpcError(null, -32600, "Bound's RPC serves Bound's own page", 403);
   const client = clientKey(req);
   if (rateLimited(`rpc:${client}`, LIMIT_PER_MINUTE)) return rpcError(null, -32005, 'Too many requests', 429);
   const text = await readBodyLimited(req, MAX_BODY_BYTES); // bytes, counted while reading (C-07)

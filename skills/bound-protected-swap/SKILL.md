@@ -35,8 +35,9 @@ The user provides these; never ask for them in chat, and never print or log them
 - Bound's treasury is pinned in the skill: `6jyyUaczHZUNJJ7Axw6Vx7mCy9iyVQ7bcTYP7NModhQm`. The fee goes there or
   nowhere; a swap whose fee goes to any other wallet is refused. `BOUND_TREASURY` names another
   treasury only for another Bound deployment.
-- `JUPITER_API_KEY` (optional): for the agent's own price. Without it Jupiter allows one request
-  every two seconds, which is enough for one swap at a time.
+- `JUPITER_API_KEY`: for the agent's own price (free at https://developers.jup.ag/portal). Get one:
+  Jupiter asks for a key on every endpoint, and without one it answers a request or two and then
+  refuses, so the agent's own floor cannot be priced and the swap stops before anything is signed.
 
 Needs Node 22.18 or later. `npm install` in this folder installs the one dependency, `@solana/kit` 8;
 the verifier ships with the skill. Bots written in another language: see "Bots in other languages" below.
@@ -120,6 +121,8 @@ names the transaction (`signature`, `lastValidBlockHeight`); follow step 7 befor
 - `503 route-format`: Jupiter changed its swap instruction and Bound refuses what it cannot read
   yet. Nothing builds until Bound is updated; wait at least the `Retry-After` (300 s).
 - `503 paused`: Bound has paused swaps; the user's funds are not affected. Try later.
+- `426 skill-outdated`: this copy of the skill is older than the deployment serves (`minimum`).
+  Replace the skill folder with the current one; a swap already signed still finalizes.
 - `400 transaction-changed` / `wallet-changed-transaction`: the signed transaction differs from the
   one prepared, or the wallet's signature is missing. Sign exactly what prepare returned.
 - `422` (`unsupported-token`, `no-route`, `insufficient-sol`, `insufficient-balance`,
@@ -157,7 +160,7 @@ that can start a process: JSON in on stdin, JSON out on stdout, an exit code. Th
 and signs one message itself; the command does the rest with the example's own code: the floor, the
 check on your RPC, the record kept before finalize, finalize, and the outcome read on the chain.
 It needs Node 22.18 or later and `npm install` in this folder, and reads `SOLANA_RPC_URL`,
-`BOUND_API_URL`, `BOUND_API_KEY`, `JUPITER_API_KEY` (optional) and `BOUND_STATE_DIR` (default
+`BOUND_API_URL`, `BOUND_API_KEY`, `JUPITER_API_KEY` (see Setup) and `BOUND_STATE_DIR` (default
 `./.bound-state`) from the environment.
 
 | Command | Input (stdin) | Exit code |

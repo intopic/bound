@@ -35,7 +35,21 @@ export type AgentDeps = {
   v1: boolean;
   /** Requests per minute per API key, for each endpoint. */
   perMinute: number;
+  /**
+   * The oldest skill version prepare serves (BOUND_MIN_SKILL_VERSION), or none. Only prepare asks:
+   * a swap already signed is always finalized, whatever the copy of the skill that signed it.
+   */
+  minSkillVersion?: string | null;
 };
+
+/** Is `version` (major.minor.patch) older than `minimum`? A version that is not one is not judged. */
+export function olderThan(version: string, minimum: string): boolean {
+  const parts = (v: string) => (/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(v) ? v.split('.').map(Number) : null);
+  const [a, b] = [parts(version), parts(minimum)];
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+}
 
 const MAX_U64 = 2n ** 64n - 1n;
 const MAX_BODY_BYTES = 16 * 1024;
@@ -127,6 +141,13 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was built.');
   const key = await authenticate(req, deps);
   if (key instanceof Response) return key;
+  // A copy of the skill older than this deployment serves: say so, rather than fail some other way.
+  const skill = req.headers.get('x-bound-skill') ?? '';
+  if (deps.minSkillVersion && skill && olderThan(skill, deps.minSkillVersion)) {
+    return fail(426, 'skill-outdated', `This copy of the Bound skill (${skill}) is older than ${deps.minSkillVersion}, the oldest this deployment serves. Get the current skill and prepare again. Nothing was built.`, {
+      minimum: deps.minSkillVersion,
+    });
+  }
   const body = await readJson(req);
   if (!body) return fail(400, 'bad-request', 'Send a JSON object of at most 16 KiB.');
 

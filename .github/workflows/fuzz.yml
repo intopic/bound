@@ -1,0 +1,32 @@
+name: Fuzz
+
+# The verifier's property tests at full size (tens of thousands of cases per property), 20 to 40
+# minutes a run. They ran on every push to main; on a private repository that alone would use up the
+# free plan's 2,000 Actions minutes a month (final audit, H3). Now: whenever the verifier or the
+# policy it checks changes, once a week, and by hand. The ordinary CI still runs the same properties
+# at their normal size on every push.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/verifier/**'
+      - 'packages/core/**'
+  schedule:
+    - cron: '41 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:fuzz

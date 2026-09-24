@@ -25,11 +25,11 @@ import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import {
   acquireLock, BoundApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending,
-  signerFromSignBytes, signerFromSignTransaction,
+  signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
 } from '../../../skills/bound-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/bound-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BOUND_TREASURY, ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
@@ -805,5 +805,22 @@ describe('bound-verify, the command for bots in other languages', () => {
     const run = spawnSync(process.execPath, ['skills/bound-protected-swap/bin/bound-verify.mjs'], { encoding: 'utf8', cwd: join(import.meta.dirname, '../../..') });
     expect(run.status).toBe(2);
     expect(JSON.parse(run.stdout).error).toContain('usage: bound-verify');
+  });
+});
+
+describe('the skill names its version (final audit, M1)', () => {
+  it("SKILL_VERSION is the package's version, and every call to Bound carries it", async () => {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '../../../skills/bound-protected-swap/package.json'), 'utf8')) as { version: string };
+    expect(SKILL_VERSION).toBe(pkg.version);
+    const b = await bound();
+    const seen: string[] = [];
+    const watching = (async (url: string, init: RequestInit) => {
+      if (url.startsWith('http://bound.test/')) seen.push(new Headers(init.headers).get('x-bound-skill') ?? '');
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: watching, pollMs: 1, intent: swapIntent });
+    expect(result.outcome).toBe('confirmed');
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(seen)).toEqual(new Set([SKILL_VERSION]));
   });
 });

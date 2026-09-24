@@ -16,6 +16,7 @@ import type { AgentDeps } from './api';
  *   BOUND_API_KEYS             id:sha256-of-key, comma-separated; only the hashes are stored
  *   BOUND_API_FEE_BPS          optional, the fee for API swaps; the page's fee otherwise
  *   BOUND_API_PER_MINUTE       optional, requests per minute per key and endpoint (60)
+ *   BOUND_MIN_SKILL_VERSION    optional, the oldest skill prepare serves; older copies are asked to update
  */
 function secretOf(value: string | undefined): Uint8Array | null {
   if (!value) return null;
@@ -75,6 +76,7 @@ export function agentDeps(): AgentDeps | null {
     };
   }
   const perMinute = Number(process.env.BOUND_API_PER_MINUTE);
+  const minSkillVersion = process.env.BOUND_MIN_SKILL_VERSION?.trim() ?? '';
   return {
     rpc: clients.rpc,
     jupiter: clients.jupiter,
@@ -88,6 +90,7 @@ export function agentDeps(): AgentDeps | null {
     disabled: server.disabled,
     v1: process.env.NEXT_PUBLIC_BOUND_ENABLE_V1 === '1',
     perMinute: Number.isInteger(perMinute) && perMinute > 0 ? perMinute : 60,
+    minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
   };
 }
 

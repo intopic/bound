@@ -10,6 +10,10 @@ the whole transaction reverts.
 Two calls. Bound builds and verifies the transaction; your wallet signs it first; Bound signs last,
 with the one-time key, and sends it. Bound never holds your key or your funds.
 
+Calls may carry `x-bound-skill: <version>`, as the skill does. When a change old copies of the skill
+cannot follow requires it, prepare answers an older version with `426 skill-outdated` and the
+`minimum` it serves; finalize is never refused for it, so a swap already signed always completes.
+
 **Verify before you sign.** Bound's server builds the transaction your wallet signs. Run Bound's
 verifier on it, with chain state from your own RPC, before signing: the skill below does it
 (`checkPrepared`, verifier bundled in `lib/bound-verify.mjs`). With that check, a compromised server

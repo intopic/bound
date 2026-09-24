@@ -8,10 +8,11 @@ name: Canary
 # workflow. Off until the repository variable BOUND_CANARY is set to 1.
 on:
   schedule:
-    # Every 30 minutes. Each run is about two billed minutes: on a private repository that is some
-    # 2,900 minutes a month, more than the free plan's 2,000 and enough to stop CI. Set BOUND_CANARY
-    # once the repository is public (free) or the plan has room, or run the script by hand.
-    - cron: '*/30 * * * *'
+    # Every three hours. Each run is about two billed minutes: some 480 minutes a month, which fits a
+    # private repository's free plan (2,000) beside CI, where every 30 minutes (2,900) did not (final
+    # audit, H3). Set the repository variable BOUND_CANARY to 1 to turn it on; run it by hand after
+    # anything changes under Bound (a Solana upgrade such as Alpenglow, a Jupiter or Pump.fun release).
+    - cron: '23 */3 * * *'
   workflow_dispatch:
 
 permissions:

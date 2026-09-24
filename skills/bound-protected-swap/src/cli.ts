@@ -19,7 +19,7 @@
  * as `signedTransaction`. Finalize checks everything again before anything is sent.
  *
  * Environment: SOLANA_RPC_URL (your own RPC; always), BOUND_API_URL and BOUND_API_KEY (prepare,
- * finalize), JUPITER_API_KEY (optional), BOUND_STATE_DIR (default ./.bound-state), BOUND_TREASURY
+ * finalize), JUPITER_API_KEY (Jupiter throttles keyless calls), BOUND_STATE_DIR (default ./.bound-state), BOUND_TREASURY
  * (only for another Bound deployment).
  */
 import { createSolanaRpc, getBase58Encoder, getTransactionDecoder, getTransactionEncoder } from '@solana/kit';
@@ -189,6 +189,9 @@ export async function main(): Promise<void> {
   if (!(COMMANDS as readonly string[]).includes(command)) return print(usage(`usage: bound-verify <${COMMANDS.join('|')}> < input.json`));
   const rpcUrl = process.env.SOLANA_RPC_URL;
   if (!rpcUrl) return print(usage('Set SOLANA_RPC_URL to your own RPC.'));
+  if (!process.env.JUPITER_API_KEY && command !== 'recover') {
+    process.stderr.write('JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.\n');
+  }
   let input: unknown = {};
   if (command !== 'recover') {
     try {

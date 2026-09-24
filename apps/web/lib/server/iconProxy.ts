@@ -1,6 +1,6 @@
 import { isAddress } from '@solana/kit';
 import { serverConfig } from './config';
-import { clientKey, rateLimited } from './rateLimit';
+import { clientKey, fromAnotherSite, rateLimited } from './rateLimit';
 
 /**
  * Token icons are fetched by Bound's server and served from Bound's own origin (audit B-08). The
@@ -109,6 +109,7 @@ const notFound = () =>
   new Response(null, { status: 404, headers: { 'cache-control': 'public, max-age=3600' } });
 
 export async function proxyIcon(req: Request): Promise<Response> {
+  if (fromAnotherSite(req)) return new Response(null, { status: 403 });
   if (rateLimited(`icon:${clientKey(req)}`, 600)) return new Response(null, { status: 429 });
   const mint = new URL(req.url).searchParams.get('mint') ?? '';
   if (!isAddress(mint)) return new Response(null, { status: 400 });

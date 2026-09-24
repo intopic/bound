@@ -9,6 +9,14 @@ const windows = new Map<string, { count: number; resetAt: number }>();
 const MAX_KEYS = 50_000;
 let nextSweep = 0;
 
+/**
+ * A request another website's page made from its visitor's browser (Sec-Fetch-Site: cross-site). The
+ * proxies exist for Bound's own page: refusing these stops other sites from spending Bound's RPC and
+ * Jupiter quota through their users. A script that is not a browser sends no such header and meets
+ * the per-client limits and the host's firewall instead (README, "Deploy").
+ */
+export const fromAnotherSite = (req: Request) => req.headers.get('sec-fetch-site') === 'cross-site';
+
 export function rateLimited(key: string, limit: number, windowMs = 60_000): boolean {
   const now = Date.now();
   // Sweep expired windows at most once a minute instead of scanning inside every request (B-06).

@@ -29,7 +29,8 @@ const USDC_MINT = address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 /**
 * The tokens the Bound fee is taken in first, on whichever side of the swap they are, the way
 * Jupiter takes its own: SOL, then USDC, then USDT. Otherwise the fee is in the input token when the
-* treasury has an account for it, and otherwise the swap is fee-free.
+* treasury has an account for it, and otherwise in SOL from the wallet at the swap's value (`sol`);
+* fee-free only while the treasury wallet does not exist or the pair cannot be priced in SOL.
 */
 const FEE_TOKENS = [
 	WSOL_MINT,

@@ -121,6 +121,14 @@ main > .banner { margin: 0 0 14px; }
 .foot { color: var(--muted); font-size: 12px; text-align: center; }
 .foot p { margin: 4px 0; }
 
+/* How Bound protects you, at /how. */
+.how h1 { font-size: 20px; margin: 0 0 8px; }
+.how h2 { font-size: 16px; margin: 0 0 6px; }
+.how p, .how li { font-size: 14px; line-height: 1.5; }
+.how ol, .how ul { padding-left: 20px; margin: 6px 0 0; }
+.how li { margin: 4px 0; }
+.how .brand { text-decoration: none; color: var(--text); }
+
 /* The wallet signing diagnostic at /diagnostic: an internal tool, not part of the swap flow. */
 .diag h1 { font-size: 20px; margin: 0; }
 .diag h2 { font-size: 16px; margin: 16px 0 0; }

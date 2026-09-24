@@ -135,7 +135,7 @@ Krijo `apps\web\.env.local` nga `apps\web\.env.example` dhe plotëso:
 - `NEXT_PUBLIC_BOUND_TREASURY`: wallet-i që merr fee-n 0.3% (pa të, faqja është në test mode). Ky vlerë futet në faqe gjatë `npm run build`, prandaj pas çdo ndryshimi duhet build i ri. Serveri nuk mund ta ndryshojë më vonë.
 - `NEXT_PUBLIC_BOUND_FEE_BPS`: 30 (0.3%). Verifier-i refuzon çdo gjë mbi 1%.
 - `RPC_URL`: Helius (ose një ofrues tjetër me pagesë). Nyja publike nuk mjafton: të kufizon shpejt dhe nuk pranon dërgime nga një faqe web.
-- `JUPITER_API_KEY`: key falas nga https://developers.jup.ag/portal.
+- `JUPITER_API_KEY`: key falas nga https://developers.jup.ag/portal. **I domosdoshëm**: pa të, Jupiter i refuzon kërkesat pas një ose dy, dhe faqja shfaq "busy". Vendose edhe para testit me wallet.
 
 **Llogaritë e treasury-t.** Bound nuk e bën më përdoruesin të paguajë qiranë e llogarisë së fee-së. Nëse treasury nuk ka llogari për tokenin që paguan përdoruesi, ai swap bëhet pa fee. Prandaj krijo një herë llogaritë e treasury-t për tokenët kryesorë (USDC, USDT, JUP, BONK, WIF etj.). Mënyra më e thjeshtë: nga një wallet tjetër dërgo një sasi shumë të vogël të secilit token te adresa e treasury-t. Wallet-i krijon llogarinë automatikisht dhe ti paguan ~0.002 SOL për secilin token. Për SOL nuk duhet asgjë.
 

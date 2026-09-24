@@ -15,7 +15,7 @@ import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
-import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
+import { agentFinalize, agentPrepare, olderThan } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 
@@ -494,5 +494,45 @@ describe("the fee, taken like Jupiter's", () => {
     const w = await world();
     const p = await prepared(w) as unknown as { amounts: Record<string, string> };
     expect(p.amounts.feeMint).toBe(USDC);
+  });
+});
+
+describe('the skill says its version, and an old copy is asked to update (final audit, M1)', () => {
+  const withSkill = (W: Address, version: string | null) => {
+    const req = post('prepare', swapBody(W));
+    const headers = new Headers(req.headers);
+    if (version) headers.set('x-bound-skill', version);
+    return new Request(req.url, { method: 'POST', headers, body: JSON.stringify(swapBody(W)) });
+  };
+
+  it('versions compare by major, minor and patch; what is not a version is not judged', () => {
+    expect(olderThan('1.0.0', '1.0.1')).toBe(true);
+    expect(olderThan('1.9.9', '2.0.0')).toBe(true);
+    expect(olderThan('1.10.0', '1.9.0')).toBe(false);
+    expect(olderThan('2.0.0', '2.0.0')).toBe(false);
+    expect(olderThan('dev', '2.0.0')).toBe(false);
+  });
+
+  it('prepare answers an older skill with 426 and the minimum; a current one, or none named, is served', async () => {
+    const w = await world();
+    w.deps.minSkillVersion = '1.2.0';
+    const old = await agentPrepare(withSkill(w.W.address, '1.1.9'), w.deps);
+    expect(old.status).toBe(426);
+    const body = await old.json();
+    expect(body.error.code).toBe('skill-outdated');
+    expect(body.error.minimum).toBe('1.2.0');
+    expect((await agentPrepare(withSkill(w.W.address, '1.2.0'), w.deps)).status).toBe(200);
+    expect((await agentPrepare(withSkill(w.W.address, null), w.deps)).status).toBe(200);
+  });
+
+  it('a swap already signed is finalized whatever the skill that signed it', async () => {
+    const w = await world();
+    const p = await prepared(w);
+    w.deps.minSkillVersion = '9.0.0';
+    const req = post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction) });
+    const headers = new Headers(req.headers);
+    headers.set('x-bound-skill', '1.0.0');
+    const res = await agentFinalize(new Request(req.url, { method: 'POST', headers, body: await req.text() }), w.deps);
+    expect(res.status).toBe(200);
   });
 });

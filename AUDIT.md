@@ -1048,6 +1048,35 @@ before anything was sent. The fee was 0 because the treasury wallet holds no SOL
 
 ---
 
+## 0za. The final self-audit (24 September 2026)
+
+A full read of the code at `ea3accd` against what it promises and against the ecosystem as it is
+today (Jupiter's documentation, Solana's Alpenglow notes, Pump.fun's changes, the agent-wallet
+services), with live checks: the page in a browser at desktop and phone width, Jupiter without a key,
+and prepared swaps on launchpads other than Pump.fun. Written by the same hand as most of the code,
+so it does not replace Stage 2 of the independent audit. No flaw in the guarantee was found. What it
+found, and what changed:
+
+| Finding | What it was | Fix |
+| --- | --- | --- |
+| H1 | Jupiter asks for a key on every endpoint; keyless, `/swap/v2/build` answered once and then reported no requests left, and token search answered 429. The docs called the key optional | Documented as required (README, `.env.example`, SKILL.md, TESTIMI.md). The server says so once in its log; `/api/status` reports `jupiterKey`; the example and `bound-verify` warn when it is missing |
+| H3 | Monitoring off, and unaffordable on a private repository: the canary every 30 minutes (2,900 minutes a month) and the full fuzz on every push (20 to 40 minutes each) against the free plan's 2,000 | The canary every three hours (about 480 minutes a month); the fuzz in its own workflow, on changes to the verifier or the policy, weekly, and by hand. The canary still waits for the owner's `BOUND_CANARY` |
+| M1 | Alpenglow activates from 28 September 2026. Nothing breaks on activation (Solana's notes), but `confirmed` is to be retired later, and copies of the skill do not update themselves | The skill names its version (`SKILL_VERSION`, sent as `x-bound-skill`). A deployment can set `BOUND_MIN_SKILL_VERSION`: prepare then answers an older copy with `426 skill-outdated` and the minimum; finalize never refuses, so a signed swap always completes |
+| M2 | The RPC, Jupiter and icon proxies served any caller within per-IP, per-instance limits | Requests other websites make from their visitors' browsers are refused (`Sec-Fetch-Site: cross-site`); the README lists firewall rules per path |
+| M3 | No page for a person to learn what is and is not guaranteed | `/how`, linked from the swap page: how a swap works, what is guaranteed, what is not, and the costs, with the fee read from the build |
+| Low | A rule's code in the text shown to people ("(R6)"); "nothing else in your wallet was exposed" stronger than SECURITY.md for a token bought; no Backpack link on a phone; docs that missed the fee in SOL | Rule codes go to the console; "the swap could spend only X from your wallet"; Backpack's browse link; README's R2 row and the fee comment in `constants.ts` corrected |
+| Tooling | `tools/build-skill.ts` bundled the command from the verifier on disk before writing the new one, so a change to the verifier needed two runs | Each output is written before the next is built |
+
+Checked live, nothing signed: a Pump.fun curve buy of a Token-2022 coin (rent refunded in full),
+Meteora's bonding curve (bags.fun) and Raydium LaunchLab (LetsBonk) built, verified and simulated;
+a stonkfun coin and a coin with $148 of liquidity had no quote from Jupiter itself.
+
+Left to the owner: the Jupiter key and 0.01 SOL in the treasury (every swap is fee-free until then),
+`BOUND_CANARY`, GitHub billing before the repository goes private, the real-wallet test, and the
+external audit's Stage 2. Tests: 482 unit tests; the browser smoke 19/19, with the new page.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

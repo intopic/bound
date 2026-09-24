@@ -6,8 +6,17 @@ import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@bound/core';
  * The fee and the treasury are NOT here: they are fixed at build time (NEXT_PUBLIC_BOUND_*), so a
  * compromised server cannot change where fees go or how large they are (audit B-01).
  */
+let warnedNoJupiterKey = false;
+
 export function serverConfig() {
   const maxFee = BigInt(process.env.BOUND_MAX_NETWORK_FEE_LAMPORTS ?? '500000');
+  // Jupiter's API asks for a key on every endpoint; without one it answers a request or two and then
+  // refuses, so quotes fail as "busy" under any load (final audit, H1). Said once, where the
+  // operator reads it; /api/status says it too.
+  if (!process.env.JUPITER_API_KEY && process.env.NODE_ENV === 'production' && !warnedNoJupiterKey) {
+    warnedNoJupiterKey = true;
+    console.error('JUPITER_API_KEY is not set: Jupiter throttles keyless requests, and quotes will fail as "busy". Get a key at https://developers.jup.ag/portal.');
+  }
   return {
     rpcUrl: process.env.RPC_URL || 'https://api.mainnet-beta.solana.com',
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
@@ -28,6 +37,8 @@ export type PublicStatus = {
   maxUsdPerSwap: number | null;
   excludeDexes: string[];
   maxNetworkFeeLamports: string;
+  /** Whether the deployment has a Jupiter API key; without one, quotes fail under load. */
+  jupiterKey: boolean;
 };
 
 export function publicStatus(): PublicStatus {
@@ -37,5 +48,6 @@ export function publicStatus(): PublicStatus {
     maxUsdPerSwap: c.maxUsdPerSwap,
     excludeDexes: c.excludeDexes,
     maxNetworkFeeLamports: c.maxNetworkFeeLamports.toString(),
+    jupiterKey: c.jupiterApiKey !== null,
   };
 }
