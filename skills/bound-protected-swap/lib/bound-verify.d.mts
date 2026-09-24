@@ -57,7 +57,7 @@ export type PreparedSwap = {
  * the one-time key, in its own account or in a Pump.fun market's account in its name. Returns the
  * problems found; sign only when empty.
  */
-export function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>): Promise<string[]>;
+export function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>, opts?: { requestTimeoutMs?: number }): Promise<string[]>;
 
 /**
  * A floor of the agent's own: Jupiter's price for the amount Bound will route, asked for directly,

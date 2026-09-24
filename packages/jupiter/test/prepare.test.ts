@@ -427,13 +427,14 @@ describe('latency without weaker protection', () => {
     expect(asked.some(p => p.slippageBps === 50 && p.excludeDexes?.length)).toBe(true);
   });
 
-  it('a Pump.fun route goes straight to measuring its rent: two simulations, not three', async () => {
+  it('a Pump.fun route goes straight to measuring its rent: two simulations, not three, then the final one', async () => {
     const simulations = { count: 0 };
     const prepared = await prepare(BONK, {
       jupiter: fakeJupiter({ label: 'Pump.fun', curveProgram: true }), chain: onChain, takerRent: 1_346_200n, simulations,
     });
     expect(prepared.policy.takerRent).toBe(1_346_200n);
-    expect(simulations.count).toBe(2);
+    // Measuring the rent takes two; the exact final transaction is simulated once more (H-01).
+    expect(simulations.count).toBe(3);
   });
 
   it('the priority fee follows recent fees on the pools, never below the default', async () => {
@@ -549,10 +550,10 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     expect(prepared.certificate.routeRefundLamports).toBe(1_346_200n);
   });
 
-  it('one more simulation than before, to check E ends with nothing', async () => {
+  it('one more simulation than before, to check E ends with nothing, and the final one', async () => {
     const simulations = { count: 0 };
     await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, simulations });
-    expect(simulations.count).toBe(3);
+    expect(simulations.count).toBe(4);
   });
 
   it('a route that opens no such account returns nothing and adds nothing', async () => {
@@ -561,21 +562,21 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     expect(prepared.oneTimeCosts.routeRefund).toBe(0n);
   });
 
-  it("a cashback coin's account holds more than its rent: it is left alone, so the swap cannot revert on the refund (F-03)", async () => {
+  it("a cashback coin's account holds more than its rent, which no exact refund can return: refused, never left under E (F-03, H-01)", async () => {
     const simulations = { count: 0 };
-    const prepared = await prepare(BONK, {
+    const refused = await prepare(BONK, {
       input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, cashback: 1_234n, simulations,
-    });
-    expect(prepared.policy.takerRent).toBe(1_346_200n);
-    expect(prepared.policy.routeRefund).toBe(0n);
-    expect(prepared.oneTimeCosts.routeRefund).toBe(0n);
+    }).catch((e: BoundError) => e);
+    expect((refused as BoundError).code).toBe('no-route');
+    expect((refused as BoundError).message).toContain('one-time key');
     // No simulation with the close either: nothing was tried that could fail.
     expect(simulations.count).toBe(2);
   });
 
-  it('a route that fits only without the close is built without it, never sent to the RPC oversized', async () => {
-    // Pad a curve route until the close no longer fits in v0: the swap is built as before FA-05.
-    let droppedForSize = 0;
+  it('a route that fits only without the close is never built without it: a narrower route, or a clean refusal (H-01)', async () => {
+    // Pad a curve route until the close no longer fits in v0: no swap is offered that leaves the
+    // market's account open under E, and none is sent to the RPC oversized.
+    let refusedForLeftover = 0;
     for (let n = 0; n <= 20; n++) {
       const extraAccounts = await Promise.all(Array.from({ length: n }, async () => (await generateKeyPairSigner()).address));
       const jupiter = fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true, extraAccounts });
@@ -584,11 +585,33 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
       // Never the RPC's raw refusal of an oversized transaction: a route that no longer fits with
       // its rent is a route that does not fit, and the pipeline says so in its own words.
       expect(['ok', 'no-route', 'simulation-failed'], `${n} extra accounts: ${outcome.code}`).toContain(outcome.code);
-      if (outcome.p && outcome.p.policy.takerRent > 0n && outcome.p.policy.routeRefund === 0n) droppedForSize++;
+      if (outcome.p) expect(outcome.p.policy.routeRefund, `${n} extra accounts`).toBe(outcome.p.policy.takerRent > 0n ? 1_346_200n : 0n);
+      if (outcome.code === 'no-route') refusedForLeftover++;
     }
-    expect(droppedForSize).toBeGreaterThan(0);
+    expect(refusedForLeftover).toBeGreaterThan(0);
     // Twenty-one full builds: about 1.6 s alone, several times that beside the whole suite.
   }, 20_000);
+
+  it("a route too big to close the market's account is traded for a narrower one that closes it (the auditor's SOL → dap, H-01)", async () => {
+    // The widest padding at which the close no longer fits, found as the route that is refused.
+    let pad: Address[] = [];
+    for (let n = 0; n <= 20 && !pad.length; n++) {
+      const extraAccounts = await Promise.all(Array.from({ length: n }, async () => (await generateKeyPairSigner()).address));
+      const wide = fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true, extraAccounts });
+      const outcome = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: wide, takerRent: 1_346_200n, expectCurve: true, version: 0 })
+        .then(() => 'ok', (e: BoundError) => e.code);
+      if (outcome === 'no-route') pad = extraAccounts;
+    }
+    expect(pad.length).toBeGreaterThan(0);
+    // Asked for at most 64 accounts Jupiter offers the padded route; narrower, a route that fits with the close.
+    const wide = fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true, extraAccounts: pad });
+    const narrow = fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true });
+    const asked: number[] = [];
+    const jupiter: JupiterClient = { ...wide, build: (q: BuildParams) => { asked.push(q.maxAccounts ?? 64); return (q.maxAccounts ?? 64) >= 64 ? wide.build(q) : narrow.build(q); } };
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter, takerRent: 1_346_200n, expectCurve: true, version: 0 });
+    expect(prepared.policy.routeRefund).toBe(1_346_200n);
+    expect(asked.some(m => m < 64)).toBe(true);
+  }, 30_000);
 
   it('without rent to pay there is no account to close', async () => {
     const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), expectCurve: true });

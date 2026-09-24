@@ -35,12 +35,17 @@ type Transport = ReturnType<typeof createDefaultRpcTransport>;
  * outright would hide that earlier one behind a definitive "never broadcast" (engineering audit
  * S1-H-02). The sender sees the first answer and decides; re-broadcasting is its job.
  */
-export function retryingTransport(transport: Transport, maxRetries = 5, baseMs = 500): Transport {
+export function retryingTransport(transport: Transport, maxRetries = 5, baseMs = 500, timeoutMs = 20_000): Transport {
   return (async (config: Parameters<Transport>[0]) => {
     const method = (config as { payload?: { method?: unknown } }).payload?.method;
     for (let attempt = 0; ; attempt++) {
       try {
-        return await transport(config);
+        // Every request ends within `timeoutMs`, besides any signal of the caller's own: one that never
+        // answers is an error, not a wait without end (final audit, M-02).
+        const own = (config as { signal?: AbortSignal }).signal;
+        const limit = AbortSignal.timeout(timeoutMs);
+        const signal = own && typeof AbortSignal.any === 'function' ? AbortSignal.any([own, limit]) : own ?? limit;
+        return await transport({ ...config, signal } as Parameters<Transport>[0]);
       } catch (e) {
         if (attempt >= maxRetries || httpStatusOf(e) !== 429 || method === 'sendTransaction') throw e;
         await new Promise(r => setTimeout(r, baseMs * 2 ** attempt * (0.5 + Math.random())));
@@ -90,7 +95,7 @@ async function notOlderThan<T>(read: () => Promise<T>, minContextSlot: bigint | 
 export async function readAccounts(
   rpc: SolanaRpc,
   addresses: readonly Address[],
-  opts: { minContextSlot?: bigint } = {},
+  opts: { minContextSlot?: bigint; timeoutMs?: number } = {},
 ): Promise<{ accounts: Map<string, AccountState | null>; slot: bigint }> {
   const unique = [...new Set(addresses)];
   const out = new Map<string, AccountState | null>();
@@ -99,7 +104,7 @@ export async function readAccounts(
     const batch = unique.slice(i, i + MAX_ACCOUNTS_PER_CALL);
     const { context, value } = await notOlderThan(() => rpc.getMultipleAccounts(batch, {
       encoding: 'base64', commitment: 'confirmed', ...(opts.minContextSlot !== undefined ? { minContextSlot: opts.minContextSlot } : {}),
-    }).send(), opts.minContextSlot);
+    }).send(opts.timeoutMs ? { abortSignal: AbortSignal.timeout(opts.timeoutMs) } : undefined), opts.minContextSlot);
     // The oldest slot of the batches: the state is at least that recent. An RPC that omits the
     // context leaves the slot at zero, and a certificate then simply names no slot.
     const at = BigInt(context?.slot ?? 0);
@@ -246,10 +251,10 @@ export type SendStatus = 'sending' | 'sent' | SendOutcome;
 export type SendRefusal = 'paused' | 'busy' | 'network';
 export type SendResult = { signature: string; status: SendOutcome; error: string | null; refusal?: SendRefusal };
 
-export type SendTiming = { pollMs: number; rebroadcastMs: number; giveUpMs: number; settleTries: number; settleMs: number };
+export type SendTiming = { pollMs: number; rebroadcastMs: number; giveUpMs: number; settleTries: number; settleMs: number; requestMs: number };
 // Settling waits up to 30 s: expiry is proven against the finalized height, which trails the
-// confirmed one by about 13 s.
-const TIMING: SendTiming = { pollMs: 1_000, rebroadcastMs: 3_000, giveUpMs: 150_000, settleTries: 15, settleMs: 2_000 };
+// confirmed one by about 13 s. Every request, the first send included, ends within `requestMs`.
+const TIMING: SendTiming = { pollMs: 1_000, rebroadcastMs: 3_000, giveUpMs: 150_000, settleTries: 15, settleMs: 2_000, requestMs: 15_000 };
 
 /** An outcome only once the cluster has confirmed it: an error seen at `processed` may be on a fork. */
 const settled = (s: { confirmationStatus?: string | null } | null | undefined) =>
@@ -286,10 +291,10 @@ export type SignatureState = { confirmationStatus?: string | null; err?: unknown
  * record" proves nothing: a load-balanced provider may answer the two reads from different nodes.
  */
 export async function statusesCovering(
-  rpc: SolanaRpc, signatures: readonly string[],
+  rpc: SolanaRpc, signatures: readonly string[], timeoutMs?: number,
 ): Promise<{ statuses: SignatureState[]; coveredHeight: bigint | null }> {
-  const finalized = await rpc.getEpochInfo({ commitment: 'finalized' }).send();
-  const { context, value } = await rpc.getSignatureStatuses(signatures as never, { searchTransactionHistory: true }).send();
+  const finalized = await rpc.getEpochInfo({ commitment: 'finalized' }).send(timeoutMs ? { abortSignal: AbortSignal.timeout(timeoutMs) } : undefined);
+  const { context, value } = await rpc.getSignatureStatuses(signatures as never, { searchTransactionHistory: true }).send(timeoutMs ? { abortSignal: AbortSignal.timeout(timeoutMs) } : undefined);
   const height = (finalized as { blockHeight?: bigint | number }).blockHeight;
   const covered = height !== undefined && context?.slot !== undefined && BigInt(context.slot) >= BigInt(finalized.absoluteSlot)
     ? BigInt(height) : null;
@@ -350,14 +355,18 @@ export async function sendAndConfirm(args: {
     args.onStatus?.(status, signature);
     return { signature, status, error, ...(refusal ? { refusal } : {}) };
   };
+  const bounded = () => ({ abortSignal: AbortSignal.timeout(t.requestMs) });
   const rebroadcast = () =>
-    void rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
+    void rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: true, maxRetries: 0n }).send(bounded()).catch(() => undefined);
   const lookup = async (searchTransactionHistory: boolean) =>
-    (await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory }).send()).value[0];
+    (await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory }).send(bounded())).value[0];
 
   args.onStatus?.('sending', signature);
+  // The deadline starts before the first send: a send that never answers counts against it, and is
+  // an outcome to watch for, never "not sent" (final audit, M-02).
+  const started = Date.now();
   try {
-    await rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0n }).send();
+    await rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0n }).send(bounded());
     args.onStatus?.('sent', signature);
   } catch (e) {
     if (refusedBeforeBroadcast(e)) {
@@ -368,14 +377,13 @@ export async function sendAndConfirm(args: {
     // send the same bytes, which can land at most once.
   }
 
-  const started = Date.now();
   let lastBroadcast = Date.now();
   while (Date.now() - started < t.giveUpMs) {
     await sleep(t.pollMs);
     try {
       const s = await lookup(false);
       if (settled(s)) return s!.err ? done('failed', stringify(s!.err)) : done('confirmed');
-      const height = await rpc.getBlockHeight({ commitment: 'confirmed' }).send();
+      const height = await rpc.getBlockHeight({ commitment: 'confirmed' }).send(bounded());
       if (height > lastValidBlockHeight) return settleAfterExpiry();
     } catch {
       // A failed read says nothing about the transaction; keep trying until giving up.
@@ -396,7 +404,7 @@ export async function sendAndConfirm(args: {
     let seen = false;
     for (let i = 0; i < t.settleTries; i++) {
       try {
-        const { statuses, coveredHeight } = await statusesCovering(rpc, [signature]);
+        const { statuses, coveredHeight } = await statusesCovering(rpc, [signature], t.requestMs);
         const s = statuses[0];
         if (settled(s)) return s!.err ? done('failed', stringify(s!.err)) : done('confirmed');
         seen ||= !!s;

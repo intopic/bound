@@ -8,7 +8,7 @@ import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
   LAMPORTS_PER_SIGNATURE, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
-  V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
+  V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, USDC_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
   PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor,
 } from '@bound/core';
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@bound/core';
@@ -179,13 +179,17 @@ export type BoundErrorCode =
   // Jupiter answered with an instruction Bound cannot read: its format changed (research audit F-07).
   | 'route-format'
   // Bound's fee cannot be collected on this swap, so it is not built (final audit, item 9).
-  | 'fee-unavailable' | 'amount-too-small';
+  | 'fee-unavailable' | 'amount-too-small'
+  // The network could not say how long the swap stays valid, so the wallet is not opened (M-04).
+  | 'network-unavailable';
 
 /** The treasury wallet does not exist yet (or cannot receive): Bound's to fix, not the user's. */
 export const FEE_UNAVAILABLE_MESSAGE = "Bound's fee can't be collected right now, so nothing was built. Your funds are not affected; try again later.";
 /** No token of the pair can carry the fee and Jupiter could not price it in SOL. */
 export const FEE_UNPRICED_MESSAGE = "Bound's fee for this pair can't be priced right now, so nothing was built. Try again in a moment.";
 export const AMOUNT_TOO_SMALL_MESSAGE = "This amount is too small to carry Bound's fee. Swap a larger amount.";
+/** A route that would leave lamports or tokens under the one-time key, which is discarded after the swap. */
+export const LEFT_UNDER_KEY_MESSAGE = "This swap's route would leave a market's deposit under the swap's one-time key, where it would be lost, so nothing was built. Another amount or pair may route differently.";
 
 /** What the user reads when Jupiter is overloaded or silent; the swap itself was never at fault. */
 export const BUSY_MESSAGE = 'Too many swaps are being priced right now. Wait a few seconds and try again. Nothing was signed.';
@@ -811,6 +815,17 @@ export async function prepareProtectedSwap(deps: {
   const learned: string[] = [];
   const attempts: Attempt[] = [];
   let floorMisses = 0;
+  // The narrowest route level still worth trying: raised when a route fits only without closing the
+  // account a market opened under E, so that the next attempt looks for one that fits with it.
+  let minLevel = 0;
+  // What is left under E after the swap, watched in the final simulation (final audit, H-01): E, the
+  // account each Pump market opens in E's name, and the token accounts those hold cashback in. The
+  // agent's check watches the same (skill, leftUnderKey); the page and the API now hold to it too.
+  const underKey: Address[] = await (async () => {
+    const markets = await Promise.all([CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountOf(program, E)));
+    const cashback = await Promise.all(markets.flatMap(m => [WSOL_MINT, USDC_MINT].map(mint => ataOf(m, mint))));
+    return [E, ...markets, ...cashback];
+  })();
   // Bound computes each route's floor itself and enforces it on chain, never below what the user
   // accepted (audit B-04, C-02).
   const accepted = req.acceptedMinReceived !== undefined
@@ -958,7 +973,7 @@ export async function prepareProtectedSwap(deps: {
     const excluded = [...settings.excludeDexes, ...learned];
     const lifetime = await (attempt === 0 ? firstLifetimeTask : latestLifetime(rpc));
 
-    let chosen: { r: BuildResponse; intermediates: IntermediateAta[] } | null = null;
+    let chosen: { r: BuildResponse; intermediates: IntermediateAta[]; level: number } | null = null;
     let chosenGapBps = 0n;
     let sawBadQuote = false;
     /** Jupiter answered with an instruction Bound cannot read: its format changed (F-07). */
@@ -972,7 +987,8 @@ export async function prepareProtectedSwap(deps: {
     /** How far the best route offered was below the unrestricted price, in bps. */
     let bestGapBps: bigint | null = null;
     for (const [level, maxAccounts] of MAX_ACCOUNTS_LEVELS.entries()) {
-      let r = attempt === 0 && level === 0 ? await firstRouteTask : await buildOrNull(maxAccounts, excluded);
+      if (level < minLevel) continue;
+      let r = attempt === 0 && level === 0 && minLevel === 0 ? await firstRouteTask : await buildOrNull(maxAccounts, excluded);
       if (!r) continue;
       // Every route is built at its own tolerance, so Jupiter's threshold matches Bound's floor
       // (BR-01). A route asked for at the other one is asked for again; if the answer changes
@@ -1001,7 +1017,7 @@ export async function prepareProtectedSwap(deps: {
       const badHop = intermediates.map(x => cannotIsolate.get(x.mint)).find(Boolean);
       if (badHop) { sawUnsupportedHop = badHop; continue; }
       const c = timed(() => compileIfFits(() => compile(r, lifetime, intermediates, MAX_COMPUTE_UNITS)));
-      if (c && fits(c.size, c.staticAccounts, req.version)) { chosen = { r, intermediates }; chosenGapBps = gap; break; }
+      if (c && fits(c.size, c.staticAccounts, req.version)) { chosen = { r, intermediates, level }; chosenGapBps = gap; break; }
       sawTooBig = true;
     }
     // The levels run from the widest route to the narrowest, so the first one that fits is the best
@@ -1084,22 +1100,36 @@ export async function prepareProtectedSwap(deps: {
     if (sim.ok && takerRent > 0n && opened) {
       const held = sim.lamportsAfter[1] ?? 0n;
       const rentOnly = held > 0n && held === await rentFor(sim.sizesAfter[1] ?? 0);
-      if (rentOnly && held <= MAX_TAKER_RENT_LAMPORTS) {
+      // Holding more than its rent (a cashback coin's account), what it holds depends on the price at
+      // landing, so no exact refund can be written: that route would leave value under E (H-01).
+      if (!rentOnly || held > MAX_TAKER_RENT_LAMPORTS) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+      {
         routeRefund = { ...opened, lamports: held };
         let withClose: ReturnType<typeof compileProtectedSwap> | null = null;
+        let closeSize = '';
         try {
           withClose = timed(buildTrial);
-          // Past the size limit the RPC refuses even to simulate it: the swap goes without the close.
+          closeSize = `${withClose.size} bytes, ${withClose.staticAccounts} accounts`;
+          // Past the size limit the RPC refuses even to simulate it.
           if (!fits(withClose.size, withClose.staticAccounts, req.version)) withClose = null;
         } catch {
           withClose = null; // the two instructions pushed it over the 64 accounts a transaction may name
+          closeSize = 'over 64 accounts';
         }
         const closed = withClose ? await simulate(rpc, withClose.transaction, [E]) : null;
         if (withClose && closed?.ok && closed.lamportsAfter[0] === 0n) {
           trial = withClose;
           sim = closed;
         } else {
+          // The close does not fit, or does not return everything: this route is not offered. A
+          // narrower one may leave room for it (final audit, H-01); the next attempt looks there.
           routeRefund = null;
+          const why = !withClose ? `the close does not fit: ${closeSize}`
+            : !closed?.ok ? `the close fails: ${closed?.error ?? 'no answer'}` : `E keeps ${closed.lamportsAfter[0]} lamports`;
+          attempts.push({ excluded, route, simulation: `the market's account under the one-time key cannot be closed in this route (${why})`, blamed: null });
+          if (chosen.level + 1 >= MAX_ACCOUNTS_LEVELS.length) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+          minLevel = chosen.level + 1;
+          continue;
         }
       }
     }
@@ -1195,6 +1225,16 @@ export async function prepareProtectedSwap(deps: {
       const createsOutputAccount = !!policy.accounts.wOut && !snapshot.accounts.get(policy.accounts.wOut);
       if (!certification.ok) throw new BoundError('verification-failed', 'A protected transaction cannot be produced.', certification.violations);
 
+      // The exact transaction the wallet will sign, simulated once more (final audit, H-01, and the
+      // shared contract's point 4): it must execute, and leave nothing under E. A simulation that
+      // does not report those accounts reads as failed, never as empty.
+      const last = await simulate(rpc, final.transaction, underKey);
+      if (!last.ok) {
+        attempts.push({ excluded, route, simulation: `final transaction: ${last.error ?? 'failed'}`, blamed: null });
+        continue;
+      }
+      if (last.lamportsAfter.some(l => l > 0n)) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+
       return {
         oneTimeCosts: {
           outputAccountRent: createsOutputAccount ? newAccountRent : 0n, routeRent: chosenPolicy.takerRent, routeRefund: chosenPolicy.routeRefund,
@@ -1266,6 +1306,11 @@ export async function prepareProtectedSwap(deps: {
       if (!excluded.includes(label)) learned.push(label);
     }
     if (learned.length === before) break;
+  }
+  // Every route tried could not return the deposit its market kept under E: that is the reason, not
+  // a failed simulation (final audit, H-01).
+  if (attempts.length && attempts.every(a => a.simulation.startsWith("the market's account under the one-time key"))) {
+    throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
   }
   throw new BoundError('simulation-failed', `Every route failed in simulation. No funds were moved. ${why(attempts)}`);
 }

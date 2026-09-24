@@ -31,7 +31,7 @@
  * --state, default ./.bound-state) before finalize, settles what a stopped run left there before it
  * starts another, and holds a lock per wallet so that two workers never swap from it at once.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -170,7 +170,7 @@ const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
  * asked for; then the full verifier on the exact bytes, with chain state from `rpc`, which must be
  * your own RPC (review FA-01). Returns the problems found; sign only when there are none.
  */
-export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<SolanaRpcApi>): Promise<string[]> {
+export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<SolanaRpcApi>, opts: { requestTimeoutMs?: number } = {}): Promise<string[]> {
   const problems: string[] = [];
   const tx = getTransactionDecoder().decode(Buffer.from(p.transaction, 'base64'));
   const digest = hex(await crypto.subtle.digest('SHA-256', new Uint8Array(tx.messageBytes)));
@@ -212,7 +212,7 @@ export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<Solana
   }
   if (BigInt(p.costs.networkFeeLamports) > BigInt(intent.maxNetworkFeeLamports ?? 1_000_000)) problems.push(`the network fee ${p.costs.networkFeeLamports} is above your limit`);
   // The answer's own claims are not evidence: what the bytes do is decided by the verifier.
-  problems.push(...await verifyPrepared(p, { ...intent, minOut: intent.minOut ?? '' }, rpc));
+  problems.push(...await verifyPrepared(p, { ...intent, minOut: intent.minOut ?? '' }, rpc, opts));
   return problems;
 }
 
@@ -367,6 +367,8 @@ export type Signed = {
   signedAt: number;
   /** The order it carries out (`Intent.id`), if it has one. */
   intentId?: string;
+  /** The wallet that signed it: one swap per wallet may be pending at a time (final audit, H-02). */
+  owner?: string;
 };
 
 /** What happened to an order: its last transaction, and that transaction's state. */
@@ -398,6 +400,38 @@ export class BoundOrderError extends Error {
 }
 
 const orderIsOpen = (r: OrderRecord | null): r is OrderRecord => !!r && (r.state === 'confirmed' || r.state === 'pending');
+
+/** The wallet a kept record was signed by: named in it, or read from its transaction's fee payer. */
+function ownerOfRecord(s: Signed): string | null {
+  if (s.owner) return s.owner;
+  try {
+    return getCompiledTransactionMessageDecoder().decode(getTransactionDecoder().decode(Buffer.from(s.signedTransaction, 'base64')).messageBytes).staticAccounts[0];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Swaps from `owner` whose transaction may still land, other than `except`. A record whose wallet
+ * cannot be read counts for every wallet: it is settled first, not guessed about.
+ */
+export async function pendingFor(store: PendingStore, owner: string, except?: string): Promise<string[]> {
+  return (await store.list())
+    .filter(s => s.signature !== except && (ownerOfRecord(s) ?? owner) === owner)
+    .map(s => s.signature);
+}
+
+/**
+ * An earlier swap from this wallet may still land: nothing new is sent until it is settled
+ * (`recoverPending`), whether or not the two share an order id (final audit, H-02).
+ */
+export class PendingSwapError extends Error {
+  readonly signatures: string[];
+  constructor(signatures: string[]) {
+    super(`An earlier swap from this wallet may still land (${signatures.join(', ')}): settle it first. Nothing new was sent.`);
+    this.signatures = signatures;
+  }
+}
 
 /** Where signed swaps wait for their outcome. Unattended, it must survive the process (S1-M-01). */
 export type PendingStore = {
@@ -494,27 +528,70 @@ export async function recoverPending(
 
 /**
  * One worker per wallet at a time, across processes sharing `dir`: the lock file is created only if
- * it does not exist. A lock older than `staleMs` is left by a process that died, and is taken over.
- * Returns the release. Workers on other machines need a shared store with a lock of its own.
+ * it does not exist, and names its holder with a token of its own. A lock older than `staleMs` is
+ * left by a process that died: it is moved aside, which only one process can do, and only if it is
+ * still the stale lock that was judged, then taken. The release deletes the lock only while it still
+ * carries this holder's token, so a worker whose lock was taken over never removes its successor's
+ * (final audit, M-01). Keep `staleMs` above the longest swap (`maxWaitMs` and its requests).
+ * Workers on other machines need a shared store with a lock of its own.
  */
 export function acquireLock(dir: string, owner: string, staleMs = 10 * 60_000): () => void {
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `lock-${owner}`);
+  const token = randomUUID();
+  const busy = () => new Error(`Another swap from ${owner} is running (lock ${path}); nothing was started.`);
+  const tokenAt = (file: string): string | null => {
+    try {
+      return (JSON.parse(readFileSync(file, 'utf8')) as { token?: string }).token ?? null;
+    } catch {
+      return null;
+    }
+  };
   const take = () => {
     const fd = openSync(path, 'wx');
-    writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
-    closeSync(fd);
+    try {
+      writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now(), token }));
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
   };
   try {
     take();
   } catch {
-    if (Date.now() - statSync(path).mtimeMs < staleMs) {
-      throw new Error(`Another swap from ${owner} is running (lock ${path}); nothing was started.`);
+    let judged: string | null;
+    try {
+      if (Date.now() - statSync(path).mtimeMs < staleMs) throw busy();
+      judged = tokenAt(path);
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Another swap')) throw e;
+      throw busy(); // gone or unreadable in between: another worker is at it
     }
-    rmSync(path, { force: true });
-    take();
+    const aside = `${path}.stale-${token}`;
+    try {
+      renameSync(path, aside); // atomic: one worker moves it, every other one finds it gone
+    } catch {
+      throw busy();
+    }
+    if (tokenAt(aside) !== judged) {
+      // What was moved is a fresh lock another worker took after this one judged the old one stale.
+      try {
+        renameSync(aside, path);
+      } catch {
+        // its holder releases nothing that is not its own; the next stale check clears it
+      }
+      throw busy();
+    }
+    rmSync(aside, { force: true });
+    try {
+      take();
+    } catch {
+      throw busy();
+    }
   }
-  return () => rmSync(path, { force: true });
+  return () => {
+    if (tokenAt(path) === token) rmSync(path, { force: true });
+  };
 }
 
 /** A prepared swap that passed the check, with the intent and limits it was checked against. */
@@ -550,7 +627,7 @@ export async function prepareChecked(args: {
       inputMint: intent.inputMint, amountIn: intent.amountIn, taker: owner, maxFeeBps: intent.maxFeeBps, apiKey: args.jupiterApiKey, fetchImpl,
     });
   }
-  const problems = await checkPrepared(prepared, intent, args.rpc);
+  const problems = await checkPrepared(prepared, intent, args.rpc, { requestTimeoutMs: args.requestTimeoutMs });
   if (problems.length) throw new Error(`Not signing: ${problems.join('; ')}`);
   return { prepared, intent };
 }
@@ -598,6 +675,7 @@ export async function finalizeSigned(args: {
   const lastValid = stated > ownLimit ? stated : ownLimit;
   await args.onSigned?.({
     signature, lastValidBlockHeight: lastValid, ticket: prepared.ticket, signedTransaction, messageSha256: prepared.messageSha256, signedAt: Date.now(),
+    owner: prepared.wallet,
   });
 
   // Asked once more when no answer came back, or none that reads (the same bytes can land only
@@ -644,28 +722,60 @@ export async function protectedSwap(args: {
   requestTimeoutMs?: number;
   /** Where orders are kept by `intent.id` (see `OrderBook`); without an id or a book, not used. */
   orders?: OrderBook;
-}): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string }> {
+  /**
+   * Where signed swaps are kept until settled (`createFileStore`). With it, the swap is recorded
+   * before finalize and removed once its outcome is final, and nothing is sent while another swap
+   * from this wallet may still land (final audit, H-02).
+   */
+  pending?: PendingStore;
+}): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string; bookkeepingError?: string }> {
   const id = args.intent.id;
   const orders = id ? args.orders : undefined;
+  const owner = args.wallet.address;
   // An order that confirmed, or whose transaction may still land, is not swapped again (item 7).
   const prior = orders ? await orders.order(id!) : null;
   if (orderIsOpen(prior)) throw new BoundOrderError(id!, prior);
-  const { prepared } = await prepareChecked({ ...args, owner: args.wallet.address });
+  // Nor is anything prepared while another swap from this wallet may still land (H-02).
+  const waiting = args.pending ? await pendingFor(args.pending, owner) : [];
+  if (waiting.length) throw new PendingSwapError(waiting);
+  const { prepared } = await prepareChecked({ ...args, owner });
   const signedTransaction = await signAsWallet(args.wallet, prepared.transaction);
   const result = await finalizeSigned({
     ...args, prepared, signedTransaction,
-    // The order is taken before finalize, atomically when it is new: two workers with the same order
-    // cannot both send one, and a process that stops here finds it pending on its next start.
+    // Taken before finalize: the order, atomically when it is new, and the wallet's one pending
+    // swap, checked again after it is kept so that two runs racing each other both stand down rather
+    // than both send. A process that stops here finds it pending on its next start.
     onSigned: async signed => {
+      const kept: Signed = { ...signed, ...(id ? { intentId: id } : {}) };
+      if (args.pending) {
+        const others = await pendingFor(args.pending, owner, signed.signature);
+        if (others.length) throw new PendingSwapError(others);
+        await args.pending.put(kept);
+        const raced = await pendingFor(args.pending, owner, signed.signature);
+        if (raced.length) {
+          await args.pending.remove(signed.signature);
+          throw new PendingSwapError(raced);
+        }
+      }
       if (orders) {
         const record: OrderRecord = { signature: signed.signature, state: 'pending' };
         if (prior) await orders.recordOrder(id!, record);
-        else if (!await orders.claimOrder(id!, record)) throw new BoundOrderError(id!, (await orders.order(id!)) ?? record);
+        else if (!await orders.claimOrder(id!, record)) {
+          await args.pending?.remove(signed.signature);
+          throw new BoundOrderError(id!, (await orders.order(id!)) ?? record);
+        }
       }
-      await args.onSigned?.({ ...signed, ...(id ? { intentId: id } : {}) });
+      await args.onSigned?.(kept);
     },
   });
-  if (orders) await orders.recordOrder(id!, { signature: result.signature, state: result.outcome === 'unknown' ? 'pending' : result.outcome });
+  // What happened on the chain is the answer; a record that could not be updated is said beside it,
+  // never in its place (final audit, M-03).
+  try {
+    if (orders) await orders.recordOrder(id!, { signature: result.signature, state: result.outcome === 'unknown' ? 'pending' : result.outcome });
+    if (args.pending && result.outcome !== 'unknown') await args.pending.remove(result.signature);
+  } catch (e) {
+    return { ...result, bookkeepingError: e instanceof Error ? e.message : String(e) };
+  }
   return result;
 }
 
@@ -729,14 +839,15 @@ async function main() {
     }
     const result = await protectedSwap({
       apiUrl, apiKey, rpc, wallet, intent, jupiterApiKey, orders: store,
-      // Kept on disk before finalize: if this process stops, the next run settles it first.
-      onSigned: async s => {
-        await store.put(s);
-        console.error(`Signed transaction ${s.signature}; it can land until block ${s.lastValidBlockHeight}.`);
-      },
+      // Kept on disk before finalize, and removed once settled: if this process stops, the next run
+      // settles it first, and nothing new is sent from this wallet while it may still land.
+      pending: store,
+      onSigned: s => console.error(`Signed transaction ${s.signature}; it can land until block ${s.lastValidBlockHeight}.`),
     });
-    if (result.outcome !== 'unknown') await store.remove(result.signature);
-    console.log(JSON.stringify({ signature: result.signature, outcome: result.outcome, refusal: result.refusal, amounts: result.prepared.amounts }, null, 2));
+    console.log(JSON.stringify({
+      signature: result.signature, outcome: result.outcome, refusal: result.refusal, amounts: result.prepared.amounts,
+      ...(result.bookkeepingError ? { bookkeepingError: result.bookkeepingError } : {}),
+    }, null, 2));
   } finally {
     release();
   }

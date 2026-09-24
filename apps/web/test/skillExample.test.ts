@@ -25,12 +25,12 @@ import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import {
   acquireLock, BoundApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending,
-  BoundOrderError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
+  BoundOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
 } from '../../../skills/bound-protected-swap/examples/swap.ts';
 import type { OrderBook } from '../../../skills/bound-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/bound-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BOUND_TREASURY, ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
@@ -896,5 +896,100 @@ describe('the same order is never swapped twice (final audit, item 7)', () => {
     const again = await runCli('prepare', { intent }, deps);
     expect(again.code).toBe(5);
     expect((again.output.order as { state: string }).state).toBe('confirmed');
+  });
+});
+
+describe('the Stage 2 audit: one swap per wallet, owned locks, outcomes kept apart from bookkeeping', () => {
+  it('H-02: two prepared swaps, the first unknown: the second is not sent, with or without an order id', async () => {
+    const b = await bound();
+    const stateDir = mkdtempSync(join(tmpdir(), 'bound-h02-'));
+    let finalizes = 0;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/finalize')) finalizes++;
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    // A chain on which nothing ever shows up in time: the first swap's outcome stays unknown.
+    const rpc = chainOf(b, { landAt: 10n ** 12n });
+    const deps = { rpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' };
+    const one = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
+    const two = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
+    const sign = async (m: string) => getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(m, 'base64')));
+    const first = await runCli('finalize', { checked: one.checked, signature: await sign(one.message) }, deps);
+    expect(first.code).toBe(3);
+    expect(first.output.outcome).toBe('unknown');
+    const second = await runCli('finalize', { checked: two.checked, signature: await sign(two.message) }, deps);
+    expect(second.code).toBe(3);
+    expect(second.output.sent).toBe(false);
+    expect(second.output.pending).toEqual([first.output.signature]);
+    expect(finalizes).toBe(1);
+    // The first one, asked again with the same bytes, is its own record: allowed through again.
+    const again = await runCli('finalize', { checked: one.checked, signature: await sign(one.message) }, deps);
+    expect(again.output.signature).toBe(first.output.signature);
+  }, 30_000);
+
+  it('H-02: protectedSwap sends nothing while another swap from the wallet may still land', async () => {
+    const b = await bound();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-h02b-')));
+    await store.put({ signature: 'an-earlier-swap', lastValidBlockHeight: 10n ** 12n, ticket: 't', signedTransaction: '', messageSha256: '', signedAt: 0, owner: b.wallet.address });
+    let prepares = 0;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/prepare')) prepares++;
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const refused = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, intent: swapIntent, pending: store })
+      .catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(PendingSwapError);
+    expect(prepares).toBe(0);
+    // Another wallet's pending swap is not this wallet's.
+    const other = await bound();
+    const fine = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: other.agentRpc, wallet: other.wallet, fetchImpl: other.fetchImpl, pollMs: 1, intent: swapIntent, pending: store });
+    expect(fine.outcome).toBe('confirmed');
+    expect((await store.list()).map(s => s.signature)).toEqual(['an-earlier-swap']);
+  });
+
+  it('M-01: a worker whose stale lock was taken over does not remove its successor; a third waits', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bound-m01-'));
+    const releaseA = acquireLock(dir, 'wallet', 1_000);
+    // A goes silent past the stale limit: B takes over.
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(join(dir, 'lock-wallet'), old, old);
+    const releaseB = acquireLock(dir, 'wallet', 1_000);
+    releaseA(); // A comes back and releases: B's lock must stay
+    expect(() => acquireLock(dir, 'wallet', 1_000)).toThrow('Another swap');
+    releaseB();
+    acquireLock(dir, 'wallet', 1_000)();
+  });
+
+  it('M-03: a record that cannot be removed after the swap confirmed is said beside the outcome, never as "not sent"', async () => {
+    const b = await bound();
+    const files = createFileStore(mkdtempSync(join(tmpdir(), 'bound-m03-')));
+    const failing = { ...files, remove: async () => { throw new Error('ENOSPC: no space left on device'); } };
+    const stateDir = mkdtempSync(join(tmpdir(), 'bound-m03-state-'));
+    const deps = { rpc: b.agentRpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl: b.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60, store: failing };
+    const ready = JSON.parse(JSON.stringify((await runCli('prepare', { intent: { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' } }, deps)).output)) as { checked: unknown; message: string };
+    const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(ready.message, 'base64')));
+    const done = await runCli('finalize', { checked: ready.checked, signature }, deps);
+    expect(done.code).toBe(0);
+    expect(done.output.outcome).toBe('confirmed');
+    expect(done.output.signature).toBe(signature);
+    expect(String(done.output.bookkeepingError)).toContain('ENOSPC');
+    expect(done.output.sent).toBeUndefined();
+
+    const c = await bound();
+    const lib = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: c.agentRpc, wallet: c.wallet, fetchImpl: c.fetchImpl, pollMs: 1, intent: swapIntent, pending: failing });
+    expect(lib.outcome).toBe('confirmed');
+    expect(lib.bookkeepingError).toContain('ENOSPC');
+  });
+
+  it("M-02: the agent's check ends in time when its RPC never answers, and says so", async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    const never = (o?: { abortSignal?: AbortSignal }) => new Promise<never>((_, reject) => o?.abortSignal?.addEventListener('abort', () => reject(new Error('timed out'))));
+    const stuck = { ...b.agentRpc, getMultipleAccounts: () => ({ send: never }) } as unknown as Rpc<SolanaRpcApi>;
+    const started = Date.now();
+    const problems = await checkPrepared(honest, intentFor(b.wallet), stuck, { requestTimeoutMs: 50 });
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(problems.join()).toContain('could not be read from your RPC');
   });
 });

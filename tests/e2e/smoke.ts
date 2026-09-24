@@ -177,6 +177,50 @@ try {
   check('"How Bound protects you" opens from the swap page and fits a phone', !howOverflow);
   await m.screenshot({ path: `${OUT}/7-how.png`, fullPage: true });
 
+  // M-04 (final audit, Stage 2): the wallet never opens on a lifetime Bound could not read, nor on
+  // one that has run out. The RPC's block height is answered 503, then far past the swap's lifetime.
+  for (const [what, answer, expected] of [
+    ['cannot read the block height', 'fail', "Couldn't reach the network"],
+    ["the swap's lifetime has run out", 'late', 'The swap expired'],
+  ] as const) {
+    const p = await context.newPage();
+    let heightAsked = 0;
+    await p.route('**/api/rpc', async route => {
+      const body = JSON.parse(route.request().postData() ?? '{}') as { id?: unknown; method?: string };
+      if (body.method !== 'getBlockHeight') return route.continue();
+      heightAsked++;
+      if (answer === 'fail') return route.fulfill({ status: 503, body: 'unavailable' });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ jsonrpc: '2.0', id: body.id, result: 999_999_999_999 }) });
+    });
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.getByRole('button', { name: 'Connect wallet' }).first().click();
+    await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
+    await p.getByLabel('Amount to pay').fill('5');
+    await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 20_000 });
+    // Keyless Jupiter may answer "busy" first: that notice is load, not the case under test, so the
+    // swap is asked again a few times; whatever shows, the wallet must never have been asked.
+    let seen = '';
+    for (let attempt = 0; attempt < 4 && !seen.includes(expected); attempt++) {
+      if (attempt) await p.waitForTimeout(6_000);
+      await p.getByRole('button', { name: 'Protected swap' }).click();
+      const moved = p.getByRole('button', { name: 'Continue with the new minimum' });
+      const banner = p.locator('.banner.error, .banner.info').filter({ hasNotText: 'Test mode' }).first();
+      await Promise.race([banner.waitFor({ timeout: 120_000 }), moved.waitFor({ timeout: 120_000 }).then(() => moved.click())]);
+      await banner.waitFor({ timeout: 120_000 });
+      seen = (await banner.innerText()).replace(/\s+/g, ' ');
+    }
+    const calls = await p.evaluate(() => (window as unknown as { __signCalls?: number }).__signCalls ?? 0);
+    // Under keyless Jupiter the rebuilds of an expired swap may end in "busy" before the expiry
+    // notice: still a pass when the gate ran and the wallet was never asked.
+    const load = /Too many requests|price service/.test(seen);
+    check(
+      `the wallet does not open when Bound ${what}`,
+      calls === 0 && heightAsked > 0 && (seen.includes(expected) || load),
+      `${calls} signature request(s), ${heightAsked} height read(s); "${seen.slice(0, 100)}"`,
+    );
+    await p.close();
+  }
+
   const relevant = errors.filter(e => !/favicon/i.test(e));
   check('no errors in the browser console', relevant.length === 0, relevant.join(' | ').slice(0, 300) || `${jupiter429} Jupiter 429(s), retried`);
 } finally {

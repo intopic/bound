@@ -194,10 +194,17 @@ async function outputBalanceUnchanged(p: PreparedSwap): Promise<boolean> {
   return now === p.outputBalanceBefore;
 }
 
-/** Blocks left in a prepared swap's lifetime, at the RPC's confirmed height; null when it cannot say. */
+/**
+ * Blocks left in a prepared swap's lifetime, at the RPC's confirmed height, asked a few times; null
+ * when the RPC cannot say at all.
+ */
 async function blocksLeft(p: PreparedSwap): Promise<bigint | null> {
-  const height = await getRpc().getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
-  return height === null ? null : p.lifetime.lastValidBlockHeight - BigInt(height);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise(r => setTimeout(r, 400));
+    const height = await getRpc().getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
+    if (height !== null) return p.lifetime.lastValidBlockHeight - BigInt(height);
+  }
+  return null;
 }
 
 
@@ -255,9 +262,12 @@ function explainError(e: unknown): Notice {
       'route-format': 'Protected swaps are waiting for an update',
       'fee-unavailable': "Bound's fee can't be collected right now",
       'amount-too-small': 'This amount is too small',
+      'network-unavailable': "Couldn't reach the network",
     };
     // Load or an upstream change, not the swap: the message already says that nothing was signed.
-    if (e.code === 'busy' || e.code === 'unavailable' || e.code === 'route-format' || e.code === 'fee-unavailable') return { kind: 'info', title: titles[e.code], body: e.message };
+    if (e.code === 'busy' || e.code === 'unavailable' || e.code === 'route-format' || e.code === 'fee-unavailable' || e.code === 'network-unavailable') {
+      return { kind: 'info', title: titles[e.code], body: e.message };
+    }
     // The rule behind a refusal is for whoever investigates, not for the person swapping (final audit).
     if (e.violations.length) console.warn('Bound refused this swap:', e.violations);
     const rules = '';
@@ -909,8 +919,12 @@ export function SwapApp() {
       // asked about again only if it costs more than what was accepted (M-06, engineering audit S1-M-03).
       for (let round = 0; ; round++) {
         const left = await blocksLeft(prepared);
-        // A height the RPC cannot give is no reason to stop: the last signature checks expiry itself.
-        if (left === null || left >= MIN_BLOCKS_FOR_WALLET) break;
+        // Without a height, how long the swap stays valid is unknown: the wallet is not opened on a
+        // guess (final audit, M-04).
+        if (left === null) {
+          throw new BoundError('network-unavailable', "Bound couldn't read how long this swap stays valid, so your wallet was not opened. Nothing was signed; try again in a moment.");
+        }
+        if (left >= MIN_BLOCKS_FOR_WALLET) break;
         if (round === 2) throw new BoundError('expired', "The swap's time ran out while it was being prepared or while you answered. Nothing was signed; try again.");
         setPhase('checking');
         const again = await build(E, prepared.quote.minReceived);
