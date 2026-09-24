@@ -908,8 +908,9 @@ describe('the Stage 2 audit: one swap per wallet, owned locks, outcomes kept apa
       if (url.endsWith('/api/v1/finalize')) finalizes++;
       return b.fetchImpl(url, init);
     }) as unknown as typeof fetch;
-    // A chain on which nothing ever shows up in time: the first swap's outcome stays unknown.
-    const rpc = chainOf(b, { landAt: 10n ** 12n });
+    // A chain on which nothing ever shows up, and whose height never passes the swap's lifetime: the
+    // first swap's outcome stays unknown however fast the machine polls.
+    const rpc = { ...chainOf(b, { landAt: 10n ** 12n }), getBlockHeight: () => ({ send: async () => 1n }) } as unknown as Rpc<SolanaRpcApi>;
     const deps = { rpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
     const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' };
     const one = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
