@@ -20,11 +20,14 @@ For every swap Bound builds:
    is bought, the check compares the user's account for that token with its balance when the swap
    was prepared, and that balance is read from the RPC: the check assumes the RPC reports it
    truthfully, and a transfer into that account from someone else at the same moment counts toward
-   it. Jupiter's program also enforces the route's own tolerance on chain, a second floor that does
-   not depend on the RPC: it measures what its own instruction delivers, and the verifier requires
-   that instruction to deliver into the user's own account (or E's temporary one for SOL), so that
-   floor is always on the right account (research audit). Bound never runs two of its own swaps into
-   the same token at once in the same browser.
+   it. Jupiter's program also enforces a floor on chain, a second one that does not depend on the
+   RPC: it measures what its own instruction delivers, and the verifier requires that instruction to
+   deliver into the user's own account (or E's temporary one for SOL), so that floor is always on the
+   right account (research audit), and requires it to reach the whole minimum, not only the quote:
+   when the user accepted more than the route's own floor, Bound tightens the route's tolerance until
+   it does (engineering review H-03). A transfer arriving at the same moment, or another swap into
+   the same token, cannot then make up for a route that delivered less. Bound never runs two of its
+   own swaps into the same token at once in the same browser.
 
 Bound has one minimum-output model for every router: an exact base-unit amount enforced by a trusted
 instruction in the same transaction and checked independently by the verifier. A router's own
@@ -70,7 +73,8 @@ when the treasury has an account for it; otherwise the swap is fee-free. On the 
 the amount, paid before the swap. On the output it is 0.2% of the enforced minimum, paid after the
 minimum is checked (from the wallet once E_out has paid out, for SOL; from `W_out`, for USDC or
 USDT): the minimum the user sees and accepts is what the wallet keeps after it, and the fee is never
-more than 0.2% of what arrives. This is what lets a memecoin sold for SOL pay, where the treasury
+more than 0.2% of what the swap delivers, since Jupiter's own floor holds the route to that minimum
+whatever else arrives in the account (engineering review H-03). This is what lets a memecoin sold for SOL pay, where the treasury
 could never hold an account for every new token.
 
 ## Why it holds: R6 first
@@ -297,7 +301,7 @@ tables. What depends on it, from the v1 review (AUDIT.md section 0m):
 
 | Read | Used for | If the RPC lies |
 | --- | --- | --- |
-| Balance of the output account | The minimum-output check for a token output | The check can pass with less delivered. Jupiter's own threshold (0.5%, or 3% on a curve) still holds: the verifier requires Jupiter to deliver into that same account, and Jupiter measures what its instruction delivered, not the balance |
+| Balance of the output account | The minimum-output check for a token output | Bound's check can pass with less delivered, but Jupiter's floor still holds the route to the whole minimum: the verifier requires Jupiter to deliver into that same account and its floor (quote less tolerance) to reach the minimum, and Jupiter measures what its instruction delivered, not the balance (engineering review H-03) |
 | Lookup table contents | R1 | Together with a lying Jupiter, an account could be hidden. v1 transactions have no lookup tables |
 | Owners and data of the route's accounts | R1's test for W's own accounts | A W account with a delegate the user set up earlier could be hidden |
 | Mints: owner, decimals, extensions | R2, R7, amounts | A wrong decimals value reverts on chain (TransferChecked); a hidden extension falls back on the minimum |

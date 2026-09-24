@@ -3,7 +3,7 @@ import {
   getCompiledTransactionMessageDecoder, isSolanaError, partiallySignTransaction,
   SOLANA_ERROR__TRANSACTION__TOO_MANY_ACCOUNT_ADDRESSES,
 } from '@solana/kit';
-import type { Address, FullySignedTransaction, KeyPairSigner, Transaction } from '@solana/kit';
+import type { Address, FullySignedTransaction, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
@@ -14,7 +14,7 @@ import {
 import type { BoundConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@bound/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
 import {
-  certify, hasTransferFee, jupiterRouteArgs, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn,
+  certify, hasTransferFee, jupiterFloor, jupiterRouteArgs, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn,
 } from '@bound/verifier';
 import type { Certificate } from '@bound/verifier';
 import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@bound/solana';
@@ -325,6 +325,25 @@ export function strictMinimumOutput(
 ): bigint {
   const route = routeFloor(r, slippageBps);
   return acceptedMinOut > route ? acceptedMinOut : route;
+}
+
+/**
+ * Jupiter's instruction with its own floor raised to Bound's minimum, when the minimum the user
+ * accepted is above the route's (engineering review H-03). Jupiter's floor counts only what its
+ * route delivered to the output account, so it holds when other tokens reach that account at the
+ * same moment, where Bound's balance check alone would count them. Only the tolerance changes, and
+ * only as far as the minimum needs; a route whose quote is below the minimum is left for the
+ * verifier to refuse.
+ */
+export function withFloorAtLeast(ix: Instruction, minOut: bigint): Instruction {
+  const data = ix.data ?? new Uint8Array();
+  const args = jupiterRouteArgs(data);
+  if (!args || args.quotedOutAmount < minOut || jupiterFloor(args) >= minOut) return ix;
+  // floor(quote × (10,000 − s) / 10,000) ≥ minOut exactly when s ≤ 10,000 − ceil(minOut × 10,000 / quote).
+  const kept = (minOut * 10_000n + args.quotedOutAmount - 1n) / args.quotedOutAmount;
+  const tightened = Uint8Array.from(data);
+  new DataView(tightened.buffer).setUint16(args.slippageOffset, Number(10_000n - kept), true);
+  return { ...ix, data: tightened };
 }
 
 /**
@@ -834,7 +853,9 @@ export async function prepareProtectedSwap(deps: {
     compileProtectedSwap({
       policy: policyFor(r),
       outputBalanceBefore,
-      swapInstruction: toKitInstruction(r.swapInstruction),
+      // Jupiter's own floor covers the whole minimum, also when the user accepted more than the
+      // route's floor (engineering review H-03).
+      swapInstruction: withFloorAtLeast(toKitInstruction(r.swapInstruction), policyFor(r).minOut),
       intermediates,
       version: req.version,
       lifetime,

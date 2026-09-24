@@ -7,12 +7,14 @@ import {
   address, decompileTransactionMessage, generateKeyPairSigner, getAddressEncoder, getCompiledTransactionMessageDecoder,
   getTransactionDecoder,
 } from '@solana/kit';
-import type { Address } from '@solana/kit';
+import type { Address, Transaction } from '@solana/kit';
 import {
   ataOf, ATA_PROGRAM, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
 } from '@bound/core';
 import type { SolanaRpc } from '@bound/solana';
-import { BoundError, DEFAULT_SETTINGS, prepareProtectedSwap, revertedOnPrice } from '../src/swap.ts';
+import { BoundError, DEFAULT_SETTINGS, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
+import { jupiterFloor, jupiterRouteArgs } from '@bound/verifier';
+import type { JupiterRouteArgs } from '@bound/verifier';
 import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
 
@@ -106,6 +108,20 @@ describe('C-02: Bound computes the minimum itself', () => {
   it('the minimum the user accepted is enforced when it is stricter than the route floor', async () => {
     const accepted = OUT - 1_000n; // between the route floor and the quoted output
     expect((await prepare(WSOL_MINT, { acceptedMinOut: accepted })).policy.minOut).toBe(accepted);
+  });
+
+  it("Jupiter's own floor is raised to that minimum as well, no further than it needs (engineering review H-03)", async () => {
+    const accepted = OUT - 1_000n;
+    const route = jupiterArgsOf(await prepare(WSOL_MINT, { acceptedMinOut: accepted }));
+    // Its floor counts only what the route delivered: a deposit arriving with the swap cannot fill a gap.
+    expect(jupiterFloor(route)).toBeGreaterThanOrEqual(accepted);
+    expect(route.slippageBps).toBeLessThan(settings.slippageBps);
+    expect(jupiterFloor({ ...route, slippageBps: route.slippageBps + 1 })).toBeLessThan(accepted);
+  });
+
+  it('without a stricter accepted minimum, Jupiter keeps the tolerance it was asked for', async () => {
+    const route = jupiterArgsOf(await prepare(WSOL_MINT));
+    expect(route.slippageBps).toBe(settings.slippageBps);
   });
 
   it('when the route can no longer deliver the accepted minimum, the user is asked again', async () => {
@@ -652,5 +668,66 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     expect((failure as BoundError).code).toBe('price-moved');
     const moved = (failure as BoundError).priceMoved!;
     expect(moved.newMinReceived).toBe(moved.newMinOut - (moved.newMinOut * settings.feeBps) / 10_000n);
+  });
+
+  it('a fee side that changes between the quote and the build keeps the minimum the page showed (engineering review H-04)', async () => {
+    // Quoted while the treasury had no wallet: fee-free, and the page showed this minimum.
+    const quoted = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY });
+    expect(quoted.policy.feeSide).toBeNull();
+    const shown = quoted.quote.minReceived;
+    // The treasury's wallet appears before the click: the build now takes the fee from the SOL out,
+    // and still keeps what the page showed, with the market unchanged.
+    const built = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet], acceptedMinReceived: shown });
+    expect(built.policy.feeSide).toBe('output');
+    expect(built.quote.minReceived).toBeGreaterThanOrEqual(shown);
+    // Handed over gross, as the page used to, the same build kept less than it showed, unasked.
+    const gross = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet], acceptedMinOut: shown });
+    expect(gross.quote.minReceived).toBeLessThan(shown);
+  });
+});
+
+/** The arguments of the Jupiter route inside a prepared transaction, as its program will read them. */
+function jupiterArgsOf(prepared: { transaction: Transaction }): JupiterRouteArgs {
+  const message = decompileTransactionMessage(getCompiledTransactionMessageDecoder().decode(prepared.transaction.messageBytes) as never);
+  const instructions = message.instructions as unknown as { programAddress: string; data?: Uint8Array }[];
+  return jupiterRouteArgs(instructions.find(ix => ix.programAddress === JUPITER_PROGRAM)?.data ?? [])!;
+}
+
+describe("Jupiter's floor, tightened to Bound's minimum (engineering review H-03)", () => {
+  const ix = (quote: bigint, slippageBps: number) => {
+    const d = new Uint8Array(8 + 22 + 4);
+    d.set([0xbb, 0x64, 0xfa, 0xcc, 0x31, 0xc4, 0xaf, 0x14], 0);
+    const v = new DataView(d.buffer);
+    v.setBigUint64(8, 1_000n, true);
+    v.setBigUint64(16, quote, true);
+    v.setUint16(24, slippageBps, true);
+    return { programAddress: JUPITER_PROGRAM, data: d };
+  };
+  const argsOf = (i: { data?: ArrayLike<number> }) => jupiterRouteArgs(i.data ?? [])!;
+
+  it('lowers the tolerance just enough for the floor to reach the minimum', () => {
+    const args = argsOf(withFloorAtLeast(ix(1_000_000n, 50), 999_000n));
+    expect(args.slippageBps).toBe(10);
+    expect(jupiterFloor(args)).toBe(999_000n);
+  });
+
+  it('a minimum equal to the quote leaves no tolerance', () => {
+    expect(argsOf(withFloorAtLeast(ix(1_000_000n, 50), 1_000_000n)).slippageBps).toBe(0);
+  });
+
+  it('leaves the route alone when its floor already covers the minimum, or when nothing could', () => {
+    const covered = ix(1_000_000n, 50);
+    expect(withFloorAtLeast(covered, 995_000n)).toBe(covered);
+    const short = ix(1_000_000n, 50);
+    expect(withFloorAtLeast(short, 1_000_001n)).toBe(short);
+    const unreadable = { programAddress: JUPITER_PROGRAM, data: new Uint8Array([1, 2, 3]) };
+    expect(withFloorAtLeast(unreadable, 1n)).toBe(unreadable);
+  });
+
+  it('only the tolerance changes', () => {
+    const before = ix(1_000_000n, 50);
+    const after = withFloorAtLeast(before, 999_000n);
+    const changed = [...before.data].flatMap((b, i) => (b !== after.data![i] ? [i] : []));
+    expect(changed).toEqual([24]);
   });
 });

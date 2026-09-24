@@ -280,6 +280,8 @@ export type JupiterRouteArgs = {
   slippageBps: number;
   platformFeeBps: number;
   positiveSlippageBps: number;
+  /** Where `slippageBps` sits in the instruction data, for a builder that tightens it. */
+  slippageOffset: number;
 };
 const ROUTE_V2 = [0xbb, 0x64, 0xfa, 0xcc, 0x31, 0xc4, 0xaf, 0x14];
 const SHARED_ACCOUNTS_ROUTE_V2 = [0xd1, 0x98, 0x53, 0x93, 0x7c, 0xfe, 0xd8, 0xe9];
@@ -297,7 +299,17 @@ export function jupiterRouteArgs(data: ArrayLike<number>): JupiterRouteArgs | nu
     slippageBps: v.getUint16(base + 16, true),
     platformFeeBps: v.getUint16(base + 18, true),
     positiveSlippageBps: v.getUint16(base + 20, true),
+    slippageOffset: base + 16,
   };
+}
+
+/**
+ * The least a Jupiter route lets through: its quote less its tolerance, rounded down. Jupiter's
+ * program checks what its instruction delivered to the destination against this, so it holds
+ * whatever else arrives in that account (engineering review H-03).
+ */
+export function jupiterFloor(args: Pick<JupiterRouteArgs, 'quotedOutAmount' | 'slippageBps'>): bigint {
+  return (args.quotedOutAmount * BigInt(10_000 - args.slippageBps)) / 10_000n;
 }
 
 /**
@@ -501,7 +513,13 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
       fail('R2', `the Jupiter route takes a platform fee (${args.platformFeeBps} bps) or positive slippage (${args.positiveSlippageBps} bps)`);
     }
     if (args.slippageBps > maxSlippage) fail('R2', `the Jupiter route tolerates ${args.slippageBps} bps, above ${maxSlippage}`);
-    if (args.quotedOutAmount < p.minOut) fail('R2', `the Jupiter route quotes ${args.quotedOutAmount}, below the minimum output ${p.minOut}`);
+    // Jupiter's own floor covers the whole minimum, not only its quote: Bound's check counts the
+    // account's balance, which a deposit or another swap arriving at the same time also raises,
+    // while Jupiter's counts only what this route delivered (engineering review H-03).
+    const floor = jupiterFloor(args);
+    if (floor < p.minOut) {
+      fail('R2', `the Jupiter route's own floor is ${floor} (${args.quotedOutAmount} less ${args.slippageBps} bps), below the minimum output ${p.minOut}`);
+    }
     if (args.inAmount <= 0n || args.inAmount > p.swapAmount) {
       fail('R2', `the Jupiter route spends ${args.inAmount}, outside the approved ${p.swapAmount}`);
     }

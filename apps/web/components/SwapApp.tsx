@@ -28,6 +28,7 @@ import type { MintFacts } from '@/lib/client/tokens';
 import { addHistory, isUnsettled, readHistory, settledHistoryStatus, STATUS_LABEL, updateHistory } from '@/lib/client/history';
 import type { HistoryEntry, HistoryStatus } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
+import { costsMoreThan, keptByMarket } from '@/lib/client/rebuild';
 import { receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
 import { TokenIcon, TokenPicker } from './TokenPicker';
@@ -161,9 +162,12 @@ function extrasOf(p: PreparedSwap, t: { inSymbol: string; outSymbol: string; inD
   return lines;
 }
 
-/** Identifies the inputs a build ahead of the click was made for. */
-const aheadKey = (owner: string, input: string, output: string, amountIn: bigint, quotedAt: number, version: TxVersion) =>
-  [owner, input, output, String(amountIn), quotedAt, version].join('|');
+/**
+ * Identifies the inputs a build ahead of the click was made for, the minimum the user sees among
+ * them: a build made for another fee side keeps another minimum (engineering review H-04).
+ */
+const aheadKey = (owner: string, input: string, output: string, amountIn: bigint, quotedAt: number, version: TxVersion, minReceived: bigint) =>
+  [owner, input, output, String(amountIn), quotedAt, version, String(minReceived)].join('|');
 
 /**
  * A build made ahead is used only if the output account still holds what its minimum was built on
@@ -183,11 +187,6 @@ async function blocksLeft(p: PreparedSwap): Promise<bigint> {
   return height === null ? 0n : p.lifetime.lastValidBlockHeight - BigInt(height);
 }
 
-/** Does a rebuilt swap cost more than the one the user just accepted? */
-const costsMoreThan = (next: PreparedSwap, accepted: PreparedSwap) =>
-  next.oneTimeCosts.routeRent > accepted.oneTimeCosts.routeRent
-  || (next.tokenTax?.extraOnInput ?? 0n) > (accepted.tokenTax?.extraOnInput ?? 0n)
-  || (next.notices.removesDelegate && !accepted.notices.removesDelegate);
 
 /** What the confirmed transaction delivered (review BR-03), or null if the RPC does not say in time. */
 async function actualReceived(signature: string, prepared: PreparedSwap): Promise<bigint | null> {
@@ -552,6 +551,9 @@ export function SwapApp() {
   const fee = amountIn && chargesFee && feeSide === 'input' ? feeFor(amountIn, { feeBps: FEE_BPS, treasury: TREASURY }) : 0n;
   const swapAmount = amountIn ? amountIn - fee : null;
   const outputFee = chargesFee && feeSide === 'output' && quote ? outputFeeFor(quote.minOut, FEE_BPS) : null;
+  // The minimum the page shows, what the wallet keeps after a fee from the output: the one a build
+  // must hold to, whichever side the fee turns out to be on when it is built (engineering review H-04).
+  const minReceived = quote ? quote.minOut - (outputFee ?? 0n) : null;
   const price = usablePrice(tokenIn);
   const usdValue = amountIn && price !== null && inDecimals !== null ? (Number(amountIn) / 10 ** inDecimals) * price : null;
 
@@ -735,10 +737,11 @@ export function SwapApp() {
 
   async function prepareAccepted(args: {
     E: KeyPairSigner; owner: Address; inToken: TokenInfo; outToken: TokenInfo; amountIn: bigint;
-    inDecimals: number; outDecimals: number; acceptedMinOut: bigint; version: TxVersion; status: PublicStatus;
+    /** The minimum the user accepted, as shown: what the wallet keeps after a fee from the output. */
+    inDecimals: number; outDecimals: number; acceptedMinReceived: bigint; version: TxVersion; status: PublicStatus;
     expectCurve: boolean; v1Fallback: boolean;
   }): Promise<PreparedSwap | null> {
-    let accepted = args.acceptedMinOut;
+    let accepted = args.acceptedMinReceived;
     let acceptedCost: bigint | undefined;
     let version = args.version;
     for (let round = 0; ; round++) {
@@ -748,7 +751,7 @@ export function SwapApp() {
           {
             owner: args.owner, ephemeral: args.E, inputMint: address(args.inToken.id), outputMint: address(args.outToken.id),
             amountIn: args.amountIn, inputDecimals: args.inDecimals, outputDecimals: args.outDecimals,
-            acceptedMinOut: accepted, acceptedCostBps: acceptedCost, version, expectCurve: args.expectCurve,
+            acceptedMinReceived: accepted, acceptedCostBps: acceptedCost, version, expectCurve: args.expectCurve,
           },
         );
       } catch (e) {
@@ -760,16 +763,14 @@ export function SwapApp() {
         }
         if (e.code === 'price-moved' && e.priceMoved) {
           const symbol = args.outToken.symbol;
-          // Shown as what the wallet keeps, after a fee taken from the output, like every minimum here.
-          const onOutput = e.priceMoved.newMinReceived !== e.priceMoved.newMinOut;
-          const kept = (m: bigint) => (onOutput ? m - outputFeeFor(m, FEE_BPS) : m);
+          // What the wallet keeps, after a fee taken from the output, like every minimum here.
           const accept = await askAboutOffer({
             kind: 'price',
-            was: `${formatExact(kept(accepted), args.outDecimals)} ${symbol}`,
+            was: `${formatExact(accepted, args.outDecimals)} ${symbol}`,
             now: `${formatExact(e.priceMoved.newMinReceived, args.outDecimals)} ${symbol}`,
           });
           if (!accept) return null;
-          accepted = e.priceMoved.newMinOut;
+          accepted = e.priceMoved.newMinReceived;
           setPhase('checking');
           continue;
         }
@@ -800,16 +801,16 @@ export function SwapApp() {
   // the site's shared quota.
   const ahead = useRef<{ key: string; startedAt: number; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
   useEffect(() => {
-    if (phase !== 'idle' || blocker || !wallet || !W || !tokenIn || !tokenOut || !amountIn || !quote || !status) return;
+    if (phase !== 'idle' || blocker || !wallet || !W || !tokenIn || !tokenOut || !amountIn || !quote || !status || minReceived === null) return;
     if (inDecimals === null || outDecimals === null) return;
     if (refreshes !== 0 || Date.now() < busyUntil.current) return;
     const version = chooseVersion(supportedVersions(wallet), V1_ENABLED);
     if (version === null) return;
-    const key = aheadKey(W, tokenIn.id, tokenOut.id, amountIn, quote.at, version);
+    const key = aheadKey(W, tokenIn.id, tokenOut.id, amountIn, quote.at, version, minReceived);
     if (ahead.current?.key === key) return;
     const request = {
       owner: W, inputMint: address(tokenIn.id), outputMint: address(tokenOut.id), amountIn,
-      inputDecimals: inDecimals, outputDecimals: outDecimals, acceptedMinOut: quote.minOut, expectCurve: quote.curve, version,
+      inputDecimals: inDecimals, outputDecimals: outDecimals, acceptedMinReceived: minReceived, expectCurve: quote.curve, version,
     };
     const task = (async () => {
       const E = await createEphemeral();
@@ -819,11 +820,11 @@ export function SwapApp() {
       return null;
     });
     ahead.current = { key, startedAt: Date.now(), task };
-  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals, refreshes]);
+  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals, refreshes, minReceived]);
 
   // --- the protected swap: build + verify → wallet signs first → re-verify → E signs last → send
   async function swap() {
-    if (!wallet || !account || !W || !tokenIn || !tokenOut || !amountIn || !status || !quote || blocker) return;
+    if (!wallet || !account || !W || !tokenIn || !tokenOut || !amountIn || !status || !quote || minReceived === null || blocker) return;
     if (inDecimals === null || outDecimals === null) return;
     const inToken = tokenIn;
     const outToken = tokenOut;
@@ -855,8 +856,10 @@ export function SwapApp() {
     const early = ahead.current;
     ahead.current = null;
     try {
-      const build = (E: KeyPairSigner, acceptedMinOut: bigint) => prepareAccepted({
-        E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinOut, version, status, expectCurve: quote.curve,
+      // Every build holds to the minimum the user saw, net of a fee from the output (H-04).
+      const shown = minReceived;
+      const build = (E: KeyPairSigner, acceptedMinReceived: bigint) => prepareAccepted({
+        E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinReceived, version, status, expectCurve: quote.curve,
         v1Fallback: v1Fallback(supportedVersions(wallet), V1_ENABLED),
       });
       // A large price impact is asked about before anything is built, as other swap pages do.
@@ -866,7 +869,7 @@ export function SwapApp() {
       }
       // The swap built while the user looked at this quote, if it is recent, is for exactly these
       // inputs and its output balance has not moved since; otherwise it is built now.
-      const reused = early && early.key === aheadKey(W, inToken.id, outToken.id, amountIn, quote.at, version)
+      const reused = early && early.key === aheadKey(W, inToken.id, outToken.id, amountIn, quote.at, version, shown)
         && Date.now() - early.startedAt < AHEAD_MAX_AGE_MS ? await early.task : null;
       // Its output balance and its time left, read together: one round trip.
       const [unchanged, left] = reused
@@ -874,18 +877,20 @@ export function SwapApp() {
         : [false, 0n];
       const fresh = reused && unchanged && left >= MIN_BLOCKS_FOR_WALLET ? reused : null;
       const E = fresh ? fresh.E : await createEphemeral();
-      let prepared = fresh ? fresh.prepared : await build(E, quote.minOut);
+      let prepared = fresh ? fresh.prepared : await build(E, shown);
       if (!prepared) return cancelled();
       // Costs the page did not show before the click are shown before the wallet opens (BR-03).
       const facts = { inSymbol: inToken.symbol, outSymbol: outToken.symbol, inDecimals };
       const extras = extrasOf(prepared, facts);
       if (extras.length) {
         if (!(await askAboutOffer({ kind: 'extras', lines: extras }))) return cancelled();
-        // A swap that waited on the question until too little of its life is left is built again,
-        // and asked about again only if the new build costs more than what was just accepted.
-        if ((await blocksLeft(prepared)) < MIN_BLOCKS_FOR_WALLET) {
+        // A swap that waited on a question until too little of its life is left is built again, and
+        // asked about again only if the new build costs more than what was just accepted. The same
+        // after that question too: the wallet never opens on a swap about to expire (M-06).
+        for (let round = 0; (await blocksLeft(prepared)) < MIN_BLOCKS_FOR_WALLET; round++) {
+          if (round === 2) throw new BoundError('expired', 'The swap waited on the questions until its time ran out. Nothing was signed; try again.');
           setPhase('checking');
-          const again = await build(E, prepared.quote.minOut);
+          const again = await build(E, prepared.quote.minReceived);
           if (!again) return cancelled();
           if (costsMoreThan(again, prepared) && !(await askAboutOffer({ kind: 'extras', lines: extrasOf(again, facts) }))) return cancelled();
           prepared = again;
@@ -895,7 +900,7 @@ export function SwapApp() {
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
       const newAccountRent = prepared.oneTimeCosts.outputAccountRent;
       // What the market keeps: the rent it takes, less what closing its account returns (FA-05).
-      const routeRent = prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund;
+      const routeRent = keptByMarket(prepared);
       setPending({
         minReceived: `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`,
         networkFee: `${formatExact(prepared.networkFeeLamports, 9)} SOL`,

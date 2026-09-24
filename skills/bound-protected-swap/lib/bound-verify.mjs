@@ -388,8 +388,17 @@ function jupiterRouteArgs(data) {
 		quotedOutAmount: v.getBigUint64(base + 8, true),
 		slippageBps: v.getUint16(base + 16, true),
 		platformFeeBps: v.getUint16(base + 18, true),
-		positiveSlippageBps: v.getUint16(base + 20, true)
+		positiveSlippageBps: v.getUint16(base + 20, true),
+		slippageOffset: base + 16
 	};
+}
+/**
+* The least a Jupiter route lets through: its quote less its tolerance, rounded down. Jupiter's
+* program checks what its instruction delivered to the destination against this, so it holds
+* whatever else arrives in that account (engineering review H-03).
+*/
+function jupiterFloor(args) {
+	return args.quotedOutAmount * BigInt(1e4 - args.slippageBps) / 10000n;
 }
 /**
 * The account Jupiter's route delivers to, which is the account its floor is measured on (research
@@ -569,7 +578,8 @@ async function verify(transaction, policy, snapshot) {
 		const maxSlippage = x.accounts.some((a) => a.address === PUMP_CURVE_PROGRAM$1) ? 300 : 50;
 		if (args.platformFeeBps !== 0 || args.positiveSlippageBps !== 0) fail("R2", `the Jupiter route takes a platform fee (${args.platformFeeBps} bps) or positive slippage (${args.positiveSlippageBps} bps)`);
 		if (args.slippageBps > maxSlippage) fail("R2", `the Jupiter route tolerates ${args.slippageBps} bps, above ${maxSlippage}`);
-		if (args.quotedOutAmount < p.minOut) fail("R2", `the Jupiter route quotes ${args.quotedOutAmount}, below the minimum output ${p.minOut}`);
+		const floor = jupiterFloor(args);
+		if (floor < p.minOut) fail("R2", `the Jupiter route's own floor is ${floor} (${args.quotedOutAmount} less ${args.slippageBps} bps), below the minimum output ${p.minOut}`);
 		if (args.inAmount <= 0n || args.inAmount > p.swapAmount) fail("R2", `the Jupiter route spends ${args.inAmount}, outside the approved ${p.swapAmount}`);
 		const destination = jupiterDestination(x.data, x.accounts.map((a) => a.address));
 		if (destination !== (A ? eOut : wOut)) fail("R2", `the Jupiter route delivers to ${destination ?? "an unreadable account"}, not to ${A ? "the temporary output account" : "the wallet's output account"}`);

@@ -636,6 +636,14 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
     expect(details(v).join()).toContain('below the minimum output');
   });
 
+  it("a minimum above Jupiter's own floor is refused, though its quote covers it (engineering review H-03)", async () => {
+    // Quoted one unit above the minimum at 0.5%: Jupiter would let through 0.5% less than Bound
+    // promised, and a deposit arriving with the swap could make up the rest in the balance check.
+    expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut + 1n, 50))).join()).toContain("own floor");
+    // The same quote with the tolerance tightened until its floor reaches the minimum passes.
+    expect((await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut + 1n, 0))).violations).toEqual([]);
+  });
+
   it('a platform fee or positive slippage taken by the route is refused', async () => {
     expect(details(await check(s => set(routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n), 26, 2, 5))).join()).toContain('platform fee');
     expect(details(await check(s => set(routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n), 28, 2, 5))).join()).toContain('positive slippage');
