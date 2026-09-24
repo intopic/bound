@@ -14,7 +14,7 @@ export type AgentLimits = {
    * got itself (`ownMinimum` asks Jupiter), never from Bound's answer. Bound's floor may be stricter.
    */
   minOut: string;
-  /** The highest Bound fee accepted, in bps (Bound's is 50). */
+  /** The highest Bound fee accepted, in bps (Bound's is 30: anything above is refused by default). */
   maxFeeBps?: number;
   /** The most the transaction may cost in network fees, in lamports (default 0.001 SOL). */
   maxNetworkFeeLamports?: number;
@@ -61,7 +61,7 @@ export function ownMinimum(args: {
 
 /**
  * The most Bound's fee in SOL may be, from a price the agent asks Jupiter for itself: `maxFeeBps`
- * (default 50) of what `amountIn` of the input is worth in SOL, plus 2% for the price moving. In
+ * (default 30) of what `amountIn` of the input is worth in SOL, plus 2% for the price moving. In
  * lamports.
  */
 export function ownSolFeeLimit(args: {

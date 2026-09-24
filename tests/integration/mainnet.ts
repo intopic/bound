@@ -291,7 +291,7 @@ async function runT1(): Promise<AttackRow[]> {
   const policy = await buildPolicy({
     intent: { owner: W, inputMint: M.USDC, outputMint: M.SOL, amountIn: 100_000_000n },
     ephemeral: E.address, inputDecimals: 6, outputDecimals: 9, minOut: 1n,
-    config: { feeBps: 50n, treasury: null, maxNetworkFeeLamports: 200_000n, jupiterProgram: JUPITER_PROGRAM },
+    config: { feeBps: 30n, treasury: null, maxNetworkFeeLamports: 200_000n, jupiterProgram: JUPITER_PROGRAM },
     feeAccountExists: true,
   });
   const a = policy.accounts;

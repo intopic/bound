@@ -195,6 +195,13 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
     });
   }
 
+  it("a fee above Bound's 0.3% is refused unless the agent raises its limit itself", async () => {
+    const b = await bound();
+    const honest = await honestAnswer(b);
+    const higher = { ...honest, policy: { ...honest.policy, feeBps: '50' } };
+    expect((await checkPrepared(higher, intentFor(b.wallet), b.agentRpc)).join()).toContain('the fee of 50 bps is above your limit');
+  });
+
   it('the fee sent to another treasury is refused when the agent pins Bound\'s', async () => {
     const b = await bound();
     const honest = await honestAnswer(b);

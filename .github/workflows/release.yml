@@ -17,7 +17,7 @@ jobs:
       # The same values the production build uses; they are compiled into the page and so into
       # the digest. Set them as repository variables (Settings → Secrets and variables → Actions).
       NEXT_PUBLIC_BOUND_TREASURY: ${{ vars.NEXT_PUBLIC_BOUND_TREASURY }}
-      NEXT_PUBLIC_BOUND_FEE_BPS: ${{ vars.NEXT_PUBLIC_BOUND_FEE_BPS || '50' }}
+      NEXT_PUBLIC_BOUND_FEE_BPS: ${{ vars.NEXT_PUBLIC_BOUND_FEE_BPS || '30' }}
       NEXT_PUBLIC_BOUND_ENABLE_V1: ${{ vars.NEXT_PUBLIC_BOUND_ENABLE_V1 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

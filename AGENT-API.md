@@ -44,15 +44,15 @@ Requests are limited per key (60 per minute per endpoint by default). A `429` me
 
 ## Fee
 
-0.5%, inside the transaction, taken the way Jupiter takes its own: in SOL first, then USDC, then
+0.3%, inside the transaction, taken the way Jupiter takes its own: in SOL first, then USDC, then
 USDT, on whichever side of the swap they are; otherwise in the input token. `amounts.feeMint` says
-which. On the input it is 0.5% of `amountIn`; on the output it is 0.5% of the enforced minimum, paid
+which. On the input it is 0.3% of `amountIn`; on the output it is 0.3% of the enforced minimum, paid
 after the minimum is checked, and `amounts.minOut` is what your wallet keeps after it. It is part of
 the message you sign, and Bound signs only the exact message it built, so a transaction with the fee
 removed is not signed. The verifier refuses anything above 1%.
 
 A swap between two tokens neither of which can carry the fee (no SOL, USDC or USDT on it, and no
-treasury account for the input) pays it in SOL from your wallet, before the swap: 0.5% of what the
+treasury account for the input) pays it in SOL from your wallet, before the swap: 0.3% of what the
 swap is worth in SOL, as Jupiter prices it when prepare builds it. `amounts.feeMint` is then SOL,
 `policy.feeSide` is `sol` and `certificate.solFee` states it. The rules cannot see a price, so the
 skill's check requires a limit of your own for it (`maxSolFeeLamports`; `ownSolFeeLimit` asks Jupiter

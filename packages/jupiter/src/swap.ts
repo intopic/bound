@@ -50,7 +50,7 @@ export type SwapSettings = BoundConfig & {
 };
 
 export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'> = {
-  feeBps: 50n,
+  feeBps: 30n,
   // 0.0005 SOL. Under congestion 0.0002 SOL clipped the priority fee and swaps expired more often
   // than elsewhere (review FA-15); the verifier's own ceiling stays 0.001 SOL.
   maxNetworkFeeLamports: 500_000n,

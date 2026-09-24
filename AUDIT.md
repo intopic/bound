@@ -911,7 +911,7 @@ enforced one).
 
 ---
 
-## 0v. The fee is 0.5% (24 September 2026)
+## 0v. The fee was raised to 0.5% (24 September 2026; now 0.3%, section 0x)
 
 The owner raised the fee from 0.2% to 0.5%: at 0.2% the fee income could fall short of what running
 the service costs. Everything else about it stays as section 0t describes (which token, which side,
@@ -958,6 +958,22 @@ for another. Such a swap now pays in SOL, from the wallet.
 
 ---
 
+## 0x. The final fee is 0.3% (24 September 2026)
+
+The owner set the final fee at 0.3%, on every swap, by the rules of sections 0t and 0w: SOL, USDC or
+USDT on either side; otherwise the input token when the treasury has an account for it; otherwise
+SOL from the wallet at the swap's value. The verifier's ceiling stays at 1%.
+
+- Defaults are 30 bps in the page, the agent API, the pipeline's settings and the release workflow.
+  The fee is compiled into the page at build time: the deployment's `NEXT_PUBLIC_BOUND_FEE_BPS` (and
+  `BOUND_API_FEE_BPS`, if set) must say 30, then a rebuild.
+- The skill pins it: an agent's check refuses a fee above 30 bps unless the agent raises
+  `maxFeeBps` itself, and `ownMinimum` and `ownSolFeeLimit` count 30 bps.
+- Against the research of 24 September 2026: trading bots around 1%, Phantom 0.85%, MetaMask 0.875%;
+  Jupiter's own swap page 0 to 0.1% on most pairs, 0.5% on tokens under a day old.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
@@ -972,7 +988,7 @@ verified byte for byte.
 
 > For every transaction Bound produces, the single external instruction (Jupiter) can move at most
 > `q − f` of the input token, where `q` is the amount the user entered and `f` is the Bound fee
-> (fixed at build time, 0.5% by default, at most 1% by the verifier). It never receives W or any token
+> (fixed at build time, 0.3% by default, at most 1% by the verifier). It never receives W or any token
 > account of W except the output account, whose delegate is revoked before the swap, and the
 > transaction grants no new authority over W's assets. The user receives at least `minOut` — the
 > minimum they accepted before signing, never below the quote less the slippage (0.5%, or 3% on a
