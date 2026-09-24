@@ -57,9 +57,11 @@ function trusted(ix: Ix): boolean {
 /**
  * Why a transaction is not one Bound builds, or null when it has the shape of one (review FA-06):
  * two signers, one Jupiter route Bound can read, and otherwise only the trusted instructions a Bound
- * swap is made of. The relay sends and simulates nothing else, so it cannot be used as a free Solana
- * broadcaster or simulator on Bound's RPC account. This is a filter for cost, not a security check:
- * the verifier, with the chain state, is what decides whether a transaction is safe.
+ * swap is made of. The relay sends and simulates nothing else. That narrows what Bound's RPC account
+ * can be used for; it does not prove a transaction is a Bound swap or that it pays a fee (the shapes
+ * say nothing about amounts or destinations), so what bounds the cost of misuse is the rate limits:
+ * this instance's, and the host firewall's across instances (engineering review M-08). Nor is it a
+ * security check: the verifier, with the chain state, decides whether a transaction is safe.
  */
 export function notBoundShaped(wireBase64: unknown): string | null {
   if (typeof wireBase64 !== 'string' || wireBase64.length > 8_000) return 'not a base64 transaction';

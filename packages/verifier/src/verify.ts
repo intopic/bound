@@ -215,11 +215,13 @@ export function unsupportedExtension(data: Uint8Array, options: { allowTransferF
       if (!options.allowTransferFee) return 'transfer fee';
     } else if (type === 12) {
       // A permanent delegate may move or burn any balance of this token in any account, without
-      // the owner. Inside a Bound transaction it can do so only if it signs. A delegate on the
-      // ed25519 curve is an ordinary key: it signs only as a signer of the transaction, and R6
-      // admits none but W and E. A delegate off the curve is a program-derived address, which its
-      // program can sign for through invoke_signed — and that program could be a hop in the route —
-      // so it is refused. What the issuer can do outside the transaction is the token's own nature:
+      // the owner. A delegate off the ed25519 curve is a program-derived address, which its program
+      // can sign for through invoke_signed, and that program could be a hop in the route: refused.
+      // One on the curve is not thereby harmless (a Token-program multisig can have program-derived
+      // signers, for instance), so this rule is not what protects the user. Inside the transaction
+      // such a delegate can reach only the accounts of this mint the route was given: E's, which
+      // are the route's anyway, and W_out, whose minimum-output check counts every token taken out
+      // (SECURITY.md). What the issuer can do outside the transaction is the token's own nature:
       // it holds in every wallet, is disclosed to the user, and is not Bound's to grant.
       if (nonZero(value, value + 32) && isOffCurveAddress(addressDecoder.decode(data.subarray(value, value + 32)))) {
         return 'permanent delegate controlled by a program';

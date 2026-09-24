@@ -8,7 +8,10 @@
  *
  * The HTML itself is not part of it — it carries a fresh CSP nonce on every request, so it differs
  * by design. What the HTML loads is pinned instead: subresource integrity (`experimental.sri`)
- * puts a hash of each script in the tag that loads it, so a browser refuses a modified one.
+ * puts a hash of each script in the tag that loads it, so a browser refuses a modified one. That
+ * catches assets changed on the way, or by a CDN, under an honest page; a host that serves its own
+ * HTML can serve its own hashes with it (engineering review, section 8). What checks the host is
+ * `live-check.yml` comparing the live assets with this digest, and an agent's own verifier.
  *
  *   node tools/build-digest.ts [--write]
  */

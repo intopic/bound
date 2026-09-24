@@ -67,7 +67,8 @@ finalize and never logs nonces.
 The rent stays in the user's own new token account and is shown before signing. Bound never makes the
 user pay rent for Bound's own fee account.
 
-The fee (0.2%) is taken the way Jupiter takes its own: in SOL first, then USDC, then USDT, on
+The fee (0.2%) is taken in the order Jupiter prefers for its own (its pricing and token list differ):
+in SOL first, then USDC, then USDT, on
 whichever side of the swap they are and the treasury can receive them; otherwise in the input token
 when the treasury has an account for it; otherwise the swap is fee-free. On the input it is 0.2% of
 the amount, paid before the swap. On the output it is 0.2% of the enforced minimum, paid after the
@@ -334,9 +335,11 @@ Bound simple; it never ran in the setup Bound uses, and bringing it back would b
 - The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
   or a multisig (e.g. Squads).
 - Relays: `/api/rpc` sends and simulates only transactions shaped like a Bound swap (two signers,
-  one Jupiter route the verifier can read, otherwise only its trusted instruction shapes), so it is
-  not a free broadcaster or simulator on Bound's RPC account (review FA-06). Also set a firewall rule
-  per path, spend alerts on the RPC account, and separate keys for the agent API
+  one Jupiter route the verifier can read, otherwise only its trusted instruction shapes; review
+  FA-06). That narrows what Bound's RPC account can be used for, but a shape says nothing about
+  amounts or destinations, so it does not prove a request is a paid Bound swap (engineering review
+  M-08); the app's rate limit is per instance. What bounds the cost: a firewall rule per path at the
+  host, spend alerts on the RPC account, and separate keys for the agent API
   (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`). Jupiter counts its limits per organisation, not per
   key: the API's Jupiter key has a quota of its own only if it comes from a separate Jupiter account
   (research audit F-10).

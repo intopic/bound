@@ -1,5 +1,10 @@
 # Bound API për agjentët dhe botët
 
+> **Dokument dizajni (historik).** Kontrata që vlen sot, në anglisht, është `AGENT-API.md`, dhe
+> skill-i është `skills/bound-protected-swap/`. Kur ndryshojnë, këtu nuk përditësohet çdo detaj
+> (p.sh. tarifa si e Jupiter-it, finalize i përsëritur dhe rikuperimi pas një përgjigjeje të humbur,
+> review inxhinierik i 24 shtatorit 2026, `AUDIT.md` seksioni 0u).
+
 23 shtator 2026 · kopje e dokumentit të gjallë:
 https://claude.ai/code/artifact/865587e9-3295-474a-b185-bdfae0153a53 (mbajini të dyja njësoj)
 

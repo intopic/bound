@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { createKeyPairSignerFromPrivateKeyBytes } from '@solana/kit';
 import type { KeyPairSigner } from '@solana/kit';
 
@@ -9,9 +10,10 @@ import type { KeyPairSigner } from '@solana/kit';
  * The one-time key E is not stored anywhere: it is derived from the server secret and the ticket's
  * nonce, so any instance holding the secret derives the same E. A leaked secret lets its holder
  * sign as E for Bound's own messages, which could drop the fee from them, and collect whatever is
- * left under an E it derives. A Bound swap leaves nothing there: every lamport W sends E is spent by
- * the route or returned in the same transaction, which the skill checks by simulation before the
- * wallet signs (research audit F-06).
+ * left under an E it derives. The skill's check refuses to sign a swap that would leave anything
+ * there: every lamport W sends E must be spent by the route or returned in the same transaction, and
+ * the account a Pump.fun market opens in E's name must end closed (research audit F-06, engineering
+ * review M-05). Removing an old secret stops its tickets; it cannot unlearn an E already derived.
  */
 export type Ticket = {
   v: 1;
@@ -66,13 +68,8 @@ export async function sealTicket(secret: Uint8Array, t: Ticket): Promise<string>
   return `${payload}.${toB64url(await hmac(secret, `bound/agent/ticket/${payload}`))}`;
 }
 
-/** Constant time, so a MAC cannot be guessed byte by byte from response times. */
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
-}
+/** Constant time, so a MAC cannot be guessed byte by byte from response times (Node's own primitive). */
+const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && timingSafeEqual(a, b);
 
 /**
  * The ticket, if one of `secrets` sealed it and it is well formed; otherwise null. Returns the

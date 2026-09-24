@@ -4,13 +4,15 @@
  * One Bound swap at a time into the same output token, across this browser's tabs (decision A on
  * the second review's question 2).
  *
- * The minimum-output check compares the output account with its balance when the swap was
- * prepared. A second swap into the same account while the first is still open could count the
- * first one's tokens toward its own minimum. This lock keeps Bound's own swaps from overlapping;
- * a transfer from someone else at the same moment is outside it and is stated in the guarantee.
+ * Bound's minimum-output check compares the output account with its balance when the swap was
+ * prepared, so a second swap into the same account while the first is open would be stopped before
+ * E signs, or fail. It is not what keeps each swap's minimum: Jupiter's own floor, which the
+ * verifier holds to the whole minimum, counts only what that swap's route delivered (engineering
+ * review H-03, M-07). This lock only keeps Bound's own swaps from getting in each other's way.
  *
- * Best effort over localStorage (no server, no database). Without storage, the page's own busy
- * state still prevents two swaps from this tab.
+ * Best effort over localStorage (no server, no database): two tabs clicking in the same instant can
+ * both pass it, which costs a failed swap, not a minimum. Without storage, the page's own busy state
+ * still prevents two swaps from this tab.
  */
 const PREFIX = 'bound.swap-lock.v1:';
 const ACTIVE_MS = 180_000; // prepare, wallet and send; refreshed on release

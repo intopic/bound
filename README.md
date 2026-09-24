@@ -120,7 +120,7 @@ Server only (never sent to the browser):
 | `BOUND_DISABLED` | 0 | Kill switch: `1` makes the server refuse new swaps |
 | `BOUND_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limit is per instance; add a rule in the hosting firewall too |
 | `BOUND_EXCLUDE_DEXES` | `HumidiFi` | DEXes whose per-taker rent is too high to pay on every swap |
-| `BOUND_MAX_NETWORK_FEE_LAMPORTS` | 200000 | F_max, capped at 1,000,000 by the verifier |
+| `BOUND_MAX_NETWORK_FEE_LAMPORTS` | 500000 | F_max, capped at 1,000,000 by the verifier |
 
 ## Scope of v0.1
 
