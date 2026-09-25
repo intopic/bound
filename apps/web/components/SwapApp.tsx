@@ -34,10 +34,13 @@ import { acquireSwapLock } from '@/lib/client/swapLock';
 import { costsMoreThan, keptByMarket } from '@/lib/client/rebuild';
 import { receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
+import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
+import type { Problem } from '@/lib/client/problems';
 import { TokenIcon, TokenPicker } from './TokenPicker';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
-type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string };
+/** `detail`: the raw error behind the words, kept in this browser for when help is asked (never shown by itself). */
+type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string };
 /**
  * `curve`: the route trades on a Pump.fun bonding curve, so its tolerance is the wider one.
  * `impact`: how much this amount moves the market price, as Jupiter reports it: a fraction, so
@@ -260,7 +263,12 @@ const NO_STORAGE: Notice = {
     + 'Allow site data (storage) for this site, or free some space, and try again. Nothing was sent and no funds moved.',
 };
 
+/** The words for a failure, with the raw error kept beside them (lib/client/problems). */
 function explainError(e: unknown): Notice {
+  return { ...wordsFor(e), detail: errorDetail(e) };
+}
+
+function wordsFor(e: unknown): Notice {
   if (e instanceof HistoryNotSaved) return NO_STORAGE;
   if (e instanceof BoundError) {
     const titles: Record<BoundError['code'], string> = {
@@ -430,6 +438,7 @@ export function SwapApp() {
   const [quoting, setQuoting] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [detailsCopied, setDetailsCopied] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
@@ -454,6 +463,30 @@ export function SwapApp() {
   // beside the selected tokens instead of falling back to the classic program while they load.
   const inFacts = tokenIn ? facts[tokenIn.id] : undefined;
   const outFacts = tokenOut ? facts[tokenOut.id] : undefined;
+
+  // --- every message other than a success is kept in this browser with the raw error behind it, so
+  // one replaced by the next click can still be read (lib/client/problems). Nothing is sent anywhere.
+  const shown = useRef<Problem | null>(null);
+  useEffect(() => watchUncaught(), []);
+  useEffect(() => {
+    setDetailsCopied(false);
+    if (!notice || notice.kind === 'success') return;
+    const pair = tokenIn && tokenOut ? `${amountText || '?'} ${tokenIn.symbol} → ${tokenOut.symbol}` : 'no pair';
+    const who = wallet ? `${wallet.name} ${wallet.version}` : 'no wallet';
+    shown.current = {
+      at: Date.now(), kind: notice.kind, title: notice.title, body: notice.body, detail: notice.detail,
+      context: `${pair}, ${who}${notice.link ? `, ${notice.link}` : ''}`,
+    };
+    recordProblem(shown.current);
+    // Recorded once per message; the pair and wallet are read as they are when it appears.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notice]);
+
+  function copyDetails() {
+    if (!shown.current) return;
+    navigator.clipboard.writeText(problemsReport([shown.current], navigator.userAgent))
+      .then(() => setDetailsCopied(true), () => setDetailsCopied(false));
+  }
 
   // --- bootstrap
   // The page's settings and the kill switch. Without them nothing can be swapped, so a failure is
@@ -1408,6 +1441,11 @@ export function SwapApp() {
               <a href={notice.link} target="_blank" rel="noreferrer">
                 View on Solscan
               </a>
+            )}
+            {notice.kind === 'error' && (
+              <div className="banner-actions">
+                <button className="ghost" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy details'}</button>
+              </div>
             )}
           </div>
         )}

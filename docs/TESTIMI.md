@@ -132,7 +132,7 @@ Nëse i ke, përsërit Testin 2 me secilin wallet.
 - Versionet që shfaq çdo wallet te lista e wallet-eve (p.sh. `legacy, 0`).
 - Screenshot-et e dritares së wallet-it (devnet dhe mainnet).
 - Lidhjet e Solscan për çdo swap.
-- Çdo mesazh gabimi që shfaq faqja, me tekstin e plotë.
+- Çdo mesazh gabimi që shfaq faqja. Te një mesazh i kuq shtyp **Copy details** dhe ngjite tekstin. Nëse mesazhi u zhduk para se ta lexoje, faqja e ka ruajtur në këtë shfletues: hap http://localhost:3000/diagnostic, poshtë te **Messages the swap page showed in this browser** shtyp **Copy them all**. Ruhen vetëm në shfletuesin tënd dhe nuk dërgohen askund.
 
 ## Para publikimit
 
