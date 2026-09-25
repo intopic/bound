@@ -1102,7 +1102,7 @@ export function SwapApp() {
             + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Bound.`
           : null,
         solFee: prepared.policy.feeSide === 'sol' && prepared.policy.fee > 0n
-          ? `${formatExact(prepared.policy.fee, 9)} SOL from your wallet, at the swap's value in SOL now`
+          ? `${formatExact(prepared.policy.fee, 9)} SOL`
           : null,
       });
       setPhase('wallet');
@@ -1402,9 +1402,9 @@ export function SwapApp() {
             </div>
           )}
           {quote && tolerance !== null && (
-            <div className="detail-row">
+            <div className="detail-row" title={quote.curve ? 'This token is still on its Pump.fun launch curve, where prices move fast.' : undefined}>
               <span>Max slippage</span>
-              <span>{quote.curve ? `${tolerance}%, Pump.fun launch curve` : `${tolerance}%`}</span>
+              <span>{`${tolerance}%`}</span>
             </div>
           )}
           {quote && tokenOut && outDecimals !== null && minReceived !== null && (
@@ -1420,7 +1420,7 @@ export function SwapApp() {
             </div>
           )}
           <div className="detail-row">
-            <span>{chargesFee ? `Bound fee ${Number(FEE_BPS) / 100}%` : 'Bound fee'}</span>
+            <span>Bound fee</span>
             <span>
               {!TREASURY
                 ? '0 (test mode)'
@@ -1428,12 +1428,12 @@ export function SwapApp() {
                   ? "Can't be collected right now"
                   : feeSide === 'output'
                     ? outputFee !== null && tokenOut && outDecimals !== null
-                      ? `~${formatUnits(outputFee, outDecimals, 6)} ${tokenOut.symbol}, from what you receive`
+                      ? `~${formatUnits(outputFee, outDecimals, 6)} ${tokenOut.symbol}`
                       : '—'
                     : feeSide === 'sol'
                       ? solFeeEstimate !== null
-                        ? `~${formatUnits(solFeeEstimate, 9, 6)} SOL, from your wallet`
-                        : 'In SOL, from your wallet'
+                        ? `~${formatUnits(solFeeEstimate, 9, 6)} SOL`
+                        : '—'
                     : tokenIn && amountIn && inDecimals !== null
                       ? `${formatUnits(fee, inDecimals, 6)} ${tokenIn.symbol}`
                       : '—'}
@@ -1446,7 +1446,7 @@ export function SwapApp() {
           {W && !outputAccountExists && tokenOut && (
             <div className="detail-row" title="Solana keeps this deposit in your new token account. You get it back if you close the account.">
               <span>New {tokenOut.symbol} account</span>
-              <span>{rent !== null ? `${formatExact(rent, 9)} SOL, one time, stays yours` : 'one-time deposit, stays yours'}</span>
+              <span>{rent !== null ? `${formatExact(rent, 9)} SOL` : '—'}</span>
             </div>
           )}
           {quote && <p className="hint">If less than the minimum would arrive, the whole swap cancels itself.</p>}

@@ -1252,7 +1252,7 @@ funded with 0.13 SOL), on a local production build with the treasury and a Jupit
   transaction, Phantom answered "Reached end of buffer unexpectedly", a message from its own parser
   (found nowhere in Bound, its libraries or its build): Phantom does not read v1. The swap page never
   sends it v1 (`chooseVersion` picks v0, and v1 stays behind `NEXT_PUBLIC_BOUND_ENABLE_V1`).
-- **Eight swaps, all confirmed**, each read back from the chain: the fee 0.3% to
+- **Ten swaps, all confirmed**, each read back from the chain: the fee 0.3% to
   `5EmN…2bAw` in SOL every time (no USDC or USDT account at the treasury), the temporary accounts
   closed, a new token account's deposit paid once and kept by the wallet, network fees 0.00002 to
   0.00029 SOL.
@@ -1266,6 +1266,8 @@ funded with 0.13 SOL), on a local production build with the treasury and a Jupit
 | 0.009 SOL → 292,968 BONK (no deposit: the account existed) | `3cLCgkWZK7M8esP6PNd2vRmb8sAn6eKHVGBkPWagBZM8c6dpkwZMBLziVJ4nXgdMEQpgRZFrU5uBegdQDqqKdCDC` |
 | 0.01 SOL → 35,361.8 Ecat: a Token-2022 Pump.fun token on its bonding curve, tolerance 3%, the market kept nothing, the new account's deposit 0.00151384 SOL | `4Nhi3HVTXQFMgRnZHZK6wmuMYFFUnhmQLywbyUpX9YwVRCvtVhGyGVbZeabty3f453NLXxdXZNHsi7DdJxuFb2JS` |
 | 35,361.8 Ecat → 0.00986 SOL: sold on the curve, SOL as the output, the fee from what arrived | `2TexpajG613sFmf67sos3a27Pb3PQhcP3yy6eX2MtnSbCd6qB11wKJ47mvM1CMJVfFn9HqvGQ46vsiyLYo5ryej3` |
+| 0.01 SOL → 51,834.9 DOOMFLY, another Token-2022 token on its curve | `5K57pZC5ywRTUvk7bmBfW8MCddf2gzE8mzamRXFsmQ1kZF8AUUQ1BvBVzsbEeNQHg2dgdKnnp2FgUcGC9f3bzP1j` |
+| 51,834.9 DOOMFLY → 0.00452 SOL, after the token's price had fallen by half | `4qmzqaUA7DBUMibdgZzKNjv1VNRXayRLCGi8A6sQ7eXGZaiPo4WBv9dRB3eGjXm2hdHhWsYTwSDeKwXss8XJH3xv` |
 
 - **One attempt stopped before sending**, with a red message that was gone before it could be read:
   nothing reached the chain or the server's log. The page now keeps every message it shows other than
@@ -1287,6 +1289,11 @@ and only in how it looks and is used (every rule, check and amount stays as it w
 | A click on the connected wallet disconnected it | A menu: Copy address, Disconnect |
 | The balance was a hidden "max" link | Balance with Half and Max |
 | The minimum sat under the output as a sentence | Under the output its value in USD; the details list Rate (turns around), Price impact, Max slippage, Minimum received, then the fees, and say that less than the minimum cancels the whole swap |
+| "Bound fee 0.3%" and words after each amount ("from what you receive", "from your wallet", "one time, stays yours") | The owner's choice: each row is a name and a number, as swap sites show them. The percentage stays on "How Bound protects you"; the deposit's explanation and the launch curve's are in the row's tooltip |
+
+When a build waits, it is Jupiter's free key refusing a burst (measured: the owner's own DOOMFLY sale
+builds and verifies in 2 s with 3 Jupiter requests and 13 Solana reads). The owner chose not to name
+Jupiter on the page; a paid plan removes the wait.
 
 ---
 
