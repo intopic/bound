@@ -1252,7 +1252,7 @@ funded with 0.13 SOL), on a local production build with the treasury and a Jupit
   transaction, Phantom answered "Reached end of buffer unexpectedly", a message from its own parser
   (found nowhere in Bound, its libraries or its build): Phantom does not read v1. The swap page never
   sends it v1 (`chooseVersion` picks v0, and v1 stays behind `NEXT_PUBLIC_BOUND_ENABLE_V1`).
-- **Six swaps, all confirmed**, each read back from the chain: the fee 0.3% to
+- **Eight swaps, all confirmed**, each read back from the chain: the fee 0.3% to
   `5EmN…2bAw` in SOL every time (no USDC or USDT account at the treasury), the temporary accounts
   closed, a new token account's deposit paid once and kept by the wallet, network fees 0.00002 to
   0.00029 SOL.
@@ -1264,6 +1264,8 @@ funded with 0.13 SOL), on a local production build with the treasury and a Jupit
 | 975,000 BONK → 3.606 USDC | `4DKSnwKoNZF74rR2ym1D6jpC8a5jy64JbcsxZNteDSF8hg8FFvxiQasCfPfGfgNfkbTgs948s274HfXDoX6h8vsF` |
 | 3.606 USDC → 975,100 BONK | `3wXmJSpXDtXqYEbPcqWMi1eK6vmKjvziGJux7kkYkviM6MTpJWgHZimArqnqWAy46xsPt1Xe5CU6ZEsx4botW6g2` |
 | 0.009 SOL → 292,968 BONK (no deposit: the account existed) | `3cLCgkWZK7M8esP6PNd2vRmb8sAn6eKHVGBkPWagBZM8c6dpkwZMBLziVJ4nXgdMEQpgRZFrU5uBegdQDqqKdCDC` |
+| 0.01 SOL → 35,361.8 Ecat: a Token-2022 Pump.fun token on its bonding curve, tolerance 3%, the market kept nothing, the new account's deposit 0.00151384 SOL | `4Nhi3HVTXQFMgRnZHZK6wmuMYFFUnhmQLywbyUpX9YwVRCvtVhGyGVbZeabty3f453NLXxdXZNHsi7DdJxuFb2JS` |
+| 35,361.8 Ecat → 0.00986 SOL: sold on the curve, SOL as the output, the fee from what arrived | `2TexpajG613sFmf67sos3a27Pb3PQhcP3yy6eX2MtnSbCd6qB11wKJ47mvM1CMJVfFn9HqvGQ46vsiyLYo5ryej3` |
 
 - **One attempt stopped before sending**, with a red message that was gone before it could be read:
   nothing reached the chain or the server's log. The page now keeps every message it shows other than
@@ -1272,8 +1274,7 @@ funded with 0.13 SOL), on a local production build with the treasury and a Jupit
 - **Jupiter's free key** allows about 10 requests a window (`x-ratelimit-*` headers). One person
   swapping stays inside it; the browser test does not, and a site with several people at once would
   not. A paid plan is a launch requirement.
-- **Still to test with the wallet:** SOL as the output, a Pump.fun token from the page, another wallet,
-  a phone.
+- **Still to test with the wallet:** another wallet, a phone.
 
 The owner asked for a page that works the way swap sites do, so nobody has to learn it. What changed,
 and only in how it looks and is used (every rule, check and amount stays as it was):
