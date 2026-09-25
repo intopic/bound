@@ -36,6 +36,7 @@ import { receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
 import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
 import type { Problem } from '@/lib/client/problems';
+import { Modal } from './Modal';
 import { TokenIcon, TokenPicker } from './TokenPicker';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
@@ -433,6 +434,12 @@ export function SwapApp() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [account, setAccount] = useState<WalletAccount | null>(null);
   const [walletMenu, setWalletMenu] = useState(false);
+  // The connected wallet's menu (copy the address, disconnect), as swap sites have it.
+  const [accountMenu, setAccountMenu] = useState(false);
+  const [addressCopied, setAddressCopied] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+  // The rate reads "1 input ≈ x output" until the user turns it around.
+  const [rateInverted, setRateInverted] = useState(false);
   const [balances, setBalances] = useState<{ sol: bigint; tokenIn: bigint } | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -815,10 +822,31 @@ export function SwapApp() {
   }
 
   async function disconnect() {
+    setAccountMenu(false);
     if (wallet) await disconnectWallet(wallet).catch(() => undefined);
     setWallet(null);
     setAccount(null);
     setBalances(null);
+  }
+
+  useEffect(() => {
+    if (!accountMenu) return;
+    const outside = (e: MouseEvent) => {
+      if (!accountRef.current?.contains(e.target as Node)) setAccountMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setAccountMenu(false);
+    document.addEventListener('mousedown', outside);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', outside);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [accountMenu]);
+
+  function copyAddress() {
+    if (!W) return;
+    navigator.clipboard.writeText(W).then(() => setAddressCopied(true), () => setAddressCopied(false));
+    setTimeout(() => setAddressCopied(false), 1_500);
   }
 
   /** Shows the new minimum and waits for the user; no answer within 45 s counts as no. */
@@ -1172,11 +1200,27 @@ export function SwapApp() {
     setAmountText('');
   };
 
-  const setMax = () => {
+  // Max keeps enough SOL for the fees and the swap's temporary accounts when SOL is what is paid.
+  const maxIn = balances && tokenIn ? (tokenIn.id === SOL_MINT ? balances.tokenIn - SOL_RESERVE_LAMPORTS * 2n : balances.tokenIn) : 0n;
+  const setShare = (half: boolean) => {
     if (!balances || !tokenIn || inDecimals === null) return;
-    const max = tokenIn.id === SOL_MINT ? balances.tokenIn - SOL_RESERVE_LAMPORTS * 2n : balances.tokenIn;
-    if (max > 0n) setAmountText(formatExact(max, inDecimals).replace(/,/g, ''));
+    const amount = half ? (balances.tokenIn / 2n < maxIn ? balances.tokenIn / 2n : maxIn) : maxIn;
+    if (amount > 0n) setAmountText(formatExact(amount, inDecimals).replace(/,/g, ''));
   };
+
+  // What swap sites show under the amounts and above the button: the output's value in USD, the rate,
+  // the price impact, the tolerance and the minimum. Display only: every amount that is enforced
+  // is computed in base units elsewhere.
+  const shownOut = quote ? quote.out - (outputFee ?? 0n) : null;
+  const outPrice = usablePrice(tokenOut);
+  const outUsd = shownOut !== null && shownOut > 0n && outPrice !== null && outDecimals !== null ? (Number(shownOut) / 10 ** outDecimals) * outPrice : null;
+  const rate = (() => {
+    if (!quote || shownOut === null || shownOut <= 0n || !amountIn || !tokenIn || !tokenOut || inDecimals === null || outDecimals === null) return null;
+    const perIn = (Number(shownOut) / 10 ** outDecimals) / (Number(amountIn) / 10 ** inDecimals);
+    const n = (x: number) => x.toLocaleString('en-US', { maximumSignificantDigits: 6 });
+    return rateInverted ? `1 ${tokenOut.symbol} ≈ ${n(1 / perIn)} ${tokenIn.symbol}` : `1 ${tokenIn.symbol} ≈ ${n(perIn)} ${tokenOut.symbol}`;
+  })();
+  const tolerance = quote ? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps) / 100 : null;
 
   const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
   if (quote && quote.impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(quote.impact)}: this amount moves the market price.`);
@@ -1211,23 +1255,30 @@ export function SwapApp() {
           <ShieldIcon /> Bound
         </span>
         {W ? (
-          <button className="ghost wallet-pill" onClick={disconnect} title="Disconnect">
-            {wallet?.icon && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={wallet.icon} alt="" width={18} height={18} />
+          <div className="account" ref={accountRef}>
+            <button className="ghost wallet-pill" onClick={() => setAccountMenu(v => !v)} aria-expanded={accountMenu}>
+              {wallet?.icon && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={wallet.icon} alt="" width={18} height={18} />
+              )}
+              {shortAddress(W)} ▾
+            </button>
+            {accountMenu && (
+              <div className="account-menu" role="menu">
+                <button role="menuitem" onClick={copyAddress}>{addressCopied ? 'Copied' : 'Copy address'}</button>
+                <button role="menuitem" onClick={disconnect}>Disconnect</button>
+              </div>
             )}
-            {shortAddress(W)}
-          </button>
+          </div>
         ) : (
-          <button className="ghost" onClick={() => setWalletMenu(v => !v)}>
+          <button className="ghost" onClick={() => setWalletMenu(true)}>
             Connect wallet
           </button>
         )}
       </header>
 
       {walletMenu && !W && (
-        <section className="card wallets">
-          <p className="label">Choose a wallet</p>
+        <Modal title="Connect a wallet" onClose={() => setWalletMenu(false)}>
           {wallets.length === 0 ? (
             <div className="muted">
               <p>No Solana wallet was found in this browser.</p>
@@ -1249,7 +1300,7 @@ export function SwapApp() {
               </button>
             ))
           )}
-        </section>
+        </Modal>
       )}
 
       {status && !status.enabled && (
@@ -1262,9 +1313,11 @@ export function SwapApp() {
           <div className="box-top">
             <span className="label">You pay</span>
             {balances && tokenIn && inDecimals !== null && (
-              <button className="link" onClick={setMax}>
+              <span className="balance">
                 Balance {formatUnits(balances.tokenIn, inDecimals, 6)}
-              </button>
+                <button className="chip" onClick={() => setShare(true)} disabled={busy || maxIn <= 0n}>Half</button>
+                <button className="chip" onClick={() => setShare(false)} disabled={busy || maxIn <= 0n}>Max</button>
+              </span>
             )}
           </div>
           <div className="box-row">
@@ -1286,7 +1339,7 @@ export function SwapApp() {
 
         <div className="flip">
           <button className="ghost" onClick={flip} disabled={busy} aria-label="Switch tokens">
-            ↓
+            <FlipIcon />
           </button>
         </div>
 
@@ -1303,13 +1356,10 @@ export function SwapApp() {
             </button>
           </div>
           <p className="hint">
-            {quote && tokenOut && outDecimals !== null
-              ? `Minimum received ${formatExact(quote.minOut - (outputFee ?? 0n), outDecimals)} ${tokenOut.symbol} · if less would arrive, the swap cancels itself`
-                + (quote.curve ? ' · 3% tolerance: this token is still on its Pump.fun launch curve and moves fast' : '')
-              : ' '}
+            {outUsd !== null ? `≈ ${formatUsd(outUsd)}` : ' '}
             {((quote && refreshes >= AUTO_REFRESHES) || (!quote && busyTries > QUOTE_BUSY_RETRIES)) && (
               <>
-                {' · '}
+                {outUsd !== null && ' · '}
                 <button type="button" className="link" onClick={refreshNow}>
                   Refresh price
                 </button>
@@ -1335,6 +1385,34 @@ export function SwapApp() {
         </div>
 
         <div className="details">
+          {rate && (
+            <div className="detail-row">
+              <span>Rate</span>
+              <button type="button" className="link rate" onClick={() => setRateInverted(v => !v)} title="Turn the rate around">
+                {rate} ⇄
+              </button>
+            </div>
+          )}
+          {quote && (
+            <div className="detail-row">
+              <span>Price impact</span>
+              <span className={quote.impact >= IMPACT_WARN ? 'warn-text' : undefined}>
+                {quote.impact < 0.0001 ? '<0.01%' : impactText(quote.impact)}
+              </span>
+            </div>
+          )}
+          {quote && tolerance !== null && (
+            <div className="detail-row">
+              <span>Max slippage</span>
+              <span>{quote.curve ? `${tolerance}%, Pump.fun launch curve` : `${tolerance}%`}</span>
+            </div>
+          )}
+          {quote && tokenOut && outDecimals !== null && minReceived !== null && (
+            <div className="detail-row">
+              <span>Minimum received</span>
+              <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
+            </div>
+          )}
           {tokenIn && swapAmount !== null && swapAmount > 0n && inDecimals !== null && (
             <div className="detail-row">
               <span>Swap amount</span>
@@ -1361,9 +1439,9 @@ export function SwapApp() {
                       : '—'}
             </span>
           </div>
-          <div className="detail-row">
+          <div className="detail-row" title="The exact amount is shown before you sign.">
             <span>Network fee</span>
-            <span>~0.00002 SOL, exact amount shown before you sign</span>
+            <span>~0.00002 SOL</span>
           </div>
           {W && !outputAccountExists && tokenOut && (
             <div className="detail-row" title="Solana keeps this deposit in your new token account. You get it back if you close the account.">
@@ -1371,6 +1449,7 @@ export function SwapApp() {
               <span>{rent !== null ? `${formatExact(rent, 9)} SOL, one time, stays yours` : 'one-time deposit, stays yours'}</span>
             </div>
           )}
+          {quote && <p className="hint">If less than the minimum would arrive, the whole swap cancels itself.</p>}
         </div>
 
         {phase === 'confirm' && offer && (
@@ -1454,11 +1533,13 @@ export function SwapApp() {
       {picking && (
         <TokenPicker
           popular={popular}
-          exclude={picking === 'in' ? tokenOut?.id : tokenIn?.id}
+          selected={picking === 'in' ? tokenIn?.id : tokenOut?.id}
           onClose={() => setPicking(null)}
           onPick={t => {
-            if (picking === 'in') setTokenIn(t);
-            else setTokenOut(t);
+            const other = picking === 'in' ? tokenOut : tokenIn;
+            const same = picking === 'in' ? tokenIn : tokenOut;
+            if (other && t.id === other.id) flip();
+            else if (!same || t.id !== same.id) (picking === 'in' ? setTokenIn : setTokenOut)(t);
             setPicking(null);
           }}
         />
@@ -1496,6 +1577,14 @@ export function SwapApp() {
         </p>
       </footer>
     </main>
+  );
+}
+
+function FlipIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" />
+    </svg>
   );
 }
 

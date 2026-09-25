@@ -1242,6 +1242,53 @@ body limits and allowlists, the ticket's MAC and fields, the CSP and the deep li
 
 ---
 
+## 0zg. The owner's wallet test, and a page that looks like a swap site (25 September 2026)
+
+The first protected swaps made from the page by a person with a real wallet (Phantom, a test account
+funded with 0.13 SOL), on a local production build with the treasury and a Jupiter key.
+
+- **Test 0, `/diagnostic`:** Phantom returned the v0 message byte for byte, adding only its
+  signature. The acceptance rule (R6) stands as written; no exception is needed. Asked to sign a v1
+  transaction, Phantom answered "Reached end of buffer unexpectedly", a message from its own parser
+  (found nowhere in Bound, its libraries or its build): Phantom does not read v1. The swap page never
+  sends it v1 (`chooseVersion` picks v0, and v1 stays behind `NEXT_PUBLIC_BOUND_ENABLE_V1`).
+- **Six swaps, all confirmed**, each read back from the chain: the fee 0.3% to
+  `5EmN…2bAw` in SOL every time (no USDC or USDT account at the treasury), the temporary accounts
+  closed, a new token account's deposit paid once and kept by the wallet, network fees 0.00002 to
+  0.00029 SOL.
+
+| Swap | Transaction |
+| --- | --- |
+| 0.03 SOL → 3.576 USDC | `454VKZ5K9gLGggCrJ1CR7XDAgwxa3Jqn93E47644WcBEyeWuyaBdLs3Lcm3QMP7VmA1cv2pmoYwVU5g9MS7tgVNC` |
+| 3.576 USDC → 975,000 BONK (new BONK account) | `4aU956dKoK9CzsmZHxB7M6KxZkcEtLv9Fpnmdeyk2VuMpnxaWgTsYcD3PckAkahY6b5NUhyCcwnahDWGgMppjMpr` |
+| 975,000 BONK → 3.606 USDC | `4DKSnwKoNZF74rR2ym1D6jpC8a5jy64JbcsxZNteDSF8hg8FFvxiQasCfPfGfgNfkbTgs948s274HfXDoX6h8vsF` |
+| 3.606 USDC → 975,100 BONK | `3wXmJSpXDtXqYEbPcqWMi1eK6vmKjvziGJux7kkYkviM6MTpJWgHZimArqnqWAy46xsPt1Xe5CU6ZEsx4botW6g2` |
+| 0.009 SOL → 292,968 BONK (no deposit: the account existed) | `3cLCgkWZK7M8esP6PNd2vRmb8sAn6eKHVGBkPWagBZM8c6dpkwZMBLziVJ4nXgdMEQpgRZFrU5uBegdQDqqKdCDC` |
+
+- **One attempt stopped before sending**, with a red message that was gone before it could be read:
+  nothing reached the chain or the server's log. The page now keeps every message it shows other than
+  a success, with the raw error behind it, in the browser only (`lib/client/problems.ts`, `4121f7b`):
+  "Copy details" on a red message, the list on `/diagnostic`.
+- **Jupiter's free key** allows about 10 requests a window (`x-ratelimit-*` headers). One person
+  swapping stays inside it; the browser test does not, and a site with several people at once would
+  not. A paid plan is a launch requirement.
+- **Still to test with the wallet:** SOL as the output, a Pump.fun token from the page, another wallet,
+  a phone.
+
+The owner asked for a page that works the way swap sites do, so nobody has to learn it. What changed,
+and only in how it looks and is used (every rule, check and amount stays as it was):
+
+| Before | Now, as on Jupiter, Uniswap or Raydium |
+| --- | --- |
+| The token list opened under the swap card, often off screen | A window over the page ("Select a token"): search first and focused, quick picks, the list; a sheet from the bottom on a phone; Escape, ✕ or a click outside closes it; Enter picks the first result; a pasted address is looked up at once |
+| The token on the other side was left out of the list | Picking it swaps the two sides |
+| The wallet list opened as a card in the page | A window, "Connect a wallet" |
+| A click on the connected wallet disconnected it | A menu: Copy address, Disconnect |
+| The balance was a hidden "max" link | Balance with Half and Max |
+| The minimum sat under the output as a sentence | Under the output its value in USD; the details list Rate (turns around), Price impact, Max slippage, Minimum received, then the fees, and say that less than the minimum cancels the whole swap |
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

@@ -93,7 +93,7 @@ try {
 
   // A: the price, refused at first.
   await page.getByLabel('Amount to pay').fill('5');
-  await page.getByText(/Minimum received .* SOL/).waitFor({ timeout: 90_000 });
+  await page.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 90_000 });
   check('A. a busy price is retried until it arrives', true);
   check('A. the button says the prices are busy while it retries', labels.includes('Prices are busy, retrying…'), [...new Set(labels)].join(' | '));
   // The labels in the order they were seen, each once per stretch: says when a wrong one appeared.
@@ -144,7 +144,7 @@ async function stillWorks(p: Page) {
   await p.getByRole('button', { name: 'Connect wallet' }).first().click();
   await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
   await p.getByLabel('Amount to pay').fill('5');
-  await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 60_000 });
+  await p.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 60_000 });
   check('D. and then prices a swap', true);
 }
 

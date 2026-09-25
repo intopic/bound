@@ -111,7 +111,7 @@ npm run start -w @bound/web
 ```
 
 3. Hap http://localhost:3000 dhe kliko **Connect wallet** → Phantom.
-4. Shkruaj **2** USDC → SOL. Nën "You receive" duhet të shfaqet **Minimum received … SOL · if less would arrive, the swap cancels itself**.
+4. Shkruaj **2** USDC → SOL. Nën shumën që merr shfaqet vlera në dollarë, dhe poshtë, te rreshtat, **Rate**, **Price impact**, **Max slippage**, **Minimum received … SOL** dhe shënimi **If less than the minimum would arrive, the whole swap cancels itself.** Për tokenin kliko mbi të (p.sh. **USDC ▾**): hapet dritarja **Select a token** me kërkimin lart, si te DEX-et.
 5. Kliko **Protected swap**. Ndërsa hapet Phantom, faqja shfaq minimumin e saktë që do të kontrollohet dhe fee-n e saktë të rrjetit. Nëse çmimi ka lëvizur më shumë se toleranca (0.5%, ose 3% në bonding curve) që kur e pe, faqja të pyet para se të hapet Phantom-i: **Continue with the new minimum** ose **Cancel**.
 6. Në dritaren e Phantom-it kontrollo:
    - −2 USDC dhe +SOL;
@@ -120,7 +120,7 @@ npm run start -w @bound/web
 7. Aprovo. Duhet të dalë "Swapped 2 USDC for … SOL" me lidhjen për Solscan.
 8. Në Solscan hap transaksionin dhe kontrollo që te instruction-i i **Jupiter** nuk shfaqet adresa e wallet-it tënd.
 9. Provo edhe **SOL → USDC** (0.01 SOL) dhe një memecoin, p.sh. **USDC → BONK** (2 USDC). Nëse nuk ke pasur kurrë BONK, faqja shfaq rreshtin **New BONK account: 0.00148844 SOL, one time, stays yours** (shuma vjen nga Solana). Kjo është depozita që Solana mban në llogarinë tënde të re dhe mbetet e jotja.
-10. Provo edhe ngjitjen e adresës së një coin-i te kërkimi. Nëse Jupiter nuk e njeh, faqja e lexon nga Solana dhe e shënon "Not listed on Jupiter".
+10. Provo edhe ngjitjen e adresës së një coin-i te dritarja **Select a token**: tokeni del menjëherë, dhe **Enter** e zgjedh. Nëse Jupiter nuk e njeh, faqja e lexon nga Solana dhe e shënon "Not listed on Jupiter". Nëse zgjedh tokenin që është në anën tjetër, dy anët ndërrohen.
 11. Te "Your recent swaps" çdo swap shfaqet si **pending** sapo nisesh dhe pastaj merr statusin përfundimtar. Nëse rezultati nuk dihet ende, butoni shkruan **Waiting for your last swap** dhe faqja nuk nis swap tjetër nga ky wallet derisa rrjeti ta vërtetojë. E kontrollon vetë çdo 10 sekonda. Vetëm nëse rrjeti nuk mund ta vërtetojë më, shfaqet butoni **I've checked it**: shtype pasi ta kesh parë transaksionin në Solscan.
 
 ## Testi 3: Solflare dhe Backpack

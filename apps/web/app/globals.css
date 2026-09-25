@@ -59,6 +59,10 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 12px; }
 .wallet-pill { display: inline-flex; align-items: center; gap: 8px; }
+.account { position: relative; }
+.account-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; display: flex; flex-direction: column; min-width: 170px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .12); }
+.account-menu button { background: none; border: none; border-radius: 8px; padding: 8px 10px; text-align: left; font-size: 14px; }
+.account-menu button:hover { background: var(--box); }
 .wallet-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; margin-top: 8px; background: var(--box); border: 1px solid var(--line); border-radius: var(--radius); }
 .link { background: none; border: none; padding: 0; color: var(--muted); font-size: 12px; }
 .hint .link { text-decoration: underline; cursor: pointer; }
@@ -74,7 +78,10 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .token-icon.s24 { width: 24px; height: 24px; }
 .token-icon.s28 { width: 28px; height: 28px; }
 .flip { display: flex; justify-content: center; margin: -8px 0; position: relative; z-index: 1; }
-.flip .ghost { background: var(--panel); padding: 4px 10px; }
+.flip .ghost { display: inline-flex; align-items: center; background: var(--panel); padding: 6px 10px; }
+.balance { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.chip { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; }
+.chip:hover:not(:disabled) { color: var(--text); }
 
 .warnings { margin: 10px 0 0; padding: 8px 12px 8px 28px; background: var(--warn-bg); color: var(--warn); border-radius: var(--radius); font-size: 13px; }
 
@@ -87,6 +94,9 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .details { margin: 10px 2px; }
 .detail-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); padding: 2px 0; }
 .detail-row span:last-child { text-align: right; overflow-wrap: anywhere; }
+.detail-row .link.rate { font-size: 13px; text-align: right; }
+.warn-text { color: var(--warn); font-weight: 500; }
+.details .hint { margin-top: 4px; }
 
 .primary { width: 100%; height: 48px; margin-top: 6px; background: var(--accent); color: var(--on-accent); border: none; border-radius: 12px; font-size: 16px; font-weight: 600; }
 
@@ -101,12 +111,26 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .banner-actions .ghost { color: inherit; }
 main > .banner { margin: 0 0 14px; }
 
-.picker { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px; margin-bottom: 14px; }
-.picker-head { display: flex; gap: 8px; }
-.picker-search { flex: 1; min-width: 0; font: inherit; padding: 9px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--box); color: var(--text); }
-.picker-list { list-style: none; margin: 10px 0 0; padding: 0; max-height: 380px; overflow: auto; }
+/* The token and wallet windows: centred on a computer, a sheet from the bottom on a phone. */
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; background: rgba(10, 10, 9, .45); }
+.modal { display: flex; flex-direction: column; width: 100%; max-width: 420px; max-height: 80vh; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 16px 48px rgba(0, 0, 0, .25); }
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.modal-title { margin: 0; font-size: 16px; font-weight: 600; }
+.modal .wallet-option:first-of-type { margin-top: 0; }
+.icon-button { background: none; border: none; border-radius: 8px; padding: 4px 8px; color: var(--muted); font-size: 16px; }
+.icon-button:hover { background: var(--box); color: var(--text); }
+@media (max-width: 520px) {
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal { max-width: none; max-height: 88vh; border-radius: 16px 16px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+}
+
+.picker-search { width: 100%; font: inherit; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--box); color: var(--text); }
+.quick-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.quick-pick { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 5px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: 14px; font-weight: 500; }
+.quick-pick:hover, .quick-pick.selected { background: var(--box); }
+.picker-list { flex: 1; min-height: 0; overflow: auto; list-style: none; margin: 10px -6px 0; padding: 6px 0 0; border-top: 1px solid var(--line); }
 .picker-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px; background: none; border: none; border-radius: var(--radius); }
-.picker-item:hover:not(:disabled) { background: var(--box); }
+.picker-item:hover:not(:disabled), .picker-item.selected { background: var(--box); }
 .picker-text { display: flex; flex-direction: column; min-width: 0; }
 .picker-symbol { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .picker-name { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

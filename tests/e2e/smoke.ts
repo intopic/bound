@@ -123,7 +123,7 @@ try {
   check('test wallet connects through the Wallet Standard', true);
 
   await page.getByLabel('Amount to pay').fill('5');
-  await page.getByText(/Minimum received .* SOL · if less would arrive, the swap cancels itself/).waitFor({ timeout: 20_000 });
+  await page.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 20_000 });
   check('live quote appears', true, await page.locator('.box').nth(1).locator('.amount').innerText());
   await page.screenshot({ path: `${OUT}/2-quote.png` });
 
@@ -169,6 +169,9 @@ try {
   await m.getByRole('button', { name: 'Connect wallet' }).first().click();
   check('mobile without a wallet offers "open in Phantom"', await m.getByRole('link', { name: 'Phantom' }).isVisible());
   await m.screenshot({ path: `${OUT}/5-mobile.png`, fullPage: true });
+  // The wallet list is a window over the page, as on swap sites: Escape closes it.
+  await m.keyboard.press('Escape');
+  check('the wallet window closes with Escape', !(await m.getByRole('dialog').isVisible()));
 
   // The page that says what is and is not guaranteed, one tap from the swap (final audit, M3).
   await m.getByRole('link', { name: 'How Bound protects you' }).click();
@@ -196,7 +199,7 @@ try {
     await p.getByRole('button', { name: 'Connect wallet' }).first().click();
     await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
     await p.getByLabel('Amount to pay').fill('5');
-    await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 20_000 });
+    await p.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 20_000 });
     // Keyless Jupiter may answer "busy" first: that notice is load, not the case under test, so the
     // swap is asked again a few times; whatever shows, the wallet must never have been asked.
     let seen = '';
@@ -240,7 +243,7 @@ try {
       await p.getByLabel('Amount to pay').fill(amount);
       await p.waitForTimeout(1_500);
     }
-    await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 30_000 });
+    await p.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 30_000 });
     await p.waitForTimeout(8_000);
     check('trying three amounts costs a few price requests, not one build per amount', builds <= 8, `${builds} answered by Jupiter, ${refused} refused as busy`);
     await p.close();
@@ -282,7 +285,7 @@ try {
     await p.getByRole('button', { name: 'Connect wallet' }).first().click();
     await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
     await p.getByLabel('Amount to pay').fill('5');
-    await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 30_000 });
+    await p.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 30_000 });
     await p.getByRole('button', { name: 'Protected swap' }).click();
     const banner = p.locator('.banner.error').first();
     await banner.waitFor({ timeout: 20_000 });
