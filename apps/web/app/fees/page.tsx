@@ -19,7 +19,6 @@ export default async function Page() {
             <tbody>
               <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText} of the swap` : 'None on this deployment'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
               <tr><td>Network fee</td><td>Usually ~0.00002 SOL, never more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is shown before you sign.</td></tr>
-              <tr><td>New token account</td><td>~0.0015 SOL, once per token</td><td>A deposit Solana keeps in your new account. It stays yours; you get it back if you close the empty account.</td></tr>
               <tr><td>Market account fee</td><td>Only on some markets, such as a Pump.fun launch curve</td><td>The market. Shown and asked about before your wallet opens.</td></tr>
               <tr><td>Token transfer tax</td><td>Only on tokens that tax transfers</td><td>The token&apos;s issuer. Stated before your wallet opens.</td></tr>
             </tbody>

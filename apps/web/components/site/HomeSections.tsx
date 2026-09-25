@@ -95,7 +95,7 @@ export function HomeSections() {
             <p className="eyebrow">Fees</p>
             <h2>Every cost, before you sign.</h2>
           </div>
-          <div className="fee-grid">
+          <div className="fee-grid two">
             <div className="fee">
               <p className="fee-name">Orientim fee</p>
               <p className="fee-value">{TREASURY ? feeText : '0'}</p>
@@ -105,11 +105,6 @@ export function HomeSections() {
               <p className="fee-name">Network fee</p>
               <p className="fee-value">~0.00002 SOL</p>
               <p>Paid to Solana, shown exactly before you sign.</p>
-            </div>
-            <div className="fee">
-              <p className="fee-name">New token account</p>
-              <p className="fee-value">~0.0015 SOL</p>
-              <p>Once, the first time you hold a token. The deposit stays yours.</p>
             </div>
           </div>
           <a className="text-link" href="/fees">All fees →</a>

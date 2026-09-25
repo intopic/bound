@@ -69,7 +69,6 @@ type SwapTexts = { paid: string; received: string; exposed: string; minimum: str
 // Quotes are asked for a neutral taker, so Jupiter never sees the user's address before a swap.
 const QUOTE_TAKER = '11111111111111111111111111111111';
 const SOL_RESERVE_LAMPORTS = 10_000_000n; // fees plus temporary rent, returned in the same transaction
-const TOKEN_ACCOUNT_SIZE = 165n;
 const OFFER_TIMEOUT_MS = 45_000;
 /** Price impact: a warning from 1%, a question before building from 5%, as swap pages usually do. */
 const IMPACT_WARN = 0.01;
@@ -453,12 +452,9 @@ export function SwapApp() {
   const [offer, setOffer] = useState<Offer | null>(null);
   // What the chain says about each selected mint: decimals and token program (audit C-01).
   const [facts, setFacts] = useState<Record<string, MintFacts | 'missing'>>({});
-  // Rent for a new token account, from the cluster (audit C-09).
-  const [rent, setRent] = useState<bigint | null>(null);
   // Accounts that decide the Orientim fee and the one-time costs shown before signing (audit B-09).
   /** Where the Orientim fee is taken, like Jupiter's: SOL first, then USDC and USDT, on either side; else the input. */
   const [feeSide, setFeeSide] = useState<FeeSide | null>('input');
-  const [outputAccountExists, setOutputAccountExists] = useState(true);
   const [clock, setClock] = useState(0);
   const [refreshes, setRefreshes] = useState(0);
   // How many times in a row Jupiter refused the price as busy, and until when nothing is built ahead.
@@ -539,17 +535,6 @@ export function SwapApp() {
     settleHistory().then(list => list && setHistory(list)).catch(() => undefined);
   }, []);
 
-  // Rent for a new account of the selected output token, at the size the token program gives it:
-  // a Token-2022 account with a transfer fee or hook is larger than a classic one.
-  const outAccountSize = outFacts && outFacts !== 'missing' ? BigInt(outFacts.accountSize) : TOKEN_ACCOUNT_SIZE;
-  useEffect(() => {
-    let cancelled = false;
-    getRpc().getMinimumBalanceForRentExemption(outAccountSize).send()
-      .then(v => { if (!cancelled) setRent(BigInt(v)); })
-      .catch(() => { if (!cancelled) setRent(null); });
-    return () => { cancelled = true; };
-  }, [outAccountSize]);
-
   // --- on-chain facts for the selected tokens
   useEffect(() => {
     for (const t of [tokenIn, tokenOut]) {
@@ -593,8 +578,8 @@ export function SwapApp() {
 
   // The fee is taken like Jupiter's: in SOL first, then USDC or USDT, on whichever side of the swap
   // the treasury can receive them; otherwise in the input token; otherwise not at all (Orientim never
-  // makes the user pay rent for Orientim's account). No output account yet → the user pays its rent
-  // once and keeps it.
+  // makes the user pay rent for Orientim's account). A new output account's deposit is Solana's and
+  // stays the user's, as on every swap site, so it is not listed as a cost (the owner's choice).
   const refreshAccounts = useCallback(async () => {
     const exists = async (a: Address) =>
       (await getRpc().getAccountInfo(a, { encoding: 'base64', commitment: 'confirmed' }).send()).value !== null;
@@ -619,11 +604,8 @@ export function SwapApp() {
         sol: walletReady,
       })
       : null;
-    const out = W && tokenOut && tokenOut.id !== SOL_MINT && outFacts && outFacts !== 'missing'
-      ? await exists(await mintAta(W, tokenOut.id, outFacts))
-      : true;
-    return { fee, out };
-  }, [tokenIn, tokenOut, W, inFacts, outFacts]);
+    return { fee };
+  }, [tokenIn, tokenOut, inFacts, outFacts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -631,7 +613,6 @@ export function SwapApp() {
       .then(r => {
         if (cancelled) return;
         setFeeSide(r.fee);
-        setOutputAccountExists(r.out);
       })
       .catch(() => undefined);
     return () => {
@@ -1087,17 +1068,13 @@ export function SwapApp() {
       }
       texts.minimum = `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
-      const newAccountRent = prepared.oneTimeCosts.outputAccountRent;
       // What the market keeps: the rent it takes, less what closing its account returns (FA-05).
       const routeRent = keptByMarket(prepared);
       setPending({
         minReceived: `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`,
         networkFee: `${formatExact(prepared.networkFeeLamports, 9)} SOL`,
-        oneTimeCost: [
-          newAccountRent > 0n ? `${formatExact(newAccountRent, 9)} SOL opens your ${outToken.symbol} account (one time, stays yours)` : '',
-          // Pump.fun charges every new buyer a small account deposit, and it does not come back.
-          routeRent > 0n ? `${formatExact(routeRent, 9)} SOL account fee charged by this market` : '',
-        ].filter(Boolean).join('; ') || null,
+        // Pump.fun charges every new buyer a small account deposit, and it does not come back.
+        oneTimeCost: routeRent > 0n ? `${formatExact(routeRent, 9)} SOL account fee charged by this market` : null,
         busyNetwork: prepared.priorityFeeCapped
           ? 'The network is busy and the network fee is at its limit, so this swap may take longer to land, or expire without executing. An expired swap costs nothing.'
           : null,
@@ -1177,10 +1154,7 @@ export function SwapApp() {
       setPending(null);
       refreshBalances().catch(() => undefined);
       refreshAccounts()
-        .then(r => {
-          setFeeSide(r.fee);
-          setOutputAccountExists(r.out);
-        })
+        .then(r => setFeeSide(r.fee))
         .catch(() => undefined);
     }
   }
@@ -1497,12 +1471,6 @@ export function SwapApp() {
             <span>Network fee</span>
             <span>~0.00002 SOL</span>
           </div>
-          {W && !outputAccountExists && tokenOut && (
-            <div className="detail-row" title="Solana keeps this deposit in your new token account. You get it back if you close the account.">
-              <span>New {tokenOut.symbol} account</span>
-              <span>{rent !== null ? `${formatExact(rent, 9)} SOL` : '—'}</span>
-            </div>
-          )}
         </details>
 
         {phase === 'confirm' && offer && (

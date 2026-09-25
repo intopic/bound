@@ -222,6 +222,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .dev-note { margin: 14px 0 12px; color: var(--muted); font-size: 14px; }
 
 .fee-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
+.fee-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .fee { padding: 22px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .fee p { margin: 0; color: var(--muted); font-size: 14px; }
 .fee .fee-name { color: var(--muted); font-size: 13px; font-weight: 600; }
@@ -293,7 +294,7 @@ a.ghost { display: inline-flex; align-items: center; }
   .hero-copy { padding-top: 0; }
   .hero-app { max-width: 480px; width: 100%; margin: 0 auto; }
   .dev-grid, .split { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .steps, .fee-grid { grid-template-columns: minmax(0, 1fr); }
+  .steps, .fee-grid, .fee-grid.two { grid-template-columns: minmax(0, 1fr); }
   .footer-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .footer-brand { grid-column: 1 / -1; }
 }

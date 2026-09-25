@@ -97,7 +97,6 @@ export default async function Page() {
             <li>This deployment takes no Orientim fee.</li>
           )}
           <li>The network fee, usually a fraction of a cent and never more than 0.001 SOL, is shown exactly before you sign.</li>
-          <li>A new token account, the first time you hold a token, keeps a small deposit that stays yours.</li>
         </ul>
         <p>
           The reviews and their fixes are listed on the <a href="/audits">audits page</a>.
