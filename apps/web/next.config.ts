@@ -8,7 +8,7 @@ checkDeploymentSettings(process.env);
 // The Content-Security-Policy for pages is set per request, with a nonce, in proxy.ts (audit B-08).
 // API responses are JSON (or images from /api/token-icon, which set their own CSP) under nosniff.
 const config: NextConfig = {
-  transpilePackages: ['@bound/core', '@bound/verifier', '@bound/solana', '@bound/jupiter'],
+  transpilePackages: ['@orientim/core', '@orientim/verifier', '@orientim/solana', '@orientim/jupiter'],
   poweredByHeader: false,
   reactStrictMode: true,
   // Next adds a hash to the script tags it writes, so a browser refuses those scripts when they are
@@ -18,7 +18,7 @@ const config: NextConfig = {
   // A build id that depends on the commit, not on the clock: two builds of the same source produce
   // the same output, which is what makes `tools/build-digest.ts` worth publishing. Vercel names the
   // commit itself, so a deploy of a tag builds what release.yml published for it.
-  generateBuildId: () => process.env.BOUND_BUILD_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'bound',
+  generateBuildId: () => process.env.ORIENTIM_BUILD_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'orientim',
   async headers() {
     return [
       {

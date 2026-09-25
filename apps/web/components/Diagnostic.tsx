@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
 import { address, getTransactionEncoder } from '@solana/kit';
-import { JUPITER_PROGRAM } from '@bound/core';
-import type { TxVersion } from '@bound/core';
-import { DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
-import { createEphemeral } from '@bound/solana';
+import { JUPITER_PROGRAM } from '@orientim/core';
+import type { TxVersion } from '@orientim/core';
+import { DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
+import { createEphemeral } from '@orientim/solana';
 import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
@@ -21,7 +21,7 @@ import type { Problem } from '@/lib/client/problems';
 /**
  * What does a wallet do to a transaction it signs?
  *
- * Bound's whole guarantee is that the bytes it verified are the bytes that execute, and it refuses
+ * Orientim's whole guarantee is that the bytes it verified are the bytes that execute, and it refuses
  * anything else. Phantom documents that it may append its own assertions. Until a real wallet has
  * been watched doing it, any rule about what to accept is a guess. This page builds a real
  * protected swap, asks the wallet to sign it, and reports exactly what came back.
@@ -49,7 +49,7 @@ export function Diagnostic() {
   useEffect(() => setProblems(readProblems()), []);
 
   useEffect(() => {
-    fetch('/api/status').then(r => r.json()).then(setStatus).catch(() => setError('Could not reach Bound.'));
+    fetch('/api/status').then(r => r.json()).then(setStatus).catch(() => setError('Could not reach Orientim.'));
   }, []);
 
   async function connect(w: Wallet) {
@@ -174,7 +174,7 @@ export function Diagnostic() {
           <h2>{d.identical ? 'The wallet changed nothing' : 'The wallet changed the transaction'}</h2>
           <p className="hint">
             {d.identical
-              ? 'The message it signed is byte-identical to the one Bound verified. The existing rule holds.'
+              ? 'The message it signed is byte-identical to the one Orientim verified. The existing rule holds.'
               : `Its own instructions sit as a ${d.placement}. Every line below is what the acceptance rule must be written against.`}
           </p>
 

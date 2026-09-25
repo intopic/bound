@@ -9,7 +9,7 @@ type Costs = {
   policy?: { feeSide: string | null; fee: bigint };
 };
 
-/** Bound's fee when it is paid in SOL from the wallet; 0 otherwise. */
+/** Orientim's fee when it is paid in SOL from the wallet; 0 otherwise. */
 const solFeeOf = (p: Costs) => (p.policy?.feeSide === 'sol' ? p.policy.fee : 0n);
 
 /** What the market keeps: the rent it takes, less what closing its account returns in the same transaction (FA-05). */

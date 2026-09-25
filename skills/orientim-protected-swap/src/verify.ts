@@ -1,8 +1,8 @@
 /**
  * The agent's own check of a prepared swap, before its wallet signs (review FA-01).
  *
- * Bound's server built the transaction; the agent must not take its word for what it does. This
- * runs Bound's full verifier (`@bound/verifier`, the same rules the page applies, R1–R7) on the exact
+ * Orientim's server built the transaction; the agent must not take its word for what it does. This
+ * runs Orientim's full verifier (`@orientim/verifier`, the same rules the page applies, R1–R7) on the exact
  * bytes, against chain state the agent reads from ITS OWN RPC, and against a policy the agent holds
  * to its own intent and limits. A compromised server, relay, DNS or impostor URL can then refuse or
  * delay a swap, never make the agent sign one that moves anything but the approved amount.
@@ -15,26 +15,26 @@
  * derives the key could collect them (F-06, engineering review M-05). Rent a route keeps is a cost
  * that does not come back, accepted only up to the agent's own limit (0.001 SOL by default).
  *
- * Bundled into ../lib/bound-verify.mjs by tools/build-skill.ts (only @solana/kit stays external), so
+ * Bundled into ../lib/orientim-verify.mjs by tools/build-skill.ts (only @solana/kit stays external), so
  * the skill works on its own; CI rebuilds it and fails if the committed file differs.
  */
 import { fetchAddressesForLookupTables, getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@solana/kit';
 import type { Address, Rpc, SolanaRpcApi } from '@solana/kit';
 import { findAssociatedTokenPda } from '@solana-program/token';
-import { JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '@bound/core/constants';
-import type { ChainSnapshot, Policy } from '@bound/core/types';
-import { readAccounts } from '@bound/solana';
-import { hasTransferFee, routeAccountFor, transferFeeOf, transferFeeOn, verify } from '@bound/verifier';
-import type { TransferFee } from '@bound/verifier';
+import { JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '@orientim/core/constants';
+import type { ChainSnapshot, Policy } from '@orientim/core/types';
+import { readAccounts } from '@orientim/solana';
+import { hasTransferFee, routeAccountFor, transferFeeOf, transferFeeOn, verify } from '@orientim/verifier';
+import type { TransferFee } from '@orientim/verifier';
 
 /** When "no record" proves a transaction never landed (third audit, F1); `confirm` in the example uses them. */
-export { pastProof, provesNeverLanded, STATUS_CACHE_BLOCKS } from '@bound/solana';
+export { pastProof, provesNeverLanded, STATUS_CACHE_BLOCKS } from '@orientim/solana';
 
 /**
- * Bound's treasury wallet, pinned like the fee: unless the agent names another, Bound's fee may go
+ * Orientim's treasury wallet, pinned like the fee: unless the agent names another, Orientim's fee may go
  * here or nowhere, whatever the server says.
  */
-export const BOUND_TREASURY = 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
+export const ORIENTIM_TREASURY = 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
 
 /** What the agent asked for, and the most it accepts. */
 export type AgentLimits = {
@@ -46,16 +46,16 @@ export type AgentLimits = {
   amountIn: string;
   /**
    * The least the agent accepts, in base units of the output. Required, and from a price the agent
-   * got itself (`ownMinimum` asks Jupiter), never from Bound's answer. Bound's floor may be stricter.
+   * got itself (`ownMinimum` asks Jupiter), never from Orientim's answer. Orientim's floor may be stricter.
    */
   minOut: string;
-  /** The highest Bound fee accepted, in bps (Bound's is 30: anything above is refused by default). */
+  /** The highest Orientim fee accepted, in bps (Orientim's is 30: anything above is refused by default). */
   maxFeeBps?: number;
   /** The most the transaction may cost in network fees, in lamports (default 0.001 SOL). */
   maxNetworkFeeLamports?: number;
   /**
-   * The only wallet the fee may go to (or nowhere). Bound's own (`BOUND_TREASURY`) unless set; set it
-   * only to use another Bound deployment.
+   * The only wallet the fee may go to (or nowhere). Orientim's own (`ORIENTIM_TREASURY`) unless set; set it
+   * only to use another Orientim deployment.
    */
   treasury?: string;
   /**
@@ -65,7 +65,7 @@ export type AgentLimits = {
    */
   maxRouteCostLamports?: number;
   /**
-   * The most Bound's fee may be in lamports when it is paid in SOL from the wallet: a swap between
+   * The most Orientim's fee may be in lamports when it is paid in SOL from the wallet: a swap between
    * two tokens neither of which can carry it pays `feeBps` of its value in SOL, at a price the rules
    * cannot see. Required for such a swap; `ownSolFeeLimit` asks Jupiter for it.
    */
@@ -73,7 +73,7 @@ export type AgentLimits = {
   /**
    * One ceiling for all the SOL the swap may cost and not return, in lamports (optional; third
    * audit, priority 4): the network fee the transaction can pay (its compute budget, as the verifier
-   * reads it), rent the route keeps, and Bound's fee when paid in SOL. A new output account's rent
+   * reads it), rent the route keeps, and Orientim's fee when paid in SOL. A new output account's rent
    * is not in it: that account stays the wallet's own.
    */
   maxSolCostLamports?: number;
@@ -106,7 +106,7 @@ const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16
 
 /**
  * The problems found, or an empty list. Sign only when it is empty. `rpc` must be the agent's own
- * RPC, not one Bound provides: the check is worth what the chain state it reads is worth.
+ * RPC, not one Orientim provides: the check is worth what the chain state it reads is worth.
  */
 export async function verifyPrepared(
   prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>, opts: { requestTimeoutMs?: number } = {},
@@ -133,16 +133,16 @@ export async function verifyPrepared(
   if (p.jupiterProgram !== JUPITER_PROGRAM) problems.push(`the swap program is ${p.jupiterProgram}, not Jupiter`);
   if (p.ephemeral !== prepared.temporaryAuthority) problems.push('the one-time key differs from the one stated');
   if (p.feeBps > BigInt(limits.maxFeeBps ?? 30)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
-  if (p.treasury !== null && p.treasury !== (limits.treasury || BOUND_TREASURY)) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
+  if (p.treasury !== null && p.treasury !== (limits.treasury || ORIENTIM_TREASURY)) problems.push(`the fee goes to ${p.treasury}, not Orientim's treasury`);
   if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1_000_000)) {
     problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
   }
   // A fee in SOL from the wallet is priced by the server; the agent holds it to a price of its own.
   if (p.feeSide === 'sol') {
     if (limits.maxSolFeeLamports === undefined) {
-      problems.push('the Bound fee is paid in SOL at a price the check cannot see: set maxSolFeeLamports from a price you got yourself (ownSolFeeLimit asks Jupiter)');
+      problems.push('the Orientim fee is paid in SOL at a price the check cannot see: set maxSolFeeLamports from a price you got yourself (ownSolFeeLimit asks Jupiter)');
     } else if (p.fee > BigInt(limits.maxSolFeeLamports)) {
-      problems.push(`the Bound fee in SOL is ${p.fee} lamports, above your limit of ${limits.maxSolFeeLamports}`);
+      problems.push(`the Orientim fee in SOL is ${p.fee} lamports, above your limit of ${limits.maxSolFeeLamports}`);
     }
   }
   // Rent that does not come back is a cost of its own, apart from the network fee (M-05).
@@ -152,7 +152,7 @@ export async function verifyPrepared(
     problems.push(`the route keeps ${routeCost} lamports of rent that do not come back, above your limit of ${maxRouteCost} (maxRouteCostLamports)`);
   }
   // What the wallet keeps: the enforced minimum, less a fee taken from the output (like Jupiter's,
-  // Bound takes its fee in SOL first, then USDC or USDT, on whichever side of the swap they are).
+  // Orientim takes its fee in SOL first, then USDC or USDT, on whichever side of the swap they are).
   const keeps = p.feeSide === 'output' ? p.minOut - p.fee : p.minOut;
   if (!/^\d{1,20}$/.test(limits.minOut ?? '') || BigInt(limits.minOut) === 0n) {
     problems.push('no minimum of your own: set minOut from a price you got yourself (ownMinimum asks Jupiter for one)');
@@ -254,8 +254,8 @@ async function leftUnderKey(
 
 /**
  * A floor of the agent's own, from a price it asks Jupiter for itself (research audit F-02): the
- * output for the amount Bound will route (after its fee), less `maxBelowBps`. By default 2%, or 5%
- * when the route trades on a Pump.fun bonding curve, which Bound quotes at 3%: enough for Bound's
+ * output for the amount Orientim will route (after its fee), less `maxBelowBps`. By default 2%, or 5%
+ * when the route trades on a Pump.fun bonding curve, which Orientim quotes at 3%: enough for Orientim's
  * tolerance, its narrower routes and a few seconds of movement, and far from "almost nothing".
  * Without `apiKey`, Jupiter allows a request every two seconds.
  */
@@ -305,7 +305,7 @@ export async function inputTransferFee(rpc: Rpc<SolanaRpcApi>, mint: string, tim
 }
 
 /**
- * The most Bound's fee in SOL may be for a swap that neither token can carry the fee for, from a
+ * The most Orientim's fee in SOL may be for a swap that neither token can carry the fee for, from a
  * price the agent asks Jupiter for itself: `maxFeeBps` (default 30) of what `amountIn` of the input
  * is worth in SOL, plus 2% for the price moving between the server's quote and this one. In
  * lamports.

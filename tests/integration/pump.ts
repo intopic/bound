@@ -5,8 +5,8 @@
  *   --market curve  T14, the bonding curve itself, where a new Pump.fun token trades first.
  *
  * Both open an account for every buyer and make the buyer pay its rent; the bonding curve may also
- * charge a buyer for growing the curve's own account. In a Bound swap the buyer is the one-time key
- * E, which holds nothing on purpose, so every such route used to fail. Bound now measures that rent
+ * charge a buyer for growing the curve's own account. In a Orientim swap the buyer is the one-time key
+ * E, which holds nothing on purpose, so every such route used to fail. Orientim now measures that rent
  * in simulation and sends E exactly it. On the bonding curve Pump.fun takes the purchase in native
  * SOL, which it first unwraps itself from E's temporary WSOL account, so the approved amount
  * reaches it the same way as on any other market.
@@ -27,9 +27,9 @@
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ataOf, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, tokenAmountOf, WSOL_MINT } from '@bound/core';
-import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints } from '@bound/solana';
-import { BoundError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
+import { ataOf, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
+import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints } from '@orientim/solana';
+import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 
 const arg = (name: string, fallback: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -82,7 +82,7 @@ async function execute(transaction: Parameters<typeof getBase64EncodedWireTransa
   return { ok: value.err === null, failure, after };
 }
 /**
- * Did a minimum stop the swap: Jupiter's own (6001), or Bound's check after it, which the token
+ * Did a minimum stop the swap: Jupiter's own (6001), or Orientim's check after it, which the token
  * program refuses for insufficient funds? Either way the price moved and the swap reverted.
  */
 const priceMoved = (failure: string) => failure.includes('0x1771') || failure.includes('insufficient funds');
@@ -142,7 +142,7 @@ for (const t of candidates) {
   try {
     prepared = await buyOnce();
   } catch (e) {
-    log(`     ${t.symbol.padEnd(10)} not built: ${e instanceof BoundError ? e.code : 'error'} ${(e as Error).message.slice(0, 80)}`);
+    log(`     ${t.symbol.padEnd(10)} not built: ${e instanceof OrientimError ? e.code : 'error'} ${(e as Error).message.slice(0, 80)}`);
     continue;
   }
   const route = prepared.quote.route.join(' → ');
@@ -156,7 +156,7 @@ for (const t of candidates) {
   const E = prepared.policy.ephemeral;
   const wOut = prepared.policy.accounts.wOut!;
   const before = tokenAmountOf((await fetchAccounts(rpc, [wOut])).get(wOut)?.data);
-  // E, E_in, W_out, and the account the market opens for E when Bound closes it (FA-05).
+  // E, E_in, W_out, and the account the market opens for E when Orientim closes it (FA-05).
   const watchBuy = (p: Awaited<ReturnType<typeof prepareProtectedSwap>>) => [p.policy.ephemeral, p.policy.accounts.eIn, wOut, ...(p.policy.accounts.routeAccount ? [p.policy.accounts.routeAccount] : [])];
   let run = await execute(prepared.transaction, watchBuy(prepared));
   if (!run.ok && priceMoved(run.failure)) {
@@ -166,8 +166,8 @@ for (const t of candidates) {
     try {
       prepared = await buyOnce();
     } catch (e) {
-      // Moving past the tolerance again in the seconds a build takes: Bound refused, as it should.
-      if (!(e instanceof BoundError && /price moved/i.test(e.message))) throw e;
+      // Moving past the tolerance again in the seconds a build takes: Orientim refused, as it should.
+      if (!(e instanceof OrientimError && /price moved/i.test(e.message))) throw e;
       check(t.symbol, 'buy: the final transaction executes', null, 'çmimi lëvizi përtej tolerancës edhe në ndërtimin e dytë');
       continue;
     }
@@ -226,12 +226,12 @@ for (const t of candidates) {
     if (done.ok) check(t.symbol, 'sell: the key and both temporary accounts end empty', done.after.every(gone));
   } catch (e) {
     // The holder is someone else's wallet, and it keeps trading. When it no longer holds the
-    // amount, the refusal is about the holder, not about Bound.
+    // amount, the refusal is about the holder, not about Orientim.
     const now = tokenAmountOf((await fetchAccounts(rpc, [holder.account])).get(holder.account)?.data);
     if (now < amountIn) { check(t.symbol, 'sell: needs a holder that still holds the amount', null, `mbajtësi shiti ndërkohë (${now} < ${amountIn})`); continue; }
-    const code = e instanceof BoundError ? e.code : 'error';
-    // The unrestricted quote, asked for before anything of Bound's applies, had no route either:
-    // Jupiter had nothing to offer for this sale at that moment, which says nothing about Bound.
+    const code = e instanceof OrientimError ? e.code : 'error';
+    // The unrestricted quote, asked for before anything of Orientim's applies, had no route either:
+    // Jupiter had nothing to offer for this sale at that moment, which says nothing about Orientim.
     if (code === 'no-route' && (e as Error).message.startsWith('Jupiter could not quote')) {
       check(t.symbol, 'sell: needs a route Jupiter itself offers', null, `Jupiter nuk dha rrugë: ${[...new Set(jupiterSaid)].join(' | ')}`);
       continue;

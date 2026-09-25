@@ -1,11 +1,11 @@
-// Types for bound-verify.mjs, the bundled agent verifier (source: ../src/verify.ts).
+// Types for orientim-verify.mjs, the bundled agent verifier (source: ../src/verify.ts).
 import type { Rpc, SolanaRpcApi } from '@solana/kit';
 
 /**
- * Bound's treasury wallet, pinned like the fee: unless the agent names another, Bound's fee may go
+ * Orientim's treasury wallet, pinned like the fee: unless the agent names another, Orientim's fee may go
  * here or nowhere, whatever the server says.
  */
-export declare const BOUND_TREASURY: 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
+export declare const ORIENTIM_TREASURY: 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
 
 /** What the agent asked for, and the most it accepts. */
 export type AgentLimits = {
@@ -17,16 +17,16 @@ export type AgentLimits = {
   amountIn: string;
   /**
    * The least the agent accepts, in base units of the output. Required, and from a price the agent
-   * got itself (`ownMinimum` asks Jupiter), never from Bound's answer. Bound's floor may be stricter.
+   * got itself (`ownMinimum` asks Jupiter), never from Orientim's answer. Orientim's floor may be stricter.
    */
   minOut: string;
-  /** The highest Bound fee accepted, in bps (Bound's is 30: anything above is refused by default). */
+  /** The highest Orientim fee accepted, in bps (Orientim's is 30: anything above is refused by default). */
   maxFeeBps?: number;
   /** The most the transaction may cost in network fees, in lamports (default 0.001 SOL). */
   maxNetworkFeeLamports?: number;
   /**
-   * The only wallet the fee may go to (or nowhere). Bound's own (`BOUND_TREASURY`) unless set; set it
-   * only to use another Bound deployment.
+   * The only wallet the fee may go to (or nowhere). Orientim's own (`ORIENTIM_TREASURY`) unless set; set it
+   * only to use another Orientim deployment.
    */
   treasury?: string;
   /**
@@ -36,14 +36,14 @@ export type AgentLimits = {
    */
   maxRouteCostLamports?: number;
   /**
-   * The most Bound's fee may be in lamports when it is paid in SOL from the wallet (a swap between
+   * The most Orientim's fee may be in lamports when it is paid in SOL from the wallet (a swap between
    * two tokens neither of which can carry it). Required for such a swap; `ownSolFeeLimit` asks
    * Jupiter for it.
    */
   maxSolFeeLamports?: number;
   /**
    * One ceiling for all the SOL the swap may cost and not return, in lamports (optional): the network
-   * fee the transaction can pay, rent the route keeps, and Bound's fee when paid in SOL. A new output
+   * fee the transaction can pay, rent the route keeps, and Orientim's fee when paid in SOL. A new output
    * account's rent is not in it: that account stays the wallet's own.
    */
   maxSolCostLamports?: number;
@@ -58,7 +58,7 @@ export type PreparedSwap = {
 };
 
 /**
- * Runs Bound's full verifier on the prepared transaction, with chain state read from `rpc` (the
+ * Runs Orientim's full verifier on the prepared transaction, with chain state read from `rpc` (the
  * agent's own RPC) and the policy held to `limits`, then simulates it there: nothing may stay under
  * the one-time key, in its own account or in a Pump.fun market's account in its name, and no account
  * the route opens may stay open. Returns the problems found; sign only when empty.
@@ -66,7 +66,7 @@ export type PreparedSwap = {
 export function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>, opts?: { requestTimeoutMs?: number }): Promise<string[]>;
 
 /**
- * A floor of the agent's own: Jupiter's price for the amount Bound will route, asked for directly,
+ * A floor of the agent's own: Jupiter's price for the amount Orientim will route, asked for directly,
  * less `maxBelowBps` (default 2%, or 5% on a Pump.fun bonding curve). In base units, as a string.
  */
 export function ownMinimum(args: {
@@ -83,7 +83,7 @@ export function ownMinimum(args: {
 export function inputTransferFee(rpc: Rpc<SolanaRpcApi>, mint: string, timeoutMs?: number): Promise<{ bps: number; maximum: bigint } | null>;
 
 /**
- * The most Bound's fee in SOL may be, from a price the agent asks Jupiter for itself: `maxFeeBps`
+ * The most Orientim's fee in SOL may be, from a price the agent asks Jupiter for itself: `maxFeeBps`
  * (default 30) of what `amountIn` of the input is worth in SOL, plus 2% for the price moving. In
  * lamports.
  */

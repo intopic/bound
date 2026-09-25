@@ -10,12 +10,12 @@ import {
 import type { Address, Transaction } from '@solana/kit';
 import {
   ataOf, ATA_PROGRAM, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
-} from '@bound/core';
-import type { SolanaRpc } from '@bound/solana';
-import { BoundError, DEFAULT_SETTINGS, LEFT_UNDER_KEY_MESSAGE, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
+} from '@orientim/core';
+import type { SolanaRpc } from '@orientim/solana';
+import { OrientimError, DEFAULT_SETTINGS, LEFT_UNDER_KEY_MESSAGE, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
 import type { SwapSettings } from '../src/swap.ts';
-import { jupiterFloor, jupiterRouteArgs } from '@bound/verifier';
-import type { JupiterRouteArgs } from '@bound/verifier';
+import { jupiterFloor, jupiterRouteArgs } from '@orientim/verifier';
+import type { JupiterRouteArgs } from '@orientim/verifier';
 import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
 
@@ -72,7 +72,7 @@ async function prepare(output: Address, opts: {
   );
 }
 
-const codeOf = async (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e instanceof BoundError ? e.code : String(e)));
+const codeOf = async (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e instanceof OrientimError ? e.code : String(e)));
 
 describe('C-01: the amount the user typed is converted with on-chain decimals', () => {
   it('an interface that used metadata decimals (9 for USDC) is refused before anything is built', async () => {
@@ -95,7 +95,7 @@ describe('the prepared swap carries its certificate and timings (ideas 35, 20)',
   });
 });
 
-describe('C-02: Bound computes the minimum itself', () => {
+describe('C-02: Orientim computes the minimum itself', () => {
   it('a Jupiter floor of 1 is replaced by the quote less the accepted slippage', async () => {
     const prepared = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ threshold: 1n }) });
     expect(prepared.policy.minOut).toBe((OUT * BigInt(10_000 - settings.slippageBps)) / 10_000n);
@@ -127,7 +127,7 @@ describe('C-02: Bound computes the minimum itself', () => {
   });
 
   it('when the route can no longer deliver the accepted minimum, the user is asked again', async () => {
-    const error = await prepare(WSOL_MINT, { acceptedMinOut: OUT + 1n }).then(() => null, (e: unknown) => e as BoundError);
+    const error = await prepare(WSOL_MINT, { acceptedMinOut: OUT + 1n }).then(() => null, (e: unknown) => e as OrientimError);
     expect(error?.code).toBe('price-moved');
     expect(error?.priceMoved?.newMinOut).toBe((OUT * BigInt(10_000 - settings.slippageBps)) / 10_000n);
   });
@@ -139,7 +139,7 @@ describe('C-02: Bound computes the minimum itself', () => {
   it('a route priced right but too big is reported as not fitting, not as a bad quote', async () => {
     const extra = await Promise.all(Array.from({ length: 60 }, () => generateKeyPairSigner()));
     const error = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ extraAccounts: extra.map(s => s.address) }) })
-      .then(() => null, (e: unknown) => e as BoundError);
+      .then(() => null, (e: unknown) => e as OrientimError);
     expect(error?.code).toBe('no-route');
     expect(error?.message).toMatch(/does not fit in a single protected transaction/);
   });
@@ -148,7 +148,7 @@ describe('C-02: Bound computes the minimum itself', () => {
 describe('a protected route that costs more than the open market', () => {
   it('is put to the user, never refused on their behalf', async () => {
     const error = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ worseByBps: 1_000n }) })
-      .then(() => null, (e: unknown) => e as BoundError);
+      .then(() => null, (e: unknown) => e as OrientimError);
     expect(error?.code).toBe('costs-more');
     expect(Number(error?.costsMore?.gapBps)).toBeGreaterThanOrEqual(1_000);
   });
@@ -176,7 +176,7 @@ describe('a protected route that costs more than the open market', () => {
 describe('a token that taxes its own transfers', () => {
   it('is swappable: the route is quoted for what arrives, and the withheld fees are harvested', async () => {
     const prepared = await prepare(WSOL_MINT, { inputFeeBps: 300 });
-    // These tests run without a treasury, so Bound takes no fee; the token keeps 3% on the way in.
+    // These tests run without a treasury, so Orientim takes no fee; the token keeps 3% on the way in.
     const swapAmount = 1_000_000n;
     const tax = (swapAmount * 300n + 9_999n) / 10_000n;
     expect(prepared.policy.swapAmount).toBe(swapAmount);
@@ -298,10 +298,10 @@ describe('a price that moves between the quote and the simulation', () => {
   });
 
   it('that keeps moving is reported as a price move, not as a broken market', async () => {
-    const failure = await prepare(BONK, { priceMoves: 10 }).catch((e: BoundError) => e);
-    expect(failure).toBeInstanceOf(BoundError);
-    expect((failure as BoundError).code).toBe('simulation-failed');
-    expect((failure as BoundError).message).toContain('price moved');
+    const failure = await prepare(BONK, { priceMoves: 10 }).catch((e: OrientimError) => e);
+    expect(failure).toBeInstanceOf(OrientimError);
+    expect((failure as OrientimError).code).toBe('simulation-failed');
+    expect((failure as OrientimError).message).toContain('price moved');
   });
 });
 
@@ -344,7 +344,7 @@ describe('slippage on a Pump.fun bonding curve', () => {
     fakeJupiter({ label: 'Pump.fun', curveProgram: true, ...extra });
   const onChain: [string, Account][] = [[PUMP, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }]];
 
-  it('a route through the bonding curve is enforced at 3% below the quote, by Bound and by Jupiter', async () => {
+  it('a route through the bonding curve is enforced at 3% below the quote, by Orientim and by Jupiter', async () => {
     const asked: BuildParams[] = [];
     const prepared = await prepare(BONK, { jupiter: curve({ asked }), chain: onChain });
     expect(settings.curveSlippageBps).toBe(300);
@@ -379,11 +379,11 @@ describe('slippage on a Pump.fun bonding curve', () => {
 
 describe('a wallet short of SOL (review BR-10)', () => {
   it('is told how much SOL the swap needs, and no market is blamed for it', async () => {
-    const failure = await prepare(BONK, { walletShort: true }).catch((e: BoundError) => e);
-    expect(failure).toBeInstanceOf(BoundError);
-    expect((failure as BoundError).code).toBe('insufficient-sol');
-    expect((failure as BoundError).message).toMatch(/needs about \d+\.\d{4} SOL/);
-    expect((failure as BoundError).message).toContain('Your wallet has 0.0004 SOL');
+    const failure = await prepare(BONK, { walletShort: true }).catch((e: OrientimError) => e);
+    expect(failure).toBeInstanceOf(OrientimError);
+    expect((failure as OrientimError).code).toBe('insufficient-sol');
+    expect((failure as OrientimError).message).toMatch(/needs about \d+\.\d{4} SOL/);
+    expect((failure as OrientimError).message).toContain('Your wallet has 0.0004 SOL');
   });
 
   it("a route short of the taker's rent is still measured and funded, not reported as the wallet's", async () => {
@@ -396,9 +396,9 @@ describe('a SOL fee into a treasury wallet that does not exist yet (review BR-06
   const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
   it('is refused, not built fee-free and not left to revert, until the treasury wallet exists (final audit, item 9)', async () => {
-    const refused = await prepare(BONK, { input: WSOL_MINT, treasury: TREASURY, amountIn: 100_000_000n }).catch((e: BoundError) => e);
-    expect((refused as BoundError).code).toBe('fee-unavailable');
-    expect((refused as BoundError).message).toContain("Bound's fee can't be collected");
+    const refused = await prepare(BONK, { input: WSOL_MINT, treasury: TREASURY, amountIn: 100_000_000n }).catch((e: OrientimError) => e);
+    expect((refused as OrientimError).code).toBe('fee-unavailable');
+    expect((refused as OrientimError).message).toContain("Orientim's fee can't be collected");
   });
 
   it('charges the fee once the treasury wallet exists', async () => {
@@ -481,7 +481,7 @@ describe('a Jupiter that is overloaded or silent', () => {
     expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(504, '{"error":"Jupiter did not answer"}') }))).toBe('unavailable');
   });
 
-  it("a refused key or a path that is gone is Bound's to fix, not a missing route (research audit F-08)", async () => {
+  it("a refused key or a path that is gone is Orientim's to fix, not a missing route (research audit F-08)", async () => {
     for (const status of [401, 403, 404, 410]) {
       expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(status, 'Unauthorized') }))).toBe('unavailable');
     }
@@ -494,7 +494,7 @@ describe('a Jupiter that is overloaded or silent', () => {
 });
 
 describe('a swap that landed and reverted: was it the price?', () => {
-  for (const version of [0, 1] as const) it(`v${version}: Jupiter's own threshold (6001) and Bound's minimum check are the price; anything else is not`, async () => {
+  for (const version of [0, 1] as const) it(`v${version}: Jupiter's own threshold (6001) and Orientim's minimum check are the price; anything else is not`, async () => {
     const prepared = await prepare(BONK, { version });
     const message = decompileTransactionMessage(getCompiledTransactionMessageDecoder().decode(prepared.transaction.messageBytes) as never);
     const instructions = message.instructions as unknown as { programAddress: string; accounts?: { address: string }[]; data?: Uint8Array }[];
@@ -522,14 +522,14 @@ describe('accounts frozen by the token issuer (review FA-12)', () => {
   it("a frozen fee account cannot receive the fee, so that swap is refused rather than built free (a stablecoin's blacklist, say)", async () => {
     const feeAccount = await ataOf(TREASURY, USDC);
     const frozen = await prepare(WSOL_MINT, { treasury: TREASURY, chain: [[feeAccount, tokenAccount(TREASURY, USDC, { frozen: true })]] })
-      .catch((e: BoundError) => e);
-    expect((frozen as BoundError).code).toBe('fee-unavailable');
+      .catch((e: OrientimError) => e);
+    expect((frozen as OrientimError).code).toBe('fee-unavailable');
     const open = await prepare(WSOL_MINT, { treasury: TREASURY, chain: [[feeAccount, tokenAccount(TREASURY, USDC)]] });
     expect(open.policy.fee).toBeGreaterThan(0n);
   });
 
   it('a frozen output account is refused with its real reason, not as a failed route', async () => {
-    const error = await prepare(BONK, { frozenWOut: true }).then(() => null, (e: unknown) => e as BoundError);
+    const error = await prepare(BONK, { frozenWOut: true }).then(() => null, (e: unknown) => e as OrientimError);
     expect(error?.code).toBe('output-account-restricted');
     expect(error?.message).toContain('frozen');
   });
@@ -568,9 +568,9 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     const simulations = { count: 0 };
     const refused = await prepare(BONK, {
       input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, cashback: 1_234n, simulations,
-    }).catch((e: BoundError) => e);
-    expect((refused as BoundError).code).toBe('no-route');
-    expect((refused as BoundError).message).toContain('one-time key');
+    }).catch((e: OrientimError) => e);
+    expect((refused as OrientimError).code).toBe('no-route');
+    expect((refused as OrientimError).message).toContain('one-time key');
     // No simulation with the close either: nothing was tried that could fail.
     expect(simulations.count).toBe(2);
   });
@@ -583,7 +583,7 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
       const extraAccounts = await Promise.all(Array.from({ length: n }, async () => (await generateKeyPairSigner()).address));
       const jupiter = fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true, extraAccounts });
       const outcome = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter, takerRent: 1_346_200n, expectCurve: true, version: 0 })
-        .then(p => ({ p, code: 'ok' }), (e: unknown) => ({ p: null, code: e instanceof BoundError ? e.code : String(e) }));
+        .then(p => ({ p, code: 'ok' }), (e: unknown) => ({ p: null, code: e instanceof OrientimError ? e.code : String(e) }));
       // Never the RPC's raw refusal of an oversized transaction: a route that no longer fits with
       // its rent is a route that does not fit, and the pipeline says so in its own words.
       expect(['ok', 'no-route', 'simulation-failed'], `${n} extra accounts: ${outcome.code}`).toContain(outcome.code);
@@ -601,7 +601,7 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
       const extraAccounts = await Promise.all(Array.from({ length: n }, async () => (await generateKeyPairSigner()).address));
       const wide = fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true, extraAccounts });
       const outcome = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: wide, takerRent: 1_346_200n, expectCurve: true, version: 0 })
-        .then(() => 'ok', (e: BoundError) => e.code);
+        .then(() => 'ok', (e: OrientimError) => e.code);
       if (outcome === 'no-route') pad = extraAccounts;
     }
     expect(pad.length).toBeGreaterThan(0);
@@ -623,27 +623,27 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
 
 describe('the reason is named, not blamed on the market (research audit)', () => {
   it('a Jupiter instruction of a new format is a format change, not a bad price (F-07)', async () => {
-    const failure = await prepare(BONK, { jupiter: fakeJupiter({ unknownFormat: true }) }).catch((e: BoundError) => e);
-    expect((failure as BoundError).code).toBe('route-format');
-    expect((failure as BoundError).message).toContain("can't read yet");
+    const failure = await prepare(BONK, { jupiter: fakeJupiter({ unknownFormat: true }) }).catch((e: OrientimError) => e);
+    expect((failure as OrientimError).code).toBe('route-format');
+    expect((failure as OrientimError).message).toContain("can't read yet");
   });
 
   it("an input account frozen by the token's issuer is refused before anything is quoted (F-09)", async () => {
-    const failure = await prepare(BONK, { wIn: { frozen: true } }).catch((e: BoundError) => e);
-    expect((failure as BoundError).code).toBe('input-account-restricted');
+    const failure = await prepare(BONK, { wIn: { frozen: true } }).catch((e: OrientimError) => e);
+    expect((failure as OrientimError).code).toBe('input-account-restricted');
   });
 
   it('an input balance short of the amount is named, with the numbers the user typed (F-09)', async () => {
-    const failure = await prepare(BONK, { wIn: { amount: 250_000n }, amountIn: 1_000_000n }).catch((e: BoundError) => e);
-    expect((failure as BoundError).code).toBe('insufficient-balance');
-    expect((failure as BoundError).message).toContain('holds 0.25 of the input token, less than the 1 this swap needs');
+    const failure = await prepare(BONK, { wIn: { amount: 250_000n }, amountIn: 1_000_000n }).catch((e: OrientimError) => e);
+    expect((failure as OrientimError).code).toBe('insufficient-balance');
+    expect((failure as OrientimError).message).toContain('holds 0.25 of the input token, less than the 1 this swap needs');
   });
 
-  it("a failure in Bound's own steps before the swap stops at once, without blaming a market (F-09)", async () => {
+  it("a failure in Orientim's own steps before the swap stops at once, without blaming a market (F-09)", async () => {
     const simulations = { count: 0 };
-    const failure = await prepare(BONK, { failBeforeSwap: true, simulations }).catch((e: BoundError) => e);
-    expect((failure as BoundError).code).toBe('simulation-failed');
-    expect((failure as BoundError).message).toContain('before it reaches the market');
+    const failure = await prepare(BONK, { failBeforeSwap: true, simulations }).catch((e: OrientimError) => e);
+    expect((failure as OrientimError).code).toBe('simulation-failed');
+    expect((failure as OrientimError).message).toContain('before it reaches the market');
     expect(simulations.count).toBe(1);
   });
 });
@@ -662,9 +662,9 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     expect(p.swapAmount).toBe(p.amountIn);
     expect(p.fee).toBe((p.minOut * settings.feeBps) / 10_000n);
     expect(prepared.quote.minReceived).toBe(p.minOut - p.fee);
-    expect(prepared.certificate.output.boundFee).toBe(p.fee);
+    expect(prepared.certificate.output.orientimFee).toBe(p.fee);
     expect(prepared.certificate.output.minimumOutput).toBe(p.minOut - p.fee);
-    expect(prepared.certificate.input.boundFee).toBe(0n);
+    expect(prepared.certificate.input.orientimFee).toBe(0n);
     const last = lastInstruction(prepared);
     expect(last.programAddress).toBe(SYSTEM_PROGRAM);
     expect(last.accounts?.map(a => a.address)).toEqual([p.owner, TREASURY]);
@@ -680,8 +680,8 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
 
   it("without an account for either token and no wallet, the swap is refused: the user never pays rent for the treasury's, and never swaps free", async () => {
     // USDC is on the input side here, and the treasury has no USDC account and no wallet in this chain.
-    const refused = await prepare(BONK, { input: USDC, treasury: TREASURY }).catch((e: BoundError) => e);
-    expect((refused as BoundError).code).toBe('fee-unavailable');
+    const refused = await prepare(BONK, { input: USDC, treasury: TREASURY }).catch((e: OrientimError) => e);
+    expect((refused as OrientimError).code).toBe('fee-unavailable');
   });
 
   it("an agent's floor is what the wallet keeps: the enforced minimum covers the fee on top", async () => {
@@ -690,9 +690,9 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     const prepared = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet], acceptedMinReceived: floor });
     expect(prepared.quote.minReceived).toBeGreaterThanOrEqual(floor);
     const failure = await prepare(WSOL_MINT, { input: BONK, treasury: TREASURY, chain: [wallet], acceptedMinReceived: floor * 2n })
-      .catch((e: BoundError) => e);
-    expect((failure as BoundError).code).toBe('price-moved');
-    const moved = (failure as BoundError).priceMoved!;
+      .catch((e: OrientimError) => e);
+    expect((failure as OrientimError).code).toBe('price-moved');
+    const moved = (failure as OrientimError).priceMoved!;
     expect(moved.newMinReceived).toBe(moved.newMinOut - (moved.newMinOut * settings.feeBps) / 10_000n);
   });
 
@@ -710,8 +710,8 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
   });
 
   it('without a treasury wallet, or a price in SOL, such a pair is refused, not built free; a busy Jupiter is busy', async () => {
-    const noWallet = await prepare(USDC, { input: BONK, treasury: TREASURY }).catch((e: BoundError) => e);
-    expect((noWallet as BoundError).code).toBe('fee-unavailable');
+    const noWallet = await prepare(USDC, { input: BONK, treasury: TREASURY }).catch((e: OrientimError) => e);
+    expect((noWallet as OrientimError).code).toBe('fee-unavailable');
     const base = fakeJupiter();
     const pricedWith = (error: JupiterError): JupiterClient => ({
       ...base,
@@ -721,12 +721,12 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
       },
     });
     const unpriced = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(new JupiterError('Jupiter 400: No routes found', 400)) })
-      .catch((e: BoundError) => e);
-    expect((unpriced as BoundError).code).toBe('fee-unavailable');
-    expect((unpriced as BoundError).message).toContain("can't be priced");
+      .catch((e: OrientimError) => e);
+    expect((unpriced as OrientimError).code).toBe('fee-unavailable');
+    expect((unpriced as OrientimError).message).toContain("can't be priced");
     const busy = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(new JupiterError('Jupiter 429', 429)) })
-      .catch((e: BoundError) => e);
-    expect((busy as BoundError).code).toBe('busy');
+      .catch((e: OrientimError) => e);
+    expect((busy as OrientimError).code).toBe('busy');
   });
 
   it('a fee side that changes between the quote and the build keeps the minimum the page showed (engineering review H-04)', async () => {
@@ -754,7 +754,7 @@ function jupiterArgsOf(prepared: { transaction: Transaction }): JupiterRouteArgs
   return jupiterRouteArgs(instructions.find(ix => ix.programAddress === JUPITER_PROGRAM)?.data ?? [])!;
 }
 
-describe("Jupiter's floor, tightened to Bound's minimum (engineering review H-03)", () => {
+describe("Jupiter's floor, tightened to Orientim's minimum (engineering review H-03)", () => {
   const ix = (quote: bigint, slippageBps: number) => {
     const d = new Uint8Array(8 + 22 + 4);
     d.set([0xbb, 0x64, 0xfa, 0xcc, 0x31, 0xc4, 0xaf, 0x14], 0);
@@ -797,9 +797,9 @@ describe('the smallest swap, about $1, so that none costs more to build than it 
   const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
   it('a fee in USDC below 2,500 base units (about $0.83 of swap) is refused; at $1 and more the swap is built', async () => {
     const feeAccount: [Address, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
-    const small = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n, minFee: MIN_FEE }).catch((e: BoundError) => e);
-    expect((small as BoundError).code).toBe('amount-too-small');
-    expect((small as BoundError).message).toContain('about $1');
+    const small = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n, minFee: MIN_FEE }).catch((e: OrientimError) => e);
+    expect((small as OrientimError).code).toBe('amount-too-small');
+    expect((small as OrientimError).message).toContain('about $1');
     // settings.feeBps is the test default (20): $1.5 carries 3,000 units, above the floor.
     const enough = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 1_500_000n, minFee: MIN_FEE });
     expect(enough.policy.fee).toBeGreaterThanOrEqual(MIN_FEE.stableUnits);
@@ -828,9 +828,9 @@ describe('an account the route opens and leaves open is refused, whatever market
   it('the route is not offered, a route without its markets is looked for, and none left means no route', async () => {
     const opened = (await generateKeyPairSigner()).address;
     const asked: BuildParams[] = [];
-    const refused = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ extraAccounts: [opened], asked }), leavesOpen: [opened] }).catch((e: BoundError) => e);
-    expect((refused as BoundError).code).toBe('no-route');
-    expect((refused as BoundError).message).toBe(LEFT_UNDER_KEY_MESSAGE);
+    const refused = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ extraAccounts: [opened], asked }), leavesOpen: [opened] }).catch((e: OrientimError) => e);
+    expect((refused as OrientimError).code).toBe('no-route');
+    expect((refused as OrientimError).message).toBe(LEFT_UNDER_KEY_MESSAGE);
     expect(asked.some(p => p.excludeDexes?.includes('Whirlpool'))).toBe(true);
   });
 

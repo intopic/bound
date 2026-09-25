@@ -1,21 +1,21 @@
 /**
- * `bound-verify`: Bound's protected swap for bots in any language (Python, Rust, Go...). The bot
+ * `orientim-verify`: Orientim's protected swap for bots in any language (Python, Rust, Go...). The bot
  * keeps its key and signs one message itself; this command does everything else the example does,
  * the same code: your own floor, the full check on your RPC, the durable record before finalize,
  * finalize, and the outcome read on the chain for the wallet's own signature. JSON in (stdin), JSON
  * out (stdout), and an exit code:
  *
- *   bound-verify prepare    {"intent": {...}}                       0 ok: sign `message`   1 refused   3 settle first   4 Bound said no
- *   bound-verify finalize   {"checked": ..., "signature": "..."}    0 confirmed   1 not swapped   3 unknown: recover before anything new
- *   bound-verify recover                                            0 all settled   3 something is still unknown
- *   bound-verify resolve    {"signature": "...", "outcome": "..."}  0 settled   1 refused (it could still land, or is not kept)
+ *   orientim-verify prepare    {"intent": {...}}                       0 ok: sign `message`   1 refused   3 settle first   4 Orientim said no
+ *   orientim-verify finalize   {"checked": ..., "signature": "..."}    0 confirmed   1 not swapped   3 unknown: recover before anything new
+ *   orientim-verify recover                                            0 all settled   3 something is still unknown
+ *   orientim-verify resolve    {"signature": "...", "outcome": "..."}  0 settled   1 refused (it could still land, or is not kept)
  *   3 also when the state directory cannot be read: nothing is prepared or changed until it can.
- *   bound-verify check      {"prepared": ..., "intent": {...}}      0 safe to sign   1 refused   (for bots that call the API themselves)
+ *   orientim-verify check      {"prepared": ..., "intent": {...}}      0 safe to sign   1 refused   (for bots that call the API themselves)
  *   2 on any usage or configuration error; 5 when `intent.id` names an order that already swapped or
  *   whose transaction may still land (the same order is never swapped twice).
  *
  * Finalize asked again for a swap it already kept (the same signature) is not a new send: it asks
- * Bound once more for the same bytes and reads the chain, and always answers with that signature and
+ * Orientim once more for the same bytes and reads the chain, and always answers with that signature and
  * its outcome (third audit, F4). `resolve` settles by hand, after you looked it up in a full history
  * (an explorer), a kept swap whose outcome the chain can no longer prove: `outcome` is `confirmed`,
  * `failed` or `expired`; the chain's own answer is used instead whenever your RPC still has one.
@@ -27,18 +27,18 @@
  * 64-byte signature to finalize in base58 as `signature`, or the whole signed transaction in base64
  * as `signedTransaction`. Finalize checks everything again before anything is sent.
  *
- * Environment: SOLANA_RPC_URL (your own RPC; always), BOUND_API_URL and BOUND_API_KEY (prepare,
- * finalize), JUPITER_API_KEY (Jupiter throttles keyless calls), BOUND_STATE_DIR (default ./.bound-state), BOUND_TREASURY
- * (only for another Bound deployment).
+ * Environment: SOLANA_RPC_URL (your own RPC; always), ORIENTIM_API_URL and ORIENTIM_API_KEY (prepare,
+ * finalize), JUPITER_API_KEY (Jupiter throttles keyless calls), ORIENTIM_STATE_DIR (default ./.orientim-state), ORIENTIM_TREASURY
+ * (only for another Orientim deployment).
  */
 import { createSolanaRpc, getBase58Encoder, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder } from '@solana/kit';
 import type { Address, Rpc, SignatureBytes, SolanaRpcApi } from '@solana/kit';
 import {
-  acquireLock, BoundApiError, checkPrepared, createFileStore, finalizeSigned, pendingFor, PendingSwapError, prepareChecked, recoverPending,
+  acquireLock, OrientimApiError, checkPrepared, createFileStore, finalizeSigned, pendingFor, PendingSwapError, prepareChecked, recoverPending,
   resolvePending, resumeSigned,
 } from '../examples/swap.ts';
 import type { Checked, Intent, OrderBook, OrderRecord, PendingStore, Prepared } from '../examples/swap.ts';
-import { inputTransferFee, ownMinimum, ownSolFeeLimit } from '../lib/bound-verify.mjs';
+import { inputTransferFee, ownMinimum, ownSolFeeLimit } from '../lib/orientim-verify.mjs';
 
 export type CliDeps = {
   rpc: Rpc<SolanaRpcApi>;
@@ -73,7 +73,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
   if (command === 'check') {
     const prepared = body.prepared as Prepared | undefined;
     if (!prepared || typeof prepared.transaction !== 'string' || !isIntent(body.intent)) {
-      return usage(`check reads {"prepared": <Bound's prepare answer>, "intent": ${INTENT_SHAPE}}.`);
+      return usage(`check reads {"prepared": <Orientim's prepare answer>, "intent": ${INTENT_SHAPE}}.`);
     }
     const intent: Intent = { ...(deps.treasury ? { treasury: deps.treasury } : {}), ...body.intent };
     try {
@@ -103,7 +103,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
         code: open ? 3 : 0,
         output: {
           ok: !open, settled, unknown, ...(bookkeepingErrors.length ? { bookkeepingErrors } : {}),
-          ...(unknown.length ? { next: 'Check each unknown signature before swapping again. One the network can no longer prove: look it up in a full history (an explorer), then `bound-verify resolve`.' } : {}),
+          ...(unknown.length ? { next: 'Check each unknown signature before swapping again. One the network can no longer prove: look it up in a full history (an explorer), then `orientim-verify resolve`.' } : {}),
         },
       };
     } catch (e) {
@@ -139,7 +139,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     }
   }
 
-  if (!deps.apiUrl || !deps.apiKey) return usage('Set BOUND_API_URL and BOUND_API_KEY.');
+  if (!deps.apiUrl || !deps.apiKey) return usage('Set ORIENTIM_API_URL and ORIENTIM_API_KEY.');
   const api = { apiUrl: deps.apiUrl.replace(/\/+$/, ''), apiKey: deps.apiKey };
 
   if (command === 'prepare') {
@@ -156,11 +156,11 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       return { code: 3, output: { ok: false, sent: false, error: `The kept swaps could not be read: ${messageOf(e)}. Nothing was prepared; fix the state directory first.` } };
     }
     if (pending.length) {
-      return { code: 3, output: { ok: false, pending, error: 'Earlier swaps are not settled yet: run `bound-verify recover` first. Nothing was prepared.' } };
+      return { code: 3, output: { ok: false, pending, error: 'Earlier swaps are not settled yet: run `orientim-verify recover` first. Nothing was prepared.' } };
     }
     // The same order, asked again: said, not swapped twice (final audit, item 7).
     if (prior && (prior.state === 'confirmed' || prior.state === 'pending')) {
-      return { code: 5, output: { ok: false, order: { id: orderId, ...prior }, error: prior.state === 'confirmed' ? 'This order already swapped. Nothing new was prepared.' : 'This order has a transaction that may still land: run `bound-verify recover`. Nothing new was prepared.' } };
+      return { code: 5, output: { ok: false, order: { id: orderId, ...prior }, error: prior.state === 'confirmed' ? 'This order already swapped. Nothing new was prepared.' : 'This order has a transaction that may still land: run `orientim-verify recover`. Nothing new was prepared.' } };
     }
     const { owner, ...rest } = body.intent;
     try {
@@ -177,7 +177,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
         },
       };
     } catch (e) {
-      if (e instanceof BoundApiError) {
+      if (e instanceof OrientimApiError) {
         return { code: 4, output: { ok: false, error: { status: e.status, code: e.code, message: e.message, retryAfter: e.retryAfter, details: e.body } } };
       }
       return { code: 1, output: { ok: false, problems: [messageOf(e)] } };
@@ -255,7 +255,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       }
       const waiting = await pendingFor(store, prepared.wallet, incoming);
       if (waiting.length) {
-        return { code: 3, output: { ok: false, sent: false, pending: waiting, error: 'An earlier swap from this wallet may still land: run `bound-verify recover` first. Nothing was sent.' } };
+        return { code: 3, output: { ok: false, sent: false, pending: waiting, error: 'An earlier swap from this wallet may still land: run `orientim-verify recover` first. Nothing was sent.' } };
       }
       const problems = await checkPrepared(prepared, intent, deps.rpc, { requestTimeoutMs: deps.requestTimeoutMs });
       if (problems.length) return { code: 1, output: { ok: false, sent: false, problems } };
@@ -320,7 +320,7 @@ export async function main(): Promise<void> {
     process.stdout.write(`${JSON.stringify(r.output, null, 2)}\n`);
     process.exitCode = r.code;
   };
-  if (!(COMMANDS as readonly string[]).includes(command)) return print(usage(`usage: bound-verify <${COMMANDS.join('|')}> < input.json`));
+  if (!(COMMANDS as readonly string[]).includes(command)) return print(usage(`usage: orientim-verify <${COMMANDS.join('|')}> < input.json`));
   const rpcUrl = process.env.SOLANA_RPC_URL;
   if (!rpcUrl) return print(usage('Set SOLANA_RPC_URL to your own RPC.'));
   if (!process.env.JUPITER_API_KEY && command !== 'recover') {
@@ -336,10 +336,10 @@ export async function main(): Promise<void> {
   }
   print(await runCli(command, input, {
     rpc: createSolanaRpc(rpcUrl),
-    apiUrl: process.env.BOUND_API_URL,
-    apiKey: process.env.BOUND_API_KEY,
+    apiUrl: process.env.ORIENTIM_API_URL,
+    apiKey: process.env.ORIENTIM_API_KEY,
     jupiterApiKey: process.env.JUPITER_API_KEY || undefined,
-    stateDir: process.env.BOUND_STATE_DIR || '.bound-state',
-    treasury: process.env.BOUND_TREASURY || undefined,
+    stateDir: process.env.ORIENTIM_STATE_DIR || '.orientim-state',
+    treasury: process.env.ORIENTIM_TREASURY || undefined,
   }));
 }

@@ -2,8 +2,8 @@ import { getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@so
 import {
   ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, COMPUTE_BUDGET_PROGRAM, JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
   SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
-} from '@bound/core';
-import { jupiterRouteArgs } from '@bound/verifier';
+} from '@orientim/core';
+import { jupiterRouteArgs } from '@orientim/verifier';
 
 type Ix = { program: string | undefined; accounts: number; data: Uint8Array };
 
@@ -28,7 +28,7 @@ function instructionsOf(messageBytes: Uint8Array): { version: unknown; signers: 
   return { version: m.version, signers: m.header.numSignerAccounts, ixs };
 }
 
-/** The shapes a Bound transaction is made of, the same the verifier's parser accepts (parse.ts). */
+/** The shapes a Orientim transaction is made of, the same the verifier's parser accepts (parse.ts). */
 function trusted(ix: Ix): boolean {
   const d = ix.data;
   switch (ix.program) {
@@ -55,15 +55,15 @@ function trusted(ix: Ix): boolean {
 }
 
 /**
- * Why a transaction is not one Bound builds, or null when it has the shape of one (review FA-06):
- * two signers, one Jupiter route Bound can read, and otherwise only the trusted instructions a Bound
- * swap is made of. The relay sends and simulates nothing else. That narrows what Bound's RPC account
- * can be used for; it does not prove a transaction is a Bound swap or that it pays a fee (the shapes
+ * Why a transaction is not one Orientim builds, or null when it has the shape of one (review FA-06):
+ * two signers, one Jupiter route Orientim can read, and otherwise only the trusted instructions a Orientim
+ * swap is made of. The relay sends and simulates nothing else. That narrows what Orientim's RPC account
+ * can be used for; it does not prove a transaction is a Orientim swap or that it pays a fee (the shapes
  * say nothing about amounts or destinations), so what bounds the cost of misuse is the rate limits:
  * this instance's, and the host firewall's across instances (engineering review M-08). Nor is it a
  * security check: the verifier, with the chain state, decides whether a transaction is safe.
  */
-export function notBoundShaped(wireBase64: unknown): string | null {
+export function notOrientimShaped(wireBase64: unknown): string | null {
   if (typeof wireBase64 !== 'string' || wireBase64.length > 8_000) return 'not a base64 transaction';
   let message: Uint8Array;
   try {
@@ -82,7 +82,7 @@ export function notBoundShaped(wireBase64: unknown): string | null {
   let routes = 0;
   for (const ix of shape.ixs) {
     if (ix.program === JUPITER_PROGRAM && jupiterRouteArgs(ix.data)) routes++;
-    else if (!trusted(ix)) return `an instruction of ${ix.program ?? 'an unknown program'} that no Bound swap contains`;
+    else if (!trusted(ix)) return `an instruction of ${ix.program ?? 'an unknown program'} that no Orientim swap contains`;
   }
   return routes === 1 ? null : `${routes} Jupiter routes, not one`;
 }

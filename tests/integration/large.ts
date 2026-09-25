@@ -4,7 +4,7 @@
  * The guarantee itself does not depend on the amount — the same instructions, the same rules, the
  * same temporary account. What does depend on it is the route: Jupiter splits a large amount over
  * more pools, and a v0 transaction holds at most 64 accounts and 1232 bytes. This test prepares
- * real swaps at growing sizes and reports, for each one, whether Bound could build a protected
+ * real swaps at growing sizes and reports, for each one, whether Orientim could build a protected
  * transaction, how big it got, and what the market charges for the size (price impact).
  *
  * Nothing is signed or sent. The simulation uses a public exchange wallet as fee payer.
@@ -14,9 +14,9 @@
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, tokenAmountOf, WSOL_MINT } from '@bound/core';
-import { createEphemeral, createRetryingRpc, fetchMints } from '@bound/solana';
-import { BoundError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
+import { createEphemeral, createRetryingRpc, fetchMints } from '@orientim/solana';
+import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 
 const arg = (name: string, fallback: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -166,7 +166,7 @@ for (const [a, b] of PAIRS) {
         simulated, ms: Date.now() - started,
       });
     } catch (e) {
-      const code = e instanceof BoundError ? e.code : 'error';
+      const code = e instanceof OrientimError ? e.code : 'error';
       rows.push({ pair: `${a}→${b}`, size, ok: false, detail: `${code}: ${(e as Error).message.slice(0, 80)}`, ms: Date.now() - started });
     }
     const r = rows.at(-1)!;
@@ -196,7 +196,7 @@ writeFileSync('tests/integration/results/large.md', [
     : `| ${r.pair} | ${r.size} | — | — | — | — | ${r.skipped ? 'nuk u provua' : 'u refuzua'} | ${r.detail} |`),
   '',
   'Ndërtimi dhe verifikimi janë të njëjtë për çdo shumë: ndryshon vetëm route-i, prandaj shumat shumë të mëdha',
-  'mund të mos nxënë në një transaksion. Në atë rast Bound refuzon ta ndërtojë swap-in; nuk e ndan kurrë në disa transaksione.',
+  'mund të mos nxënë në një transaksion. Në atë rast Orientim refuzon ta ndërtojë swap-in; nuk e ndan kurrë në disa transaksione.',
   '',
 ].join('\n'));
 log(`\nT7 ${passed} kaluan, ${refused} u refuzuan, ${skipped} nuk u provuan dot (nga ${rows.length})  →  tests/integration/results/large.md`);

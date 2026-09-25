@@ -6,22 +6,22 @@ import {
 import type { Address, FullySignedTransaction, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
-  MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS,
+  MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS,
   LAMPORTS_PER_SIGNATURE, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
   PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor,
-} from '@bound/core';
-import type { BoundConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@bound/core';
-import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@bound/solana';
+} from '@orientim/core';
+import type { OrientimConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@orientim/core';
+import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@orientim/solana';
 import {
   certify, hasTransferFee, jupiterFloor, jupiterRouteArgs, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn,
-} from '@bound/verifier';
-import type { Certificate } from '@bound/verifier';
-import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@bound/solana';
+} from '@orientim/verifier';
+import type { Certificate } from '@orientim/verifier';
+import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientim/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
 import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';
 
-export type SwapSettings = BoundConfig & {
+export type SwapSettings = OrientimConfig & {
   /** DEXes that charge the taker persistent rent (D13). */
   excludeDexes: readonly string[];
   slippageBps: number;
@@ -34,10 +34,10 @@ export type SwapSettings = BoundConfig & {
   /**
    * How far below the unrestricted route a protected one may sit (D15). Under `askAboveBps` the
    * swap proceeds; above it the user is told the difference and decides, with a stronger warning
-   * past `warnAboveBps`. Bound refuses on its own only past `badQuoteBps`, where the number is no
+   * past `warnAboveBps`. Orientim refuses on its own only past `badQuoteBps`, where the number is no
    * longer a price but a broken or manipulated answer.
    *
-   * Bound does not block a trade it merely dislikes: a user who understands the difference and
+   * Orientim does not block a trade it merely dislikes: a user who understands the difference and
    * still wants the guarantee is entitled to it.
    */
   askAboveBps: bigint;
@@ -63,7 +63,7 @@ export type SwapSettings = BoundConfig & {
  * $1 refused swaps of $1 that the page had let through (debugging pass, 25 September 2026).
  */
 export const MIN_FEE = { lamports: 10_000n, stableUnits: 2_500n } as const;
-export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Bound takes, about $1. Swap a larger amount.";
+export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes, about $1. Swap a larger amount.";
 
 /** Is a fee of `fee` in `feeMint` below the smallest one `minFee` allows? */
 function belowMinFee(fee: bigint, feeMint: Address, minFee: SwapSettings['minFee']): boolean {
@@ -82,11 +82,11 @@ export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'>
   maxNetworkFeeLamports: 500_000n,
   // HumidiFi opens a per-taker account whose rent (about 0.013 SOL) would be lost on every swap.
   // Pump.fun's two markets, PumpSwap and the bonding curve, do the same for about 0.0013–0.0015
-  // SOL, which Bound pays through `takerRent` and shows.
+  // SOL, which Orientim pays through `takerRent` and shows.
   excludeDexes: ['HumidiFi'],
   slippageBps: 50,
   curveSlippageBps: 300,
-  // 0.5%: a silent cost of 1% would be five times Bound's own fee. T9 measured 90% of protected
+  // 0.5%: a silent cost of 1% would be five times Orientim's own fee. T9 measured 90% of protected
   // routes within 0.26% of the market, so most swaps still go through without a question.
   askAboveBps: 50n,
   warnAboveBps: 500n,
@@ -112,7 +112,7 @@ export type SwapRequest = {
   inputDecimals: number;
   outputDecimals: number;
   /**
-   * The minimum the user saw and accepted before clicking (audit C-02). Bound enforces at least
+   * The minimum the user saw and accepted before clicking (audit C-02). Orientim enforces at least
    * this on chain. When the market no longer supports it, nothing is built: prepare stops with
    * `price-moved` and the new minimum, and the user decides.
    */
@@ -148,7 +148,7 @@ export type PreparedSwap = {
   lifetime: Lifetime;
   size: number;
   computeUnits: number;
-  /** `minOut` is enforced by Bound's own check after the swap (audit B-04), not only by Jupiter. */
+  /** `minOut` is enforced by Orientim's own check after the swap (audit B-04), not only by Jupiter. */
   quote: {
     inAmount: bigint; outAmount: bigint; minOut: bigint; route: string[]; priceImpactPct: number; baselineOut: bigint;
     /** What the wallet keeps at least: `minOut`, less a fee taken from the output. What to show. */
@@ -180,8 +180,8 @@ export type PreparedSwap = {
   /** Side effects the user should be told about before signing. */
   notices: { removesDelegate: boolean };
   /**
-   * A tax the input token itself charges on every transfer, and what Bound's extra hop costs
-   * because of it. The money goes to whoever the mint's fee authority is, never to Bound.
+   * A tax the input token itself charges on every transfer, and what Orientim's extra hop costs
+   * because of it. The money goes to whoever the mint's fee authority is, never to Orientim.
    */
   tokenTax: { inputBps: number; extraOnInput: bigint } | null;
   /** Temporary ATA(E, m) accounts the route uses; each is created and closed in the transaction. */
@@ -193,7 +193,7 @@ export type PreparedSwap = {
   attempts: Attempt[];
 };
 
-export type BoundErrorCode =
+export type OrientimErrorCode =
   | 'unsupported-token' | 'token-data-mismatch' | 'output-account-restricted' | 'no-route' | 'bad-quote' | 'price-moved'
   | 'insufficient-sol'
   | 'costs-more' | 'simulation-failed'
@@ -202,26 +202,26 @@ export type BoundErrorCode =
   | 'insufficient-balance' | 'input-account-restricted'
   // Jupiter refused with 429 or did not answer: says nothing about the route or the token.
   | 'busy' | 'unavailable'
-  // Jupiter answered with an instruction Bound cannot read: its format changed (research audit F-07).
+  // Jupiter answered with an instruction Orientim cannot read: its format changed (research audit F-07).
   | 'route-format'
-  // Bound's fee cannot be collected on this swap, so it is not built (final audit, item 9).
+  // Orientim's fee cannot be collected on this swap, so it is not built (final audit, item 9).
   | 'fee-unavailable' | 'amount-too-small'
   // The network could not say how long the swap stays valid, so the wallet is not opened (M-04).
   | 'network-unavailable';
 
-/** The treasury wallet does not exist yet (or cannot receive): Bound's to fix, not the user's. */
-export const FEE_UNAVAILABLE_MESSAGE = "Bound's fee can't be collected right now, so nothing was built. Your funds are not affected; try again later.";
+/** The treasury wallet does not exist yet (or cannot receive): Orientim's to fix, not the user's. */
+export const FEE_UNAVAILABLE_MESSAGE = "Orientim's fee can't be collected right now, so nothing was built. Your funds are not affected; try again later.";
 /** No token of the pair can carry the fee and Jupiter could not price it in SOL. */
-export const FEE_UNPRICED_MESSAGE = "Bound's fee for this pair can't be priced right now, so nothing was built. Try again in a moment.";
-export const AMOUNT_TOO_SMALL_MESSAGE = "This amount is too small to carry Bound's fee. Swap a larger amount.";
+export const FEE_UNPRICED_MESSAGE = "Orientim's fee for this pair can't be priced right now, so nothing was built. Try again in a moment.";
+export const AMOUNT_TOO_SMALL_MESSAGE = "This amount is too small to carry Orientim's fee. Swap a larger amount.";
 /** A route that would leave lamports or tokens under the one-time key, which is discarded after the swap. */
 export const LEFT_UNDER_KEY_MESSAGE = "This swap's route would leave a market's deposit under the swap's one-time key, where it would be lost, so nothing was built. Another amount or pair may route differently.";
 
 /** What the user reads when Jupiter is overloaded or silent; the swap itself was never at fault. */
 export const BUSY_MESSAGE = 'Too many swaps are being priced right now. Wait a few seconds and try again. Nothing was signed.';
 export const UNAVAILABLE_MESSAGE = "The price service didn't answer. Nothing was signed; try again in a moment.";
-/** What the user reads when Jupiter's swap instruction changed: every route stops until Bound reads it. */
-export const ROUTE_FORMAT_MESSAGE = "Jupiter answered with a swap instruction Bound can't read yet, so nothing was built and nothing was signed. Protected swaps resume once Bound is updated for it.";
+/** What the user reads when Jupiter's swap instruction changed: every route stops until Orientim reads it. */
+export const ROUTE_FORMAT_MESSAGE = "Jupiter answered with a swap instruction Orientim can't read yet, so nothing was built and nothing was signed. Protected swaps resume once Orientim is updated for it.";
 
 /** For `price-moved`: what the market supports now, to show the user before asking again. */
 export type PriceMoved = {
@@ -234,13 +234,13 @@ export type PriceMoved = {
 /** For `costs-more`: how far the best protected route sits below the unrestricted one. */
 export type CostsMore = { gapBps: bigint; outAmount: bigint; baselineOut: bigint };
 
-export class BoundError extends Error {
-  readonly code: BoundErrorCode;
+export class OrientimError extends Error {
+  readonly code: OrientimErrorCode;
   readonly violations: Violation[];
   readonly priceMoved: PriceMoved | null;
   readonly costsMore: CostsMore | null;
   constructor(
-    code: BoundErrorCode,
+    code: OrientimErrorCode,
     message: string,
     violations: Violation[] = [],
     priceMoved: PriceMoved | null = null,
@@ -300,7 +300,7 @@ async function routeAccountIn(r: BuildResponse, E: Address): Promise<Omit<RouteR
 /** Jupiter's label for the Pump.fun bonding curve; PumpSwap, after it, is `Pump.fun Amm`. */
 export const BONDING_CURVE_LABEL = 'Pump.fun';
 /** The Pump.fun bonding-curve program, which a route through the curve invokes. */
-export { PUMP_CURVE_PROGRAM } from '@bound/core';
+export { PUMP_CURVE_PROGRAM } from '@orientim/core';
 
 type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps'>;
 
@@ -315,8 +315,8 @@ export function isCurveRoute(r: Pick<BuildResponse, 'routePlan' | 'swapInstructi
 }
 
 /**
- * The slippage Bound accepts on a route: the bonding-curve one when the route trades on a Pump.fun
- * bonding curve, the usual one otherwise. Either way Bound computes the floor itself and enforces it
+ * The slippage Orientim accepts on a route: the bonding-curve one when the route trades on a Pump.fun
+ * bonding curve, the usual one otherwise. Either way Orientim computes the floor itself and enforces it
  * on chain.
  */
 export function slippageFor(r: Pick<BuildResponse, 'routePlan' | 'swapInstruction'>, settings: Slippages): number {
@@ -336,7 +336,7 @@ export function quotedMinimum(
 }
 
 /**
- * The minimum Bound enforces for a route (audit C-02): the quoted output less the slippage the user
+ * The minimum Orientim enforces for a route (audit C-02): the quoted output less the slippage the user
  * accepted, computed here and rounded down. Jupiter's own threshold can only make it stricter, never
  * weaker, so an answer with a tiny `otherAmountThreshold` cannot lower the floor.
  */
@@ -351,8 +351,8 @@ export function routeFloor(r: Pick<BuildResponse, 'outAmount' | 'otherAmountThre
 }
 
 /**
- * Bound has one minimum-output model, regardless of what a router calls its own threshold: an exact
- * token amount that Bound puts into the transaction and the verifier checks on the exact bytes.
+ * Orientim has one minimum-output model, regardless of what a router calls its own threshold: an exact
+ * token amount that Orientim puts into the transaction and the verifier checks on the exact bytes.
  * A router threshold may make it stricter but never weaker, and a previously accepted user floor
  * may make it stricter again. Router-only or off-chain guarantees are not accepted as substitutes.
  */
@@ -384,16 +384,16 @@ export async function feeInSol(
     }
     return (BigInt(r.outAmount) * args.feeBps) / 10_000n;
   } catch (e) {
-    if (e instanceof JupiterError && e.status === 429) throw new BoundError('busy', BUSY_MESSAGE);
+    if (e instanceof JupiterError && e.status === 429) throw new OrientimError('busy', BUSY_MESSAGE);
     return undefined;
   }
 }
 
 /**
- * Jupiter's instruction with its own floor raised to Bound's minimum, when the minimum the user
+ * Jupiter's instruction with its own floor raised to Orientim's minimum, when the minimum the user
  * accepted is above the route's (engineering review H-03). Jupiter's floor counts only what its
  * route delivered to the output account, so it holds when other tokens reach that account at the
- * same moment, where Bound's balance check alone would count them. Only the tolerance changes, and
+ * same moment, where Orientim's balance check alone would count them. Only the tolerance changes, and
  * only as far as the minimum needs; a route whose quote is below the minimum is left for the
  * verifier to refuse.
  */
@@ -409,7 +409,7 @@ export function withFloorAtLeast(ix: Instruction, minOut: bigint): Instruction {
 }
 
 /**
- * Is this Bound's minimum-output check: a TransferChecked from an account to itself, under either
+ * Is this Orientim's minimum-output check: a TransferChecked from an account to itself, under either
  * token program? TransferChecked always names source, mint and destination, so an instruction with
  * fewer accounts is not one, whatever its first data byte says.
  */
@@ -447,7 +447,7 @@ const tokenText = (amount: bigint, decimals: number) => {
   return fraction ? `${whole}.${fraction}` : whole;
 };
 
-/** Did the simulation fail at Bound's own minimum-output check (a self-TransferChecked)? */
+/** Did the simulation fail at Orientim's own minimum-output check (a self-TransferChecked)? */
 function failedAtFloorCheck(tx: Transaction, index: number | null, lookups: Record<string, string[]> | null): boolean {
   if (index === null) return false;
   try {
@@ -474,7 +474,7 @@ const PUMP_SLIPPAGE_ERRORS: readonly (readonly [string, readonly string[]])[] = 
  * Did the route stop itself because it would deliver less than its own threshold? That is
  * Jupiter's error 6001, SlippageToleranceExceeded, or the same check inside a Pump.fun market
  * (research audit): the price moved between the quote and the simulation. The market is working and
- * the quote is stale, so like a miss at Bound's own minimum it calls for a fresh quote, not for
+ * the quote is stale, so like a miss at Orientim's own minimum it calls for a fresh quote, not for
  * leaving the market out. On a token that trades in one place only, a Pump.fun bonding curve,
  * leaving it out means no route at all.
  */
@@ -503,7 +503,7 @@ function compiledInstructions(tx: Transaction): { program: string | undefined; a
 }
 
 /**
- * Did a transaction that landed and reverted revert on the price? Either Bound's minimum-output
+ * Did a transaction that landed and reverted revert on the price? Either Orientim's minimum-output
  * check refused what arrived, or Jupiter's own threshold did (6001, SlippageToleranceExceeded).
  * Read from the compiled message alone: a program is always a static key, and R5 keeps every
  * address unique, so two equal account indices are the same account. `err` is the status error as
@@ -528,7 +528,7 @@ export function revertedOnPrice(tx: Transaction, err: unknown, jupiterProgram: s
 }
 
 /**
- * A route whose accounts together with Bound's exceed the 64-account limit cannot be compiled at
+ * A route whose accounts together with Orientim's exceed the 64-account limit cannot be compiled at
  * all; like a route that is too large, it simply does not fit, and a smaller one is requested.
  */
 export function compileIfFits<T>(build: () => T): T | null {
@@ -605,7 +605,7 @@ export async function prepareProtectedSwap(deps: {
   // pre-2026 value is shown, which is an upper bound.
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
     .then(BigInt)
-    .catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS);
+    .catch(() => TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS);
   // A fee in SOL goes to the treasury wallet itself, so it is read whenever there is a treasury: SOL
   // on either side pays there (BR-06, below), and so does a pair no token of which can carry the fee.
   // A fee on a USDC or USDT output goes to the treasury's account for it.
@@ -626,13 +626,13 @@ export async function prepareProtectedSwap(deps: {
   for (const m of [req.inputMint, req.outputMint]) {
     const info = mints.get(m)!;
     if (!info.exists || (info.program !== TOKEN_PROGRAM && info.program !== TOKEN_2022_PROGRAM)) {
-      throw new BoundError('unsupported-token', `${m} is not a token Bound can swap.`);
+      throw new OrientimError('unsupported-token', `${m} is not a token Orientim can swap.`);
     }
     if (info.program === TOKEN_2022_PROGRAM) {
       // The same rule the verifier applies, with the same exception: the swap's own mints may
       // charge a transfer fee, because their temporary account is harvested before it is closed.
       const bad = unsupportedExtension(firstReads.get(m)!.data, { allowTransferFee: true });
-      if (bad) throw new BoundError('unsupported-token', `This token uses ${bad}, which a protected swap cannot isolate.`);
+      if (bad) throw new OrientimError('unsupported-token', `This token uses ${bad}, which a protected swap cannot isolate.`);
     }
   }
   // A mint with the transfer-fee extension keeps a cut of every transfer, and which of its two fee
@@ -644,9 +644,9 @@ export async function prepareProtectedSwap(deps: {
     ? await rpc.getEpochInfo({ commitment: 'confirmed' }).send().then(e => BigInt(e.epoch)).catch(() => null)
     : 0n;
   if (epoch === null) {
-    throw new BoundError(
+    throw new OrientimError(
       'token-data-mismatch',
-      "Bound could not read the epoch that decides this token's transfer fee, so the amount could not be priced. Nothing was built; try again in a moment.",
+      "Orientim could not read the epoch that decides this token's transfer fee, so the amount could not be priced. Nothing was built; try again in a moment.",
     );
   }
   const inputFee = inputTaxes ? transferFeeOf(firstReads.get(req.inputMint)!.data, epoch) : null;
@@ -665,7 +665,7 @@ export async function prepareProtectedSwap(deps: {
   // wallet would be asked for a different amount than the one shown (audit C-01).
   for (const [m, shown] of [[req.inputMint, req.inputDecimals], [req.outputMint, req.outputDecimals]] as const) {
     if (mints.get(m)!.decimals !== shown) {
-      throw new BoundError('token-data-mismatch', `The token data for ${m} does not match the chain. Nothing was built; reload and try again.`);
+      throw new OrientimError('token-data-mismatch', `The token data for ${m} does not match the chain. Nothing was built; reload and try again.`);
     }
   }
 
@@ -712,38 +712,38 @@ export async function prepareProtectedSwap(deps: {
     treasuryWalletReady,
     solFee,
   });
-  // Every swap a deployment with a treasury builds pays Bound's fee (the owner's rule; final audit,
+  // Every swap a deployment with a treasury builds pays Orientim's fee (the owner's rule; final audit,
   // item 9). Test mode, without a treasury, is the only fee-free mode: a swap whose fee cannot be
   // collected is refused, never built for free.
   if (settings.treasury && policy.feeSide === null) {
-    throw new BoundError('fee-unavailable', treasuryWalletReady ? FEE_UNPRICED_MESSAGE : FEE_UNAVAILABLE_MESSAGE);
+    throw new OrientimError('fee-unavailable', treasuryWalletReady ? FEE_UNPRICED_MESSAGE : FEE_UNAVAILABLE_MESSAGE);
   }
-  if (settings.treasury && policy.feeSide !== 'output' && policy.fee <= 0n) throw new BoundError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
+  if (settings.treasury && policy.feeSide !== 'output' && policy.fee <= 0n) throw new OrientimError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
   // The smallest swap, so that none costs more to build than its fee brings (the owner's rule).
   if (settings.treasury && policy.feeSide !== 'output' && belowMinFee(policy.fee, feeMintOf(policy), settings.minFee)) {
-    throw new BoundError('amount-too-small', MIN_SWAP_MESSAGE);
+    throw new OrientimError('amount-too-small', MIN_SWAP_MESSAGE);
   }
 
   // The token keeps a cut of every transfer, including ours into the temporary account, so the
   // route must be quoted for what actually lands there.
   const taxOnInput = inputFee ? transferFeeOn(policy.swapAmount, inputFee) : 0n;
   const arriving = policy.swapAmount - taxOnInput;
-  if (arriving <= 0n) throw new BoundError('unsupported-token', 'The token keeps the whole amount as a transfer fee at this size.');
+  if (arriving <= 0n) throw new OrientimError('unsupported-token', 'The token keeps the whole amount as a transfer fee at this size.');
 
-  // W_in is the one account of W that Bound's own transfer draws on. Frozen or short, that transfer
+  // W_in is the one account of W that Orientim's own transfer draws on. Frozen or short, that transfer
   // fails before the swap, which would read as a broken route and exclude every market on it; say
   // what it is instead (research audit F-09).
   if (policy.accounts.wIn) {
     const state = firstReads.get(policy.accounts.wIn);
     if (frozen(state)) {
-      throw new BoundError(
+      throw new OrientimError(
         'input-account-restricted',
         "Your account for the input token is frozen by the token's issuer, so it cannot send anything.",
       );
     }
     const held = tokenAmountOf(state?.data);
     if (held < req.amountIn) {
-      throw new BoundError(
+      throw new OrientimError(
         'insufficient-balance',
         `Your wallet holds ${tokenText(held, req.inputDecimals)} of the input token, less than the ${tokenText(req.amountIn, req.inputDecimals)} this swap needs.`,
       );
@@ -758,19 +758,19 @@ export async function prepareProtectedSwap(deps: {
     const state = firstReads.get(policy.accounts.wOut);
     const view = state && state.data.length >= TOKEN_ACCOUNT_SIZE ? new DataView(state.data.buffer, state.data.byteOffset) : null;
     if (view && view.getUint32(129, true) === 1) {
-      throw new BoundError(
+      throw new OrientimError(
         'output-account-restricted',
-        'Your account for the output token has a close authority set, so Bound will not send the output there.',
+        'Your account for the output token has a close authority set, so Orientim will not send the output there.',
       );
     }
     if (frozen(state)) {
-      throw new BoundError(
+      throw new OrientimError(
         'output-account-restricted',
         "Your account for the output token is frozen by the token's issuer, so nothing can be sent to it.",
       );
     }
     if (state && memoRequired(state.data)) {
-      throw new BoundError(
+      throw new OrientimError(
         'output-account-restricted',
         'Your account for the output token requires a memo on every incoming transfer, which a swap cannot provide.',
       );
@@ -786,7 +786,7 @@ export async function prepareProtectedSwap(deps: {
     amount: arriving,
     taker: E,
     // Each route is built at its own tolerance, so that Jupiter's program enforces a second floor on
-    // chain that does not depend on the balance Bound read from the RPC (review BR-01). A curve route
+    // chain that does not depend on the balance Orientim read from the RPC (review BR-01). A curve route
     // is asked for again at the curve tolerance once it is known to be one.
     slippageBps: req.expectCurve ? settings.curveSlippageBps : settings.slippageBps,
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
@@ -800,16 +800,16 @@ export async function prepareProtectedSwap(deps: {
       return await jupiter.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps });
     } catch (e) {
       if (e instanceof JupiterError) {
-        if (e.status === 429) throw new BoundError('busy', BUSY_MESSAGE);
+        if (e.status === 429) throw new OrientimError('busy', BUSY_MESSAGE);
         // Jupiter answers "No routes found" with 400. A refused key or an endpoint that is gone is
-        // Bound's to fix, not the pair's, so it is not reported as a missing route (research audit F-08).
+        // Orientim's to fix, not the pair's, so it is not reported as a missing route (research audit F-08).
         if ([401, 403, 404, 410].includes(e.status)) {
-          console.error(`Jupiter refused Bound's request with HTTP ${e.status}: ${e.message}`);
-          throw new BoundError('unavailable', UNAVAILABLE_MESSAGE);
+          console.error(`Jupiter refused Orientim's request with HTTP ${e.status}: ${e.message}`);
+          throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
         }
         if (e.status < 500) return null;
         // The kill switch answers 503 with its own words, which the page shows as they are.
-        if (!/paused/i.test(e.message)) throw new BoundError('unavailable', UNAVAILABLE_MESSAGE);
+        if (!/paused/i.test(e.message)) throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
       }
       throw e;
     }
@@ -837,8 +837,8 @@ export async function prepareProtectedSwap(deps: {
   firstRouteTask.catch(() => undefined);
   firstLifetimeTask.catch(() => undefined);
   const baseline = await baselineTask;
-  if (!baseline) throw new BoundError('no-route', 'Jupiter could not quote this pair right now. Try again in a moment.');
-  if (!answersThisRequest(baseline)) throw new BoundError('bad-quote', 'Jupiter answered for a different trade. Nothing was built.');
+  if (!baseline) throw new OrientimError('no-route', 'Jupiter could not quote this pair right now. Try again in a moment.');
+  if (!answersThisRequest(baseline)) throw new OrientimError('bad-quote', 'Jupiter answered for a different trade. Nothing was built.');
   const baselineOut = BigInt(baseline.outAmount);
   const labels = await labelsTask;
 
@@ -856,7 +856,7 @@ export async function prepareProtectedSwap(deps: {
     const cashback = await Promise.all(markets.flatMap(m => [WSOL_MINT, USDC_MINT].map(mint => ataOf(m, mint))));
     return [E, ...markets, ...cashback];
   })();
-  // Bound computes each route's floor itself and enforces it on chain, never below what the user
+  // Orientim computes each route's floor itself and enforces it on chain, never below what the user
   // accepted (audit B-04, C-02).
   const accepted = req.acceptedMinReceived !== undefined
     ? (policy.feeSide === 'output' ? minimumForReceived(req.acceptedMinReceived, policy.feeBps) : req.acceptedMinReceived)
@@ -870,7 +870,7 @@ export async function prepareProtectedSwap(deps: {
   let routeRefund: RouteRefund | null = null;
   const policyFor = (r: BuildResponse) => withRouteRefund(withTakerRent(withMinOut(policy, floorOf(r)), takerRent), routeRefund);
   const priceMoved = (r: BuildResponse) =>
-    new BoundError('price-moved', 'The price moved beyond the slippage tolerance since you looked. Nothing was signed.', [], {
+    new OrientimError('price-moved', 'The price moved beyond the slippage tolerance since you looked. Nothing was signed.', [], {
       newMinOut: routeFloor(r, slippageFor(r, settings)),
       newOutAmount: BigInt(r.outAmount),
       newMinReceived: keeps(routeFloor(r, slippageFor(r, settings))),
@@ -879,7 +879,7 @@ export async function prepareProtectedSwap(deps: {
    * Finds the rent a route needs E to pay. E is funded with the ceiling once, and what it holds
    * afterwards says how much the route spent; E is then funded with exactly that, and the
    * simulation must show it ending empty. A route that wants more than the ceiling is not paying
-   * rent but spending, and is left to fail as before. Every number comes from the chain, so Bound
+   * rent but spending, and is left to fail as before. Every number comes from the chain, so Orientim
    * needs no knowledge of the program that opens the account.
    */
   const measureTakerRent = async (
@@ -942,7 +942,7 @@ export async function prepareProtectedSwap(deps: {
       + (policy.accounts.wOut && !wOutBefore.exists ? newAccountRent : 0n) + routeRent + settings.maxNetworkFeeLamports + reserve
       // A fee in SOL is paid from the wallet up front (engineering audit, Stage 1, L-01).
       + (policy.feeSide === 'sol' ? policy.fee : 0n);
-    return new BoundError(
+    return new OrientimError(
       'insufficient-sol',
       `This swap needs about ${solText(need)} SOL in your wallet: ${variant === 'B' ? 'the SOL you swap, ' : ''}the network fee and account deposits, most of which come back in the same transaction.`
       + `${balance !== null ? ` Your wallet has ${solText(balance)} SOL.` : ''} Add SOL or swap a smaller amount.`,
@@ -974,8 +974,8 @@ export async function prepareProtectedSwap(deps: {
   const taxing = new Map<string, boolean>([[req.inputMint, inputTaxes]]);
   /**
    * The same rule the swap's own two mints pass, applied to every mint a route passes through.
-   * Bound creates and closes a temporary account for each hop, so a hop is not a detail of
-   * Jupiter's route: it is an account Bound owns for the length of one transaction, and a mint it
+   * Orientim creates and closes a temporary account for each hop, so a hop is not a detail of
+   * Jupiter's route: it is an account Orientim owns for the length of one transaction, and a mint it
    * cannot isolate has no business being one. Screening only the endpoints let a hop through a
    * mint with a transfer hook, a permanent delegate or a frozen default state build and get
    * signed, only to revert on chain.
@@ -1006,13 +1006,13 @@ export async function prepareProtectedSwap(deps: {
     let chosen: { r: BuildResponse; intermediates: IntermediateAta[]; level: number } | null = null;
     let chosenGapBps = 0n;
     let sawBadQuote = false;
-    /** Jupiter answered with an instruction Bound cannot read: its format changed (F-07). */
+    /** Jupiter answered with an instruction Orientim cannot read: its format changed (F-07). */
     let sawUnknownFormat = false;
     // A route priced right but too big for one transaction is the usual outcome for a large
-    // amount: Solana allows 64 accounts per transaction, and Bound's own instructions need a
+    // amount: Solana allows 64 accounts per transaction, and Orientim's own instructions need a
     // dozen of them. That is a different failure from a broken quote, and it is reported as such.
     let sawTooBig = false;
-    /** A route was priced and fitted, but one of its hops is a mint Bound cannot isolate. */
+    /** A route was priced and fitted, but one of its hops is a mint Orientim cannot isolate. */
     let sawUnsupportedHop: string | null = null;
     /** How far the best route offered was below the unrestricted price, in bps. */
     let bestGapBps: bigint | null = null;
@@ -1020,7 +1020,7 @@ export async function prepareProtectedSwap(deps: {
       if (level < minLevel) continue;
       let r = attempt === 0 && level === 0 && minLevel === 0 ? await firstRouteTask : await buildOrNull(maxAccounts, excluded);
       if (!r) continue;
-      // Every route is built at its own tolerance, so Jupiter's threshold matches Bound's floor
+      // Every route is built at its own tolerance, so Jupiter's threshold matches Orientim's floor
       // (BR-01). A route asked for at the other one is asked for again; if the answer changes
       // kind on the way, this level is skipped rather than built at a mismatched tolerance.
       const own = slippageFor(r, settings);
@@ -1052,12 +1052,12 @@ export async function prepareProtectedSwap(deps: {
     }
     // The levels run from the widest route to the narrowest, so the first one that fits is the best
     // price available to a protected swap. When it costs noticeably more than the unrestricted
-    // market, that is the price of the guarantee, and the user decides rather than Bound.
+    // market, that is the price of the guarantee, and the user decides rather than Orientim.
     if (chosen && chosenGapBps > settings.askAboveBps) {
       const accepted = req.acceptedCostBps;
       // A little slack, or a market that drifts by a few bps would ask again and again.
       if (accepted === undefined || chosenGapBps > accepted + 50n) {
-        throw new BoundError(
+        throw new OrientimError(
           'costs-more',
           `This route gives ${percent(chosenGapBps)} less than the best unprotected route Jupiter found.`
           + (chosenGapBps > settings.warnAboveBps ? ' A smaller amount often gets a better price.' : ''),
@@ -1072,25 +1072,25 @@ export async function prepareProtectedSwap(deps: {
       // After a repair, the routes we could still use are the ones nothing has blamed yet. If none
       // of them works, the honest reason is the simulations that got us here, not the price.
       if (learned.length) {
-        throw new BoundError(
+        throw new OrientimError(
           'simulation-failed',
           `Every route that fits failed in simulation, and what is left is far below the market price. No funds were moved. ${why(attempts)}`,
         );
       }
       if (sawUnknownFormat) {
         console.error('Jupiter answered with a swap instruction the verifier cannot read: its format changed.');
-        throw new BoundError('route-format', ROUTE_FORMAT_MESSAGE);
+        throw new OrientimError('route-format', ROUTE_FORMAT_MESSAGE);
       }
       throw sawUnsupportedHop
-        ? new BoundError(
+        ? new OrientimError(
           'unsupported-token',
           `Every route for this swap passes through a token that uses ${sawUnsupportedHop}, which a protected swap cannot isolate. Nothing was built.`,
         )
         : sawTooBig
-        ? new BoundError('no-route', 'The best route for this amount does not fit in a single protected transaction. Try a smaller amount, or split the swap.')
+        ? new OrientimError('no-route', 'The best route for this amount does not fit in a single protected transaction. Try a smaller amount, or split the swap.')
         : sawBadQuote
-          ? new BoundError('bad-quote', `Every route offered is at least ${percent(bestGapBps)} below the best unprotected route Jupiter found. That is not a price, it is a broken answer, so nothing was built. Try again in a moment.`)
-          : new BoundError('no-route', 'No route fits in a single protected transaction. Try a different amount or token.');
+          ? new OrientimError('bad-quote', `Every route offered is at least ${percent(bestGapBps)} below the best unprotected route Jupiter found. That is not a price, it is a broken answer, so nothing was built. Try again in a moment.`)
+          : new OrientimError('no-route', 'No route fits in a single protected transaction. Try a different amount or token.');
     }
 
     const route = chosen.r.routePlan.map(p => p.swapInfo.label);
@@ -1134,7 +1134,7 @@ export async function prepareProtectedSwap(deps: {
       const rentOnly = held > 0n && held === await rentFor(sim.sizesAfter[1] ?? 0);
       // Holding more than its rent (a cashback coin's account), what it holds depends on the price at
       // landing, so no exact refund can be written: that route would leave value under E (H-01).
-      if (!rentOnly || held > MAX_TAKER_RENT_LAMPORTS) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+      if (!rentOnly || held > MAX_TAKER_RENT_LAMPORTS) throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
       {
         routeRefund = { ...opened, lamports: held };
         let withClose: ReturnType<typeof compileProtectedSwap> | null = null;
@@ -1159,7 +1159,7 @@ export async function prepareProtectedSwap(deps: {
           const why = !withClose ? `the close does not fit: ${closeSize}`
             : !closed?.ok ? `the close fails: ${closed?.error ?? 'no answer'}` : `E keeps ${closed.lamportsAfter[0]} lamports`;
           attempts.push({ excluded, route, simulation: `the market's account under the one-time key cannot be closed in this route (${why})`, blamed: null });
-          if (chosen.level + 1 >= MAX_ACCOUNTS_LEVELS.length) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+          if (chosen.level + 1 >= MAX_ACCOUNTS_LEVELS.length) throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
           minLevel = chosen.level + 1;
           continue;
         }
@@ -1171,9 +1171,9 @@ export async function prepareProtectedSwap(deps: {
       const chosenPolicy = policyFor(chosen.r);
       // A fee on the output is a share of the minimum, known only now: a swap too small to carry it
       // is refused like any other swap whose fee cannot be collected (final audit, item 9).
-      if (settings.treasury && chosenPolicy.fee <= 0n) throw new BoundError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
+      if (settings.treasury && chosenPolicy.fee <= 0n) throw new OrientimError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
       if (settings.treasury && belowMinFee(chosenPolicy.fee, feeMintOf(chosenPolicy), settings.minFee)) {
-        throw new BoundError('amount-too-small', MIN_SWAP_MESSAGE);
+        throw new OrientimError('amount-too-small', MIN_SWAP_MESSAGE);
       }
       const swapAccounts = chosen.r.swapInstruction.accounts.map(a => address(a.pubkey));
       // The snapshot for the verifier and the fresh blockhash, together (idea 21).
@@ -1232,7 +1232,7 @@ export async function prepareProtectedSwap(deps: {
         continue;
       }
       if (!verdict.ok) {
-        throw new BoundError('verification-failed', 'A protected transaction cannot be produced.', verdict.violations);
+        throw new OrientimError('verification-failed', 'A protected transaction cannot be produced.', verdict.violations);
       }
 
       // The cluster prices the exact message (audit B-12). Fail closed: without a price there is
@@ -1247,18 +1247,18 @@ export async function prepareProtectedSwap(deps: {
         .catch(() => null);
       const clusterFee = (await priceMessage()) ?? (await priceMessage());
       if (clusterFee === null) {
-        throw new BoundError('verification-failed', "The network fee couldn't be confirmed. Nothing was signed; try again.", [
+        throw new OrientimError('verification-failed', "The network fee couldn't be confirmed. Nothing was signed; try again.", [
           { rule: 'R4', detail: 'the cluster did not price the final message' },
         ]);
       }
       if (BigInt(clusterFee) > feeLimit) {
-        throw new BoundError('verification-failed', 'The network fee would be above the limit.', [
+        throw new OrientimError('verification-failed', 'The network fee would be above the limit.', [
           { rule: 'R4', detail: `the cluster prices this transaction at ${clusterFee} lamports, above ${feeLimit}` },
         ]);
       }
 
       const createsOutputAccount = !!policy.accounts.wOut && !snapshot.accounts.get(policy.accounts.wOut);
-      if (!certification.ok) throw new BoundError('verification-failed', 'A protected transaction cannot be produced.', certification.violations);
+      if (!certification.ok) throw new OrientimError('verification-failed', 'A protected transaction cannot be produced.', certification.violations);
 
       // The exact transaction the wallet will sign, simulated once more (final audit, H-01, and the
       // shared contract's point 4): it must execute, and leave nothing under E. A simulation that
@@ -1277,14 +1277,14 @@ export async function prepareProtectedSwap(deps: {
         attempts.push({ excluded, route, simulation: `final transaction: ${last.error ?? 'failed'}`, blamed: null });
         continue;
       }
-      if (last.lamportsAfter.slice(0, underKey.length).some(l => l > 0n)) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+      if (last.lamportsAfter.slice(0, underKey.length).some(l => l > 0n)) throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
       const leftOpen = opened.filter((_, i) => (last.lamportsAfter[underKey.length + i] ?? 0n) > 0n);
       if (leftOpen.length) {
         // Another route, without the markets on this one, may open nothing it leaves behind.
         attempts[attempts.length - 1].simulation = `the route leaves open ${leftOpen.length} account(s) it creates: ${leftOpen.join(', ')}`;
         const before = learned.length;
         for (const label of route) if (!excluded.includes(label) && !learned.includes(label)) learned.push(label);
-        if (learned.length === before) throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+        if (learned.length === before) throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
         continue;
       }
 
@@ -1332,7 +1332,7 @@ export async function prepareProtectedSwap(deps: {
       attempts[attempts.length - 1].simulation = 'output below the minimum';
       if (++floorMisses >= 2) {
         if (accepted > 0n) throw priceMoved(chosen.r);
-        throw new BoundError('simulation-failed', 'The price moved beyond the slippage tolerance. No funds were moved; try again.');
+        throw new OrientimError('simulation-failed', 'The price moved beyond the slippage tolerance. No funds were moved; try again.');
       }
       if (policy.accounts.wOut) {
         const state = (await fetchAccounts(rpc, [policy.accounts.wOut])).get(policy.accounts.wOut);
@@ -1341,11 +1341,11 @@ export async function prepareProtectedSwap(deps: {
       continue;
     }
 
-    // A failure before the swap is in Bound's own instructions, which draw only on the wallet: no
+    // A failure before the swap is in Orientim's own instructions, which draw only on the wallet: no
     // route is to blame and no other route would fare better (research audit F-09).
     const swapAt = compiledInstructions(trial.transaction).findIndex(ix => ix.program === settings.jupiterProgram);
     if (sim.failedInstruction !== null && swapAt >= 0 && sim.failedInstruction < swapAt) {
-      throw new BoundError(
+      throw new OrientimError(
         'simulation-failed',
         `The swap would fail in its first steps, before it reaches the market, so no other route would help (${sim.error}). Check your balance of the input token and try again.`,
       );
@@ -1363,9 +1363,9 @@ export async function prepareProtectedSwap(deps: {
   // Every route tried could not return the deposit its market kept under E: that is the reason, not
   // a failed simulation (final audit, H-01).
   if (attempts.length && attempts.every(a => a.simulation.startsWith("the market's account under the one-time key"))) {
-    throw new BoundError('no-route', LEFT_UNDER_KEY_MESSAGE);
+    throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
   }
-  throw new BoundError('simulation-failed', `Every route failed in simulation. No funds were moved. ${why(attempts)}`);
+  throw new OrientimError('simulation-failed', `Every route failed in simulation. No funds were moved. ${why(attempts)}`);
 }
 
 /** What signing last needs from a prepared swap: the verified message, whose it is, and how long it lives. */
@@ -1378,7 +1378,7 @@ export type Countersignable = {
 /**
  * The wallet has signed first. Check that it signed exactly the verified message, still in its
  * lifetime, then E signs last (D4). Without E's signature the transaction can never execute, so
- * this is the only place a Bound transaction becomes sendable.
+ * this is the only place a Orientim transaction becomes sendable.
  */
 export async function countersignProtectedSwap(args: {
   rpc: SolanaRpc;
@@ -1394,11 +1394,11 @@ export async function countersignProtectedSwap(args: {
   const { rpc, prepared, ephemeral } = args;
   const check = await verifyWalletReturn(prepared.transaction, args.walletSignedBytes, prepared.policy.owner, ephemeral.address);
   if (!check.ok || !check.transaction) {
-    throw new BoundError('wallet-changed-transaction', 'The wallet changed the transaction, so it was stopped for your safety.', check.violations);
+    throw new OrientimError('wallet-changed-transaction', 'The wallet changed the transaction, so it was stopped for your safety.', check.violations);
   }
   const height = args.landed ? null : await rpc.getBlockHeight({ commitment: 'confirmed' }).send();
   if (height !== null && height > prepared.lifetime.lastValidBlockHeight) {
-    throw new BoundError('expired', 'The transaction expired before it was signed. Build it again.');
+    throw new OrientimError('expired', 'The transaction expired before it was signed. Build it again.');
   }
   const signed = await partiallySignTransaction([ephemeral.keyPair], check.transaction);
   assertIsFullySignedTransaction(signed);

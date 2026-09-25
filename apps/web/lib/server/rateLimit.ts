@@ -11,7 +11,7 @@ let nextSweep = 0;
 
 /**
  * A request another website's page made from its visitor's browser (Sec-Fetch-Site: cross-site). The
- * proxies exist for Bound's own page: refusing these stops other sites from spending Bound's RPC and
+ * proxies exist for Orientim's own page: refusing these stops other sites from spending Orientim's RPC and
  * Jupiter quota through their users. A script that is not a browser sends no such header and meets
  * the per-client limits and the host's firewall instead (README, "Deploy").
  */
@@ -43,13 +43,13 @@ export function rateLimited(key: string, limit: number, windowMs = 60_000): bool
 
 /**
  * The client address, from the one header the deployment's ingress overwrites (audit B-06, C-04).
- * Which header that is depends on where Bound runs, so it is configuration, never a guess:
- * `BOUND_CLIENT_IP_HEADER` (default `x-vercel-forwarded-for`, which Vercel sets itself; behind
+ * Which header that is depends on where Orientim runs, so it is configuration, never a guess:
+ * `ORIENTIM_CLIENT_IP_HEADER` (default `x-vercel-forwarded-for`, which Vercel sets itself; behind
  * Cloudflare use `cf-connecting-ip`). Any other client-supplied header is ignored. Without the
  * configured header every request shares one bucket, which fails towards limiting, not bypass.
  */
 export function clientKey(req: Request): string {
-  const header = (process.env.BOUND_CLIENT_IP_HEADER || 'x-vercel-forwarded-for').toLowerCase();
+  const header = (process.env.ORIENTIM_CLIENT_IP_HEADER || 'x-vercel-forwarded-for').toLowerCase();
   const value = req.headers.get(header)?.split(',')[0].trim();
   return value || 'unidentified';
 }

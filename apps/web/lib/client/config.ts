@@ -9,8 +9,8 @@ import { feeBpsSetting, treasurySetting } from '../settings';
  */
 // Read the way the build checked them (next.config.ts refuses a wrong one), so what reaches the page
 // is either a valid setting or none.
-const treasury = treasurySetting(process.env.NEXT_PUBLIC_BOUND_TREASURY);
+const treasury = treasurySetting(process.env.NEXT_PUBLIC_ORIENTIM_TREASURY);
 export const TREASURY: Address | null = treasury ? address(treasury) : null;
-export const FEE_BPS: bigint = feeBpsSetting(process.env.NEXT_PUBLIC_BOUND_FEE_BPS);
+export const FEE_BPS: bigint = feeBpsSetting(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS);
 /** v1 transactions only when a build says so, until one has landed on mainnet (review BR-12). */
-export const V1_ENABLED = process.env.NEXT_PUBLIC_BOUND_ENABLE_V1 === '1';
+export const V1_ENABLED = process.env.NEXT_PUBLIC_ORIENTIM_ENABLE_V1 === '1';

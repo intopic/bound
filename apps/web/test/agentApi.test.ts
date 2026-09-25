@@ -1,6 +1,6 @@
 /**
  * The agent API (AGENT-API.md): the real pipeline behind /v1/prepare and /v1/finalize,
- * against the fake RPC and Jupiter the pipeline's own tests use. The fee holds because Bound signs
+ * against the fake RPC and Jupiter the pipeline's own tests use. The fee holds because Orientim signs
  * as E only the exact message it built; every test here that changes that message must end with
  * nothing signed and nothing sent.
  */
@@ -12,15 +12,15 @@ import {
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
-import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
+import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare, olderThan } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 
-const KEY = 'bnd_test_key_for_the_agent_api_0001';
-const OTHER_KEY = 'bnd_test_key_for_another_agent_0002';
+const KEY = 'ori_test_key_for_the_agent_api_0001';
+const OTHER_KEY = 'ori_test_key_for_another_agent_0002';
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const secret = (fill: number) => new Uint8Array(32).fill(fill);
 const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
@@ -60,7 +60,7 @@ async function world(opts: {
 }
 
 const post = (path: string, body: unknown, key: string | null = KEY) =>
-  new Request(`http://bound.test/api/v1/${path}?n=${++n}`, {
+  new Request(`http://orientim.test/api/v1/${path}?n=${++n}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
     body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -127,7 +127,7 @@ describe('prepare', () => {
   it('refuses without a valid API key', async () => {
     const w = await world();
     expect((await agentPrepare(post('prepare', swapBody(w.W.address), null), w.deps)).status).toBe(401);
-    expect((await agentPrepare(post('prepare', swapBody(w.W.address), 'bnd_not_a_key_we_ever_issued'), w.deps)).status).toBe(401);
+    expect((await agentPrepare(post('prepare', swapBody(w.W.address), 'ori_not_a_key_we_ever_issued'), w.deps)).status).toBe(401);
   });
 
   it('refuses while swaps are paused, before anything is built', async () => {
@@ -166,7 +166,7 @@ describe('prepare', () => {
       jupiter: {
         ...honest,
         async build() {
-          const { JupiterError } = await import('@bound/jupiter');
+          const { JupiterError } = await import('@orientim/jupiter');
           throw new JupiterError('Jupiter 429: Too many requests', 429);
         },
       },
@@ -206,7 +206,7 @@ describe('finalize', () => {
     expect(second.signedTransaction).toBe(first.signedTransaction);
   });
 
-  // The fee: a message without it, or with any byte changed, is not the message Bound built.
+  // The fee: a message without it, or with any byte changed, is not the message Orientim built.
   for (const [where, at] of [
     ['the first byte', () => 0],
     ['the middle', (len: number) => Math.floor(len / 2)],
@@ -451,32 +451,32 @@ describe('review fixes on the API', () => {
 describe('API keys from the environment', () => {
   it('a fee above the verifier\'s ceiling turns the API off instead of charging another (engineering audit L-01)', async () => {
     const { agentDeps } = await import('../lib/server/agent/config.ts');
-    process.env.BOUND_API_SECRET = Buffer.alloc(32, 1).toString('base64');
-    process.env.BOUND_API_KEYS = `a:${sha('key-one')}`;
-    process.env.BOUND_API_FEE_BPS = '150';
+    process.env.ORIENTIM_API_SECRET = Buffer.alloc(32, 1).toString('base64');
+    process.env.ORIENTIM_API_KEYS = `a:${sha('key-one')}`;
+    process.env.ORIENTIM_API_FEE_BPS = '150';
     try {
       expect(agentDeps()).toBeNull();
-      process.env.BOUND_API_FEE_BPS = '30';
+      process.env.ORIENTIM_API_FEE_BPS = '30';
       expect(agentDeps()?.feeBps).toBe(30n);
     } finally {
-      delete process.env.BOUND_API_SECRET;
-      delete process.env.BOUND_API_KEYS;
-      delete process.env.BOUND_API_FEE_BPS;
+      delete process.env.ORIENTIM_API_SECRET;
+      delete process.env.ORIENTIM_API_KEYS;
+      delete process.env.ORIENTIM_API_FEE_BPS;
     }
   });
 
   it('two keys with one id: the first one wins, so they never share tickets and limits (FA-16)', async () => {
     const { agentDeps } = await import('../lib/server/agent/config.ts');
-    process.env.BOUND_API_SECRET = Buffer.alloc(32, 1).toString('base64');
-    process.env.BOUND_API_KEYS = `a:${sha('key-one')},a:${sha('key-two')},b:${sha('key-three')}`;
+    process.env.ORIENTIM_API_SECRET = Buffer.alloc(32, 1).toString('base64');
+    process.env.ORIENTIM_API_KEYS = `a:${sha('key-one')},a:${sha('key-two')},b:${sha('key-three')}`;
     try {
       const deps = agentDeps()!;
       expect([...deps.keys.values()]).toEqual(['a', 'b']);
       expect(deps.keys.has(sha('key-one'))).toBe(true);
       expect(deps.keys.has(sha('key-two'))).toBe(false);
     } finally {
-      delete process.env.BOUND_API_SECRET;
-      delete process.env.BOUND_API_KEYS;
+      delete process.env.ORIENTIM_API_SECRET;
+      delete process.env.ORIENTIM_API_KEYS;
     }
   });
 });
@@ -501,7 +501,7 @@ describe('the skill says its version, and an old copy is asked to update (final 
   const withSkill = (W: Address, version: string | null) => {
     const req = post('prepare', swapBody(W));
     const headers = new Headers(req.headers);
-    if (version) headers.set('x-bound-skill', version);
+    if (version) headers.set('x-orientim-skill', version);
     return new Request(req.url, { method: 'POST', headers, body: JSON.stringify(swapBody(W)) });
   };
 
@@ -531,7 +531,7 @@ describe('the skill says its version, and an old copy is asked to update (final 
     w.deps.minSkillVersion = '9.0.0';
     const req = post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction) });
     const headers = new Headers(req.headers);
-    headers.set('x-bound-skill', '1.0.0');
+    headers.set('x-orientim-skill', '1.0.0');
     const res = await agentFinalize(new Request(req.url, { method: 'POST', headers, body: await req.text() }), w.deps);
     expect(res.status).toBe(200);
   });

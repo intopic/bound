@@ -5,19 +5,19 @@ import { join } from 'node:path';
 const src = join(import.meta.dirname, '../src');
 const coreSrc = join(import.meta.dirname, '../../core/src');
 
-// The verifier may read Bound's constants and types and nothing else of Bound: never the compiler
+// The verifier may read Orientim's constants and types and nothing else of Orientim: never the compiler
 // or the policy builder, so that a compiler bug cannot hide from it (plan, section 10).
-const ALLOWED = [/^@solana\/kit$/, /^@solana-program\/token$/, /^@bound\/core\/(constants|types)$/, /^\.\/[a-z]+\.ts$/];
+const ALLOWED = [/^@solana\/kit$/, /^@solana-program\/token$/, /^@orientim\/core\/(constants|types)$/, /^\.\/[a-z]+\.ts$/];
 const importsOf = (file: string) => [...readFileSync(file, 'utf8').matchAll(/from\s+'([^']+)'/g)].map(m => m[1]);
 
 describe('verifier independence (plan, section 10)', () => {
-  it('imports only kit, the token program client, Bound constants and types, and its own files', () => {
+  it('imports only kit, the token program client, Orientim constants and types, and its own files', () => {
     for (const file of readdirSync(src)) {
       expect(importsOf(join(src, file)).filter(i => !ALLOWED.some(a => a.test(i))), file).toEqual([]);
     }
   });
 
-  it('@bound/core does not depend on the verifier', () => {
+  it('@orientim/core does not depend on the verifier', () => {
     for (const file of readdirSync(coreSrc)) {
       expect(importsOf(join(coreSrc, file)).filter(i => i.includes('verifier')), file).toEqual([]);
     }

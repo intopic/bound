@@ -1,10 +1,10 @@
-import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@bound/core';
+import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientim/core';
 import { maxNetworkFeeSetting } from '../settings';
 
 /**
  * Server-only settings. Secrets (RPC URLs, API keys) never reach the browser (D8).
  *
- * The fee and the treasury are NOT here: they are fixed at build time (NEXT_PUBLIC_BOUND_*), so a
+ * The fee and the treasury are NOT here: they are fixed at build time (NEXT_PUBLIC_ORIENTIM_*), so a
  * compromised server cannot change where fees go or how large they are (audit B-01).
  */
 let warnedNoJupiterKey = false;
@@ -13,7 +13,7 @@ let warnedMaxFee = false;
 /** F_max as configured; the default, said once, when the value cannot be read (the build refuses it too). */
 function configuredMaxFee(): bigint {
   try {
-    return maxNetworkFeeSetting(process.env.BOUND_MAX_NETWORK_FEE_LAMPORTS);
+    return maxNetworkFeeSetting(process.env.ORIENTIM_MAX_NETWORK_FEE_LAMPORTS);
   } catch (e) {
     if (!warnedMaxFee) {
       warnedMaxFee = true;
@@ -37,9 +37,9 @@ export function serverConfig() {
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
     // No limit unless one is configured: the protection does not depend on the amount, and a
     // limit would also block every token that has no USD price.
-    maxUsdPerSwap: process.env.BOUND_MAX_USD_PER_SWAP ? Number(process.env.BOUND_MAX_USD_PER_SWAP) : null,
-    disabled: process.env.BOUND_DISABLED === '1',
-    excludeDexes: (process.env.BOUND_EXCLUDE_DEXES ?? 'HumidiFi').split(',').map(s => s.trim()).filter(Boolean),
+    maxUsdPerSwap: process.env.ORIENTIM_MAX_USD_PER_SWAP ? Number(process.env.ORIENTIM_MAX_USD_PER_SWAP) : null,
+    disabled: process.env.ORIENTIM_DISABLED === '1',
+    excludeDexes: (process.env.ORIENTIM_EXCLUDE_DEXES ?? 'HumidiFi').split(',').map(s => s.trim()).filter(Boolean),
     // Clamped to the verifier's absolute ceiling (audit B-02); the verifier enforces it anyway.
     maxNetworkFeeLamports: maxFee < ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS ? maxFee : ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS,
   };

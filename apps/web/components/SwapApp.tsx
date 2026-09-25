@@ -5,15 +5,15 @@ import type { ReactNode } from 'react';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
 import { address, getTransactionEncoder } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
-import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@bound/core';
-import type { FeeSide, TxVersion } from '@bound/core';
+import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@orientim/core';
+import type { FeeSide, TxVersion } from '@orientim/core';
 import {
-  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, quotedMinimum,
+  OrientimError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, quotedMinimum,
   revertedOnPrice,
-} from '@bound/jupiter';
-import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
-import { createEphemeral, fetchAccounts, httpStatusOf, statusesCovering } from '@bound/solana';
-import type { SendOutcome, SendRefusal } from '@bound/solana';
+} from '@orientim/jupiter';
+import type { PreparedSwap, TokenInfo } from '@orientim/jupiter';
+import { createEphemeral, fetchAccounts, httpStatusOf, statusesCovering } from '@orientim/solana';
+import type { SendOutcome, SendRefusal } from '@orientim/solana';
 import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY, V1_ENABLED } from '@/lib/client/config';
@@ -52,7 +52,7 @@ type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number; at: 
 type Pending = {
   minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
   tokenTax: string | null; busyNetwork: string | null;
-  /** Bound's fee when it is paid in SOL from the wallet: its exact amount, priced when the swap was built. */
+  /** Orientim's fee when it is paid in SOL from the wallet: its exact amount, priced when the swap was built. */
   solFee: string | null;
 };
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
@@ -121,7 +121,7 @@ const AHEAD_MAX_AGE_MS = 20_000;
 const AHEAD_SETTLE_MS = 2_000;
 /** And at most this many a minute, per page. */
 const AHEAD_PER_MINUTE = 3;
-/** The smallest swap Bound takes, in dollars, when the price is known (the pipeline holds to it too). */
+/** The smallest swap Orientim takes, in dollars, when the price is known (the pipeline holds to it too). */
 const MIN_SWAP_USD = 1;
 /**
  * Under load. A price Jupiter refused as busy is asked for again this many times, later each time;
@@ -133,8 +133,8 @@ const BUSY_BACKOFF_MS = 30_000;
 /** Jupiter overloaded or silent (not the kill switch, which answers 503 with its own words). */
 const jupiterBusy = (e: unknown) =>
   e instanceof JupiterError && (e.status === 429 || (e.status >= 500 && !/paused/i.test(e.message)));
-const busyError = (e: unknown) => e instanceof BoundError && (e.code === 'busy' || e.code === 'unavailable');
-const UNREACHABLE = "Couldn't reach Bound";
+const busyError = (e: unknown) => e instanceof OrientimError && (e.code === 'busy' || e.code === 'unavailable');
+const UNREACHABLE = "Couldn't reach Orientim";
 
 /**
  * Why a token cannot be swapped safely, in words rather than the name of a Token-2022 extension.
@@ -150,7 +150,7 @@ const PLAIN_REFUSAL: Record<string, string> = {
   'memo required on transfer': 'it requires a note on every transfer',
   'confidential mint and burn': 'its supply can change in ways the chain does not show',
   'pausable accounts': 'its issuer can pause transfers',
-  'permissioned burn': 'it uses a burn rule Bound has not reviewed yet',
+  'permissioned burn': 'it uses a burn rule Orientim has not reviewed yet',
 };
 const plainRefusal = (reason: string) => PLAIN_REFUSAL[reason] ?? `it uses ${reason}`;
 
@@ -167,7 +167,7 @@ function extrasOf(
   // the click, or showed less than it came to (engineering audit S1-M-02).
   if (p.policy.feeSide === 'sol' && p.policy.fee > 0n && (t.shownSolFee === null || p.policy.fee * 100n > t.shownSolFee * 105n)) {
     lines.push(
-      `Bound fee: ${formatExact(p.policy.fee, 9)} SOL from your wallet, ${Number(FEE_BPS) / 100}% of what this swap is worth in SOL now`
+      `Orientim fee: ${formatExact(p.policy.fee, 9)} SOL from your wallet, ${Number(FEE_BPS) / 100}% of what this swap is worth in SOL now`
       + (t.shownSolFee !== null ? ` (the page estimated ~${formatExact(t.shownSolFee, 9)} SOL).` : '. Neither token of this pair can carry it.'),
     );
   }
@@ -176,13 +176,13 @@ function extrasOf(
   if (routeRent > 0n && routeRefund > 0n && routeRefund < routeRent) {
     lines.push(
       `Market account fee: ${formatExact(routeRent - routeRefund, 9)} SOL. This market takes ${formatExact(routeRent, 9)} SOL from every new buyer for an account; `
-      + `Bound closes that account in the same swap, so ${formatExact(routeRefund, 9)} SOL comes straight back to you.`,
+      + `Orientim closes that account in the same swap, so ${formatExact(routeRefund, 9)} SOL comes straight back to you.`,
     );
   } else if (routeRent > 0n && routeRefund === 0n) {
     lines.push(`Market account fee: ${formatExact(routeRent, 9)} SOL. This market charges it to every new buyer, and it does not come back.`);
   }
   if (p.tokenTax) {
-    lines.push(`Token tax: ${formatExact(p.tokenTax.extraOnInput, t.inDecimals)} ${t.inSymbol} goes to the token's issuer, not to Bound.`);
+    lines.push(`Token tax: ${formatExact(p.tokenTax.extraOnInput, t.inDecimals)} ${t.inSymbol} goes to the token's issuer, not to Orientim.`);
   }
   if (p.notices.removesDelegate) lines.push(`This also removes the spending permission you gave on your ${t.outSymbol} account.`);
   return lines;
@@ -247,7 +247,7 @@ const QUOTE_MAX_AGE_MS = 45_000;
 /**
  * How many times a price refreshes on its own before the page waits to be asked. A tab left open
  * would otherwise ask for a price every 20 seconds for as long as it stays open, which is the
- * largest thing Bound would spend its rate limit on and none of it is a swap.
+ * largest thing Orientim would spend its rate limit on and none of it is a swap.
  */
 const AUTO_REFRESHES = 3;
 /** Token amounts are 64-bit on Solana; beyond this nothing on chain can hold the balance. */
@@ -260,7 +260,7 @@ const SETTLE_BY_HAND_MS = 30_000;
 /** Said when this browser will not keep a swap's record: without it, a swap whose answer is lost could be forgotten. */
 const NO_STORAGE: Notice = {
   kind: 'error', title: "Your browser isn't saving this site's data",
-  body: 'Bound keeps every swap it sends in this browser, so that a lost connection or a closed tab never loses track of it. '
+  body: 'Orientim keeps every swap it sends in this browser, so that a lost connection or a closed tab never loses track of it. '
     + 'Allow site data (storage) for this site, or free some space, and try again. Nothing was sent and no funds moved.',
 };
 
@@ -271,8 +271,8 @@ function explainError(e: unknown): Notice {
 
 function wordsFor(e: unknown): Notice {
   if (e instanceof HistoryNotSaved) return NO_STORAGE;
-  if (e instanceof BoundError) {
-    const titles: Record<BoundError['code'], string> = {
+  if (e instanceof OrientimError) {
+    const titles: Record<OrientimError['code'], string> = {
       'unsupported-token': 'This token is not supported yet',
       'token-data-mismatch': "The token's data could not be confirmed on chain",
       'output-account-restricted': 'Your account for this token is restricted',
@@ -290,7 +290,7 @@ function wordsFor(e: unknown): Notice {
       'insufficient-balance': 'Not enough of this token',
       'input-account-restricted': 'Your account for this token is restricted',
       'route-format': 'Protected swaps are waiting for an update',
-      'fee-unavailable': "Bound's fee can't be collected right now",
+      'fee-unavailable': "Orientim's fee can't be collected right now",
       'amount-too-small': 'This amount is too small',
       'network-unavailable': "Couldn't reach the network",
     };
@@ -299,7 +299,7 @@ function wordsFor(e: unknown): Notice {
       return { kind: 'info', title: titles[e.code], body: e.message };
     }
     // The rule behind a refusal is for whoever investigates, not for the person swapping (final audit).
-    if (e.violations.length) console.warn('Bound refused this swap:', e.violations);
+    if (e.violations.length) console.warn('Orientim refused this swap:', e.violations);
     const rules = '';
     if (e.code === 'wallet-changed-transaction') {
       const details = e.violations.map(v => v.detail);
@@ -308,7 +308,7 @@ function wordsFor(e: unknown): Notice {
         : details.includes('the wallet changed the transaction message')
           ? 'Your wallet changed the transaction'
           : "Your wallet's response didn't pass the check";
-      return { kind: 'error', title, body: `Bound stopped before adding the last signature${rules}. Nothing was sent and no funds moved.` };
+      return { kind: 'error', title, body: `Orientim stopped before adding the last signature${rules}. Nothing was sent and no funds moved.` };
     }
     // A route can be priced perfectly and still not fit: 64 accounts per transaction is Solana's
     // limit, and a very large swap needs more pools than that.
@@ -327,7 +327,7 @@ function wordsFor(e: unknown): Notice {
     return { kind: 'info', title: 'Too many requests right now', body: 'Wait a few seconds and try again. Nothing was sent and no funds moved.' };
   }
   if (/ed25519/i.test(message)) {
-    return { kind: 'error', title: "This browser can't create Bound's one-time key", body: "Update it, or open Bound in your wallet's browser. No funds moved." };
+    return { kind: 'error', title: "This browser can't create Orientim's one-time key", body: "Update it, or open Orientim in your wallet's browser. No funds moved." };
   }
   if ((http !== null && http >= 500) || jupiterBusy(e) || /failed to fetch|fetch failed|networkerror|load failed/i.test(message)) {
     return {
@@ -339,7 +339,7 @@ function wordsFor(e: unknown): Notice {
   console.error(e);
   return {
     kind: 'error', title: 'Something went wrong',
-    body: 'Bound stopped before adding its signature, so this swap can never run. No funds moved. Try again.',
+    body: 'Orientim stopped before adding its signature, so this swap can never run. No funds moved. Try again.',
   };
 }
 
@@ -371,7 +371,7 @@ function outcomeNotice(
       return { kind: 'info', title: "The swap didn't land in time", body: 'It expired without executing and can no longer execute. No funds moved.', link };
     case 'rejected':
       if (why.refusal === 'paused') {
-        return { kind: 'info', title: 'Protected swaps were paused', body: 'Bound paused new swaps before this one was sent. It was never broadcast, so no funds moved.' };
+        return { kind: 'info', title: 'Protected swaps were paused', body: 'Orientim paused new swaps before this one was sent. It was never broadcast, so no funds moved.' };
       }
       if (why.refusal === 'busy') {
         return { kind: 'info', title: 'Too many requests right now', body: 'This swap was never broadcast, so no funds moved. Wait a few seconds and try again.' };
@@ -383,7 +383,7 @@ function outcomeNotice(
     default:
       return {
         kind: 'info', title: "We couldn't confirm the result yet",
-        body: 'The swap may still go through or may already have. Bound keeps checking, and starts no new swap from this wallet until the network settles it.', link,
+        body: 'The swap may still go through or may already have. Orientim keeps checking, and starts no new swap from this wallet until the network settles it.', link,
       };
   }
 }
@@ -453,8 +453,8 @@ export function SwapApp() {
   const [facts, setFacts] = useState<Record<string, MintFacts | 'missing'>>({});
   // Rent for a new token account, from the cluster (audit C-09).
   const [rent, setRent] = useState<bigint | null>(null);
-  // Accounts that decide the Bound fee and the one-time costs shown before signing (audit B-09).
-  /** Where the Bound fee is taken, like Jupiter's: SOL first, then USDC and USDT, on either side; else the input. */
+  // Accounts that decide the Orientim fee and the one-time costs shown before signing (audit B-09).
+  /** Where the Orientim fee is taken, like Jupiter's: SOL first, then USDC and USDT, on either side; else the input. */
   const [feeSide, setFeeSide] = useState<FeeSide | null>('input');
   const [outputAccountExists, setOutputAccountExists] = useState(true);
   const [clock, setClock] = useState(0);
@@ -590,8 +590,8 @@ export function SwapApp() {
   }, [refreshBalances]);
 
   // The fee is taken like Jupiter's: in SOL first, then USDC or USDT, on whichever side of the swap
-  // the treasury can receive them; otherwise in the input token; otherwise not at all (Bound never
-  // makes the user pay rent for Bound's account). No output account yet → the user pays its rent
+  // the treasury can receive them; otherwise in the input token; otherwise not at all (Orientim never
+  // makes the user pay rent for Orientim's account). No output account yet → the user pays its rent
   // once and keeps it.
   const refreshAccounts = useCallback(async () => {
     const exists = async (a: Address) =>
@@ -694,7 +694,7 @@ export function SwapApp() {
         .then(r => {
           if (cancelled) return;
           setBusyTries(0);
-          // Shown only if it answers this exact trade; the minimum is computed by Bound (C-02), with
+          // Shown only if it answers this exact trade; the minimum is computed by Orientim (C-02), with
           // the wider tolerance when the route trades on a Pump.fun bonding curve.
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
@@ -754,7 +754,7 @@ export function SwapApp() {
     if (inFacts === 'missing' || outFacts === 'missing') return 'That address is not a token';
     if (!inFacts || !outFacts) return 'Reading token details…';
     const refused = inFacts.unsupported ?? outFacts.unsupported;
-    if (refused) return `Bound can't swap this token safely: ${plainRefusal(refused)}`;
+    if (refused) return `Orientim can't swap this token safely: ${plainRefusal(refused)}`;
     if (!amountIn || amountIn <= 0n) return 'Enter an amount';
     if (amountIn > MAX_U64) return 'Amount is too large';
     if (swapAmount !== null && swapAmount <= 0n) return 'Amount is too small';
@@ -905,7 +905,7 @@ export function SwapApp() {
           },
         );
       } catch (e) {
-        if (!(e instanceof BoundError) || round >= 2) throw e;
+        if (!(e instanceof OrientimError) || round >= 2) throw e;
         // A route too big for v0 may fit in v1, for a wallet that signs it (research audit F-13).
         if (e.code === 'no-route' && e.message.includes('does not fit') && version === 0 && args.v1Fallback) {
           version = 1;
@@ -1001,7 +1001,7 @@ export function SwapApp() {
     if (version === null) {
       setNotice({
         kind: 'error', title: `${wallet.name} can't sign this kind of transaction`,
-        body: 'Bound needs a wallet that supports versioned transactions. Nothing was signed.',
+        body: 'Orientim needs a wallet that supports versioned transactions. Nothing was signed.',
       });
       return;
     }
@@ -1011,7 +1011,7 @@ export function SwapApp() {
       setNotice(NO_STORAGE);
       return;
     }
-    // Decision A: one Bound swap at a time into the same token, across tabs.
+    // Decision A: one Orientim swap at a time into the same token, across tabs.
     const lock = acquireSwapLock(W, outToken.id);
     if (!lock) {
       setNotice({
@@ -1068,10 +1068,10 @@ export function SwapApp() {
         // Without a height, how long the swap stays valid is unknown: the wallet is not opened on a
         // guess (final audit, M-04).
         if (left === null) {
-          throw new BoundError('network-unavailable', "Bound couldn't read how long this swap stays valid, so your wallet was not opened. Nothing was signed; try again in a moment.");
+          throw new OrientimError('network-unavailable', "Orientim couldn't read how long this swap stays valid, so your wallet was not opened. Nothing was signed; try again in a moment.");
         }
         if (left >= MIN_BLOCKS_FOR_WALLET) break;
-        if (round === 2) throw new BoundError('expired', "The swap's time ran out while it was being prepared or while you answered. Nothing was signed; try again.");
+        if (round === 2) throw new OrientimError('expired', "The swap's time ran out while it was being prepared or while you answered. Nothing was signed; try again.");
         setPhase('checking');
         const again = await build(E, prepared.quote.minReceived);
         if (!again) return cancelled();
@@ -1099,7 +1099,7 @@ export function SwapApp() {
           : null,
         tokenTax: prepared.tokenTax
           ? `${inToken.symbol} charges ${prepared.tokenTax.inputBps / 100}% on every transfer. Moving your ${inToken.symbol} into the protected account costs `
-            + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Bound.`
+            + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Orientim.`
           : null,
         solFee: prepared.policy.feeSide === 'sol' && prepared.policy.fee > 0n
           ? `${formatExact(prepared.policy.fee, 9)} SOL`
@@ -1116,7 +1116,7 @@ export function SwapApp() {
       const balanceKept = await outputBalanceUnchanged(toSend);
       if (balanceKept === null) {
         setNotice({
-          kind: 'info', title: `Bound couldn't re-read your ${outToken.symbol} balance`,
+          kind: 'info', title: `Orientim couldn't re-read your ${outToken.symbol} balance`,
           body: 'It stopped before adding its signature, so this swap can never run. No funds moved; try again in a moment.',
         });
         return;
@@ -1124,7 +1124,7 @@ export function SwapApp() {
       if (!balanceKept) {
         setNotice({
           kind: 'info', title: `Your ${outToken.symbol} balance changed while the wallet was open`,
-          body: 'Another swap or a transfer arrived. Bound stopped before adding its signature, so this swap can never run. No funds moved; try again.',
+          body: 'Another swap or a transfer arrived. Orientim stopped before adding its signature, so this swap can never run. No funds moved; try again.',
         });
         return;
       }
@@ -1225,11 +1225,11 @@ export function SwapApp() {
   const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
   if (quote && quote.impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(quote.impact)}: this amount moves the market price.`);
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
-  // A token that taxes its own transfers costs more through Bound, because the protected account
+  // A token that taxes its own transfers costs more through Orientim, because the protected account
   // is one extra transfer. Said before the swap, not after it.
   if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
     inWarnings.push(
-      `${tokenIn.symbol} charges ${inFacts.transferFee.bps / 100}% on every transfer, and a protected swap makes one transfer more than an unprotected one, so you pay it twice. The tax goes to the token, not to Bound.`,
+      `${tokenIn.symbol} charges ${inFacts.transferFee.bps / 100}% on every transfer, and a protected swap makes one transfer more than an unprotected one, so you pay it twice. The tax goes to the token, not to Orientim.`,
     );
   }
   if (tokenOut && outFacts && outFacts !== 'missing' && outFacts.transferFee) {
@@ -1237,12 +1237,12 @@ export function SwapApp() {
       `${tokenOut.symbol} charges ${outFacts.transferFee.bps / 100}% on every transfer: the amount shown is what arrives after it.`,
     );
   }
-  // An issuer that can move the token anywhere is the token's nature, not something Bound grants:
+  // An issuer that can move the token anywhere is the token's nature, not something Orientim grants:
   // it can, in this wallet as in any other. What protects this swap from it is the minimum output,
   // which counts what reaches your account (review BR-05). The user is told before they hold it.
   for (const [token, f, list] of [[tokenIn, inFacts, inWarnings], [tokenOut, outFacts, outWarnings]] as const) {
     if (token && f && f !== 'missing' && f.issuerCanMove) {
-      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it; Bound neither adds nor changes it, and your minimum output still holds in this swap.`);
+      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it; Orientim neither adds nor changes it, and your minimum output still holds in this swap.`);
     }
   }
   const deepLink = typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '';
@@ -1252,7 +1252,7 @@ export function SwapApp() {
     <main className="page">
       <header className="top">
         <span className="brand">
-          <ShieldIcon /> Bound
+          <ShieldIcon /> Orientim
         </span>
         {W ? (
           <div className="account" ref={accountRef}>
@@ -1283,7 +1283,7 @@ export function SwapApp() {
             <div className="muted">
               <p>No Solana wallet was found in this browser.</p>
               <p>
-                On a phone, open Bound inside your wallet:{' '}
+                On a phone, open Orientim inside your wallet:{' '}
                 <a href={`https://phantom.app/ul/browse/${deepLink}?ref=${origin}`}>Phantom</a>
                 {' · '}
                 <a href={`https://solflare.com/ul/v1/browse/${deepLink}?ref=${origin}`}>Solflare</a>
@@ -1306,7 +1306,7 @@ export function SwapApp() {
       {status && !status.enabled && (
         <div className="banner error">Protected swaps are paused while we check something. Your funds are not affected.</div>
       )}
-      {!TREASURY && <div className="banner info">Test mode: no Bound fee is charged.</div>}
+      {!TREASURY && <div className="banner info">Test mode: no Orientim fee is charged.</div>}
 
       <section className="card swap">
         <div className="box">
@@ -1373,7 +1373,7 @@ export function SwapApp() {
             {[...inWarnings, ...outWarnings].map(w => (
               <li key={w}>{w}</li>
             ))}
-            <li>Bound protects your wallet during the swap. It can&apos;t tell you whether a token is worth buying.</li>
+            <li>Orientim protects your wallet during the swap. It can&apos;t tell you whether a token is worth buying.</li>
           </ul>
         )}
 
@@ -1420,7 +1420,7 @@ export function SwapApp() {
             </div>
           )}
           <div className="detail-row">
-            <span>Bound fee</span>
+            <span>Orientim fee</span>
             <span>
               {!TREASURY
                 ? '0 (test mode)'
@@ -1473,7 +1473,7 @@ export function SwapApp() {
               <p>
                 Minimum output enforced on successful execution: <strong>{pending.minReceived}</strong>. If less would arrive,
                 the whole transaction reverts. Network fee: {pending.networkFee}.
-                {pending.solFee && <> Bound fee: {pending.solFee}.</>}
+                {pending.solFee && <> Orientim fee: {pending.solFee}.</>}
                 {pending.oneTimeCost && <> Also: {pending.oneTimeCost}.</>}
                 {pending.removesDelegate && <> {pending.removesDelegate}</>}
                 {pending.tokenTax && <> {pending.tokenTax}</>}
@@ -1481,7 +1481,7 @@ export function SwapApp() {
               </p>
             )}
             <p>
-              {wallet?.name} will show the amounts and a second signer. That second signer is Bound&apos;s temporary key, which
+              {wallet?.name} will show the amounts and a second signer. That second signer is Orientim&apos;s temporary key, which
               is normal.
             </p>
           </div>
@@ -1497,7 +1497,7 @@ export function SwapApp() {
             <p>
               {waitingOn[0].over
                 ? "It can no longer go through, but the network can't prove whether it already did. Look it up on Solscan; once you have, you can swap again."
-                : 'Bound starts no new swap from this wallet until the network says whether the last one went through, so the same swap never runs twice. It checks again every few seconds.'}
+                : 'Orientim starts no new swap from this wallet until the network says whether the last one went through, so the same swap never runs twice. It checks again every few seconds.'}
             </p>
             <a href={solscan(waitingOn[0].signature)} target="_blank" rel="noreferrer">
               View on Solscan
@@ -1567,12 +1567,12 @@ export function SwapApp() {
 
       <footer className="foot">
         <p>
-          Bound never asks for your seed phrase.
+          Orientim never asks for your seed phrase.
           {status?.maxUsdPerSwap != null && ` Swaps are limited to ${formatUsd(status.maxUsdPerSwap)} while we run in alpha.`}
         </p>
-        <p>What you approve is all the swap can touch. <a href="/how">How Bound protects you</a></p>
+        <p>What you approve is all the swap can touch. <a href="/how">How Orientim protects you</a></p>
         <p>
-          Bound works with any token pair Jupiter can route and Bound can safely isolate. It protects your wallet, not the
+          Orientim works with any token pair Jupiter can route and Orientim can safely isolate. It protects your wallet, not the
           price or value of the token you buy.
         </p>
       </footer>

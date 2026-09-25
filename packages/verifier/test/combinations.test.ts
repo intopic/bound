@@ -7,13 +7,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { compileProtectedSwap, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
-import type { TxVersion } from '@bound/core';
+import { compileProtectedSwap, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientim/core';
+import type { TxVersion } from '@orientim/core';
 import type { Address } from '@solana/kit';
 import { verify } from '../src/index.ts';
 import { BONK, JUP, LIFETIME, scenario, USDC } from './fixtures.ts';
 
-const RUNS = Number(process.env.BOUND_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 20_000 : 120));
+const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 20_000 : 120));
 const TIMEOUT = 60_000 + RUNS * 60;
 
 // SOL on either side; USDC on the output (a fee there); two tokens neither of which is SOL or a

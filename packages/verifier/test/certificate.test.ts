@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { compileProtectedSwap, JUPITER_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@bound/core';
-import type { TxVersion } from '@bound/core';
+import { compileProtectedSwap, JUPITER_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientim/core';
+import type { TxVersion } from '@orientim/core';
 import { certificateJson, certify, VERIFIER_VERSION } from '../src/index.ts';
 import { BONK, compileRaw, cuIxs, honest, LIFETIME, randomAddress, scenario, USDC } from './fixtures.ts';
 import type { Scenario } from './fixtures.ts';
@@ -32,12 +32,12 @@ describe('certificate', () => {
         expect(c.transactionVersion).toBe(version);
         expect(c.messageSha256).toBe(createHash('sha256').update(Uint8Array.from(tx.messageBytes)).digest('hex'));
         expect(c.input.totalDebit).toBe(s.policy.amountIn);
-        expect(c.input.swapAmount + c.input.boundFee).toBe(c.input.totalDebit);
+        expect(c.input.swapAmount + c.input.orientimFee).toBe(c.input.totalDebit);
         // Like Jupiter's fee: a sale into SOL pays in SOL, out of the output; a token bought with
         // USDC pays in USDC, out of the input. The minimum stated is what the wallet keeps.
         expect(s.policy.feeSide).toBe(name === 'USDC → SOL' ? 'output' : 'input');
-        expect(c.output.minimumOutput + c.output.boundFee).toBe(s.policy.minOut);
-        expect(c.input.boundFee + c.output.boundFee).toBe(s.policy.fee);
+        expect(c.output.minimumOutput + c.output.orientimFee).toBe(s.policy.minOut);
+        expect(c.input.orientimFee + c.output.orientimFee).toBe(s.policy.fee);
         expect(c.signers).toEqual([s.W, s.E.address]);
         expect(c.directPrograms).toContain(JUPITER_PROGRAM);
         expect(c.directPrograms).toContain(TOKEN_PROGRAM);
@@ -55,7 +55,7 @@ describe('certificate', () => {
     const result = await certify(compileHonest(s, 0), s.policy, s.snapshot);
     if (!result.ok) throw new Error(JSON.stringify(result.violations));
     expect(result.certificate.solFee).toEqual({ lamports: 777_000n, destination: s.treasury });
-    expect(result.certificate.input.boundFee + result.certificate.output.boundFee).toBe(0n);
+    expect(result.certificate.input.orientimFee + result.certificate.output.orientimFee).toBe(0n);
     expect(result.certificate.input.swapAmount).toBe(s.policy.amountIn);
   });
 

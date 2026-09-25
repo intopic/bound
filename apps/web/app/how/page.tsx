@@ -6,7 +6,7 @@ import { signPageChunks } from '@/lib/server/scriptIntegrity';
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
 export const metadata = {
-  title: 'How Bound protects you',
+  title: 'How Orientim protects you',
   description: 'What a protected swap guarantees, what it does not, and what it costs.',
 };
 
@@ -21,13 +21,13 @@ export default async function Page() {
   return (
     <main className="page how">
       <header className="top">
-        <a className="brand" href="/">← Bound</a>
+        <a className="brand" href="/">← Orientim</a>
       </header>
 
       <section className="card">
-        <h1>How Bound protects you</h1>
+        <h1>How Orientim protects you</h1>
         <p>
-          A normal swap hands the swap program your wallet&apos;s authority for the whole transaction. Bound builds the
+          A normal swap hands the swap program your wallet&apos;s authority for the whole transaction. Orientim builds the
           swap so that the program never gets it: only the amount you swap is placed where the program can reach it,
           under a one-time key that exists for this one transaction.
         </p>
@@ -36,12 +36,12 @@ export default async function Page() {
       <section className="card">
         <h2>What happens when you swap</h2>
         <ol>
-          <li>Bound asks Jupiter for a route and builds one transaction around it.</li>
+          <li>Orientim asks Jupiter for a route and builds one transaction around it.</li>
           <li>
-            Before your wallet opens, your browser checks every instruction of that exact transaction against Bound&apos;s
+            Before your wallet opens, your browser checks every instruction of that exact transaction against Orientim&apos;s
             rules. If it contains anything else, nothing is signed.
           </li>
-          <li>Your wallet signs first. Bound checks that it signed exactly what was checked, then adds the last signature.</li>
+          <li>Your wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature.</li>
           <li>The swap runs. If less than the minimum you saw would arrive, the whole transaction is cancelled.</li>
         </ol>
       </section>
@@ -53,7 +53,7 @@ export default async function Page() {
           <li>Your other tokens, your NFTs and the rest of your SOL are never given to the swap program.</li>
           <li>No permission over your wallet is granted, and none outlives the transaction.</li>
           <li>You receive at least the minimum shown, or nothing happens and only the network fee is paid.</li>
-          <li>Bound never holds your funds and never asks for your seed phrase.</li>
+          <li>Orientim never holds your funds and never asks for your seed phrase.</li>
         </ul>
       </section>
 
@@ -66,13 +66,13 @@ export default async function Page() {
             built.
           </li>
           <li>
-            Tokens whose issuer can run code on every transfer, or move balances through a program, are refused: Bound
+            Tokens whose issuer can run code on every transfer, or move balances through a program, are refused: Orientim
             cannot isolate them. Some wallets cannot be used: those that can only sign and send at once, and multisig
             vaults.
           </li>
-          <li>The checks run in this page, which Bound serves: open Bound only at its own address.</li>
+          <li>The checks run in this page, which Orientim serves: open Orientim only at its own address.</li>
           <li>
-            Bound keeps your swaps in this browser to follow their outcome, so it needs this site&apos;s data allowed. While
+            Orientim keeps your swaps in this browser to follow their outcome, so it needs this site&apos;s data allowed. While
             the network cannot yet say whether your last swap went through, it starts no new one from the same wallet.
           </li>
         </ul>
@@ -82,9 +82,9 @@ export default async function Page() {
         <h2>What it costs</h2>
         <ul>
           {TREASURY ? (
-            <li>Bound&apos;s fee is {feeText} of the swap, shown before your wallet opens. It is taken in one of the swap&apos;s own tokens when possible (SOL, USDC or USDT first), otherwise in SOL from your wallet.</li>
+            <li>Orientim&apos;s fee is {feeText} of the swap, shown before your wallet opens. It is taken in one of the swap&apos;s own tokens when possible (SOL, USDC or USDT first), otherwise in SOL from your wallet.</li>
           ) : (
-            <li>This deployment takes no Bound fee.</li>
+            <li>This deployment takes no Orientim fee.</li>
           )}
           <li>The network fee, usually a fraction of a cent and never more than 0.001 SOL, is shown exactly before you sign.</li>
           <li>A new token account, the first time you hold a token, keeps a small deposit that stays yours.</li>

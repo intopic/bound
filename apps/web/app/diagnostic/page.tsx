@@ -2,7 +2,7 @@ import { connection } from 'next/server';
 import { Diagnostic } from '@/components/Diagnostic';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 
-export const metadata = { title: 'Bound — wallet signing diagnostic', robots: { index: false, follow: false } };
+export const metadata = { title: 'Orientim — wallet signing diagnostic', robots: { index: false, follow: false } };
 
 export default async function Page() {
   signPageChunks('diagnostic/page');

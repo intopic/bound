@@ -28,7 +28,7 @@ export function receivedFromMeta(
     const after = meta.postBalances[0];
     if (before === undefined || after === undefined) return null;
     // The market's account fee went out and most of it came back (FA-05): neither is swap output.
-    // A Bound fee taken from the output also left the wallet: what is counted is what it kept.
+    // A Orientim fee taken from the output also left the wallet: what is counted is what it kept.
     return BigInt(after) - BigInt(before) + BigInt(meta.fee) + swap.routeRent - (swap.routeRefund ?? 0n);
   }
   const mine = (list: readonly TokenBalance[] | null | undefined) =>

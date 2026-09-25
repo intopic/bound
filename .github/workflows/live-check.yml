@@ -2,7 +2,7 @@ name: Live check
 
 # Is the site serving the latest release? tools/check-live.ts compares every file under
 # /_next/static with the release's build-digest.txt and fails on any difference, so GitHub tells
-# the owner of this workflow. Off until the repository variable BOUND_SITE_URL is set.
+# the owner of this workflow. Off until the repository variable ORIENTIM_SITE_URL is set.
 on:
   schedule:
     # Every three hours. On a private repository each run counts against the plan's Actions
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   check:
-    if: vars.BOUND_SITE_URL != ''
+    if: vars.ORIENTIM_SITE_URL != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -27,4 +27,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download --pattern build-digest.txt --dir release
-      - run: node tools/check-live.ts --site "${{ vars.BOUND_SITE_URL }}" --manifest release/build-digest.txt
+      - run: node tools/check-live.ts --site "${{ vars.ORIENTIM_SITE_URL }}" --manifest release/build-digest.txt

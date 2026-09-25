@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Bound — Protected Swap',
+  title: 'Orientim — Protected Swap',
   description: 'Swap Solana tokens without giving the swap program authority over the rest of your wallet.',
 };
 

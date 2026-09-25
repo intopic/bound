@@ -12,8 +12,8 @@ import { getCloseAccountInstruction, getCreateAssociatedTokenIdempotentInstructi
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ataOf, buildPolicy, compileProtectedSwap, JUPITER_PROGRAM, MAX_FEE_BPS,
   TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, withMinOut,
-} from '@bound/core';
-import type { AccountState, RuleId, TxVersion } from '@bound/core';
+} from '@orientim/core';
+import type { AccountState, RuleId, TxVersion } from '@orientim/core';
 import { memoRequired, verify } from '../src/index.ts';
 import { BONK, compileRaw, compileRawV1WithHeap, cuIxs, honest, JUP, LIFETIME, randomAddress, scenario, USDC } from './fixtures.ts';
 import type { Scenario } from './fixtures.ts';
@@ -35,7 +35,7 @@ const withSwapAccount = (s: Scenario, address: Address, role = AccountRole.WRITA
   return ixs;
 };
 
-describe('B-01: the Bound fee is bounded by the verifier, not by the configuration', () => {
+describe('B-01: the Orientim fee is bounded by the verifier, not by the configuration', () => {
   for (const bps of [5_000n, 9_999n, MAX_FEE_BPS + 1n]) {
     it(`a ${bps} bps fee is rejected even though the policy is self-consistent`, async () => {
       const s = await scenario();
@@ -115,7 +115,7 @@ describe('B-03: W_out authorities', () => {
   });
 });
 
-describe('B-04: Bound enforces the minimum output itself', () => {
+describe('B-04: Orientim enforces the minimum output itself', () => {
   for (const [name, opts] of [
     ['A: USDC → SOL (check on E_out)', {}],
     ['B: SOL → USDC (check on W_out)', { input: WSOL_MINT, output: USDC }],
@@ -195,7 +195,7 @@ describe('B-07: the v1 message config is an allowlist', () => {
   });
 });
 
-describe("B-09: the user never pays rent for Bound's fee account", () => {
+describe("B-09: the user never pays rent for Orientim's fee account", () => {
   for (const version of [0, 1] as const) {
     it(`without a fee account the swap is fee-free and creates nothing for the treasury, v${version}`, async () => {
       // Neither side is SOL, USDC or USDT and the treasury has no account for the input token.
@@ -315,7 +315,7 @@ describe('B-10: Token-2022 intermediate hops', () => {
   });
 });
 
-describe('B-11: Bound fee accounts are kept away from the external program', () => {
+describe('B-11: Orientim fee accounts are kept away from the external program', () => {
   it("the treasury's fee ATA inside the swap is rejected", async () => {
     const s = await scenario();
     const feeDest = s.policy.accounts.feeDestination!;

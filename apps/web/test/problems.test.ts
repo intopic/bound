@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from 'vitest';
-import { BoundError, JupiterError } from '@bound/jupiter';
+import { OrientimError, JupiterError } from '@orientim/jupiter';
 import { clearProblems, errorDetail, problemsReport, readProblems, recordProblem } from '../lib/client/problems.ts';
 import type { Problem } from '../lib/client/problems.ts';
 
@@ -53,7 +53,7 @@ describe('the messages the page showed are kept in this browser', () => {
     storage.refuse = true;
     expect(() => recordProblem(problem(1))).not.toThrow();
     expect(readProblems()).toEqual([]);
-    storage.data.set('bound.problems.v1', '{not json');
+    storage.data.set('orientim.problems.v1', '{not json');
     expect(readProblems()).toEqual([]);
     delete (globalThis as { window?: unknown }).window;
     expect(() => recordProblem(problem(1))).not.toThrow();
@@ -70,8 +70,8 @@ describe('the messages the page showed are kept in this browser', () => {
 });
 
 describe('the raw error behind a message', () => {
-  it("keeps Bound's code, the verifier's violations and the words", () => {
-    const d = errorDetail(new BoundError('verification-failed', 'The transaction did not pass.', [{ rule: 'R2', detail: 'an extra writable account' }]));
+  it("keeps Orientim's code, the verifier's violations and the words", () => {
+    const d = errorDetail(new OrientimError('verification-failed', 'The transaction did not pass.', [{ rule: 'R2', detail: 'an extra writable account' }]));
     expect(d).toContain('The transaction did not pass.');
     expect(d).toContain('code: verification-failed');
     expect(d).toContain('an extra writable account');

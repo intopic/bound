@@ -36,10 +36,10 @@ jobs:
       - name: Build twice and compare
         id: twice
         run: |
-          BOUND_BUILD_ID=$GITHUB_SHA npm run build
+          ORIENTIM_BUILD_ID=$GITHUB_SHA npm run build
           first=$(node tools/build-digest.ts)
           rm -rf apps/web/.next
-          BOUND_BUILD_ID=$GITHUB_SHA npm run build
+          ORIENTIM_BUILD_ID=$GITHUB_SHA npm run build
           second=$(node tools/build-digest.ts)
           echo "first  $first"
           echo "second $second"
@@ -61,7 +61,7 @@ jobs:
       - run: npm ci
       - name: Build once and compare with the other image
         run: |
-          BOUND_BUILD_ID=$GITHUB_SHA npm run build
+          ORIENTIM_BUILD_ID=$GITHUB_SHA npm run build
           here=$(node tools/build-digest.ts)
           echo "ubuntu-latest ${{ needs.reproducible.outputs.digest }}"
           echo "ubuntu-22.04  $here"

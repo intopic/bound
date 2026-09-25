@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 /**
  * Nonce-based CSP for every page (audit B-08). The frontend holds the verifier, so injected script
  * must not run: only scripts carrying this request's nonce, and what they load ('strict-dynamic').
- * Images are limited to Bound's origin and data: URIs (token icons come through /api/token-icon),
+ * Images are limited to Orientim's origin and data: URIs (token icons come through /api/token-icon),
  * which also closes images as a channel for sending data out. Styles keep 'unsafe-inline': CSS
  * cannot run code, and with img-src and connect-src closed it has no way to send anything out.
  */

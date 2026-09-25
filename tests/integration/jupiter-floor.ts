@@ -14,7 +14,7 @@
  * anywhere else would stop the honest route too. Both forms, route_v2 and
  * shared_accounts_route_v2, are asked for (research audit). Nothing is signed or sent.
  *
- * And the tightening Bound applies when the user accepted more than a route's floor (engineering
+ * And the tightening Orientim applies when the user accepted more than a route's floor (engineering
  * review H-03): with the tolerance lowered by `withFloorAtLeast`, the arguments read back unchanged
  * but for the tolerance, in both forms, and the route still executes.
  *
@@ -26,10 +26,10 @@ import {
   setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Instruction } from '@solana/kit';
-import { ataOf } from '@bound/core';
-import { createRetryingRpc } from '@bound/solana';
-import { createJupiterClient, toKitInstruction, withFloorAtLeast } from '@bound/jupiter';
-import { jupiterDestination, jupiterFloor, jupiterRouteArgs } from '@bound/verifier';
+import { ataOf } from '@orientim/core';
+import { createRetryingRpc } from '@orientim/solana';
+import { createJupiterClient, toKitInstruction, withFloorAtLeast } from '@orientim/jupiter';
+import { jupiterDestination, jupiterFloor, jupiterRouteArgs } from '@orientim/verifier';
 
 const RPC = process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const USDC = address('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
@@ -121,7 +121,7 @@ for (const maxAccounts of [64, 12]) {
   check(`${maxAccounts} accounts: the honest route executes`, honest.err === null, json(honest.err));
 
   if (args) {
-    // Tightened as Bound does for a minimum halfway into the route's tolerance (H-03).
+    // Tightened as Orientim does for a minimum halfway into the route's tolerance (H-03).
     const floor = jupiterFloor(args);
     const wanted = floor + (args.quotedOutAmount - floor) / 2n;
     const tightened = withFloorAtLeast(swap, wanted);

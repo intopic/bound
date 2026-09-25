@@ -10,7 +10,7 @@ import { generateKeyPairSigner, getAddressDecoder, getAddressEncoder, getProgram
 import type { Address } from '@solana/kit';
 import { unsupportedExtension } from '../src/index.ts';
 
-const RUNS = Number(process.env.BOUND_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 200_000 : 3_000));
+const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 200_000 : 3_000));
 // At full size a property takes 20 to 40 s on CI, far past vitest's default 5 s (the fuzz run of
 // 345a82d timed out on all four, without a single counterexample).
 const TIMEOUT = 60_000 + RUNS;

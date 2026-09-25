@@ -5,7 +5,7 @@ export type TxVersion = 0 | 1;
 /** A: SPL -> SOL, B: SOL -> SPL, C: SPL -> SPL (plan, section 5). */
 export type Variant = 'A' | 'B' | 'C';
 
-/** Which side of the swap the Bound fee is taken from, or `sol` from the wallet; see `Policy.feeSide`. */
+/** Which side of the swap the Orientim fee is taken from, or `sol` from the wallet; see `Policy.feeSide`. */
 export type FeeSide = 'input' | 'output' | 'sol';
 
 /** What the user asked for: "swap `amountIn` of `inputMint` for `outputMint`". */
@@ -13,11 +13,11 @@ export type Intent = {
   owner: Address;
   inputMint: Address;
   outputMint: Address;
-  /** q, in base units of the input token. The Bound fee is taken inside it (D10). */
+  /** q, in base units of the input token. The Orientim fee is taken inside it (D10). */
   amountIn: bigint;
 };
 
-export type BoundConfig = {
+export type OrientimConfig = {
   /** 30n = 0.3%, the product's fee. */
   feeBps: bigint;
   /** Fee recipient wallet. When null the fee is 0 (test mode). */
@@ -43,7 +43,7 @@ export type PolicyAccounts = {
   feeDestination: Address | null;
   /**
    * The account a Pump.fun market opens in E's name (PDA["user_volume_accumulator", E]) and that
-   * program's event authority, when Bound closes it after the swap (review FA-05); null otherwise.
+   * program's event authority, when Orientim closes it after the swap (review FA-05); null otherwise.
    */
   routeAccount: Address | null;
   routeEventAuthority: Address | null;
@@ -69,7 +69,7 @@ export type Policy = {
   inputDecimals: number;
   outputDecimals: number;
   /**
-   * The minimum output Bound itself enforces after the swap (audit B-04), in base units of the
+   * The minimum output Orientim itself enforces after the swap (audit B-04), in base units of the
    * output token. Set from the chosen route's quoted floor; 0 until a route is chosen, and the
    * verifier rejects 0.
    */
@@ -81,7 +81,7 @@ export type Policy = {
    */
   takerRent: bigint;
   /**
-   * Lamports the route's account under E returns when Bound closes it after the swap, sent on to W
+   * Lamports the route's account under E returns when Orientim closes it after the swap, sent on to W
    * in the same transaction (review FA-05): most of `takerRent` comes back. 0 when there is none.
    */
   routeRefund: bigint;

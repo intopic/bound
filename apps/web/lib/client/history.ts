@@ -1,7 +1,7 @@
 'use client';
 
-import { BLOCKHASH_LIFE_BLOCKS, provesNeverLanded } from '@bound/solana';
-import type { StatusView } from '@bound/solana';
+import { BLOCKHASH_LIFE_BLOCKS, provesNeverLanded } from '@orientim/solana';
+import type { StatusView } from '@orientim/solana';
 
 /**
  * Swap history lives only in this browser (no accounts, no database). Browsing works without
@@ -72,19 +72,19 @@ export function settledHistoryStatus(
  * land, whatever its entry says. Used only for an entry that does not name its last block (an older
  * build's, or one this browser damaged), which would otherwise hold its wallet back for good.
  */
-const LIFETIME_BOUND_MS = 15 * 60_000;
+const LIFETIME_ORIENTIM_MS = 15 * 60_000;
 
 /** Is the finalized chain past this swap's last valid block, so that it can no longer land? */
 export function lifetimeOver(entry: HistoryEntry, view: Pick<StatusView, 'coveredHeight'>, now = Date.now()): boolean {
   const lastValid = lastValidOf(entry);
-  if (lastValid === null) return typeof entry.at === 'number' && now - entry.at > LIFETIME_BOUND_MS;
+  if (lastValid === null) return typeof entry.at === 'number' && now - entry.at > LIFETIME_ORIENTIM_MS;
   return view.coveredHeight !== null && view.coveredHeight > lastValid;
 }
 
 /** Where the history is kept; other tabs of the page watch it (a `storage` event). */
-export const HISTORY_KEY = 'bound.history.v1';
+export const HISTORY_KEY = 'orientim.history.v1';
 const KEY = HISTORY_KEY;
-const PROBE = 'bound.history.probe';
+const PROBE = 'orientim.history.probe';
 const MAX = 50;
 
 export const isUnsettled = (h: HistoryEntry) => h.status === 'pending' || h.status === 'unknown';
@@ -96,7 +96,7 @@ export const unsettledFor = (list: readonly HistoryEntry[], owner: string) =>
 /** The swap was not sent because this browser would not keep its record. */
 export class HistoryNotSaved extends Error {
   constructor() {
-    super("This browser didn't save the swap's record, so Bound did not send it.");
+    super("This browser didn't save the swap's record, so Orientim did not send it.");
   }
 }
 

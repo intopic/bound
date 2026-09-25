@@ -2,10 +2,10 @@
 
 import { address, isAddress } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ataOf, tokenAccountSizeFor } from '@bound/core';
-import type { TokenInfo } from '@bound/jupiter';
-import { hasPermanentDelegate, hasTransferFee, transferFeeOf, transferFeeOn, unsupportedExtension } from '@bound/verifier';
-import type { TransferFee } from '@bound/verifier';
+import { ataOf, tokenAccountSizeFor } from '@orientim/core';
+import type { TokenInfo } from '@orientim/jupiter';
+import { hasPermanentDelegate, hasTransferFee, transferFeeOf, transferFeeOn, unsupportedExtension } from '@orientim/verifier';
+import type { TransferFee } from '@orientim/verifier';
 import { getJupiter, getRpc } from './chain';
 
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -153,7 +153,7 @@ export async function searchTokens(query: string): Promise<TokenInfo[]> {
 }
 
 /**
- * Warnings about the token itself. Bound protects the wallet, not the value of what you buy.
+ * Warnings about the token itself. Orientim protects the wallet, not the value of what you buy.
  *
  * For a token Jupiter has not verified, including a pasted one it does not list, the authorities
  * come from the mint account, not from metadata (review BR-11). For a verified token Jupiter's audit

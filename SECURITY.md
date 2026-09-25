@@ -2,21 +2,21 @@
 
 ## Guarantee
 
-For every swap Bound builds:
+For every swap Orientim builds:
 
 1. The external swap program (Jupiter's route) can move at most `q − f` of the input token, where `q`
-   is the amount the user entered and `f` is the Bound fee. The fee is compiled into the page at
+   is the amount the user entered and `f` is the Orientim fee. The fee is compiled into the page at
    build time (0.3% by default) and the verifier refuses anything above 1% (`MAX_FEE_BPS`). When
    the route opens an account in the temporary key's name and charges it the rent (both of
    Pump.fun's markets do, once per buyer), it can also reach exactly that rent, which is measured in simulation, capped at
    0.005 SOL (`MAX_TAKER_RENT_LAMPORTS`) and stated before signing. Nothing else in SOL, apart
-   from Bound's own fee when a pair pays it in SOL from the wallet (below).
+   from Orientim's own fee when a pair pays it in SOL from the wallet (below).
 2. It never receives the wallet W or any token account of W except the output account `W_out`. Any
    delegate on `W_out` is revoked by a trusted instruction before the swap runs, and a `W_out` with
    a close authority is refused.
 3. The transaction grants no new authority over W's assets (no approvals, no ownership changes).
 4. The user receives at least the minimum they accepted before signing, which is never below the
-   quote less the slippage: 0.5%, or 3% when the route trades on a Pump.fun bonding curve. Bound
+   quote less the slippage: 0.5%, or 3% when the route trades on a Pump.fun bonding curve. Orientim
    checks it on chain after the swap; if less arrived, the whole transaction reverts. When a token
    is bought, the check compares the user's account for that token with its balance when the swap
    was prepared, and that balance is read from the RPC: the check assumes the RPC reports it
@@ -25,12 +25,12 @@ For every swap Bound builds:
    RPC: it measures what its own instruction delivers, and the verifier requires that instruction to
    deliver into the user's own account (or E's temporary one for SOL), so that floor is always on the
    right account (research audit), and requires it to reach the whole minimum, not only the quote:
-   when the user accepted more than the route's own floor, Bound tightens the route's tolerance until
+   when the user accepted more than the route's own floor, Orientim tightens the route's tolerance until
    it does (engineering review H-03). A transfer arriving at the same moment, or another swap into
-   the same token, cannot then make up for a route that delivered less. Bound never runs two of its
+   the same token, cannot then make up for a route that delivered less. Orientim never runs two of its
    own swaps into the same token at once in the same browser.
 
-Bound has one minimum-output model for every router: an exact base-unit amount enforced by a trusted
+Orientim has one minimum-output model for every router: an exact base-unit amount enforced by a trusted
 instruction in the same transaction and checked independently by the verifier. A router's own
 threshold may make that amount stricter, never weaker. Router-only, off-chain or differently shaped
 guarantees are not substitutes; an integration that cannot compile to this balance floor is not a
@@ -43,21 +43,21 @@ network fee (≤ F_max, and never above 0.001 SOL)
 + q, when SOL is the input
 + rent, only when the swap opens W's account for the output token
   (1,488,440 lamports ≈ 0.0015 SOL on 23 September 2026, read from the cluster; the rent per byte
-  falls again in November 2026 under SIMD-0437, and Bound shows whatever the cluster says)
+  falls again in November 2026 under SIMD-0437, and Orientim shows whatever the cluster says)
 + route rent, only when the route opens an account in E's name
   (1,346,200 or 1,478,280 lamports ≈ 0.0013–0.0015 SOL on Pump.fun's markets, September 2026;
   at most 0.005 SOL), of which the account's own rent comes back in the same transaction
   (1,346,200 lamports: all of it on PumpSwap, all but 132,080 on a bonding curve that grows)
-+ Bound's fee in SOL, only for a pair neither token of which can carry it
++ Orientim's fee in SOL, only for a pair neither token of which can carry it
   (0.3% of the swap's value in SOL when it is built; shown before the wallet opens)
 ```
 
 The account the route rent pays for, Pump.fun's per-buyer volume accumulator, is closed at the end of
-the same transaction and its lamports go straight back to W (review FA-05): Bound adds Pump's own
+the same transaction and its lamports go straight back to W (review FA-05): Orientim adds Pump's own
 `close_user_volume_accumulator`, signed by E, and a transfer of what it returned from E to W. What
 the market keeps is only what it spent elsewhere (132,080 lamports when a bonding curve grows its
 own account; nothing on PumpSwap), and that is what the page shows as the market's account fee.
-This is the one instruction of a market's program that Bound itself places, and the verifier admits
+This is the one instruction of a market's program that Orientim itself places, and the verifier admits
 it only in its exact IDL shape, for E's own account (the PDA is derived, not read), for Pump's two
 programs, and only **after E's last token account is closed**: when it runs, E's signature reaches
 nothing but the lamports it returns. A Pump program changed by its upgrade authority could keep
@@ -69,15 +69,15 @@ opens is caught the same way: before the wallet signs, the exact transaction is 
 account the route is given that did not exist before the swap must end closed, besides the wallet's
 own output account (third audit, F5). The page, the agent API and the agent's own check all do it.
 A simulation is not the landing: a market that behaves differently a few seconds later is outside
-what Bound can check without a program of its own on chain.
+what Orientim can check without a program of its own on chain.
 
-Through the agent API, E is derived from Bound's server secret and the ticket's nonce, so whoever
-holds that secret can derive it again. Bound does so only to countersign the same message when
+Through the agent API, E is derived from Orientim's server secret and the ticket's nonce, so whoever
+holds that secret can derive it again. Orientim does so only to countersign the same message when
 finalize is asked again for a ticket, and never logs nonces. That is why nothing may remain under E,
 or in an account the route opened, after the swap.
 
-The rent stays in the user's own new token account and is shown before signing. Bound never makes the
-user pay rent for Bound's own fee account.
+The rent stays in the user's own new token account and is shown before signing. Orientim never makes the
+user pay rent for Orientim's own fee account.
 
 The fee (0.3%) is taken in the order Jupiter prefers for its own (its pricing and token list differ):
 in SOL first, then USDC, then USDT, on
@@ -112,7 +112,7 @@ R1's address filter then only has to cover what can move **without** W's signatu
   swap it can reach only accounts of that mint the route was given: E's, which are the route's
   anyway, and `W_out`. What protects `W_out` is the minimum-output check, which counts `W_out`'s
   balance after the swap against its balance before, so anything the delegate takes out is netted.
-  Bound also refuses a delegate that is a program-derived address, but that rule is not what
+  Orientim also refuses a delegate that is a program-derived address, but that rule is not what
   protects the user: an "ordinary" delegate can still be a Token-program multisig whose signer is a
   program, and the delegate can be reassigned after the snapshot (review BR-05, AUDIT.md sections
   0j and 0m). A transfer hook with a real program is refused. Tokens used only inside the route's
@@ -129,8 +129,8 @@ The guarantee holds if these are correct and unmodified:
 | --- | --- | --- |
 | Solana runtime | A program cannot use accounts or signatures it was not given | Runtime attack tests (T1) and a malicious swap program run in a real Solana VM against classic SPL and Token-2022 (T6, 32/32) |
 | SPL Token and Token-2022 programs | Transfers respect owner and amount; a self-transfer checks the balance | Audited, widely used; the self-transfer behaviour is tested on mainnet state (T5) and both programs are exercised through hostile CPI (T6) |
-| Bound code in the browser | Compiler and verifier are correct and untampered | Independent verifier, mutation and property tests, nonce-based CSP, minimal dependencies |
-| Bound's server | Serves the genuine page, and relays RPC answers and token metadata | CI compares two builds and the page uses partial SRI (details below). The server cannot change the fee or the treasury (compiled into the page); F_max from the server is capped by the verifier; decimals are checked against the mint on chain |
+| Orientim code in the browser | Compiler and verifier are correct and untampered | Independent verifier, mutation and property tests, nonce-based CSP, minimal dependencies |
+| Orientim's server | Serves the genuine page, and relays RPC answers and token metadata | CI compares two builds and the page uses partial SRI (details below). The server cannot change the fee or the treasury (compiled into the page); F_max from the server is capped by the verifier; decimals are checked against the mint on chain |
 | RPC | Returns true lookup tables and account state | v1 has no lookup tables, but account state (owners, balances, decimals, authorities) still comes from the RPC; v0 tables come from the same single provider (see "One RPC provider") |
 | Wallet | Signs what it is given | The returned message is re-verified byte for byte before E signs |
 | Jupiter's on-chain program | Its floor measures what its route instruction delivered to the destination account | Pinned by address; only its two known route formats are accepted, and the verifier requires the floor at the account the minimum is checked on |
@@ -150,7 +150,7 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   It does not freeze the chain: state that changes between the check and the landing (a balance, a
   pool, a token's settings) is met by what the transaction enforces on chain (the exact debits, the
   minimum-output check, Jupiter's floor), or the transaction reverts.
-- A compromised Bound server that still serves the genuine page: it sees mints, amounts, E's public
+- A compromised Orientim server that still serves the genuine page: it sees mints, amounts, E's public
   key and the user's address, never the wallet's key. (The agent API is different: its server holds
   the secret E is derived from, and an agent that skips the verification in the skill trusts the
   server with its whole wallet; see AGENT-API.md.) It can pause swaps, change the alpha limit and
@@ -160,7 +160,7 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   built: the verifier pins where it goes, not its price, so the page shows it before the wallet
   opens and an agent's check holds it to a price of its own. The server also relays RPC answers,
   Jupiter's answers and token metadata. Wrong decimals are caught against the chain. A relay that
-  under-reports the balance of the user's output account weakens Bound's own minimum-output check
+  under-reports the balance of the user's output account weakens Orientim's own minimum-output check
   for a token output, which counts from that balance (review BR-01); what still holds the route to
   the whole minimum is Jupiter's on-chain floor, which the verifier requires at that same account
   and which measures what Jupiter's instruction delivered there, whatever else is in it
@@ -172,25 +172,25 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
 ## Not covered
 
 - A compromised server or dependency that serves a **modified** page (see the TCB above).
-- Phishing sites that do not use Bound, and approvals the user granted elsewhere before.
+- Phishing sites that do not use Orientim, and approvals the user granted elsewhere before.
 - The value of the token bought (rug pulls, freeze authority, mint authority). The page warns about
   the last two.
 - Price movement and MEV within the slippage tolerance (0.5%, or 3% on a Pump.fun bonding curve):
   the minimum output is the quoted amount minus that tolerance.
-- Token-2022 tokens whose extensions Bound refuses: a permanent delegate a program can sign for,
+- Token-2022 tokens whose extensions Orientim refuses: a permanent delegate a program can sign for,
   accounts frozen by default, pausable, non-transferable, interest-bearing, a scaled UI amount, a
   required memo, a transfer hook with a real program, or any extension the verifier does not know.
 - What a token's issuer can do outside the swap. A stablecoin such as PYUSD gives its issuer a
-  delegate that can move or freeze it in any wallet; Bound accepts it only when that delegate cannot
+  delegate that can move or freeze it in any wallet; Orientim accepts it only when that delegate cannot
   act inside the swap, and says so to the user, but it cannot and does not limit the issuer.
-- A token that charges its own transfer fee is supported, and costs more through Bound than
+- A token that charges its own transfer fee is supported, and costs more through Orientim than
   elsewhere: the fee applies to every transfer, and a protected swap makes one transfer more than
   an unprotected one. The page says so before the swap and again while the wallet is open. That
-  money goes to the token, never to Bound.
+  money goes to the token, never to Orientim.
 - A price that is worse than the open market: a protected route must fit in one transaction and
   leaves out pools that would leave an account behind. From 0.5% the page shows the difference and
   asks, with a stronger warning past 5%; the swap is never blocked over it, because a person who
-  understands the cost and still wants the guarantee is entitled to it. Bound refuses on its own
+  understands the cost and still wants the guarantee is entitled to it. Orientim refuses on its own
   only past 50%, where the answer is not a price but a broken one. Note that this difference is not
   price impact: the size of a trade moves the market for the protected and the unprotected route
   alike, so it cancels out of the comparison. **This comparison is a courtesy, not a guarantee:** both the protected route and
@@ -206,7 +206,7 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
 ## What an outcome proves
 
 A swap is reported `confirmed` (or `failed`) once the network confirms it: a supermajority of the
-stake voted for its block. That is the finality Bound acts on; `finalized` comes some 13 seconds
+stake voted for its block. That is the finality Orientim acts on; `finalized` comes some 13 seconds
 later. A confirmed block is not expected to be rolled back, but an integrator that needs rooted
 finality should wait for it.
 
@@ -220,7 +220,7 @@ nothing, and the outcome stays unknown:
 
 - on the page, the wallet starts no new swap until the network settles the last one; if it never
   can, the person looks it up on Solscan and sets it aside themselves ("I've checked it");
-- for an agent, `recover` leaves it unknown, and `bound-verify resolve` (or `resolvePending`) settles
+- for an agent, `recover` leaves it unknown, and `orientim-verify resolve` (or `resolvePending`) settles
   it once the operator has looked it up in a full history. The chain's own answer, when the RPC
   still has one, is used instead of the operator's.
 
@@ -230,7 +230,7 @@ transaction that may have landed. This holds while the person keeps this browser
 
 ## What works and what is refused
 
-| Class | Bound's answer |
+| Class | Orientim's answer |
 | --- | --- |
 | SOL, classic SPL tokens | Swapped |
 | Token-2022 with metadata, groups, close authority, confidential-transfer extensions, an unset transfer hook, default state initialized | Swapped; a confidential balance is not what is swapped |
@@ -240,14 +240,14 @@ transaction that may have landed. This holds while the person keeps this browser
 | An account the issuer froze, or freezes later | Fails in simulation, or reverts: nothing moves |
 | Pump.fun bonding curve and PumpSwap | Swapped; the per-buyer account is closed and its rent returned, or the route is refused |
 | Any other market that opens an account and leaves it open | Refused (third audit, F5) |
-| Routes too large for one transaction | Refused: Bound never splits a swap |
+| Routes too large for one transaction | Refused: Orientim never splits a swap |
 | Wallets that sign and return (Wallet Standard `signTransaction`) | Supported; the real-wallet test is still to be done |
 | Sign-and-send-only wallets, multisig vaults | Cannot sign first: not supported |
 | v1 transactions | Built only when enabled and only for a route too big for v0 |
 
 ## The temporary key (D7)
 
-E is a non-extractable WebCrypto key: its private bytes cannot be exported, not even by Bound's own
+E is a non-extractable WebCrypto key: its private bytes cannot be exported, not even by Orientim's own
 code. That is not the same as "cannot be used": while the page is open, script running in it could
 ask E to sign. This does not break the guarantee, because E's accounts are empty outside the
 transaction and nothing moves without W's signature, but it is one more reason the page's CSP
@@ -256,8 +256,8 @@ it is only as discarded as that secret is kept.
 
 ## Certificate
 
-After a transaction passes every rule, the verifier (`@bound/verifier`) issues a certificate bound
-to the SHA-256 of the exact message: approved total debit, swap amount, Bound fee, minimum output,
+After a transaction passes every rule, the verifier (`@orientim/verifier`) issues a certificate bound
+to the SHA-256 of the exact message: approved total debit, swap amount, Orientim fee, minimum output,
 signers, the programs the transaction invokes directly, "other tokens debited: none", "persistent
 permissions: none", the verifier's version and the slot of the chain state the rules were checked
 against. The page does not show it: the person swapping is told the amounts, the minimum and the
@@ -266,15 +266,15 @@ costs in plain words. The certificate travels with the prepared swap for whoever
 A certificate is a receipt, not a proof. It is not signed by anyone, and it is issued by the same
 code that verified the transaction, so a compromised page could show one that says anything. It is
 worth exactly what the verifier that issued it is worth: a wallet, an agent or an auditor that does
-not trust the page should run `@bound/verifier` on the same bytes, policy and chain state and
+not trust the page should run `@orientim/verifier` on the same bytes, policy and chain state and
 compare. For an automated signer that is the intended use — run the verifier next to the signer.
 
 ## Frontend hardening
 
 - Content-Security-Policy with a fresh nonce per request and `'strict-dynamic'` (no `'unsafe-inline'`
-  for scripts), images only from Bound's origin and `data:`, network connections only to Bound's
+  for scripts), images only from Orientim's origin and `data:`, network connections only to Orientim's
   origin, no framing.
-- Token icons are fetched by Bound's server from a fixed list of HTTPS hosts and served from Bound's
+- Token icons are fetched by Orientim's server from a fixed list of HTTPS hosts and served from Orientim's
   origin, so token creators' hosts never see users' IP addresses.
 - This closes direct channels out of the page, not every channel: same-origin endpoints that relay a
   query to Jupiter (`/api/jupiter/tokens`, `/api/token-icon`) remain. The CSP is a mitigation, not a
@@ -286,16 +286,16 @@ compare. For an automated signer that is the intended use — run the verifier n
 
 ## Data
 
-Bound maintains no customer database, no wallet database and no transaction history as part of its
+Orientim maintains no customer database, no wallet database and no transaction history as part of its
 protection engine; a user's swap history lives only in their own browser. Requests are computed and
-discarded. The hosting platform and the RPC provider keep their own operational logs, so Bound does
+discarded. The hosting platform and the RPC provider keep their own operational logs, so Orientim does
 not promise that nothing is logged anywhere.
 
 ## Verifying the code you are running
 
 A page can claim anything. These are the two ways to check this one.
 
-**The build is reproducible.** `BOUND_BUILD_ID=<commit> npm run build && node tools/build-digest.ts`
+**The build is reproducible.** `ORIENTIM_BUILD_ID=<commit> npm run build && node tools/build-digest.ts`
 prints one hash over every file the browser can load from `/_next/static`. Two builds of the same
 commit produce the same hash — CI proves it on every push by building twice — so the digest
 published with a release can be compared against a build you made yourself.
@@ -351,7 +351,7 @@ markers appears anywhere in `.next/static`, so none of them reaches a browser.
 Two things matter more than the count itself.
 
 **`connect-src 'self'`.** A compromised dependency inside the page cannot send anything anywhere:
-the CSP allows network calls only back to Bound's own origin, and `img-src` is `'self' data:`. What
+the CSP allows network calls only back to Orientim's own origin, and `img-src` is `'self' data:`. What
 it could still do is alter the transaction before the wallet sees it — but the verifier lives in the
 same bundle, so a compromised bundle is compromised whatever its dependency count. That is what the
 reproducible build and SRI above are for, and it is why they matter more than this table.
@@ -371,7 +371,7 @@ and the digest published with the release is what makes that visible.
 
 ## One RPC provider
 
-Bound runs on a single RPC provider (Helius). That is an operational choice: two providers from two
+Orientim runs on a single RPC provider (Helius). That is an operational choice: two providers from two
 companies would remove one trust assumption, at the cost of a second account, a second bill and a
 second thing that can break.
 
@@ -380,12 +380,12 @@ tables. What depends on it, from the v1 review (AUDIT.md section 0m):
 
 | Read | Used for | If the RPC lies |
 | --- | --- | --- |
-| Balance of the output account | The minimum-output check for a token output | Bound's check can pass with less delivered, but Jupiter's floor still holds the route to the whole minimum: the verifier requires Jupiter to deliver into that same account and its floor (quote less tolerance) to reach the minimum, and Jupiter measures what its instruction delivered, not the balance (engineering review H-03) |
+| Balance of the output account | The minimum-output check for a token output | Orientim's check can pass with less delivered, but Jupiter's floor still holds the route to the whole minimum: the verifier requires Jupiter to deliver into that same account and its floor (quote less tolerance) to reach the minimum, and Jupiter measures what its instruction delivered, not the balance (engineering review H-03) |
 | Lookup table contents | R1 | Together with a lying Jupiter, an account could be hidden. v1 transactions have no lookup tables |
 | Owners and data of the route's accounts | R1's test for W's own accounts | A W account with a delegate the user set up earlier could be hidden |
 | Mints: owner, decimals, extensions | R2, R7, amounts | A wrong decimals value reverts on chain (TransferChecked); a hidden extension falls back on the minimum |
 | Simulation | The route rent sent to E | Up to the 0.005 SOL cap, stated before signing |
-| Whether the treasury has an account | Fee on or off | Only Bound's revenue |
+| Whether the treasury has an account | Fee on or off | Only Orientim's revenue |
 | Blockhash, fee, epoch | Lifetime, the fee check, tax pricing | Expiry or a revert, never a loss |
 | Statuses, block height | What the page and an agent report | For some 30 seconds after a swap's lifetime, a landed swap could be shown as expired; past it, "no record" is never read as expired (section "What an outcome proves") |
 
@@ -394,34 +394,34 @@ templates, the fee caps, and the bytes the wallet signs.
 
 A v1 transaction carries no lookup tables at all, so the assumption disappears as wallets adopt
 it. The optional cross-check against a second provider was removed on 23 September 2026 to keep
-Bound simple; it never ran in the setup Bound uses, and bringing it back would be a code change.
+Orientim simple; it never ran in the setup Orientim uses, and bringing it back would be a code change.
 
 ## Operational controls
 
-- Kill switch `BOUND_DISABLED=1`: enforced by the server (`/api/jupiter/build`, `sendTransaction`
+- Kill switch `ORIENTIM_DISABLED=1`: enforced by the server (`/api/jupiter/build`, `sendTransaction`
   on `/api/rpc` and both agent endpoints are refused), not only hidden in the UI. **On Vercel an
   environment change reaches only new deployments** (review FA-02), so flipping it in the dashboard
   does nothing until a redeploy. The runbook:
-  1. Keep a paused deployment ready: deploy the current release once more with `BOUND_DISABLED=1`
+  1. Keep a paused deployment ready: deploy the current release once more with `ORIENTIM_DISABLED=1`
      and leave it unpromoted. Rebuild it with every release.
   2. To pause: promote that deployment (dashboard, "Promote to Production", or `vercel promote <url>`),
      which takes seconds. To resume: promote the normal deployment back ("Instant Rollback").
-  3. Revoking an API key or rotating `BOUND_API_SECRET` is a redeploy; for an urgent revocation,
+  3. Revoking an API key or rotating `ORIENTIM_API_SECRET` is a redeploy; for an urgent revocation,
      pause first (step 2), then redeploy with the key removed.
   4. Rehearse it once on a preview: promote, check `/api/status` says paused and a
      `sendTransaction` is refused, promote back, and write down how long each step took.
 - The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
   or a multisig (e.g. Squads).
-- Relays: `/api/rpc` sends and simulates only transactions shaped like a Bound swap (two signers,
+- Relays: `/api/rpc` sends and simulates only transactions shaped like a Orientim swap (two signers,
   one Jupiter route the verifier can read, otherwise only its trusted instruction shapes; review
-  FA-06). That narrows what Bound's RPC account can be used for, but a shape says nothing about
-  amounts or destinations, so it does not prove a request is a paid Bound swap (engineering review
+  FA-06). That narrows what Orientim's RPC account can be used for, but a shape says nothing about
+  amounts or destinations, so it does not prove a request is a paid Orientim swap (engineering review
   M-08); the app's rate limit is per instance. What bounds the cost: a firewall rule per path at the
   host, spend alerts on the RPC account, and separate keys for the agent API
   (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`). Jupiter counts its limits per organisation, not per
   key: the API's Jupiter key has a quota of its own only if it comes from a separate Jupiter account
   (research audit F-10).
-- Upstream changes: Jupiter, Pump.fun and Token-2022 are upgraded while Bound runs (on 24 September
+- Upstream changes: Jupiter, Pump.fun and Token-2022 are upgraded while Orientim runs (on 24 September
   2026 the Pump curve program was half a day old and Jupiter's two days; the canary prints the dates
   each run), and a Jupiter instruction the verifier cannot read stops every swap with `route-format`
   ("waiting for an update"). `node tools/canary.ts` builds and simulates seven swaps on mainnet state,
@@ -429,25 +429,25 @@ Bound simple; it never ran in the setup Bound uses, and bringing it back would b
   transaction, and Pump.fun buys on the curve and on PumpSwap; it fails on such a change, on a fee
   that is no longer taken where it should be, and exits 2 when nothing could be checked at all
   (engineering review M-09). `.github/workflows/canary.yml` runs it every 30 minutes once the repository
-  variable `BOUND_CANARY` is `1` (off by default: on a private repository it would use more than the
-  free Actions minutes). The page and the API also log Jupiter refusing Bound's key (401, 403) or
+  variable `ORIENTIM_CANARY` is `1` (off by default: on a private repository it would use more than the
+  free Actions minutes). The page and the API also log Jupiter refusing Orientim's key (401, 403) or
   an endpoint that is gone (404, 410) (research audit F-07, F-08).
 - Releases: deploy only tagged commits, and only after CI is green. The release workflow runs the
   typecheck, the tests and the skill bundle's check itself before it publishes a digest. Actions are pinned by commit, and
   a second job builds on another runner image and must match the digest (review FA-10). A tag `v*` publishes the build's digest as a GitHub
   release, built with the public settings in the repository variables, which must match
   production's; the live check compares the site with it every three hours and needs
-  `BOUND_SITE_URL`. The build is deterministic: CI builds every commit twice and fails if the two
+  `ORIENTIM_SITE_URL`. The build is deterministic: CI builds every commit twice and fails if the two
   digests differ, and a Vercel build takes its build id from the commit.
-- No limit per swap: the guarantee is the same for any amount, and nothing in Bound holds funds.
-  `BOUND_MAX_USD_PER_SWAP` exists as an operational valve and is unset by default; while it applies
+- No limit per swap: the guarantee is the same for any amount, and nothing in Orientim holds funds.
+  `ORIENTIM_MAX_USD_PER_SWAP` exists as an operational valve and is unset by default; while it applies
   it is enforced in the page only, and tokens without a USD price are blocked. A large swap is
-  limited by the route, not by us: if no route fits inside one transaction, Bound refuses to build
-  it rather than splitting the swap (section "What Bound does not protect").
+  limited by the route, not by us: if no route fits inside one transaction, Orientim refuses to build
+  it rather than splitting the swap (section "What Orientim does not protect").
 - API routes are stateless: allowlisted RPC methods and Jupiter parameters (`payer` is refused),
   request bodies counted in bytes and capped at
   64 KiB, 15 s timeouts upstream, and no request bodies are stored.
-- Rate limits are keyed on the one header the ingress overwrites (`BOUND_CLIENT_IP_HEADER`, default
+- Rate limits are keyed on the one header the ingress overwrites (`ORIENTIM_CLIENT_IP_HEADER`, default
   `x-vercel-forwarded-for`); no other header is read. They are per instance: set a rate-limit rule in
   the hosting firewall for a limit across instances.
 

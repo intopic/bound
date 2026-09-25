@@ -5,7 +5,7 @@
  * number a user saw was higher than the one they could actually get.
  */
 import { address } from '@solana/kit';
-import { ataOf, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@bound/core';
+import { ataOf, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientim/core';
 import { describe, expect, it } from 'vitest';
 import { amountReachingRoute, currentTransferFee, mintAta, tokenWarnings } from '../lib/client/tokens';
 

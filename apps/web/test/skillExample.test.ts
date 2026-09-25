@@ -1,5 +1,5 @@
 /**
- * The skill's example (skills/bound-protected-swap/examples/swap.ts) is what agents will copy, so it
+ * The skill's example (skills/orientim-protected-swap/examples/swap.ts) is what agents will copy, so it
  * runs here end to end against the real agent API handlers. Its check must hold against a server
  * that lies (review FA-01): every answer below is one a compromised server, relay or impostor URL
  * could send, and each must be refused before the wallet signs.
@@ -18,28 +18,28 @@ import {
   AuthorityType, getApproveInstruction, getSetAuthorityInstruction, getTransferCheckedInstruction,
 } from '@solana-program/token';
 import { getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
-import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
+import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import {
-  acquireLock, BoundApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
-  BoundOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
-} from '../../../skills/bound-protected-swap/examples/swap.ts';
-import type { OrderBook, Signed } from '../../../skills/bound-protected-swap/examples/swap.ts';
-import { runCli } from '../../../skills/bound-protected-swap/src/cli.ts';
+  acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
+  OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
+} from '../../../skills/orientim-protected-swap/examples/swap.ts';
+import type { OrderBook, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
+import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BOUND_TREASURY, inputTransferFee, ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
-import { routeAccountFor } from '@bound/verifier';
+import { ORIENTIM_TREASURY, inputTransferFee, ownMinimum } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
+import { routeAccountFor } from '@orientim/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
-import type { Intent, Prepared } from '../../../skills/bound-protected-swap/examples/swap.ts';
+import type { Intent, Prepared } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 
-const KEY = 'bnd_skill_example_test_key_0001';
+const KEY = 'ori_skill_example_test_key_0001';
 const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
 /** Jupiter as the agent reaches it itself, over HTTP: the honest market. */
@@ -53,10 +53,10 @@ const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter())
 };
 
 /**
- * `market`: what Bound's server quotes from, which a compromised server chooses. `treasuryWallet`:
+ * `market`: what Orientim's server quotes from, which a compromised server chooses. `treasuryWallet`:
  * the treasury's wallet exists, so a sale into SOL pays its fee in SOL, out of the output.
  */
-async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean } = {}) {
+async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean } = {}) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
@@ -89,11 +89,11 @@ async function bound(opts: { market?: JupiterClient; treasuryWallet?: boolean; s
 }
 
 // A floor of the agent's own is required (research audit F-02); 1 lets the other checks speak.
-// The test deployment's treasury stands in for Bound's pinned one (named, as for another deployment).
+// The test deployment's treasury stands in for Orientim's pinned one (named, as for another deployment).
 const intentFor = (wallet: KeyPairSigner): Intent => ({ owner: wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1', treasury: TREASURY });
 
-async function honestAnswer(b: Awaited<ReturnType<typeof bound>>): Promise<Prepared> {
-  const res = await b.fetchImpl('http://bound.test/api/v1/prepare', {
+async function honestAnswer(b: Awaited<ReturnType<typeof orientim>>): Promise<Prepared> {
+  const res = await b.fetchImpl('http://orientim.test/api/v1/prepare', {
     method: 'POST', headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
     body: JSON.stringify({ owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' }),
   });
@@ -130,9 +130,9 @@ function honestInstructions(honest: Prepared): Instruction[] {
 
 describe("the skill's example", () => {
   it('prepares, verifies on its own RPC, signs as the wallet, finalizes and confirms', async () => {
-    const b = await bound();
+    const b = await orientim();
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
       intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     });
     expect(result.outcome).toBe('confirmed');
@@ -141,14 +141,14 @@ describe("the skill's example", () => {
   });
 
   it("an honest answer passes the agent's full check", async () => {
-    const b = await bound();
+    const b = await orientim();
     expect(await checkPrepared(await honestAnswer(b), intentFor(b.wallet), b.agentRpc)).toEqual([]);
   });
 });
 
 describe("a server that lies is refused before the wallet signs (review FA-01)", () => {
   it("the audit's drain: 1,000,000 USDC and 50 SOL to an attacker, with every statement made to match", async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const attacker = await generateKeyPairSigner();
     const W = createNoopSigner(b.wallet.address);
@@ -167,7 +167,7 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
     expect(problems.join()).toMatch(/R2/);
   });
 
-  const variants: [string, (b: Awaited<ReturnType<typeof bound>>, honest: Prepared, attacker: Address) => Promise<Prepared>][] = [
+  const variants: [string, (b: Awaited<ReturnType<typeof orientim>>, honest: Prepared, attacker: Address) => Promise<Prepared>][] = [
     ['an extra Approve of the wallet\'s input account to the attacker', async (b, honest, attacker) =>
       lyingAnswer(honest, b.wallet.address, [...honestInstructions(honest), getApproveInstruction({
         source: await ataOf(b.wallet.address, USDC), delegate: attacker, owner: createNoopSigner(b.wallet.address), amount: 10n ** 12n,
@@ -197,7 +197,7 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
   ];
   for (const [name, make] of variants) {
     it(name, async () => {
-      const b = await bound();
+      const b = await orientim();
       const honest = await honestAnswer(b);
       const lie = await make(b, honest, (await generateKeyPairSigner()).address);
       const intent = name === 'a minimum of 1' ? { ...intentFor(b.wallet), minOut: honest.amounts.minOut } : intentFor(b.wallet);
@@ -205,34 +205,34 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
     });
   }
 
-  it("a fee above Bound's 0.3% is refused unless the agent raises its limit itself", async () => {
-    const b = await bound();
+  it("a fee above Orientim's 0.3% is refused unless the agent raises its limit itself", async () => {
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const higher = { ...honest, policy: { ...honest.policy, feeBps: '50' } };
     expect((await checkPrepared(higher, intentFor(b.wallet), b.agentRpc)).join()).toContain('the fee of 50 bps is above your limit');
   });
 
-  it('unless the agent names another, the fee may go only to Bound\'s pinned treasury, or nowhere', async () => {
-    const b = await bound();
+  it('unless the agent names another, the fee may go only to Orientim\'s pinned treasury, or nowhere', async () => {
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const { treasury: _named, ...unnamed } = intentFor(b.wallet);
-    expect(BOUND_TREASURY).toBe('ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE');
-    // This deployment's treasury is not Bound's, so an agent that named none refuses the fee.
-    expect((await checkPrepared(honest, unnamed, b.agentRpc)).join()).toContain(`the fee goes to ${TREASURY}, not Bound's treasury`);
-    const toBound = { ...honest, policy: { ...honest.policy, treasury: BOUND_TREASURY } };
-    expect((await checkPrepared(toBound, unnamed, b.agentRpc)).join()).not.toContain('treasury');
+    expect(ORIENTIM_TREASURY).toBe('ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE');
+    // This deployment's treasury is not Orientim's, so an agent that named none refuses the fee.
+    expect((await checkPrepared(honest, unnamed, b.agentRpc)).join()).toContain(`the fee goes to ${TREASURY}, not Orientim's treasury`);
+    const toOrientim = { ...honest, policy: { ...honest.policy, treasury: ORIENTIM_TREASURY } };
+    expect((await checkPrepared(toOrientim, unnamed, b.agentRpc)).join()).not.toContain('treasury');
   });
 
-  it('the fee sent to another treasury is refused when the agent pins Bound\'s', async () => {
-    const b = await bound();
+  it('the fee sent to another treasury is refused when the agent pins Orientim\'s', async () => {
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const other = (await generateKeyPairSigner()).address;
     const lie = { ...honest, policy: { ...honest.policy, treasury: other } };
-    expect((await checkPrepared(lie, { ...intentFor(b.wallet), treasury: TREASURY }, b.agentRpc)).join()).toContain('not Bound\'s treasury');
+    expect((await checkPrepared(lie, { ...intentFor(b.wallet), treasury: TREASURY }, b.agentRpc)).join()).toContain('not Orientim\'s treasury');
   });
 
   it('answers that disagree with what was asked are refused by the plain checks too', async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const intent = intentFor(b.wallet);
     const cases: [string, Prepared, Partial<Intent>][] = [
@@ -256,14 +256,14 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
 
 describe('what the rules cannot see, the agent checks itself (research audit)', () => {
   it('without a floor of its own the agent does not sign: the price would be the server\'s word (F-02)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const problems = await checkPrepared(await honestAnswer(b), { ...intentFor(b.wallet), minOut: undefined }, b.agentRpc);
     expect(problems.join()).toContain('no minimum of your own');
   });
 
   it('a server that sells for almost nothing passes every rule, and is refused by the floor the agent got from Jupiter (F-02)', async () => {
     // The compromised server quotes from a pool it controls: a thousandth of the market.
-    const b = await bound({ market: fakeJupiter({ out: 1_000_000n }) });
+    const b = await orientim({ market: fakeJupiter({ out: 1_000_000n }) });
     const cheap = await honestAnswer(b);
     expect(await checkPrepared(cheap, intentFor(b.wallet), b.agentRpc)).toEqual([]);
     const floor = await ownMinimum({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: b.wallet.address, fetchImpl: b.fetchImpl });
@@ -273,9 +273,9 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
   });
 
   it('the example asks Jupiter for its floor itself and sends it with prepare (F-02)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
       intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     });
     expect(result.outcome).toBe('confirmed');
@@ -284,7 +284,7 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
   });
 
   it('route rent the server says the market needs, but that stays with the one-time key, is refused (F-06)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const ixs = honestInstructions(honest);
     const swap = ixs.findIndex(ix => ix.programAddress === 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
@@ -297,7 +297,7 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
   });
 
   it('rent the route keeps is refused beyond the limit the agent sets, 0.001 SOL by default (engineering review M-05)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const ixs = honestInstructions(honest);
     const swap = ixs.findIndex(ix => ix.programAddress === 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
@@ -309,7 +309,7 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
   });
 
   it('lamports left in a Pump market account under the one-time key are refused (engineering review M-05)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const market = await routeAccountFor(address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'), honest.temporaryAuthority as Address);
     // The agent's RPC reports the market's account under E still holding its rent after the swap.
@@ -325,7 +325,7 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
   });
 
   it('cashback left in a token account of a Pump market account under E is refused (engineering audit U1)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     // E and both market accounts are empty; the curve market's WSOL account holds cashback E could claim.
     const rpc = {
@@ -338,7 +338,7 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
   });
 
   it('a simulation that does not report the accounts proves nothing, and is refused (engineering review M-05)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const rpc = {
       ...b.agentRpc,
@@ -348,10 +348,10 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
   });
 
   it('with too few blocks left to land, the example does not finalize (F-05)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const late = { ...b.agentRpc, getBlockHeight: () => ({ send: async () => 990n }) } as unknown as Rpc<SolanaRpcApi>;
     await expect(protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: late, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: late, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
       intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     })).rejects.toThrow('only 10 blocks are left');
     expect(b.sent).toHaveLength(0);
@@ -360,9 +360,9 @@ describe('what the rules cannot see, the agent checks itself (research audit)', 
 
 describe("the fee, taken like Jupiter's, as the agent sees it", () => {
   it('a sale into SOL pays in SOL out of the output; the minimum the agent checks is what its wallet keeps', async () => {
-    const b = await bound({ treasuryWallet: true });
+    const b = await orientim({ treasuryWallet: true });
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
       intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     });
     expect(result.outcome).toBe('confirmed');
@@ -370,12 +370,12 @@ describe("the fee, taken like Jupiter's, as the agent sees it", () => {
     expect(p.amounts.feeMint).toBe(WSOL_MINT);
     expect(p.amounts.swapAmount).toBe(p.amounts.amountIn);
     expect(BigInt(p.amounts.minOut) + BigInt(p.amounts.fee)).toBe(BigInt(p.policy.minOut as string));
-    expect(p.certificate.output.boundFee).toBe(p.amounts.fee);
+    expect(p.certificate.output.orientimFee).toBe(p.amounts.fee);
     expect(p.certificate.output.minimumOutput).toBe(p.amounts.minOut);
   });
 
   it('a server that takes a larger fee from the output than it states is refused', async () => {
-    const b = await bound({ treasuryWallet: true });
+    const b = await orientim({ treasuryWallet: true });
     const honest = await honestAnswer(b);
     const lie = { ...honest, policy: { ...honest.policy, fee: String(BigInt(honest.policy.fee as string) * 2n) } };
     expect((await checkPrepared(lie, intentFor(b.wallet), b.agentRpc)).join()).toContain('policy amounts are inconsistent');
@@ -387,12 +387,12 @@ const swapIntent = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000'
 
 /**
  * The agent's own RPC on a chain that moves on: 40 blocks at every height read. A transaction is on
- * chain once Bound's server has sent it and the height has reached `landAt`; `others` are other
+ * chain once Orientim's server has sent it and the height has reached `landAt`; `others` are other
  * transactions the chain has confirmed. `from`: the height before the first read. The fake server's
  * transactions live until block 1,000, so a test that proves expiry starts the chain within their
  * life, as a real one is: "no record" proves nothing about a transaction signed long before (F1).
  */
-function chainOf(b: Awaited<ReturnType<typeof bound>>, opts: { landAt?: bigint; others?: string[]; statusSlot?: bigint; from?: bigint } = {}) {
+function chainOf(b: Awaited<ReturnType<typeof orientim>>, opts: { landAt?: bigint; others?: string[]; statusSlot?: bigint; from?: bigint } = {}) {
   let height = opts.from ?? 0n;
   const onChain = (s: string) => (b.sent.some(w => signatureOfWire(w) === s) && height >= (opts.landAt ?? 0n)) || !!opts.others?.includes(s);
   return {
@@ -412,7 +412,7 @@ function chainOf(b: Awaited<ReturnType<typeof bound>>, opts: { landAt?: bigint; 
 }
 
 /** The API over HTTP, with each finalize answer passed through `change` on its way back. */
-function answering(b: Awaited<ReturnType<typeof bound>>, change: (answer: Record<string, unknown>, n: number) => Record<string, unknown> | 'lost') {
+function answering(b: Awaited<ReturnType<typeof orientim>>, change: (answer: Record<string, unknown>, n: number) => Record<string, unknown> | 'lost') {
   let n = 0;
   return (async (url: string, init: RequestInit) => {
     const res = await b.fetchImpl(url, init);
@@ -425,14 +425,14 @@ function answering(b: Awaited<ReturnType<typeof bound>>, change: (answer: Record
 
 describe('after signing, the chain is the only witness (engineering review H-01, H-02)', () => {
   it('an answer lost after the swap was sent: finalize is asked once more, and the same transaction confirms', async () => {
-    const b = await bound();
+    const b = await orientim();
     let prepares = 0;
     const lossy = answering(b, (answer, n) => (n === 0 ? 'lost' : answer));
     const counting = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/prepare')) prepares++;
       return lossy(url, init);
     }) as unknown as typeof fetch;
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: counting, pollMs: 1, intent: swapIntent });
+    const result = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: counting, pollMs: 1, intent: swapIntent });
     expect(result.outcome).toBe('confirmed');
     expect(prepares).toBe(1);
     // The same transaction however often it went out, so it could land only once.
@@ -441,40 +441,40 @@ describe('after signing, the chain is the only witness (engineering review H-01,
   });
 
   it('with every answer lost, the outcome is still read for the transaction the wallet signed', async () => {
-    const b = await bound();
+    const b = await orientim();
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: answering(b, () => 'lost'), pollMs: 1, intent: swapIntent,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: answering(b, () => 'lost'), pollMs: 1, intent: swapIntent,
     });
     expect(result.outcome).toBe('confirmed');
     expect(result.signature).toBe(signatureOfWire(b.sent[0]));
   });
 
   it("another transaction's confirmed signature from the server is not a success", async () => {
-    const b = await bound();
+    const b = await orientim();
     const other = getBase58Decoder().decode(crypto.getRandomValues(new Uint8Array(64)));
     // The server sends nothing and names a transaction that did confirm, with bytes that are not ours.
     const liar = (async (url: string, init: RequestInit) => url.endsWith('/api/v1/finalize')
       ? new Response(JSON.stringify({ signature: other, status: 'sent', signedTransaction: Buffer.alloc(300, 1).toString('base64'), lastValidBlockHeight: '1000' }), { status: 200 })
       : b.fetchImpl(url, init)) as unknown as typeof fetch;
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { others: [other], from: 860n }), wallet: b.wallet, fetchImpl: liar, pollMs: 1, intent: swapIntent });
+    const result = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b, { others: [other], from: 860n }), wallet: b.wallet, fetchImpl: liar, pollMs: 1, intent: swapIntent });
     expect(result.outcome).toBe('expired');
     expect(result.signature).not.toBe(other);
     expect(b.sent).toHaveLength(0);
   });
 
   it('"sent" without the signed transaction is not a refusal: the swap it sent confirms', async () => {
-    const b = await bound();
+    const b = await orientim();
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, pollMs: 1, intent: swapIntent,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, pollMs: 1, intent: swapIntent,
       fetchImpl: answering(b, ({ signedTransaction: _, ...rest }) => rest),
     });
     expect(result.outcome).toBe('confirmed');
   });
 
   it('"rejected" from a server that sent it anyway: the outcome is what the chain shows', async () => {
-    const b = await bound();
+    const b = await orientim();
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, pollMs: 1, intent: swapIntent,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, pollMs: 1, intent: swapIntent,
       fetchImpl: answering(b, ({ signedTransaction: _, ...rest }) => ({ ...rest, status: 'rejected', refusal: 'network' })),
     });
     expect(result.outcome).toBe('confirmed');
@@ -483,14 +483,14 @@ describe('after signing, the chain is the only witness (engineering review H-01,
 
   it('a real refusal before sending is "rejected" once the transaction can no longer land', async () => {
     const preflight = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
-    const b = await bound({ sendError: preflight });
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { from: 860n }), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
+    const b = await orientim({ sendError: preflight });
+    const result = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b, { from: 860n }), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
     expect(result).toMatchObject({ outcome: 'rejected', refusal: 'network' });
     expect(b.sent).toHaveLength(0);
   });
 
   it('a lower lastValidBlockHeight from the server does not end the wait while the swap can still land', async () => {
-    const b = await bound();
+    const b = await orientim();
     // Both answers say the transaction dies at block 100; it lands at 180, as its real lifetime allows.
     const low = (async (url: string, init: RequestInit) => {
       const res = await b.fetchImpl(url, init);
@@ -498,12 +498,12 @@ describe('after signing, the chain is the only witness (engineering review H-01,
       const body = await res.json();
       return new Response(JSON.stringify({ ...body, lastValidBlockHeight: '100' }), { status: res.status });
     }) as unknown as typeof fetch;
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { landAt: 180n }), wallet: b.wallet, fetchImpl: low, pollMs: 1, intent: swapIntent });
+    const result = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b, { landAt: 180n }), wallet: b.wallet, fetchImpl: low, pollMs: 1, intent: swapIntent });
     expect(result.outcome).toBe('confirmed');
   });
 
   it('the signature is handed over to keep before finalize is asked', async () => {
-    const b = await bound();
+    const b = await orientim();
     const order: string[] = [];
     const watching = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/finalize')) order.push('finalize');
@@ -511,7 +511,7 @@ describe('after signing, the chain is the only witness (engineering review H-01,
     }) as unknown as typeof fetch;
     let kept = '';
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: watching, pollMs: 1, intent: swapIntent,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: watching, pollMs: 1, intent: swapIntent,
       onSigned: s => { kept = s.signature; order.push('signed'); },
     });
     expect(order).toEqual(['signed', 'finalize']);
@@ -528,10 +528,10 @@ describe('after signing, the chain is the only witness (engineering review H-01,
 
   it("a busy answer keeps its Retry-After, so the agent can wait as told", async () => {
     const busy: JupiterClient = { ...fakeJupiter(), build: async () => { throw new JupiterError('Jupiter 429: Too many requests', 429); } };
-    const b = await bound({ market: busy });
-    const err = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent })
+    const b = await orientim({ market: busy });
+    const err = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent })
       .catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(BoundApiError);
+    expect(err).toBeInstanceOf(OrientimApiError);
     expect(err).toMatchObject({ code: 'busy', retryAfter: 5 });
   });
 });
@@ -539,9 +539,9 @@ describe('after signing, the chain is the only witness (engineering review H-01,
 describe('a fee in SOL for a pair neither token of which can carry it (every swap pays)', () => {
   // USDC for BONK, with a treasury that has a wallet but no USDC account: the fee is paid in SOL.
   const pair = { inputMint: USDC, outputMint: BONK, amountIn: '1000000' };
-  const solFeeWorld = () => bound({ treasuryWallet: true, treasuryUsdc: false });
-  const prepareFor = async (b: Awaited<ReturnType<typeof bound>>) => {
-    const res = await b.fetchImpl('http://bound.test/api/v1/prepare', {
+  const solFeeWorld = () => orientim({ treasuryWallet: true, treasuryUsdc: false });
+  const prepareFor = async (b: Awaited<ReturnType<typeof orientim>>) => {
+    const res = await b.fetchImpl('http://orientim.test/api/v1/prepare', {
       method: 'POST', headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
       body: JSON.stringify({ owner: b.wallet.address, ...pair }),
     });
@@ -551,7 +551,7 @@ describe('a fee in SOL for a pair neither token of which can carry it (every swa
   it('the example holds it to a price of its own from Jupiter, and the swap goes through', async () => {
     const b = await solFeeWorld();
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: { ...pair, minOut: '1', treasury: TREASURY },
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: { ...pair, minOut: '1', treasury: TREASURY },
     });
     expect(result.outcome).toBe('confirmed');
     expect(result.prepared.amounts.feeMint).toBe(WSOL_MINT);
@@ -592,7 +592,7 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
   });
 
   it('a status node behind the finalized view keeps the outcome unknown; a covering one proves expiry (S1-H-01)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const lagging = chainOf(b, { statusSlot: 1n });
     expect(await confirm(lagging, 'unseen', 50n, { pollMs: 1, maxWaitMs: 60 })).toBe('unknown');
     expect(await confirm(chainOf(b), 'unseen', 50n, { pollMs: 1, maxWaitMs: 2_000, earliestHeight: 0n })).toBe('expired');
@@ -609,11 +609,11 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
   });
 
   it('a finalize that never answers ends on time, and the outcome is read for its own signature (S1-M-04)', async () => {
-    const b = await bound();
+    const b = await orientim();
     const silent = (async (url: string, init: RequestInit) => (url.endsWith('/api/v1/finalize')
       ? never(init.signal ?? undefined) : b.fetchImpl(url, init))) as unknown as typeof fetch;
     const result = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b, { from: 860n }), wallet: b.wallet, fetchImpl: silent, pollMs: 1, requestTimeoutMs: 20, intent: swapIntent,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b, { from: 860n }), wallet: b.wallet, fetchImpl: silent, pollMs: 1, requestTimeoutMs: 20, intent: swapIntent,
     });
     // Nothing reached the chain, and nothing is called rejected: it did not land and can no longer land.
     expect(result.outcome).toBe('expired');
@@ -621,14 +621,14 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
   });
 
   it('a swap that cannot be kept before finalize is not finalized (S1-M-01)', async () => {
-    const b = await bound();
+    const b = await orientim();
     let finalizes = 0;
     const counting = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/finalize')) finalizes++;
       return b.fetchImpl(url, init);
     }) as unknown as typeof fetch;
     await expect(protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: counting, pollMs: 1, intent: swapIntent,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: counting, pollMs: 1, intent: swapIntent,
       onSigned: () => { throw new Error('disk full'); },
     })).rejects.toThrow('disk full');
     expect(finalizes).toBe(0);
@@ -636,13 +636,13 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
   });
 
   it('what a stopped run kept is settled by its own signature on the next start; the unknown stays (S1-M-01)', async () => {
-    const b = await bound();
-    const dir = mkdtempSync(join(tmpdir(), 'bound-pending-'));
+    const b = await orientim();
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-pending-'));
     const store = createFileStore(dir);
     // A swap that was sent and landed while the process was down, and one the chain says nothing about yet.
     let kept: Parameters<typeof store.put>[0] | null = null;
     const landed = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent,
       onSigned: async s => { kept = s; await store.put(s); },
     });
     expect(landed.outcome).toBe('confirmed');
@@ -656,7 +656,7 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
   });
 
   it('one worker per wallet: a second one is refused until the first releases (S1-M-01)', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'bound-lock-'));
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-lock-'));
     const release = acquireLock(dir, 'wallet-one');
     expect(() => acquireLock(dir, 'wallet-one')).toThrow('Another swap');
     const other = acquireLock(dir, 'wallet-two');
@@ -667,7 +667,7 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
 });
 
 describe('wallets held by a signing service (remote signers)', () => {
-  const finalizesOf = (b: Awaited<ReturnType<typeof bound>>) => {
+  const finalizesOf = (b: Awaited<ReturnType<typeof orientim>>) => {
     const counter = { n: 0 };
     const fetchImpl = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/finalize')) counter.n++;
@@ -677,13 +677,13 @@ describe('wallets held by a signing service (remote signers)', () => {
   };
 
   it('a service that signs raw bytes is given the checked message, and the swap confirms', async () => {
-    const b = await bound();
+    const b = await orientim();
     let seen: Uint8Array | null = null;
     const remote = signerFromSignBytes(b.wallet.address, async message => {
       seen = message;
       return signBytes(b.wallet.keyPair.privateKey, message);
     });
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: remote, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
+    const result = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: remote, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
     expect(result.outcome).toBe('confirmed');
     const built = getTransactionDecoder().decode(Buffer.from(result.prepared.transaction, 'base64'));
     expect(Buffer.from(seen!).equals(Buffer.from(built.messageBytes))).toBe(true);
@@ -691,27 +691,27 @@ describe('wallets held by a signing service (remote signers)', () => {
   });
 
   it('a service that signs a transaction and hands it back unsent works', async () => {
-    const b = await bound();
+    const b = await orientim();
     const remote = signerFromSignTransaction(b.wallet.address, async wire => {
       const signed = await partiallySignTransaction([b.wallet.keyPair], getTransactionDecoder().decode(Buffer.from(wire, 'base64')));
       return Buffer.from(getTransactionEncoder().encode(signed)).toString('base64');
     });
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: remote, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
+    const result = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: remote, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent });
     expect(result.outcome).toBe('confirmed');
   });
 
   it("a signature that is not the wallet's for this message is refused, and nothing is finalized", async () => {
-    const b = await bound();
+    const b = await orientim();
     const { counter, fetchImpl } = finalizesOf(b);
     const wrong = signerFromSignBytes(b.wallet.address, async () => signBytes(b.wallet.keyPair.privateKey, new Uint8Array([1, 2, 3])));
-    await expect(protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: wrong, fetchImpl, pollMs: 1, intent: swapIntent }))
+    await expect(protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: wrong, fetchImpl, pollMs: 1, intent: swapIntent }))
       .rejects.toThrow('no valid signature');
     expect(counter.n).toBe(0);
     expect(b.sent).toHaveLength(0);
   });
 
   it('a service that changes the transaction before signing it is refused, and nothing is finalized', async () => {
-    const b = await bound();
+    const b = await orientim();
     const { counter, fetchImpl } = finalizesOf(b);
     const meddling = signerFromSignTransaction(b.wallet.address, async wire => {
       const tx = getTransactionDecoder().decode(Buffer.from(wire, 'base64'));
@@ -720,24 +720,24 @@ describe('wallets held by a signing service (remote signers)', () => {
       const signed = await partiallySignTransaction([b.wallet.keyPair], { ...tx, messageBytes: message as never });
       return Buffer.from(getTransactionEncoder().encode(signed)).toString('base64');
     });
-    await expect(protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: meddling, fetchImpl, pollMs: 1, intent: swapIntent }))
+    await expect(protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: meddling, fetchImpl, pollMs: 1, intent: swapIntent }))
       .rejects.toThrow('changed the transaction');
     expect(counter.n).toBe(0);
     expect(b.sent).toHaveLength(0);
   });
 });
 
-describe('bound-verify, the command for bots in other languages', () => {
-  const setup = async (opts: { rpc?: (b: Awaited<ReturnType<typeof bound>>) => Rpc<SolanaRpcApi> } = {}) => {
-    const b = await bound();
-    const stateDir = mkdtempSync(join(tmpdir(), 'bound-cli-'));
+describe('orientim-verify, the command for bots in other languages', () => {
+  const setup = async (opts: { rpc?: (b: Awaited<ReturnType<typeof orientim>>) => Rpc<SolanaRpcApi> } = {}) => {
+    const b = await orientim();
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-cli-'));
     let finalizes = 0;
     const fetchImpl = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/finalize')) finalizes++;
       return b.fetchImpl(url, init);
     }) as unknown as typeof fetch;
     const deps = {
-      rpc: opts.rpc ? opts.rpc(b) : b.agentRpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY,
+      rpc: opts.rpc ? opts.rpc(b) : b.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY,
       pollMs: 1, maxWaitMs: 60,
     };
     const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' };
@@ -798,7 +798,7 @@ describe('bound-verify, the command for bots in other languages', () => {
     const lie = { ...honest, policy: { ...honest.policy, treasury: other.address } };
     const refused = await runCli('check', { prepared: lie, intent: intentFor(b.wallet) }, deps);
     expect(refused.code).toBe(1);
-    expect(String(refused.output.problems)).toContain("not Bound's treasury");
+    expect(String(refused.output.problems)).toContain("not Orientim's treasury");
   });
 
   it('usage errors exit 2, and the bundled command runs as a command only', async () => {
@@ -806,23 +806,23 @@ describe('bound-verify, the command for bots in other languages', () => {
     expect((await runCli('prepare', {}, deps)).code).toBe(2);
     expect((await runCli('finalize', { checked: {} }, deps)).code).toBe(2);
     expect((await runCli('swap', {}, deps)).code).toBe(2);
-    const run = spawnSync(process.execPath, ['skills/bound-protected-swap/bin/bound-verify.mjs'], { encoding: 'utf8', cwd: join(import.meta.dirname, '../../..') });
+    const run = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs'], { encoding: 'utf8', cwd: join(import.meta.dirname, '../../..') });
     expect(run.status).toBe(2);
-    expect(JSON.parse(run.stdout).error).toContain('usage: bound-verify');
+    expect(JSON.parse(run.stdout).error).toContain('usage: orientim-verify');
   });
 });
 
 describe('the skill names its version (final audit, M1)', () => {
-  it("SKILL_VERSION is the package's version, and every call to Bound carries it", async () => {
-    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '../../../skills/bound-protected-swap/package.json'), 'utf8')) as { version: string };
+  it("SKILL_VERSION is the package's version, and every call to Orientim carries it", async () => {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/package.json'), 'utf8')) as { version: string };
     expect(SKILL_VERSION).toBe(pkg.version);
-    const b = await bound();
+    const b = await orientim();
     const seen: string[] = [];
     const watching = (async (url: string, init: RequestInit) => {
-      if (url.startsWith('http://bound.test/')) seen.push(new Headers(init.headers).get('x-bound-skill') ?? '');
+      if (url.startsWith('http://orientim.test/')) seen.push(new Headers(init.headers).get('x-orientim-skill') ?? '');
       return b.fetchImpl(url, init);
     }) as unknown as typeof fetch;
-    const result = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: watching, pollMs: 1, intent: swapIntent });
+    const result = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: watching, pollMs: 1, intent: swapIntent });
     expect(result.outcome).toBe('confirmed');
     expect(seen.length).toBeGreaterThanOrEqual(2);
     expect(new Set(seen)).toEqual(new Set([SKILL_VERSION]));
@@ -830,7 +830,7 @@ describe('the skill names its version (final audit, M1)', () => {
 });
 
 describe('the same order is never swapped twice (final audit, item 7)', () => {
-  const counting = (b: Awaited<ReturnType<typeof bound>>) => {
+  const counting = (b: Awaited<ReturnType<typeof orientim>>) => {
     const calls = { prepare: 0, finalize: 0 };
     const fetchImpl = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/prepare')) calls.prepare++;
@@ -841,44 +841,44 @@ describe('the same order is never swapped twice (final audit, item 7)', () => {
   };
 
   it('an order that confirmed is not prepared again: the retry is told, with the transaction that did it', async () => {
-    const b = await bound();
-    const orders = createFileStore(mkdtempSync(join(tmpdir(), 'bound-orders-')));
+    const b = await orientim();
+    const orders = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-orders-')));
     const { calls, fetchImpl } = counting(b);
-    const first = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-42' } });
+    const first = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-42' } });
     expect(first.outcome).toBe('confirmed');
     expect(await orders.order('order-42')).toEqual({ signature: first.signature, state: 'confirmed' });
-    const again = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-42' } })
+    const again = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-42' } })
       .catch((e: unknown) => e);
-    expect(again).toBeInstanceOf(BoundOrderError);
-    expect((again as BoundOrderError).record.signature).toBe(first.signature);
+    expect(again).toBeInstanceOf(OrientimOrderError);
+    expect((again as OrientimOrderError).record.signature).toBe(first.signature);
     expect(calls.prepare).toBe(1);
     expect(b.sent).toHaveLength(1);
   });
 
   it('an order whose last attempt expired may be tried again; one taken by another worker is not sent', async () => {
-    const b = await bound();
-    const orders = createFileStore(mkdtempSync(join(tmpdir(), 'bound-orders-')));
+    const b = await orientim();
+    const orders = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-orders-')));
     await orders.recordOrder('order-7', { signature: 'an-earlier-attempt', state: 'expired' });
-    const retried = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-7' } });
+    const retried = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-7' } });
     expect(retried.outcome).toBe('confirmed');
 
-    const c = await bound();
+    const c = await orientim();
     const { calls, fetchImpl } = counting(c);
     // Another worker takes the order between this one's check and its signature.
     const racing: OrderBook = { order: async () => null, recordOrder: async () => {}, claimOrder: async () => false };
-    const lost = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: c.agentRpc, wallet: c.wallet, fetchImpl, pollMs: 1, orders: racing, intent: { ...swapIntent, id: 'order-8' } })
+    const lost = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: c.agentRpc, wallet: c.wallet, fetchImpl, pollMs: 1, orders: racing, intent: { ...swapIntent, id: 'order-8' } })
       .catch((e: unknown) => e);
-    expect(lost).toBeInstanceOf(BoundOrderError);
+    expect(lost).toBeInstanceOf(OrientimOrderError);
     expect(calls.finalize).toBe(0);
     expect(c.sent).toHaveLength(0);
   });
 
   it('a stopped run leaves the order pending; recovery settles it, and the order learns its outcome', async () => {
-    const b = await bound();
-    const dir = mkdtempSync(join(tmpdir(), 'bound-orders-'));
+    const b = await orientim();
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-orders-'));
     const store = createFileStore(dir);
     const landed = await protectedSwap({
-      apiUrl: 'http://bound.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, orders: store,
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, orders: store,
       intent: { ...swapIntent, id: 'order-9' }, onSigned: s => store.put(s),
     });
     // As if the process had stopped after finalize: the order still says pending.
@@ -888,10 +888,10 @@ describe('the same order is never swapped twice (final audit, item 7)', () => {
     expect(await store.order('order-9')).toEqual({ signature: landed.signature, state: 'confirmed' });
   });
 
-  it('bound-verify: prepare refuses an order that already swapped (exit 5)', async () => {
-    const b = await bound();
-    const stateDir = mkdtempSync(join(tmpdir(), 'bound-cli-orders-'));
-    const deps = { rpc: b.agentRpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl: b.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
+  it('orientim-verify: prepare refuses an order that already swapped (exit 5)', async () => {
+    const b = await orientim();
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-cli-orders-'));
+    const deps = { rpc: b.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: b.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
     const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'cli-order-1' };
     const ready = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
     const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(ready.message, 'base64')));
@@ -904,8 +904,8 @@ describe('the same order is never swapped twice (final audit, item 7)', () => {
 
 describe('the Stage 2 audit: one swap per wallet, owned locks, outcomes kept apart from bookkeeping', () => {
   it('H-02: two prepared swaps, the first unknown: the second is not sent, with or without an order id', async () => {
-    const b = await bound();
-    const stateDir = mkdtempSync(join(tmpdir(), 'bound-h02-'));
+    const b = await orientim();
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-h02-'));
     let finalizes = 0;
     const fetchImpl = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/finalize')) finalizes++;
@@ -914,7 +914,7 @@ describe('the Stage 2 audit: one swap per wallet, owned locks, outcomes kept apa
     // A chain on which nothing ever shows up, and whose height never passes the swap's lifetime: the
     // first swap's outcome stays unknown however fast the machine polls.
     const rpc = { ...chainOf(b, { landAt: 10n ** 12n }), getBlockHeight: () => ({ send: async () => 1n }) } as unknown as Rpc<SolanaRpcApi>;
-    const deps = { rpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
+    const deps = { rpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
     const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' };
     const one = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
     const two = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
@@ -933,27 +933,27 @@ describe('the Stage 2 audit: one swap per wallet, owned locks, outcomes kept apa
   }, 30_000);
 
   it('H-02: protectedSwap sends nothing while another swap from the wallet may still land', async () => {
-    const b = await bound();
-    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-h02b-')));
+    const b = await orientim();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-h02b-')));
     await store.put({ signature: 'an-earlier-swap', lastValidBlockHeight: 10n ** 12n, ticket: 't', signedTransaction: '', messageSha256: '', signedAt: 0, owner: b.wallet.address });
     let prepares = 0;
     const fetchImpl = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/prepare')) prepares++;
       return b.fetchImpl(url, init);
     }) as unknown as typeof fetch;
-    const refused = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, intent: swapIntent, pending: store })
+    const refused = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, intent: swapIntent, pending: store })
       .catch((e: unknown) => e);
     expect(refused).toBeInstanceOf(PendingSwapError);
     expect(prepares).toBe(0);
     // Another wallet's pending swap is not this wallet's.
-    const other = await bound();
-    const fine = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: other.agentRpc, wallet: other.wallet, fetchImpl: other.fetchImpl, pollMs: 1, intent: swapIntent, pending: store });
+    const other = await orientim();
+    const fine = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: other.agentRpc, wallet: other.wallet, fetchImpl: other.fetchImpl, pollMs: 1, intent: swapIntent, pending: store });
     expect(fine.outcome).toBe('confirmed');
     expect((await store.list()).map(s => s.signature)).toEqual(['an-earlier-swap']);
   });
 
   it('M-01: a worker whose stale lock was taken over does not remove its successor; a third waits', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'bound-m01-'));
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-m01-'));
     const releaseA = acquireLock(dir, 'wallet', 1_000);
     // A goes silent past the stale limit: B takes over.
     const old = new Date(Date.now() - 60_000);
@@ -966,11 +966,11 @@ describe('the Stage 2 audit: one swap per wallet, owned locks, outcomes kept apa
   });
 
   it('M-03: a record that cannot be removed after the swap confirmed is said beside the outcome, never as "not sent"', async () => {
-    const b = await bound();
-    const files = createFileStore(mkdtempSync(join(tmpdir(), 'bound-m03-')));
+    const b = await orientim();
+    const files = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-m03-')));
     const failing = { ...files, remove: async () => { throw new Error('ENOSPC: no space left on device'); } };
-    const stateDir = mkdtempSync(join(tmpdir(), 'bound-m03-state-'));
-    const deps = { rpc: b.agentRpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl: b.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60, store: failing };
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-m03-state-'));
+    const deps = { rpc: b.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: b.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60, store: failing };
     const ready = JSON.parse(JSON.stringify((await runCli('prepare', { intent: { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' } }, deps)).output)) as { checked: unknown; message: string };
     const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(ready.message, 'base64')));
     const done = await runCli('finalize', { checked: ready.checked, signature }, deps);
@@ -980,14 +980,14 @@ describe('the Stage 2 audit: one swap per wallet, owned locks, outcomes kept apa
     expect(String(done.output.bookkeepingError)).toContain('ENOSPC');
     expect(done.output.sent).toBeUndefined();
 
-    const c = await bound();
-    const lib = await protectedSwap({ apiUrl: 'http://bound.test', apiKey: KEY, rpc: c.agentRpc, wallet: c.wallet, fetchImpl: c.fetchImpl, pollMs: 1, intent: swapIntent, pending: failing });
+    const c = await orientim();
+    const lib = await protectedSwap({ apiUrl: 'http://orientim.test', apiKey: KEY, rpc: c.agentRpc, wallet: c.wallet, fetchImpl: c.fetchImpl, pollMs: 1, intent: swapIntent, pending: failing });
     expect(lib.outcome).toBe('confirmed');
     expect(lib.bookkeepingError).toContain('ENOSPC');
   });
 
   it("M-02: the agent's check ends in time when its RPC never answers, and says so", async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const never = (o?: { abortSignal?: AbortSignal }) => new Promise<never>((_, reject) => o?.abortSignal?.addEventListener('abort', () => reject(new Error('timed out'))));
     const stuck = { ...b.agentRpc, getMultipleAccounts: () => ({ send: never }) } as unknown as Rpc<SolanaRpcApi>;
@@ -1005,8 +1005,8 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
   });
 
   it('F1: recovered long after it was sent, a swap the chain has no record of stays unknown, said at once', async () => {
-    const b = await bound();
-    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f1-')));
+    const b = await orientim();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-f1-')));
     await store.put(keptSwap('long-ago', b.wallet.address, { intentId: 'order-1' }));
     await store.claimOrder('order-1', { signature: 'long-ago', state: 'pending' });
     // Days later: the chain is far past it, and no node's status cache reaches back that far.
@@ -1020,24 +1020,24 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
   });
 
   it('F1: right after its lifetime, the same silence does prove it expired', async () => {
-    const b = await bound();
-    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f1b-')));
+    const b = await orientim();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-f1b-')));
     await store.put(keptSwap('just-expired', b.wallet.address));
     const { settled } = await recoverPending(store, chainOf(b, { from: 1_050n }), { pollMs: 1, maxWaitMs: 5_000 });
     expect(settled).toEqual([{ signature: 'just-expired', outcome: 'expired' }]);
   });
 
   it('F1: a kept swap without the height it was signed at (an older copy) is never proven expired', async () => {
-    const b = await bound();
-    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f1c-')));
+    const b = await orientim();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-f1c-')));
     await store.put(keptSwap('no-height', b.wallet.address, { signedHeight: undefined }));
     const { unknown } = await recoverPending(store, chainOf(b, { from: 1_050n }), { pollMs: 1, maxWaitMs: 5_000 });
     expect(unknown).toEqual(['no-height']);
   });
 
   it('F1: settled by hand once looked up: refused while it could still land, and the chain answers first', async () => {
-    const b = await bound();
-    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f1d-')));
+    const b = await orientim();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-f1d-')));
     await store.put(keptSwap('by-hand', b.wallet.address, { intentId: 'order-2' }));
     await store.put(keptSwap('landed-after-all', b.wallet.address));
     await expect(resolvePending(store, chainOf(b, { from: 900n }), 'by-hand', 'expired')).rejects.toThrow('can still land');
@@ -1050,9 +1050,9 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
     await expect(resolvePending(store, later, 'never-kept', 'expired')).rejects.toThrow('No kept swap');
   });
 
-  it('F1: bound-verify resolve, the same by hand for bots', async () => {
-    const b = await bound();
-    const stateDir = mkdtempSync(join(tmpdir(), 'bound-f1e-'));
+  it('F1: orientim-verify resolve, the same by hand for bots', async () => {
+    const b = await orientim();
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-f1e-'));
     await createFileStore(stateDir).put(keptSwap('by-hand', b.wallet.address));
     const deps = (rpc: Rpc<SolanaRpcApi>) => ({ rpc, stateDir, pollMs: 1, maxWaitMs: 60 });
     expect((await runCli('resolve', { signature: 'by-hand', outcome: 'gone' }, deps(chainOf(b)))).code).toBe(2);
@@ -1065,8 +1065,8 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
   });
 
   it('F4: finalize asked again for a kept swap is not a first send: it answers with the signature and its outcome, whatever the checks would say now', async () => {
-    const b = await bound();
-    const stateDir = mkdtempSync(join(tmpdir(), 'bound-f4-'));
+    const b = await orientim();
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-f4-'));
     let finalizes = 0;
     const fetchImpl = (async (url: string, init: RequestInit) => {
       if (url.endsWith('/api/v1/finalize')) finalizes++;
@@ -1074,7 +1074,7 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
     }) as unknown as typeof fetch;
     // Nothing shows up, and the height never passes the lifetime: the outcome stays unknown.
     const stuck = { ...chainOf(b, { landAt: 10n ** 12n }), getBlockHeight: () => ({ send: async () => 1n }) } as unknown as Rpc<SolanaRpcApi>;
-    const deps = { rpc: stuck, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
+    const deps = { rpc: stuck, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
     const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'order-f4' };
     const ready = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, deps)).output)) as { checked: unknown; message: string };
     const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(ready.message, 'base64')));
@@ -1087,14 +1087,14 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
     expect(again.code).toBe(3);
     expect(again.output).toMatchObject({ signature: first.output.signature, outcome: 'unknown', resumed: true });
     expect(again.output.sent).toBeUndefined();
-    // Bound was asked again for the same bytes, which land at most once.
+    // Orientim was asked again for the same bytes, which land at most once.
     expect(finalizes).toBe(2);
     expect(new Set(b.sent.map(signatureOfWire))).toEqual(new Set([first.output.signature]));
   });
 
   it('F4: an outcome whose record cannot be updated is still returned by recovery, and the record stays for the next run', async () => {
-    const b = await bound();
-    const store = createFileStore(mkdtempSync(join(tmpdir(), 'bound-f4b-')));
+    const b = await orientim();
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-f4b-')));
     await store.put(keptSwap('landed', b.wallet.address, { intentId: 'order-3' }));
     const failing: OrderBook = { order: async () => null, claimOrder: async () => true, recordOrder: async () => { throw new Error('ENOSPC'); } };
     const { settled, bookkeepingErrors } = await recoverPending(store, chainOf(b, { others: ['landed'] }), { pollMs: 1, maxWaitMs: 60, orders: failing });
@@ -1104,7 +1104,7 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
   });
 
   it('F5: an account the route opens and leaves open is refused, whatever market it belongs to', async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     let watched: string[] = [];
     // E and the Pump accounts end empty; one account the transaction created (not the wallet's own
@@ -1127,7 +1127,7 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
   });
 
   it('priority 4: one ceiling for all the SOL a swap may cost and not return', async () => {
-    const b = await bound();
+    const b = await orientim();
     const honest = await honestAnswer(b);
     const kept = BigInt(honest.costs.keptSolLamports ?? '-1');
     expect(kept).toBe(BigInt(honest.costs.networkFeeLamports) + BigInt(honest.costs.routeRentLamports) - BigInt(honest.costs.routeRefundLamports));
@@ -1137,10 +1137,10 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
   });
 });
 
-describe('the Stage 2 re-run: bound-verify answers even when its state directory fails (E5)', () => {
+describe('the Stage 2 re-run: orientim-verify answers even when its state directory fails (E5)', () => {
   it('prepare, recover and resolve answer in JSON, and prepare builds nothing', async () => {
-    const b = await bound();
-    const stateDir = mkdtempSync(join(tmpdir(), 'bound-e5-'));
+    const b = await orientim();
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-e5-'));
     const files = createFileStore(stateDir);
     const broken = { ...files, list: async () => { throw new Error('ENOSPC: no space left on device'); } };
     let prepares = 0;
@@ -1148,7 +1148,7 @@ describe('the Stage 2 re-run: bound-verify answers even when its state directory
       if (url.endsWith('/api/v1/prepare')) prepares++;
       return b.fetchImpl(url, init);
     }) as unknown as typeof fetch;
-    const deps = { rpc: b.agentRpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60, store: broken };
+    const deps = { rpc: b.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60, store: broken };
     const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' };
     const prepared = await runCli('prepare', { intent }, deps);
     expect(prepared.code).toBe(3);

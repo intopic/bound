@@ -1,7 +1,7 @@
-# Bound: Independent Security, Intent & End-to-End Compatibility Audit
+# Orientim: Independent Security, Intent & End-to-End Compatibility Audit
 
 You are an independent audit team with deep knowledge of Solana, token programs, wallets, RPC and
-AI agents. You did not write this code. We are asking you to establish, with evidence, **what Bound
+AI agents. You did not write this code. We are asking you to establish, with evidence, **what Orientim
 guarantees, whether the implementation keeps those guarantees, and for which real combinations of
 swap, token, market, fee, transaction format, signer and client it works**.
 
@@ -36,10 +36,10 @@ disagree with Stage 1, including with you.
 ## 0. Rules of engagement
 
 **Independence**
-- Earlier audits of Bound were run by sessions of the same AI model that wrote the implementation.
+- Earlier audits of Orientim were run by sessions of the same AI model that wrote the implementation.
   None of them was independent. Their findings and their "fixed" labels are claims.
 - Our documents are claims too, not facts: `SECURITY.md`, `AUDIT.md` (sections 0u to 0x hold the
-  latest changes), `AGENT-API.md`, `README.md`, `TESTIMI.md`, `skills/bound-protected-swap/SKILL.md`,
+  latest changes), `AGENT-API.md`, `README.md`, `TESTIMI.md`, `skills/orientim-protected-swap/SKILL.md`,
   and the Albanian design notes `API-AGJENTET.md`.
 - Where you cannot establish something, write "unknown", and say what would settle it.
 
@@ -77,23 +77,23 @@ A guarantee that rests only on documentation counts as **not implemented**.
 
 ---
 
-## 1. What Bound is at the audited commit
+## 1. What Orientim is at the audited commit
 
-Bound Protected Swap is a Solana dApp and an API for agents. TypeScript, `@solana/kit` 8,
+Orientim Protected Swap is a Solana dApp and an API for agents. TypeScript, `@solana/kit` 8,
 Next.js 16, hosted on Vercel.
 
-**The idea.** Jupiter chooses where to trade; Bound decides what authority the trade gets.
+**The idea.** Jupiter chooses where to trade; Orientim decides what authority the trade gets.
 - The one untrusted instruction, Jupiter's route, receives a one-time key **E** and temporary token
   accounts holding exactly the approved amount. It never receives the wallet **W**.
-- W signs first (sign only, no send). Bound checks the returned bytes are exactly what it verified;
+- W signs first (sign only, no send). Orientim checks the returned bytes are exactly what it verified;
   then E signs last. The transaction has exactly two signers.
-- There is no Bound program on chain. A verifier with seven rules (R1–R7) decides what may be
+- There is no Orientim program on chain. A verifier with seven rules (R1–R7) decides what may be
   signed. R6 (the signers are exactly W and E, W pays) and R1 (W never appears inside the external
   instruction) are the load-bearing ones.
 - Three shapes: A (token → SOL), B (SOL → token), C (token → token).
 
 **The minimum.** Enforced twice:
-- Bound's own check after the swap: a self-transfer of the output account's balance before plus
+- Orientim's own check after the swap: a self-transfer of the output account's balance before plus
   the minimum;
 - Jupiter's own floor (quote less tolerance). The verifier requires it to reach the whole minimum
   and to be measured on the account the output must reach (verifier 0.7.0 and later). When the user
@@ -115,7 +115,7 @@ taken in this order:
 
 The fee is compiled into the page at build time. The verifier refuses anything above 1%.
 
-**Pump.fun.** Its markets open a per-buyer account in E's name. Bound measures that rent in
+**Pump.fun.** Its markets open a per-buyer account in E's name. Orientim measures that rent in
 simulation, funds E with exactly that, and closes the account at the end, returning the rent to W,
 when the account holds exactly its rent. A bonding curve also keeps about 0.00013 SOL of every buy.
 
@@ -128,7 +128,7 @@ when the account holds exactly its rent. A bonding curve also keeps about 0.0001
   HMAC, and E derived from a server secret and a nonce. Finalize reads the transaction's status
   first (its id is W's signature), so a repeated finalize answers for the same transaction and never
   invites a second swap.
-- **A skill** (`skills/bound-protected-swap`). Its example (`examples/swap.ts`) runs Bound's full
+- **A skill** (`skills/orientim-protected-swap`). Its example (`examples/swap.ts`) runs Orientim's full
   verifier on the agent's own RPC before signing. The check:
   - requires the agent's own price floor;
   - requires its own limit for a fee in SOL;
@@ -189,7 +189,7 @@ when the account holds exactly its rent. A bonding curve also keeps about 0.0001
 | `packages/jupiter` | Jupiter client; `swap.ts`, the whole pipeline from quote to countersign, including the SOL pricing of the fee |
 | `apps/web/components/SwapApp.tsx`, `apps/web/lib/client` | The page: flow, questions, freshness, lock, history, received amounts |
 | `apps/web/lib/server` | Relays and their shape filter, rate limits, the agent API and tickets (`agent/`) |
-| `skills/bound-protected-swap` | `SKILL.md`, `examples/swap.ts`, `src/verify.ts` (bundled into `lib/bound-verify.mjs` by `tools/build-skill.ts`) |
+| `skills/orientim-protected-swap` | `SKILL.md`, `examples/swap.ts`, `src/verify.ts` (bundled into `lib/orientim-verify.mjs` by `tools/build-skill.ts`) |
 | `tools`, `.github/workflows` | Canary, release digest, live check, API keys; CI, fuzz, T6, release |
 
 ---
@@ -350,7 +350,7 @@ Check whether:
 - the example forces the verifier to run before any signature;
 - the signer can be used while bypassing the verifier, and what the documents say about it;
 - token names, metadata and error texts can steer the agent into other actions (prompt injection);
-- the skill's bundle (`lib/bound-verify.mjs`) matches the audited source; rebuild it and compare;
+- the skill's bundle (`lib/orientim-verify.mjs`) matches the audited source; rebuild it and compare;
 - the economic floor has a clear origin and freshness;
 - the bot keeps pending transactions durably and handles parallel swaps;
 - the finalize answer is bound to the transaction the bot signed;
@@ -364,7 +364,7 @@ bypassed.
 
 ## 9. Part 8: research of current versions, and performance
 
-**Research.** Produce a dated register of every version, program, IDL, wallet, SDK and behaviour Bound
+**Research.** Produce a dated register of every version, program, IDL, wallet, SDK and behaviour Orientim
 relies on. At least:
 - Solana runtime features and SIMDs in effect: v1 transactions, slot times, rent, fees;
 - the classic Token program (p-token) and Token-2022, with all extensions;
@@ -388,7 +388,7 @@ Report the median and the slow cases (p90, p99, worst), not the fastest demo. Al
 - the cost per completed swap (network fee, rent kept, Jupiter and RPC usage);
 - the share of abandoned preparations;
 - the price difference against the direct alternative (the same trade through Jupiter without
-  Bound).
+  Orientim).
 
 ---
 

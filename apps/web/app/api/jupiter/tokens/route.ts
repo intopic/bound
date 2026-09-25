@@ -5,8 +5,8 @@ import { clientKey, fromAnotherSite, rateLimited } from '@/lib/server/rateLimit'
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
-  // Like every other relay of Bound's: for Bound's own page, not for other sites' visitors.
-  if (fromAnotherSite(req)) return Response.json({ error: "Bound's proxy serves Bound's own page" }, { status: 403 });
+  // Like every other relay of Orientim's: for Orientim's own page, not for other sites' visitors.
+  if (fromAnotherSite(req)) return Response.json({ error: "Orientim's proxy serves Orientim's own page" }, { status: 403 });
   if (rateLimited(`tokens:${clientKey(req)}`, 120)) return Response.json({ error: 'Too many requests' }, { status: 429 });
   const query = new URL(req.url).searchParams.get('query')?.trim() ?? '';
   if (!query || query.length > 2000) return Response.json({ error: 'Invalid query' }, { status: 400 });

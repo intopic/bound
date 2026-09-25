@@ -10,8 +10,8 @@ import type { Address } from '@solana/kit';
 import {
   ataOf, ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
   TOKEN_PROGRAM, WSOL_MINT,
-} from '@bound/core';
-import type { SolanaRpc } from '@bound/solana';
+} from '@orientim/core';
+import type { SolanaRpc } from '@orientim/solana';
 import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
 
@@ -148,7 +148,7 @@ export function fakeRpc(
     cashback?: bigint;
     /** How many simulations the Pump curve itself refuses on price (6003), inside Jupiter. */
     pumpSlippage?: number;
-    /** Bound's own transfer from the wallet fails, before the swap (a balance that changed, say). */
+    /** Orientim's own transfer from the wallet fails, before the swap (a balance that changed, say). */
     failBeforeSwap?: boolean;
     /** What the chain knows of each signature; unknown ones have no status. */
     statuses?: Map<string, { confirmationStatus: 'processed' | 'confirmed' | 'finalized'; err: unknown }>;
@@ -315,7 +315,7 @@ export function fakeJupiter(answer: {
         otherAmountThreshold: (answer.threshold ?? (outAmount * BigInt(10_000 - p.slippageBps)) / 10_000n).toString(),
         routePlan: [{ percent: 100, swapInfo: { label: answer.label ?? 'Whirlpool', ammKey: POOL } }],
         computeBudgetInstructions: [],
-        // Jupiter asks for an ATA of the taker for every token the route passes through. Bound
+        // Jupiter asks for an ATA of the taker for every token the route passes through. Orientim
         // does not run these; it recreates the accounts itself and closes them again (D14).
         setupInstructions: answer.hop
           ? [{

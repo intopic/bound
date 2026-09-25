@@ -8,14 +8,14 @@ import {
 import { getTransferSolInstruction } from '@solana-program/system';
 import {
   compileProtectedSwap, JUPITER_PROGRAM, protectedInstructions, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
-} from '@bound/core';
-import type { TxVersion } from '@bound/core';
+} from '@orientim/core';
+import type { TxVersion } from '@orientim/core';
 import { verify } from '../src/index.ts';
 import { BONK, compileRaw, cuIxs, LIFETIME, randomAddress, scenario, USDC, WIF } from './fixtures.ts';
 import type { Scenario } from './fixtures.ts';
 
-// `npm run test:fuzz` (vitest --mode fuzz) runs 100,000 cases per property; BOUND_FUZZ_RUNS overrides.
-const RUNS = Number(process.env.BOUND_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 100_000 : 150));
+// `npm run test:fuzz` (vitest --mode fuzz) runs 100,000 cases per property; ORIENTIM_FUZZ_RUNS overrides.
+const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 100_000 : 150));
 // About 22 ms per case on a laptop (20,000 cases took ~440 s per property): the time limit grows
 // with the number of cases, so `npm run test:fuzz` (100,000) is not cut off (second review).
 const TIMEOUT = 60_000 + RUNS * 50;

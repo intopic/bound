@@ -1,5 +1,5 @@
 {
-  "name": "bound",
+  "name": "orientim",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -13,8 +13,8 @@
     "integration": "node tests/integration/mainnet.ts",
     "thresholds": "node tests/integration/thresholds.ts",
     "cpi": "cargo build-sbf --manifest-path tests/cpi/attacker/Cargo.toml && node tests/cpi/run.ts",
-    "dev": "npm run dev -w @bound/web",
-    "build": "npm run build -w @bound/web",
+    "dev": "npm run dev -w @orientim/web",
+    "build": "npm run build -w @orientim/web",
     "build:digest": "node tools/build-digest.ts --write",
     "e2e": "node tests/e2e/smoke.ts"
   },

@@ -1,4 +1,4 @@
-# Bound — udhëzuesi i testimit
+# Orientim — udhëzuesi i testimit
 
 Sistemi v0.1 është i ndërtuar, i rregulluar pas disa auditimeve dhe i testuar automatikisht (numrat e fundit: `docs/AUDIT.md`, seksionet 0u deri 0zf). Mbeten testimi me wallet-in tënd (fillimisht falas në devnet, pastaj një swap i vogël real në mainnet) dhe Etapa 2 e auditimit të pavarur: rikuperimi me një RPC që gabon qëllimisht, portofolet reale dhe matjet. Tabela më poshtë është historike: disa numra janë nga datat e para.
 
@@ -12,12 +12,12 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas disa auditimeve dhe i testuar
 | Certifikata e çdo transaksioni të verifikuar (debiti, fee, minimumi, SHA-256 i mesazhit) | 6/6 |
 | Serveri: kill switch, marker-i i refuzimit lokal, çelësi i klientit vetëm nga header-i i konfiguruar, metodat RPC (përfshirë `getEpochInfo`), `payer`, madhësia në bajte, timeout-et, proxy-ja e ikonave | 23/23 |
 | Përgjigjet e Jupiter-it: një quote i keqformuar refuzohet me gabim të qartë | 9/9 |
-| Auditimi i dytë, mbi pipeline-in real me Jupiter armiqësor: decimals nga Solana (C-01), minimumi i llogaritur nga Bound dhe ai i pranuar nga klienti (C-02), fee e rrjetit, qiraja, njoftimi për delegate, refuzimet e përkohshme të Jupiter-it, certifikata dhe kohët | 13/13 |
+| Auditimi i dytë, mbi pipeline-in real me Jupiter armiqësor: decimals nga Solana (C-01), minimumi i llogaritur nga Orientim dhe ai i pranuar nga klienti (C-02), fee e rrjetit, qiraja, njoftimi për delegate, refuzimet e përkohshme të Jupiter-it, certifikata dhe kohët | 13/13 |
 | Dërgimi (C-03): preflight/refuzimi lokal ndahet nga gabimet e paqarta të RPC-së; përndryshe "kontrollo Solscan" | 13/13 |
 | Rikthimi te swap-et e hapura dhe wallet chain: skadim vetëm me `lastValidBlockHeight`, entries e vjetra mbeten unknown, vetëm account `solana:mainnet` pranohet | 5/5 |
 | Zgjedhja e route-it: një route me mbi 64 llogari anashkalohet dhe kërkohet një më i vogël | 3/3 |
 | Property tests (fast-check): variacione të ndershme pranohen, sulme të rastësishme refuzohen | 20,000 raste për secilën veti, pas rregullimeve të auditimit të dytë |
-| T4 në mainnet: Jupiter → compiler → simulim → verifier, 30 çifte × v0 dhe v1, me fee-n e Bound | 60/60 |
+| T4 në mainnet: Jupiter → compiler → simulim → verifier, 30 çifte × v0 dhe v1, me fee-n e Orientim | 60/60 |
 | T1 në mainnet: 8 sulme me SPL Token dhe System Program realë | 8/8 sillen siç pritet, verifier-i i refuzon të gjitha |
 | T5 në mainnet: minimumi i daljes (nëse swap-i jep më pak, i gjithë transaksioni anulohet) | 3/3 |
 | T6: një program keqdashës i vërtetë në vendin e Jupiter-it, i ekzekutuar kundër SPL klasik dhe Token-2022 në një makinë virtuale Solana | 32/32 |
@@ -33,7 +33,7 @@ Sistemi v0.1 është i ndërtuar, i rregulluar pas disa auditimeve dhe i testuar
 | Tokenët nëpër të cilët kalon route-i: një hop që ekzekuton kod refuzohet, një i pastër kalon (AUDIT.md 0i) | 4/4 |
 | T11: çfarë shtojnë vërtet wallet-et, lexuar nga 90 transaksione reale në mainnet (AUDIT.md 0h) | asnjë handler kujtese, deri në 10 asertime, 0–1 llogari secila |
 | Diagnostika e wallet-it: mesazh identik, shtesë në fund, shtesë në fillim, instruksionet tona të ndryshuara, nënshkrues i ri, raporti | 6/6 |
-| E2E në Edge me wallet testimi: quote, ndërtim, verifikim, R6 ndalon kthimin e panënshkruar, CSP me nonce, ikonat vetëm nga Bound, Jupiter nuk merr adresën e wallet-it, ngjitja e adresës së coin-it, rreshti i vetëm i mbrojtjes | 17/18; kontrolli SRI (5 nga 8 skripte me hash) dështonte edhe para thjeshtimit të 23 shtatorit |
+| E2E në Edge me wallet testimi: quote, ndërtim, verifikim, R6 ndalon kthimin e panënshkruar, CSP me nonce, ikonat vetëm nga Orientim, Jupiter nuk merr adresën e wallet-it, ngjitja e adresës së coin-it, rreshti i vetëm i mbrojtjes | 17/18; kontrolli SRI (5 nga 8 skripte me hash) dështonte edhe para thjeshtimit të 23 shtatorit |
 
 ## Para se të fillosh
 
@@ -48,7 +48,7 @@ npm install
 
 ## Testi 0: çfarë i bën wallet-i transaksionit (bëje këtë të parin)
 
-Bound ka një premtim të vetëm: bajtët që verifikoi janë bajtët që ekzekutohen, dhe çdo gjë tjetër refuzohet. Phantom-i shkruan në dokumentacionin e vet se mund t'i shtojë transaksionit kontrollet e veta. Nëse e bën, rregulli ynë do ta refuzonte dhe swap-i do të dështonte pa asnjë arsye të vërtetë. Nëse nuk e bën, s'kemi pse të shkruajmë asnjë përjashtim. Askush nuk e di ende cila nga të dyja është e vërteta.
+Orientim ka një premtim të vetëm: bajtët që verifikoi janë bajtët që ekzekutohen, dhe çdo gjë tjetër refuzohet. Phantom-i shkruan në dokumentacionin e vet se mund t'i shtojë transaksionit kontrollet e veta. Nëse e bën, rregulli ynë do ta refuzonte dhe swap-i do të dështonte pa asnjë arsye të vërtetë. Nëse nuk e bën, s'kemi pse të shkruajmë asnjë përjashtim. Askush nuk e di ende cila nga të dyja është e vërteta.
 
 Kjo faqe e zgjidh pyetjen me fakte. **Nuk dërgon asgjë** — transaksioni nënshkruhet, lexohet dhe hidhet. Asnjë fond nuk lëviz.
 
@@ -95,9 +95,9 @@ npm run dev
 
 ## Testi 2: swap real në mainnet me dApp-in
 
-Kostoja reale: disa cent (fee e rrjetit) dhe fee e Bound 0.3%. 2 USDC kthehen në SOL që mbetet i yti. Në test mode nuk paguhet fee e Bound.
+Kostoja reale: disa cent (fee e rrjetit) dhe fee e Orientim 0.3%. 2 USDC kthehen në SOL që mbetet i yti. Në test mode nuk paguhet fee e Orientim.
 
-**Me thesar të vendosur:** wallet-i i thesarit duhet të ekzistojë në zinxhir, përndryshe faqja nuk ndërton asnjë swap ("Bound's fee can't be collected right now"): Bound nuk bën swap pa fee. Thesari `ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE` ekziston tashmë, pra nuk duhet dërguar asgjë. (Thesari i mëparshëm, `5EmN…2bAw`, u zëvendësua më 25 shtator 2026 sepse dikush tjetër kishte çelësin e tij: `docs/AUDIT.md` 0zh.)
+**Me thesar të vendosur:** wallet-i i thesarit duhet të ekzistojë në zinxhir, përndryshe faqja nuk ndërton asnjë swap ("Orientim's fee can't be collected right now"): Orientim nuk bën swap pa fee. Thesari `ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE` ekziston tashmë, pra nuk duhet dërguar asgjë. (Thesari i mëparshëm, `5EmN…2bAw`, u zëvendësua më 25 shtator 2026 sepse dikush tjetër kishte çelësin e tij: `docs/AUDIT.md` 0zh.)
 
 **Shuma më e vogël është $1.** Nën të, faqja shfaq "Minimum swap: $1" dhe nuk ndërton asgjë. Prandaj testet më poshtë përdorin 2 USDC ose 0.01 SOL.
 
@@ -107,7 +107,7 @@ Kostoja reale: disa cent (fee e rrjetit) dhe fee e Bound 0.3%. 2 USDC kthehen n�
 ```powershell
 cd "C:\Users\Perdorues\Desktop\orientim cr\bound"
 npm run build
-npm run start -w @bound/web
+npm run start -w @orientim/web
 ```
 
 3. Hap http://localhost:3000 dhe kliko **Connect wallet** → Phantom.
@@ -138,19 +138,19 @@ Nëse i ke, përsërit Testin 2 me secilin wallet.
 
 Krijo `apps\web\.env.local` nga `apps\web\.env.example` dhe plotëso:
 
-- `NEXT_PUBLIC_BOUND_TREASURY`: wallet-i që merr fee-n 0.3% (pa të, faqja është në test mode). Ky vlerë futet në faqe gjatë `npm run build`, prandaj pas çdo ndryshimi duhet build i ri. Serveri nuk mund ta ndryshojë më vonë.
-- `NEXT_PUBLIC_BOUND_FEE_BPS`: 30 (0.3%). Verifier-i refuzon çdo gjë mbi 1%.
+- `NEXT_PUBLIC_ORIENTIM_TREASURY`: wallet-i që merr fee-n 0.3% (pa të, faqja është në test mode). Ky vlerë futet në faqe gjatë `npm run build`, prandaj pas çdo ndryshimi duhet build i ri. Serveri nuk mund ta ndryshojë më vonë.
+- `NEXT_PUBLIC_ORIENTIM_FEE_BPS`: 30 (0.3%). Verifier-i refuzon çdo gjë mbi 1%.
 - `RPC_URL`: Helius (ose një ofrues tjetër me pagesë). Nyja publike nuk mjafton: të kufizon shpejt dhe nuk pranon dërgime nga një faqe web.
 - `JUPITER_API_KEY`: key falas nga https://developers.jup.ag/portal. **I domosdoshëm**: pa të, Jupiter i refuzon kërkesat pas një ose dy, dhe faqja shfaq "busy". Vendose edhe para testit me wallet.
 
-**Llogaritë e treasury-t.** Bound nuk e bën përdoruesin të paguajë qiranë e llogarisë së fee-së. Kur treasury nuk ka llogari për asnjërin token të swap-it, fee paguhet në SOL nga wallet-i i klientit, 0.3% e vlerës së swap-it (faqja e tregon para se të hapet wallet-i). Nëse do që fee e USDC dhe e USDT të vijë në vetë atë token, krijo një herë llogaritë e treasury-t për to: nga një wallet tjetër dërgo një sasi shumë të vogël USDC dhe USDT te adresa e treasury-t (kushton ~0.002 SOL për secilin). Për SOL nuk duhet asgjë.
+**Llogaritë e treasury-t.** Orientim nuk e bën përdoruesin të paguajë qiranë e llogarisë së fee-së. Kur treasury nuk ka llogari për asnjërin token të swap-it, fee paguhet në SOL nga wallet-i i klientit, 0.3% e vlerës së swap-it (faqja e tregon para se të hapet wallet-i). Nëse do që fee e USDC dhe e USDT të vijë në vetë atë token, krijo një herë llogaritë e treasury-t për to: nga një wallet tjetër dërgo një sasi shumë të vogël USDC dhe USDT te adresa e treasury-t (kushton ~0.002 SOL për secilin). Për SOL nuk duhet asgjë.
 
 - **Treasury:** mbaje çelësin në një hardware wallet ose në një multisig (p.sh. Squads). Serverit i jepet vetëm adresa.
 - **Publikimi:** build-i bëhet nga një tag i nënshkruar në GitHub dhe publikohet hash-i i build-it, që çdokush të kontrollojë se faqja është ajo e audituar.
-- `BOUND_CLIENT_IP_HEADER`: në Vercel lëre `x-vercel-forwarded-for`; prapa Cloudflare vendos `cf-connecting-ip`. Në Vercel shto edhe një rregull "rate limit" te Firewall, sepse limiti i aplikacionit vlen vetëm për një instancë.
+- `ORIENTIM_CLIENT_IP_HEADER`: në Vercel lëre `x-vercel-forwarded-for`; prapa Cloudflare vendos `cf-connecting-ip`. Në Vercel shto edhe një rregull "rate limit" te Firewall, sepse limiti i aplikacionit vlen vetëm për një instancë.
 
-Çelësi i ndalimit: `BOUND_DISABLED=1` bën që serveri të refuzojë çdo swap të ri. Faqja e vjetër e hapur nuk mund ta anashkalojë, sepse ndalimi zbatohet te serveri.
+Çelësi i ndalimit: `ORIENTIM_DISABLED=1` bën që serveri të refuzojë çdo swap të ri. Faqja e vjetër e hapur nuk mund ta anashkalojë, sepse ndalimi zbatohet te serveri.
 
 ## Nëse diçka shkon keq
 
-Asnjë fond nuk humbet nga një gabim i Bound: ose transaksioni nuk nënshkruhet fare, ose ekzekutohet i tëri, ose anulohet i tëri. Nëse swap-i jep më pak se minimumi, anulohet i tëri. I vetmi kosto e mundshme është fee e rrjetit, nëse një transaksion i dërguar dështon on-chain. Nëse faqja thotë "We couldn't confirm the result yet", transaksioni mund të ketë kaluar: faqja nuk të lë të nisësh swap tjetër nga i njëjti wallet derisa ta dijë rezultatin, dhe ti mund ta shohësh në Solscan me lidhjen që të jep.
+Asnjë fond nuk humbet nga një gabim i Orientim: ose transaksioni nuk nënshkruhet fare, ose ekzekutohet i tëri, ose anulohet i tëri. Nëse swap-i jep më pak se minimumi, anulohet i tëri. I vetmi kosto e mundshme është fee e rrjetit, nëse një transaksion i dërguar dështon on-chain. Nëse faqja thotë "We couldn't confirm the result yet", transaksioni mund të ketë kaluar: faqja nuk të lë të nisësh swap tjetër nga i njëjti wallet derisa ta dijë rezultatin, dhe ti mund ta shohësh në Solscan me lidhjen që të jep.

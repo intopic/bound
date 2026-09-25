@@ -1,11 +1,11 @@
 'use client';
 
-import { createJupiterClient } from '@bound/jupiter';
-import type { JupiterClient } from '@bound/jupiter';
-import { createRetryingRpc } from '@bound/solana';
-import type { SolanaRpc } from '@bound/solana';
+import { createJupiterClient } from '@orientim/jupiter';
+import type { JupiterClient } from '@orientim/jupiter';
+import { createRetryingRpc } from '@orientim/solana';
+import type { SolanaRpc } from '@orientim/solana';
 
-// Every network call goes through Bound's own stateless API routes (D8): the browser never sees
+// Every network call goes through Orientim's own stateless API routes (D8): the browser never sees
 // RPC credentials or the Jupiter API key.
 let rpc: SolanaRpc | null = null;
 let jupiter: JupiterClient | null = null;

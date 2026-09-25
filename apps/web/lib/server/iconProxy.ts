@@ -3,7 +3,7 @@ import { serverConfig } from './config';
 import { clientKey, fromAnotherSite, rateLimited } from './rateLimit';
 
 /**
- * Token icons are fetched by Bound's server and served from Bound's own origin (audit B-08). The
+ * Token icons are fetched by Orientim's server and served from Orientim's own origin (audit B-08). The
  * page keeps `img-src 'self' data:`, so injected script cannot use images to send data out, and
  * hosts chosen by token creators never see users' IP addresses.
  *

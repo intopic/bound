@@ -16,9 +16,9 @@ jobs:
     env:
       # The same values the production build uses; they are compiled into the page and so into
       # the digest. Set them as repository variables (Settings → Secrets and variables → Actions).
-      NEXT_PUBLIC_BOUND_TREASURY: ${{ vars.NEXT_PUBLIC_BOUND_TREASURY }}
-      NEXT_PUBLIC_BOUND_FEE_BPS: ${{ vars.NEXT_PUBLIC_BOUND_FEE_BPS || '30' }}
-      NEXT_PUBLIC_BOUND_ENABLE_V1: ${{ vars.NEXT_PUBLIC_BOUND_ENABLE_V1 }}
+      NEXT_PUBLIC_ORIENTIM_TREASURY: ${{ vars.NEXT_PUBLIC_ORIENTIM_TREASURY }}
+      NEXT_PUBLIC_ORIENTIM_FEE_BPS: ${{ vars.NEXT_PUBLIC_ORIENTIM_FEE_BPS || '30' }}
+      NEXT_PUBLIC_ORIENTIM_ENABLE_V1: ${{ vars.NEXT_PUBLIC_ORIENTIM_ENABLE_V1 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -31,7 +31,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: node tools/build-skill.ts --check
-      - run: BOUND_BUILD_ID=$GITHUB_SHA npm run build
+      - run: ORIENTIM_BUILD_ID=$GITHUB_SHA npm run build
       - run: npm run build:digest
       - name: Publish the release
         env:
@@ -49,7 +49,7 @@ jobs:
           \`\`\`
           git checkout $GITHUB_REF_NAME
           npm ci
-          NEXT_PUBLIC_BOUND_TREASURY=$NEXT_PUBLIC_BOUND_TREASURY NEXT_PUBLIC_BOUND_FEE_BPS=$NEXT_PUBLIC_BOUND_FEE_BPS NEXT_PUBLIC_BOUND_ENABLE_V1=$NEXT_PUBLIC_BOUND_ENABLE_V1 BOUND_BUILD_ID=$GITHUB_SHA npm run build
+          NEXT_PUBLIC_ORIENTIM_TREASURY=$NEXT_PUBLIC_ORIENTIM_TREASURY NEXT_PUBLIC_ORIENTIM_FEE_BPS=$NEXT_PUBLIC_ORIENTIM_FEE_BPS NEXT_PUBLIC_ORIENTIM_ENABLE_V1=$NEXT_PUBLIC_ORIENTIM_ENABLE_V1 ORIENTIM_BUILD_ID=$GITHUB_SHA npm run build
           node tools/build-digest.ts
           \`\`\`
           EOF

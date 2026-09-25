@@ -11,7 +11,7 @@ import {
   SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Rpc, SolanaRpcApi, Transaction } from '@solana/kit';
-import type { AccountState, ChainSnapshot } from '@bound/core';
+import type { AccountState, ChainSnapshot } from '@orientim/core';
 
 export type SolanaRpc = Rpc<SolanaRpcApi>;
 
@@ -245,7 +245,7 @@ export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: 
 export type SendOutcome = 'confirmed' | 'failed' | 'expired' | 'rejected' | 'unknown';
 export type SendStatus = 'sending' | 'sent' | SendOutcome;
 /**
- * `refusal`, for `rejected` only: who refused. `paused` and `busy` are Bound's own relay (the kill
+ * `refusal`, for `rejected` only: who refused. `paused` and `busy` are Orientim's own relay (the kill
  * switch, the send limit); `network` is the RPC's preflight, which usually means the price moved.
  */
 export type SendRefusal = 'paused' | 'busy' | 'network';
@@ -265,7 +265,7 @@ const stringify = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'big
 
 /**
  * Only two responses prove that the first send never left a node: Solana's structured preflight
- * failure, and a 4xx that Bound's proxy explicitly marks as rejected before forwarding. Every
+ * failure, and a 4xx that Orientim's proxy explicitly marks as rejected before forwarding. Every
  * upstream HTTP/JSON-RPC error is ambiguous, because a node may have accepted the transaction
  * before its response failed.
  */
@@ -274,7 +274,7 @@ export function refusedBeforeBroadcast(e: unknown): boolean {
   if (isSolanaError(e, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR)) {
     const status = (e.context as { statusCode?: number }).statusCode ?? 0;
     const headers = (e.context as { headers?: Headers }).headers;
-    return status >= 400 && status < 500 && headers?.get('x-bound-not-forwarded') === '1';
+    return status >= 400 && status < 500 && headers?.get('x-orientim-not-forwarded') === '1';
   }
   return false;
 }

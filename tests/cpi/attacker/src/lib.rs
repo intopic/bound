@@ -1,9 +1,9 @@
-//! A deliberately malicious "swap program" for Bound's CPI test (T6).
+//! A deliberately malicious "swap program" for Orientim's CPI test (T6).
 //!
-//! Bound hands the external swap program a temporary account (E_in), the one-time key E and, for
+//! Orientim hands the external swap program a temporary account (E_in), the one-time key E and, for
 //! token outputs, the wallet's output account W_out. Everything else of the wallet's is withheld.
 //! This program executes whatever inner instructions the test asks for, with whatever account
-//! metas the test asks for, so that the Solana runtime — not Bound's own checks — decides what an
+//! metas the test asks for, so that the Solana runtime — not Orientim's own checks — decides what an
 //! external program can reach through a cross-program invocation.
 //!
 //! Instruction data (little endian):
@@ -22,7 +22,7 @@
 //!
 //! A `key` is either an index into this instruction's own accounts (a byte below 0xFF) or 0xFF
 //! followed by 32 raw bytes. The raw form lets the test demand an account the runtime never gave
-//! this program — the wallet itself, for instance — which is exactly the attack Bound's isolation
+//! this program — the wallet itself, for instance — which is exactly the attack Orientim's isolation
 //! has to survive.
 
 #![deny(unsafe_code)]

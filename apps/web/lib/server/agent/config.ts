@@ -1,8 +1,8 @@
 import { address } from '@solana/kit';
-import { createJupiterClient, MIN_FEE } from '@bound/jupiter';
-import type { JupiterClient } from '@bound/jupiter';
-import { createRetryingRpc } from '@bound/solana';
-import type { SolanaRpc } from '@bound/solana';
+import { createJupiterClient, MIN_FEE } from '@orientim/jupiter';
+import type { JupiterClient } from '@orientim/jupiter';
+import { createRetryingRpc } from '@orientim/solana';
+import type { SolanaRpc } from '@orientim/solana';
 import { serverConfig } from '../config';
 import { treasurySetting } from '../../settings';
 import type { AgentDeps } from './api';
@@ -12,12 +12,12 @@ import type { AgentDeps } from './api';
  * They are read when a deployment starts: on Vercel a change needs a redeploy (review FA-02), so
  * revoking a key or pausing follows the runbook in SECURITY.md, not an edit in the dashboard.
  *
- *   BOUND_API_SECRET           32 random bytes, base64: seals tickets and derives each E
- *   BOUND_API_SECRET_PREVIOUS  optional, the one before it, while its tickets expire (a minute)
- *   BOUND_API_KEYS             id:sha256-of-key, comma-separated; only the hashes are stored
- *   BOUND_API_FEE_BPS          optional, the fee for API swaps; the page's fee otherwise
- *   BOUND_API_PER_MINUTE       optional, requests per minute per key and endpoint (60)
- *   BOUND_MIN_SKILL_VERSION    optional, the oldest skill prepare serves; older copies are asked to update
+ *   ORIENTIM_API_SECRET           32 random bytes, base64: seals tickets and derives each E
+ *   ORIENTIM_API_SECRET_PREVIOUS  optional, the one before it, while its tickets expire (a minute)
+ *   ORIENTIM_API_KEYS             id:sha256-of-key, comma-separated; only the hashes are stored
+ *   ORIENTIM_API_FEE_BPS          optional, the fee for API swaps; the page's fee otherwise
+ *   ORIENTIM_API_PER_MINUTE       optional, requests per minute per key and endpoint (60)
+ *   ORIENTIM_MIN_SKILL_VERSION    optional, the oldest skill prepare serves; older copies are asked to update
  */
 function secretOf(value: string | undefined): Uint8Array | null {
   if (!value) return null;
@@ -43,18 +43,18 @@ function keysOf(value: string | undefined): Map<string, string> {
 let clients: { rpc: SolanaRpc; jupiter: JupiterClient; for: string } | null = null;
 
 export function agentDeps(): AgentDeps | null {
-  const current = secretOf(process.env.BOUND_API_SECRET);
-  const keys = keysOf(process.env.BOUND_API_KEYS);
+  const current = secretOf(process.env.ORIENTIM_API_SECRET);
+  const keys = keysOf(process.env.ORIENTIM_API_KEYS);
   if (!current || keys.size === 0) return null;
-  const previous = secretOf(process.env.BOUND_API_SECRET_PREVIOUS);
+  const previous = secretOf(process.env.ORIENTIM_API_SECRET_PREVIOUS);
   const server = serverConfig();
   // The API may run on keys of its own, so that agents cannot use up the page's quota (FA-06).
   // Jupiter counts its limits per organisation, not per key (research audit F-10): only a key from
   // a separate Jupiter account gives the API a quota of its own.
   const rpcUrl = process.env.RPC_URL_AGENTS || server.rpcUrl;
   const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
-  const feeBps = BigInt(/^\d{1,3}$/.test(process.env.BOUND_API_FEE_BPS ?? '') ? process.env.BOUND_API_FEE_BPS!
-    : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_BOUND_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_BOUND_FEE_BPS! : '30');
+  const feeBps = BigInt(/^\d{1,3}$/.test(process.env.ORIENTIM_API_FEE_BPS ?? '') ? process.env.ORIENTIM_API_FEE_BPS!
+    : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS! : '30');
   // A fee the verifier would refuse is a configuration error: the API stays off, rather than charge
   // a fee nobody chose (engineering audit, Stage 1, L-01).
   if (feeBps > 100n) {
@@ -64,7 +64,7 @@ export function agentDeps(): AgentDeps | null {
   // A treasury that is set but cannot be read would make every API swap fee-free: the API stays off.
   let treasury: string | null;
   try {
-    treasury = treasurySetting(process.env.NEXT_PUBLIC_BOUND_TREASURY);
+    treasury = treasurySetting(process.env.NEXT_PUBLIC_ORIENTIM_TREASURY);
   } catch (e) {
     console.error(`The agent API is off: ${(e as Error).message}`);
     return null;
@@ -83,8 +83,8 @@ export function agentDeps(): AgentDeps | null {
       }),
     };
   }
-  const perMinute = Number(process.env.BOUND_API_PER_MINUTE);
-  const minSkillVersion = process.env.BOUND_MIN_SKILL_VERSION?.trim() ?? '';
+  const perMinute = Number(process.env.ORIENTIM_API_PER_MINUTE);
+  const minSkillVersion = process.env.ORIENTIM_MIN_SKILL_VERSION?.trim() ?? '';
   return {
     rpc: clients.rpc,
     jupiter: clients.jupiter,
@@ -96,7 +96,7 @@ export function agentDeps(): AgentDeps | null {
     excludeDexes: server.excludeDexes,
     maxNetworkFeeLamports: server.maxNetworkFeeLamports,
     disabled: server.disabled,
-    v1: process.env.NEXT_PUBLIC_BOUND_ENABLE_V1 === '1',
+    v1: process.env.NEXT_PUBLIC_ORIENTIM_ENABLE_V1 === '1',
     perMinute: Number.isInteger(perMinute) && perMinute > 0 ? perMinute : 60,
     minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
     // The smallest swap, about $1, so that no swap costs more to build than it brings.

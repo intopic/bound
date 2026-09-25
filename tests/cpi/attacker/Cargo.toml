@@ -1,9 +1,9 @@
 [package]
-name = "bound-attacker"
+name = "orientim-attacker"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "A deliberately malicious swap program, used only by Bound's CPI test"
+description = "A deliberately malicious swap program, used only by Orientim's CPI test"
 
 [dependencies]
 solana-program = "4"

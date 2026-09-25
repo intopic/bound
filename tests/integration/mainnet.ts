@@ -8,7 +8,7 @@
  *      real SPL Token and System programs. Nothing beyond q is reachable, and since the output
  *      floor is enforced (audit B-04) a route that does not deliver reverts entirely.
  *  T5  The output floor in the real runtime: a verified swap whose floor is raised to twice the
- *      quote must fail exactly at Bound's minimum-output check.
+ *      quote must fail exactly at Orientim's minimum-output check.
  *
  * Simulations use a public exchange wallet as fee payer with sigVerify: false.
  *
@@ -25,11 +25,11 @@ import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } 
 import { AuthorityType, getCloseAccountInstruction, getSetAuthorityInstruction, getTransferInstruction } from '@solana-program/token';
 import { getTransferSolInstruction } from '@solana-program/system';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ataOf, buildPolicy, JUPITER_PROGRAM, protectedInstructions, TOKEN_PROGRAM, tokenAmountOf, WSOL_MINT } from '@bound/core';
-import { verify } from '@bound/verifier';
-import type { TxVersion } from '@bound/core';
-import { createEphemeral, createRetryingRpc, fetchMints, fetchSnapshot } from '@bound/solana';
-import { BoundError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
+import { ataOf, buildPolicy, JUPITER_PROGRAM, protectedInstructions, TOKEN_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
+import { verify } from '@orientim/verifier';
+import type { TxVersion } from '@orientim/core';
+import { createEphemeral, createRetryingRpc, fetchMints, fetchSnapshot } from '@orientim/solana';
+import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 
 const arg = (name: string, fallback: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -189,7 +189,7 @@ const failedInstruction = (err: unknown) => {
   return i === undefined ? null : Number(i);
 };
 
-/** Index of Bound's minimum-output check (a Token self-TransferChecked) in a transaction. */
+/** Index of Orientim's minimum-output check (a Token self-TransferChecked) in a transaction. */
 async function floorCheckIndex(tx: Transaction): Promise<number> {
   const compiled = getCompiledTransactionMessageDecoder().decode(tx.messageBytes);
   const tables = (compiled as { addressTableLookups?: { lookupTableAddress: Address }[] }).addressTableLookups ?? [];
@@ -265,7 +265,7 @@ async function runT4(): Promise<Row[]> {
               (tryNo > 1 ? ` (2nd prepare; 1st reverted: ${firstFailure})` : ''),
           };
         } catch (e) {
-          const err = e as BoundError;
+          const err = e as OrientimError;
           row = { pair, version, ok: false, detail: `${err.code ?? 'error'}: ${err.message}${err.violations?.length ? ' ' + json(err.violations) : ''}` };
         }
       }
@@ -414,7 +414,7 @@ async function runT5(): Promise<FloorRow[]> {
 // ---------------------------------------------------------------- report
 
 const started = new Date();
-log(`Bound integration on mainnet — ${started.toISOString()}`);
+log(`Orientim integration on mainnet — ${started.toISOString()}`);
 const t4 = await runT4();
 const t1 = SKIP_ATTACKS ? [] : await runT1();
 const t5 = SKIP_ATTACKS ? [] : await runT5();
@@ -425,7 +425,7 @@ const totals = t4.flatMap(r => (r.totalMs === undefined ? [] : [r.totalMs]));
 const locals = t4.flatMap(r => (r.localMs === undefined ? [] : [r.localMs]));
 const okT1 = t1.filter(r => r.pass).length;
 const md = [
-  `# Bound — testet e integrimit në mainnet`,
+  `# Orientim — testet e integrimit në mainnet`,
   ``,
   `Ekzekutuar më ${started.toISOString()}, pa nënshkruar dhe pa dërguar asgjë.`,
   ``,
@@ -435,7 +435,7 @@ const md = [
   ``,
   `Koha e përgatitjes (quote, lexime, simulim, verifikim): mediana ${median(totals)} ms, maksimumi ${Math.max(0, ...totals)} ms. Puna lokale (ndërtim dhe verifikim): mediana ${median(locals)} ms, maksimumi ${Math.max(0, ...locals)} ms. Klienti i testit pret 1.1 s mes thirrjeve te Jupiter pa key, prandaj koha totale këtu është më e gjatë se në faqe.`,
   ``,
-  `| Çifti | Versioni | Rezultati | Byte | CU | Riparime | Kosto në çmim (bps) | Fee Bound | Route ose arsyeja |`,
+  `| Çifti | Versioni | Rezultati | Byte | CU | Riparime | Kosto në çmim (bps) | Fee Orientim | Route ose arsyeja |`,
   `| --- | --- | --- | --- | --- | --- | --- | --- | --- |`,
   ...t4.map(r => `| ${r.pair} | v${r.version} | ${r.ok ? 'kaloi' : 'dështoi'} | ${r.size ?? ''} | ${r.units ?? ''} | ${r.repairs ?? ''} | ${r.lossBps ?? ''} | ${r.fee === undefined ? '' : r.fee ? 'po' : 'falur'} | ${r.detail.replace(/\|/g, '/')} |`),
   ``,
@@ -453,7 +453,7 @@ const md = [
     ``,
     `## T5: minimumi i output-it në runtime-in real (B-04)`,
     ``,
-    `${t5.filter(r => r.pass).length}/${t5.length}: swap-i i verifikuar kalon, dhe i njëjti swap me minimumin ×2 rrëzohet pikërisht te kontrolli i Bound-it.`,
+    `${t5.filter(r => r.pass).length}/${t5.length}: swap-i i verifikuar kalon, dhe i njëjti swap me minimumin ×2 rrëzohet pikërisht te kontrolli i Orientim-it.`,
     ``,
     `| Çifti | Swap-i i ndershëm | Minimumi ×2 |`,
     `| --- | --- | --- |`,

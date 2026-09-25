@@ -1,7 +1,7 @@
 /**
  * The upstream canary (research audit F-07). Jupiter, Pump.fun and the token programs are upgraded
- * while Bound runs: on 23 September 2026 Pump's curve program had been redeployed hours before and
- * Jupiter's two days before (each run prints the dates again). Bound's verifier refuses a Jupiter
+ * while Orientim runs: on 23 September 2026 Pump's curve program had been redeployed hours before and
+ * Jupiter's two days before (each run prints the dates again). Orientim's verifier refuses a Jupiter
  * instruction it cannot read, so a format change stops every swap; this finds it before a user does.
  *
  * It builds protected swaps on mainnet state exactly as the page does, each with the fee where it
@@ -29,11 +29,11 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@bound/core';
-import type { FeeSide, TxVersion } from '@bound/core';
-import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints, httpStatusOf } from '@bound/solana';
-import { BoundError, createJupiterClient, DEFAULT_SETTINGS, JupiterError, prepareProtectedSwap } from '@bound/jupiter';
-import type { PreparedSwap } from '@bound/jupiter';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
+import type { FeeSide, TxVersion } from '@orientim/core';
+import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints, httpStatusOf } from '@orientim/solana';
+import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, JupiterError, prepareProtectedSwap } from '@orientim/jupiter';
+import type { PreparedSwap } from '@orientim/jupiter';
 
 const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';
 const rpc = createRetryingRpc(RPC_URL, 8);
@@ -66,10 +66,10 @@ const report = (v: Verdict, name: string, detail: string) => {
   console.log(`${v === 'ok' ? 'OK  ' : v === 'warn' ? 'WARN' : 'FAIL'} ${name} — ${detail}`);
 };
 
-/** Load and moving prices say nothing about Bound or Jupiter's format; everything else does. */
+/** Load and moving prices say nothing about Orientim or Jupiter's format; everything else does. */
 const LOAD = new Set(['busy', 'unavailable', 'price-moved', 'costs-more']);
 const isLoad = (e: unknown) => {
-  if (e instanceof BoundError) return LOAD.has(e.code);
+  if (e instanceof OrientimError) return LOAD.has(e.code);
   const status = e instanceof JupiterError ? e.status : httpStatusOf(e);
   return status === 429 || (status !== null && status !== undefined && status >= 500);
 };
@@ -100,7 +100,7 @@ async function swap(
         version: opts.version ?? 0, acceptedCostBps: 5_000n,
       });
     } catch (e) {
-      const code = e instanceof BoundError ? e.code : 'error';
+      const code = e instanceof OrientimError ? e.code : 'error';
       if (want && code === 'no-route') return 'elsewhere';
       if (isLoad(e) && round === 0) continue;
       report(isLoad(e) ? 'warn' : 'fail', name, `not built: ${code}: ${(e as Error).message.slice(0, 200)}`);
@@ -136,8 +136,8 @@ const [slot, perf] = await Promise.all([
 ]);
 const msPerSlot = (1000 * perf.reduce((s, p) => s + p.samplePeriodSecs, 0)) / Math.max(1, perf.reduce((s, p) => s + Number(p.numSlots), 0));
 console.log(`Slots: ${msPerSlot.toFixed(0)} ms; a transaction lives 150 blocks, about ${Math.round((150 * msPerSlot) / 1000)} s.`);
-// A program Bound depends on, deployed again since the last review, fails the run (final audit, item
-// 5): Bound treats Jupiter as untrusted, so its safety does not rest on the program's behaviour, but
+// A program Orientim depends on, deployed again since the last review, fails the run (final audit, item
+// 5): Orientim treats Jupiter as untrusted, so its safety does not rest on the program's behaviour, but
 // whether swaps still work and still pay their fee does. The owner re-runs the checks, then records
 // the new slot: node tools/canary.ts --record-deploys.
 const KNOWN = 'tools/known-deploys.json';

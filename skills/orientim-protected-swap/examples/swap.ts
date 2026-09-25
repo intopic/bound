@@ -1,10 +1,10 @@
 /**
- * A protected swap through the Bound agent API, end to end: prepare → verify → sign as the wallet →
+ * A protected swap through the Orientim agent API, end to end: prepare → verify → sign as the wallet →
  * finalize → confirm, with every chain read on your own RPC. Needs @solana/kit 8 and nothing else:
- * the verifier ships with the skill (../lib/bound-verify.mjs).
+ * the verifier ships with the skill (../lib/orientim-verify.mjs).
  *
- * The check before signing is the point. Bound's server builds the transaction, so the agent runs
- * Bound's full verifier on the exact bytes, against chain state from its own RPC, with the policy
+ * The check before signing is the point. Orientim's server builds the transaction, so the agent runs
+ * Orientim's full verifier on the exact bytes, against chain state from its own RPC, with the policy
  * held to its own intent and limits. A compromised server, relay or impostor URL can then refuse or
  * delay a swap, never make the wallet sign one that moves more than the approved amount. The price
  * is held to a floor of the agent's own: `--min-out`, or one this script asks Jupiter for itself.
@@ -14,21 +14,21 @@
  * fails to answer, so a lost answer or a lying server can neither fake a success nor start a second
  * swap while the first one could still land (engineering review H-01, H-02).
  *
- *   BOUND_API_URL=https://<bound host>  BOUND_API_KEY=bnd_...  SOLANA_RPC_URL=https://<your rpc>
- *   BOUND_WALLET_KEYPAIR=/path/to/keypair.json   (a solana-keygen file; never paste a key in a prompt)
+ *   ORIENTIM_API_URL=https://<orientim host>  ORIENTIM_API_KEY=ori_...  SOLANA_RPC_URL=https://<your rpc>
+ *   ORIENTIM_WALLET_KEYPAIR=/path/to/keypair.json   (a solana-keygen file; never paste a key in a prompt)
  *                                                a wallet held by a signing service: see signerFromSignBytes
  *                                                and signerFromSignTransaction; bots in other languages:
- *                                                bin/bound-verify.mjs
- *   BOUND_TREASURY=<address>                     (optional: only for another Bound deployment;
- *                                                Bound's own treasury is pinned in the skill)
+ *                                                bin/orientim-verify.mjs
+ *   ORIENTIM_TREASURY=<address>                     (optional: only for another Orientim deployment;
+ *                                                Orientim's own treasury is pinned in the skill)
  *   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
  *
  *   node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
  *                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
  *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
  *
- * Unattended, the command line keeps every signed swap in a state directory (BOUND_STATE_DIR or
- * --state, default ./.bound-state) before finalize, settles what a stopped run left there before it
+ * Unattended, the command line keeps every signed swap in a state directory (ORIENTIM_STATE_DIR or
+ * --state, default ./.orientim-state) before finalize, settles what a stopped run left there before it
  * starts another, and holds a lock per wallet so that two workers never swap from it at once.
  */
 import { createHash, randomUUID } from 'node:crypto';
@@ -40,7 +40,7 @@ import {
   getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder, verifySignature,
 } from '@solana/kit';
 import type { Address, Rpc, SignatureBytes, SignatureDictionary, SolanaRpcApi, Transaction, TransactionPartialSigner } from '@solana/kit';
-import { inputTransferFee, ownMinimum, ownSolFeeLimit, pastProof, provesNeverLanded, verifyPrepared } from '../lib/bound-verify.mjs';
+import { inputTransferFee, ownMinimum, ownSolFeeLimit, pastProof, provesNeverLanded, verifyPrepared } from '../lib/orientim-verify.mjs';
 
 export type Intent = {
   owner: string;
@@ -49,28 +49,28 @@ export type Intent = {
   /** Base units, as a string. */
   amountIn: string;
   /**
-   * Your own floor for the output, base units; Bound never enforces less. Required by the check;
+   * Your own floor for the output, base units; Orientim never enforces less. Required by the check;
    * `protectedSwap` asks Jupiter for one when it is missing (see `ownMinimum`).
    */
   minOut?: string;
   /** For the floor asked of Jupiter: how far below its price, in bps (default 2%, 5% on a Pump.fun curve). */
   maxBelowBps?: number;
-  /** The highest Bound fee you accept, in bps (Bound's is 30: anything above is refused by default). */
+  /** The highest Orientim fee you accept, in bps (Orientim's is 30: anything above is refused by default). */
   maxFeeBps?: number;
   /** The highest network fee you accept, in lamports. */
   maxNetworkFeeLamports?: number;
-  /** The only wallet the fee may go to: Bound's own (pinned in the skill) unless set. */
+  /** The only wallet the fee may go to: Orientim's own (pinned in the skill) unless set. */
   treasury?: string;
   /** The most market rent that does not come back you accept, in lamports (default 0.001 SOL). */
   maxRouteCostLamports?: number;
   /**
-   * The most Bound's fee may be when it is paid in SOL from the wallet (a swap between two tokens
+   * The most Orientim's fee may be when it is paid in SOL from the wallet (a swap between two tokens
    * neither of which can carry it). `protectedSwap` asks Jupiter for your own when it is missing.
    */
   maxSolFeeLamports?: number;
   /**
    * One ceiling for all the SOL the swap may cost and not return, in lamports: the network fee up to
-   * its enforced cap, rent the route keeps, and Bound's fee when paid in SOL (optional).
+   * its enforced cap, rent the route keeps, and Orientim's fee when paid in SOL (optional).
    */
   maxSolCostLamports?: number;
   /** A gap to the open market the user already accepted, from a `costs-more` answer (bps, as a string). */
@@ -102,14 +102,14 @@ export type Prepared = {
   amounts: { amountIn: string; fee: string; feeMint?: string; feeBps: string; swapAmount: string; quotedOut: string; minOut: string };
   /**
    * `keptSolLamports`: the SOL the swap costs and does not return (the network fee, rent the route
-   * keeps, Bound's fee when paid in SOL). A new output account's rent is apart: it stays the wallet's.
+   * keeps, Orientim's fee when paid in SOL). A new output account's rent is apart: it stays the wallet's.
    */
   costs: { networkFeeLamports: string; outputAccountRentLamports: string; routeRentLamports: string; routeRefundLamports: string; keptSolLamports?: string };
   certificate: {
     messageSha256: string; wallet: string; temporaryAuthority: string;
-    input: { mint: string; totalDebit: string; boundFee: string };
-    output: { mint: string; minimumOutput: string; boundFee?: string };
-    /** Bound's fee when it is paid in SOL from the wallet; 0 otherwise. */
+    input: { mint: string; totalDebit: string; orientimFee: string };
+    output: { mint: string; minimumOutput: string; orientimFee?: string };
+    /** Orientim's fee when it is paid in SOL from the wallet; 0 otherwise. */
     solFee?: { lamports: string; destination: string | null };
   };
   /** What the transaction was built against; held to your intent by the check, never trusted. */
@@ -127,7 +127,7 @@ export type Finalized = {
 
 export type ApiError = { status: number; code: string; message: string; body: Record<string, unknown>; retryAfter?: number | null };
 
-export class BoundApiError extends Error {
+export class OrientimApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly body: Record<string, unknown>;
@@ -145,24 +145,24 @@ export class BoundApiError extends Error {
 type Fetch = typeof fetch;
 
 /**
- * This copy of the skill, as its package.json says. Sent with every call to Bound (x-bound-skill), so
+ * This copy of the skill, as its package.json says. Sent with every call to Orientim (x-orientim-skill), so
  * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
  * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
  */
 export const SKILL_VERSION = '1.0.0';
 
-/** Each call to Bound ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
+/** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call<T>(fetchImpl: Fetch, url: string, key: string, body: unknown, timeoutMs = 30_000): Promise<T> {
   const res = await fetchImpl(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`, 'x-bound-skill': SKILL_VERSION },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`, 'x-orientim-skill': SKILL_VERSION },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   });
   const json = (await res.json()) as { error?: { code: string; message: string } } & T;
   if (!res.ok) {
     const after = Number(res.headers.get('retry-after'));
-    throw new BoundApiError({
+    throw new OrientimApiError({
       status: res.status, code: json.error?.code ?? 'http', message: json.error?.message ?? res.statusText, body: json.error ?? {},
       retryAfter: Number.isFinite(after) && after > 0 ? after : null,
     });
@@ -175,7 +175,7 @@ const sameBytes = (a: ArrayLike<number>, b: ArrayLike<number>) => a.length === b
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /**
- * What to check before signing. First that Bound's answer agrees with itself and with what you
+ * What to check before signing. First that Orientim's answer agrees with itself and with what you
  * asked for; then the full verifier on the exact bytes, with chain state from `rpc`, which must be
  * your own RPC (review FA-01). Returns the problems found; sign only when there are none.
  */
@@ -200,8 +200,8 @@ export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<Solana
   const onOutput = p.amounts.feeMint !== undefined && p.amounts.feeMint === intent.outputMint && p.amounts.feeMint !== intent.inputMint;
   const base = onOutput ? BigInt(p.amounts.minOut) + BigInt(p.amounts.fee) : BigInt(intent.amountIn);
   const maxFee = (base * BigInt(intent.maxFeeBps ?? 30)) / 10_000n;
-  const stated = BigInt(p.certificate.input.boundFee) + BigInt(p.certificate.output.boundFee ?? '0') + BigInt(p.certificate.solFee?.lamports ?? '0');
-  if (!inSol && BigInt(p.amounts.fee) > maxFee) problems.push(`the Bound fee ${p.amounts.fee} is above ${maxFee}`);
+  const stated = BigInt(p.certificate.input.orientimFee) + BigInt(p.certificate.output.orientimFee ?? '0') + BigInt(p.certificate.solFee?.lamports ?? '0');
+  if (!inSol && BigInt(p.amounts.fee) > maxFee) problems.push(`the Orientim fee ${p.amounts.fee} is above ${maxFee}`);
   if (stated !== BigInt(p.amounts.fee)) problems.push('the fee the certificate states differs from the one in amounts');
   if (p.certificate.output.minimumOutput !== p.amounts.minOut) problems.push('the enforced minimum differs from the one stated');
   // The amounts shown are the policy's own, the one the verifier holds the bytes to: the fee, what
@@ -232,7 +232,7 @@ export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<Solana
 export const MIN_BLOCKS_TO_FINALIZE = 30n;
 
 /**
- * How far your RPC may trail the one Bound read the blockhash from, in blocks. The last block the
+ * How far your RPC may trail the one Orientim read the blockhash from, in blocks. The last block the
  * transaction can land in is taken on your own clock with this margin, never from the server alone.
  */
 export const LAG_BLOCKS = 25n;
@@ -272,8 +272,8 @@ export function signerFromSignBytes(address: string, sign: (message: Uint8Array)
  * A wallet held by a service that signs whole transactions and hands them back without sending
  * them (base64 in, base64 out). Its answer counts only when it is this very transaction: a service
  * that changes one byte (a priority fee, a new blockhash, an instruction of its own) is refused, since
- * Bound co-signs only the message it built and your check verified. A service that can only sign
- * and send cannot be used: Bound's signature comes last.
+ * Orientim co-signs only the message it built and your check verified. A service that can only sign
+ * and send cannot be used: Orientim's signature comes last.
  */
 export function signerFromSignTransaction(address: string, sign: (transaction: string) => Promise<string>): WalletSigner {
   return {
@@ -426,7 +426,7 @@ export type OrderBook = {
 };
 
 /** This order already confirmed, or its last transaction may still land: it is not swapped again. */
-export class BoundOrderError extends Error {
+export class OrientimOrderError extends Error {
   readonly id: string;
   readonly record: OrderRecord;
   constructor(id: string, record: OrderRecord) {
@@ -678,10 +678,10 @@ export function acquireLock(dir: string, owner: string, staleMs = 10 * 60_000): 
 export type Checked = { prepared: Prepared; intent: Intent };
 
 /**
- * Prepare and check: your own floor (asked of Jupiter when you set none), Bound's answer, and the
+ * Prepare and check: your own floor (asked of Jupiter when you set none), Orientim's answer, and the
  * full check on the exact bytes with chain state from your RPC. Throws on anything to refuse; sign
  * only the transaction this returns. A price that moved or a costlier route is not accepted
- * silently: Bound's answer is an error that says so.
+ * silently: Orientim's answer is an error that says so.
  */
 export async function prepareChecked(args: {
   apiUrl: string; apiKey: string; rpc: Rpc<SolanaRpcApi>; owner: string; intent: Omit<Intent, 'owner'>;
@@ -689,7 +689,7 @@ export async function prepareChecked(args: {
 }): Promise<Checked> {
   const fetchImpl = args.fetchImpl ?? fetch;
   const owner = args.owner;
-  // A floor of your own, from a price Bound did not give you (research audit F-02).
+  // A floor of your own, from a price Orientim did not give you (research audit F-02).
   const minOut = args.intent.minOut ?? await ownMinimum({
     inputMint: args.intent.inputMint, outputMint: args.intent.outputMint, amountIn: args.intent.amountIn, taker: owner,
     maxFeeBps: args.intent.maxFeeBps, maxBelowBps: args.intent.maxBelowBps, apiKey: args.jupiterApiKey, fetchImpl,
@@ -715,7 +715,7 @@ export async function prepareChecked(args: {
 
 /**
  * Finalize a transaction your wallet signed, then read its outcome on your RPC for the signature
- * your wallet made, never taken from finalize: `rejected` means Bound refused to send it and the
+ * your wallet made, never taken from finalize: `rejected` means Orientim refused to send it and the
  * chain shows it can no longer land; `expired`, that it did not land; `unknown`, that no outcome could
  * be read in time. Only after `rejected` or `expired` is a new swap for the same intent safe; after
  * `unknown`, check `signature` first. `signedTransaction` must be the checked transaction, unchanged,
@@ -731,13 +731,13 @@ export async function finalizeSigned(args: {
   onSigned?: (signed: Signed) => void | Promise<void>;
   /** How long to wait for an outcome, in ms; `unknown` after that (default 3 minutes). */
   maxWaitMs?: number;
-  /** How long one call to Bound or to your RPC may take, in ms (default 30 s and 10 s). */
+  /** How long one call to Orientim or to your RPC may take, in ms (default 30 s and 10 s). */
   requestTimeoutMs?: number;
 }): Promise<{ signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string }> {
   const { prepared, signedTransaction } = args;
   const mine = getTransactionDecoder().decode(Buffer.from(signedTransaction, 'base64'));
   const built = getTransactionDecoder().decode(Buffer.from(prepared.transaction, 'base64'));
-  if (!sameBytes(mine.messageBytes, built.messageBytes)) throw new Error('Not finalizing: this is not the transaction Bound prepared. Nothing was sent.');
+  if (!sameBytes(mine.messageBytes, built.messageBytes)) throw new Error('Not finalizing: this is not the transaction Orientim prepared. Nothing was sent.');
   const own = mine.signatures[prepared.wallet as Address];
   if (!own || !await verifySignature(await getPublicKeyFromAddress(prepared.wallet as Address), own, mine.messageBytes)) {
     throw new Error(`Not finalizing: the transaction carries no valid signature from ${prepared.wallet}. Nothing was sent.`);
@@ -773,12 +773,12 @@ async function askAndConfirm(
   const fetchImpl = args.fetchImpl ?? fetch;
   const { signature } = signed;
   let done: Finalized | null = null;
-  let refused: BoundApiError | null = null;
+  let refused: OrientimApiError | null = null;
   for (let attempt = 0; attempt < 2 && !done && !refused; attempt++) {
     try {
       done = await call<Finalized>(fetchImpl, `${args.apiUrl}/api/v1/finalize`, args.apiKey, { ticket: signed.ticket, signedTransaction: signed.signedTransaction }, args.requestTimeoutMs);
     } catch (e) {
-      if (e instanceof BoundApiError && e.status < 500) refused = e;
+      if (e instanceof OrientimApiError && e.status < 500) refused = e;
       else if (attempt === 0) await wait(args.pollMs ?? 1_000);
     }
   }
@@ -790,14 +790,14 @@ async function askAndConfirm(
   });
   // Kept or not, the caller decides what to do with a pending record: an unknown outcome stays pending.
   const refusal = refused ? refused.code : done?.status === 'rejected' ? done.refusal ?? 'network' : undefined;
-  // Refused by Bound, and the chain shows it can no longer land: that refusal is what happened.
+  // Refused by Orientim, and the chain shows it can no longer land: that refusal is what happened.
   if (outcome === 'expired' && refusal) return { signature, outcome: 'rejected', refusal };
   return { signature, outcome, ...(refusal ? { refusal } : {}) };
 }
 
 /**
  * A swap kept before an earlier finalize (see `Signed`), asked again: no check meant for a first
- * send applies, since the transaction may already have been sent (third audit, F4). Bound is asked
+ * send applies, since the transaction may already have been sent (third audit, F4). Orientim is asked
  * to finalize the same bytes once more (it looks the transaction up first, and the same bytes land
  * only once), and the outcome is read on your RPC for the kept signature. Always answers with that
  * signature and its outcome.
@@ -829,7 +829,7 @@ export async function protectedSwap(args: {
   onSigned?: (signed: Signed) => void | Promise<void>;
   /** How long to wait for an outcome, in ms; `unknown` after that (default 3 minutes). */
   maxWaitMs?: number;
-  /** How long one call to Bound or to your RPC may take, in ms (default 30 s and 10 s). */
+  /** How long one call to Orientim or to your RPC may take, in ms (default 30 s and 10 s). */
   requestTimeoutMs?: number;
   /** Where orders are kept by `intent.id` (see `OrderBook`); without an id or a book, not used. */
   orders?: OrderBook;
@@ -845,7 +845,7 @@ export async function protectedSwap(args: {
   const owner = args.wallet.address;
   // An order that confirmed, or whose transaction may still land, is not swapped again (item 7).
   const prior = orders ? await orders.order(id!) : null;
-  if (orderIsOpen(prior)) throw new BoundOrderError(id!, prior);
+  if (orderIsOpen(prior)) throw new OrientimOrderError(id!, prior);
   // Nor is anything prepared while another swap from this wallet may still land (H-02).
   const waiting = args.pending ? await pendingFor(args.pending, owner) : [];
   if (waiting.length) throw new PendingSwapError(waiting);
@@ -873,7 +873,7 @@ export async function protectedSwap(args: {
         if (prior) await orders.recordOrder(id!, record);
         else if (!await orders.claimOrder(id!, record)) {
           await args.pending?.remove(signed.signature);
-          throw new BoundOrderError(id!, (await orders.order(id!)) ?? record);
+          throw new OrientimOrderError(id!, (await orders.order(id!)) ?? record);
         }
       }
       await args.onSigned?.(kept);
@@ -903,10 +903,10 @@ async function main() {
     console.error('usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1] [--state <dir>] [--owner <address> --dry-run]');
     process.exit(2);
   }
-  const apiUrl = need('BOUND_API_URL').replace(/\/+$/, '');
-  const apiKey = need('BOUND_API_KEY');
+  const apiUrl = need('ORIENTIM_API_URL').replace(/\/+$/, '');
+  const apiKey = need('ORIENTIM_API_KEY');
   const intent = {
-    inputMint, outputMint, amountIn, minOut: flag('min-out'), treasury: process.env.BOUND_TREASURY || undefined,
+    inputMint, outputMint, amountIn, minOut: flag('min-out'), treasury: process.env.ORIENTIM_TREASURY || undefined,
     maxFeeBps: flag('max-fee-bps') ? Number(flag('max-fee-bps')) : undefined,
     maxBelowBps: flag('max-below-bps') ? Number(flag('max-below-bps')) : undefined,
     maxRouteCostLamports: flag('max-route-cost-lamports') ? Number(flag('max-route-cost-lamports')) : undefined,
@@ -938,8 +938,8 @@ async function main() {
     return;
   }
 
-  const wallet = await createKeyPairSignerFromBytes(new Uint8Array(JSON.parse(readFileSync(need('BOUND_WALLET_KEYPAIR'), 'utf8'))));
-  const stateDir = flag('state') ?? process.env.BOUND_STATE_DIR ?? '.bound-state';
+  const wallet = await createKeyPairSignerFromBytes(new Uint8Array(JSON.parse(readFileSync(need('ORIENTIM_WALLET_KEYPAIR'), 'utf8'))));
+  const stateDir = flag('state') ?? process.env.ORIENTIM_STATE_DIR ?? '.orientim-state';
   const store = createFileStore(stateDir);
   const release = acquireLock(stateDir, wallet.address);
   try {
@@ -950,7 +950,7 @@ async function main() {
     if (unknown.length || bookkeepingErrors.length) {
       if (unknown.length) {
         console.error(`The outcome of an earlier swap is still unknown: ${unknown.join(', ')}. Check it before swapping again; nothing new was started. `
-          + 'If the network can no longer prove it, look it up in a full history (an explorer), then settle it with `bound-verify resolve`.');
+          + 'If the network can no longer prove it, look it up in a full history (an explorer), then settle it with `orientim-verify resolve`.');
       }
       process.exitCode = 3;
       return;
@@ -971,10 +971,10 @@ async function main() {
   }
 }
 
-// Only as `node swap.ts`: bin/bound-verify.mjs bundles this file and must not run its command line.
+// Only as `node swap.ts`: bin/orientim-verify.mjs bundles this file and must not run its command line.
 if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   main().catch(e => {
-    console.error(e instanceof BoundApiError ? `${e.code}: ${e.message}` : e);
+    console.error(e instanceof OrientimApiError ? `${e.code}: ${e.message}` : e);
     process.exitCode = 1;
   });
 }

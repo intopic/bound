@@ -1,6 +1,6 @@
-# Master prompt: full audit of Bound Protected Swap
+# Master prompt: full audit of Orientim Protected Swap
 
-You are auditing **Bound Protected Swap**, a non-custodial Solana swap guard, end to end: the web
+You are auditing **Orientim Protected Swap**, a non-custodial Solana swap guard, end to end: the web
 app, the verifier, the transaction pipeline, the agent API and the agent skill, and every external
 system they touch. The owner wants **full control**: find every hole, including the ones nobody has
 asked you about.
@@ -9,7 +9,7 @@ Work in this order and do not skip ahead:
 
 1. **Research first.** Independently establish how each external system actually behaves today
    (September 2026), from primary sources.
-2. **Then audit the code against that research.** For every assumption Bound makes about an external
+2. **Then audit the code against that research.** For every assumption Orientim makes about an external
    system, check whether the research confirms it, refutes it, or leaves it unproven.
 3. **Then run the scenarios and hunt.** Walk the scenario matrix, think like every attacker listed
    here and any this document forgot, and look for what we have not seen.
@@ -31,7 +31,7 @@ of date: the current state is `main` and `npm test`.
   release notes, changelogs, explorers. Blog posts and forums only as leads. Cite a URL and a date
   for every external fact; say when you could not confirm something.
 - **Currency.** Solana, Token-2022, Jupiter, Pump.fun and wallets changed in 2025–2026. Check what
-  is deployed now, and whether programs Bound depends on are upgradeable and by whom.
+  is deployed now, and whether programs Orientim depends on are upgradeable and by whom.
 - **Safety.** Do not sign or send mainnet transactions with real funds, and do not load or attack
   third-party infrastructure (no load tests against Jupiter, RPC providers or wallets). Simulation
   on mainnet state (`simulateTransaction`, `sigVerify: false`) and local VMs (litesvm, a local
@@ -42,18 +42,18 @@ of date: the current state is `main` and `npm test`.
 
 ---
 
-## 1. What Bound is, and what it promises
+## 1. What Orientim is, and what it promises
 
-A swap page and an agent API for Solana. Jupiter chooses where to trade; Bound decides what authority
+A swap page and an agent API for Solana. Jupiter chooses where to trade; Orientim decides what authority
 that trade gets. Jupiter's swap instruction never receives the user's wallet **W**: it receives a
 one-time key **E** and temporary token accounts of E holding exactly the approved amount. W signs
-first, Bound verifies what W returned byte for byte, and E signs last. There is no Bound program on
+first, Orientim verifies what W returned byte for byte, and E signs last. There is no Orientim program on
 chain.
 
-The guarantee (`SECURITY.md`, `AUDIT.md` section 1), for every transaction Bound builds:
+The guarantee (`SECURITY.md`, `AUDIT.md` section 1), for every transaction Orientim builds:
 
 1. The external instruction can move at most `q − f` of the input token (`q` the amount entered,
-   `f` Bound's fee), plus, only on routes that open an account in E's name (Pump.fun), exactly the
+   `f` Orientim's fee), plus, only on routes that open an account in E's name (Pump.fun), exactly the
    rent measured in simulation, capped at 0.005 SOL.
 2. It never receives W or any token account of W except the output account `W_out`, whose delegate
    is revoked first; a `W_out` with a close authority is refused.
@@ -73,10 +73,10 @@ Transaction variants: **A** SPL→SOL, **B** SOL→SPL, **C** SPL→SPL (`AUDIT.
 
 Challenge any of these if you have a new argument, but don't report them as oversights:
 
-- **No on-chain program** (decision A / D2). The fee for agents is enforced by Bound signing last
+- **No on-chain program** (decision A / D2). The fee for agents is enforced by Orientim signing last
   as E, not by a program.
 - **Fee:** 0.2% in the input token, compiled in at build time; the verifier refuses above 1%. The
-  swap is fee-free when the treasury has no account for the input token (D16). Bound never waives
+  swap is fee-free when the treasury has no account for the input token (D16). Orientim never waives
   its fee automatically to make a route fit.
 - **No cap per swap**; the real limits are the route and one transaction (64 accounts, 1232 bytes
   for v0). A swap is never split across transactions.
@@ -86,7 +86,7 @@ Challenge any of these if you have a new argument, but don't report them as over
   below the unrestricted one; refused past 50%. Price impact: warning from 1%, question from 5%.
 - **Excluded DEXes:** HumidiFi (per-taker rent too high to lose on every swap). Tokens whose issuer
   delegate is off-curve (e.g. xStocks) are refused.
-- **v1 transactions** only behind `NEXT_PUBLIC_BOUND_ENABLE_V1=1` (Phantom declares `legacy, 0`).
+- **v1 transactions** only behind `NEXT_PUBLIC_ORIENTIM_ENABLE_V1=1` (Phantom declares `legacy, 0`).
 - **Build-ahead:** the page prebuilds the swap while the user reads the quote. It is reused only
   under 20 s old, for the same inputs, with `W_out`'s balance unchanged.
 - **Agent API:** E derived as Ed25519 from HMAC-SHA256(server secret, ticket nonce) (option (a) of
@@ -105,7 +105,7 @@ Verify these, but they are not new findings:
   - firewall rate limits across instances (BR-09);
   - monitoring upgrades of the token programs and Jupiter (BR-13).
 - **Verification:**
-  - `@bound/verifier` is not published, so an agent cannot yet verify independently;
+  - `@orientim/verifier` is not published, so an agent cannot yet verify independently;
   - the release digest is published only to a private repository.
 - **Agent API:** built before the auditor answered `API-AGJENTET.md` section 9. **Answer those seven
   questions** as part of this audit.
@@ -127,7 +127,7 @@ Verify these, but they are not new findings:
 | `apps/web/lib/server/*` | RPC relay (method allowlist, send limit, kill switch), Jupiter relay (parameter allowlist, no `payer`), icon proxy, rate limits, script integrity |
 | `apps/web/lib/server/agent/*`, `apps/web/app/api/v1/*` | Agent API: `prepare`, `finalize`, sealed tickets, derived E, API keys as hashes |
 | `apps/web/proxy.ts` | Per-request CSP nonce |
-| `skills/bound-protected-swap/` | The agent skill: `SKILL.md` and `examples/swap.ts` (`checkPrepared`, `confirm`) |
+| `skills/orientim-protected-swap/` | The agent skill: `SKILL.md` and `examples/swap.ts` (`checkPrepared`, `confirm`) |
 | `tests/cpi` | T6: a malicious swap program in litesvm (CI only) |
 | `tests/integration` | Mainnet-state simulations: T4/T1/T5, large amounts, transfer-fee tokens, Pump.fun (`pump.ts --market amm/curve`), thresholds |
 | `tests/e2e` | Edge browser tests: `smoke.ts`, `busy.ts` |
@@ -135,7 +135,7 @@ Verify these, but they are not new findings:
 | `.github/workflows` | CI (tests, reproducible build ×2, fuzz), T6, release digest, live check |
 
 Run: `npm ci && npm run typecheck && npm test`; `npm run test:fuzz`; `npm run integration`;
-`node tests/integration/pump.ts --market curve`; `npm run build && npm run start -w @bound/web`
+`node tests/integration/pump.ts --market curve`; `npm run build && npm run start -w @orientim/web`
 then `node tests/e2e/smoke.ts` and `node tests/e2e/busy.ts`.
 
 ---
@@ -159,7 +159,7 @@ external behaviour: what it is today, the source, and whether it is stable, vers
   - Which SIMDs define v1, and what changed?
 - **Lifetime.**
   - Blockhash expiry, `lastValidBlockHeight`.
-  - Durable nonces: could a wallet, or anyone else, turn a Bound transaction into a durable-nonce
+  - Durable nonces: could a wallet, or anyone else, turn a Orientim transaction into a durable-nonce
     one and hold it indefinitely? What would that break?
 - **Fees and rent.**
   - Priority fees, and how `getRecentPrioritizationFees` relates to landing.
@@ -276,7 +276,7 @@ external behaviour: what it is today, the source, and whether it is stable, vers
   `replaceRecentBlockhash` and `accounts`; `sendTransaction` preflight and `maxRetries: 0`;
   `getSignatureStatuses` with and without history; `getFeeForMessage`; `getRecentPrioritizationFees`.
   Rate-limit responses and their shape.
-- **A lying or lagging RPC.** What can it make Bound do, read by read? We tabulate this in `SECURITY.md`
+- **A lying or lagging RPC.** What can it make Orientim do, read by read? We tabulate this in `SECURITY.md`
   ("One RPC provider"): is the table complete and correct? In particular `b0` (BR-01),
   lookup tables for v0, owners for R1, mint data for R7, the simulation used for `takerRent`.
 - **Lag.** Commitment levels and staleness between reads in one prepare. Can the snapshot and the
@@ -305,7 +305,7 @@ external behaviour: what it is today, the source, and whether it is stable, vers
   - How they hold keys: local keypair, env var, remote signers with policy engines (Turnkey, Privy,
     Crossmint, Fireblocks, AWS KMS).
   - Can those signers partially sign a v0 message that has another signer? Do their policy engines
-    let a user restrict signing to Bound's transactions?
+    let a user restrict signing to Orientim's transactions?
 - **The API as a protocol.**
   - Authentication and key hashing.
   - The ticket: HMAC, `kid`, nonce, key id, owner, message hash, `lastValidBlockHeight`.
@@ -313,12 +313,12 @@ external behaviour: what it is today, the source, and whether it is stable, vers
   - E derivation and the secret's rotation.
   - Serverless statelessness; limits per instance.
   - Error semantics.
-  - Whether "Bound signs only the hash it sealed" really enforces the fee, and every way around it:
-    - the "free template": prepare, then rebuild without Bound;
+  - Whether "Orientim signs only the hash it sealed" really enforces the fee, and every way around it:
+    - the "free template": prepare, then rebuild without Orientim;
     - a stolen secret;
     - a stolen API key.
 - **Custody and regulation.** Does holding E's derivation secret, and co-signing other people's
-  transactions, change Bound's custody or regulatory position? Research, not legal advice; say
+  transactions, change Orientim's custody or regulatory position? Research, not legal advice; say
   which jurisdictions you looked at.
 - **The skill.**
   - Is `SKILL.md` correct, complete and safe for an autonomous agent?
@@ -337,7 +337,7 @@ external behaviour: what it is today, the source, and whether it is stable, vers
 - Fee economics at 0.2% against current competitors: wallets' in-app swap fees, trading bots and
   terminals, Jupiter's own fees.
 
-For each boundary, finish with: **"What Bound assumes here, and whether it holds."**
+For each boundary, finish with: **"What Orientim assumes here, and whether it holds."**
 
 ---
 
@@ -351,12 +351,12 @@ Map every assumption from Phase 1 to the code that relies on it, and verify it. 
 | **The floor** | `compiler.ts`, `swap.ts` (`strictMinimumOutput`, `routeFloor`, `quotedMinimum`, `slippageFor`, `isCurveRoute`, `acceptedMinOut`), `SwapApp.tsx` | Is there any path, on the page or the API, where the enforced minimum ends below what the user or agent accepted, or where they sign without having seen it? |
 | **`b0`** | `swap.ts` snapshot, build-ahead reuse (`outputBalanceUnchanged`), `swapLock.ts` | Every way `W_out` can change between the read and execution, and what each does to guarantee 4. |
 | **Rent and E** | `measureTakerRent`, `withTakerRent`, R4, R6 | Can a route make E end with lamports or accounts that a third party later benefits from? Can the funding exceed what is shown? |
-| **Fee** | policy, `feeFor`, `treasuryCannotReceive`, fee-account existence, `BOUND_API_FEE_BPS` | Any path to a fee above what the user saw, to the wrong destination, or silently dropped. |
+| **Fee** | policy, `feeFor`, `treasuryCannotReceive`, fee-account existence, `ORIENTIM_API_FEE_BPS` | Any path to a fee above what the user saw, to the wrong destination, or silently dropped. |
 | **Wallet return** | `verifyWalletReturn`, `countersignProtectedSwap` | Byte identity, signature check, E slot empty. Any wallet behaviour from B5 that should pass but fails, or the reverse. |
 | **Send and outcome** | `sendAndConfirm`, `sendOnce`, `refusedBeforeBroadcast`, `revertedOnPrice`, `outcomeNotice` | "No funds moved" is said only when proven. Are the proof boundaries sound for Helius and for the public RPC? |
 | **Relays** | `rpcProxy.ts`, `jupiterProxy.ts`, `iconProxy.ts`, `rateLimit.ts` | Allowlists, SSRF, header trust, body limits, the kill switch, and what a malicious client can make the server do or pay for. |
 | **Agent API** | `apps/web/lib/server/agent/*` | Every item in B8, plus input validation, error leakage, timing attacks, key id collisions, rate limits across instances, and `maxDuration`. |
-| **Skill** | `skills/bound-protected-swap/*` | Every item in B8. Run `examples/swap.ts --dry-run` against a local build. |
+| **Skill** | `skills/orientim-protected-swap/*` | Every item in B8. Run `examples/swap.ts --dry-run` against a local build. |
 | **Page** | `SwapApp.tsx` | Every message the user sees: true, complete, and shown before signing when it matters. Costs, warnings, price impact, route gap, curve slippage, token tax, delegate removal, rent. |
 | **Build and CI** | workflows, `tools/*` | What a malicious pull request or dependency could change without a test failing. |
 
@@ -415,8 +415,8 @@ system would do.
 **Adversarial**
 
 - A malicious DEX or pool inside the route.
-- A compromised Jupiter; a compromised Bound server (page and API); a compromised dependency.
-- A phishing clone of Bound.
+- A compromised Jupiter; a compromised Orientim server (page and API); a compromised dependency.
+- A phishing clone of Orientim.
 - A malicious agent trying to drop the fee.
 - A third party with a stolen API key, a stolen ticket, or the stolen server secret.
 - A hostile token whose name or metadata carries instructions for an agent.
@@ -449,7 +449,7 @@ With the research and the scenarios done, spend real time on the unknown unknown
 
 ## 7. What to deliver
 
-1. **Research report**, per boundary B1–B9: the facts, with sources and dates, and "what Bound
+1. **Research report**, per boundary B1–B9: the facts, with sources and dates, and "what Orientim
    assumes here, and whether it holds".
 2. **Compatibility matrix**: one row per external behaviour our code depends on:
    - the external behaviour;

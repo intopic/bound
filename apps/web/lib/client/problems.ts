@@ -20,7 +20,7 @@ export type Problem = {
   context?: string;
 };
 
-const KEY = 'bound.problems.v1';
+const KEY = 'orientim.problems.v1';
 const KEEP = 20;
 const MAX_FIELD = 2_000;
 /** The same message again within this time (a retry loop, a double click) is kept once. */
@@ -68,7 +68,7 @@ const plain = (v: unknown) => {
 };
 
 /**
- * The raw error, as a developer would want it: its class, the codes it carries (Bound's, an HTTP
+ * The raw error, as a developer would want it: its class, the codes it carries (Orientim's, an HTTP
  * status, a Solana error's context, the verifier's violations), its words, what caused it, and the
  * first lines of its stack.
  */
@@ -88,7 +88,7 @@ export function errorDetail(e: unknown): string {
 
 /** The text a person pastes when they ask for help. */
 export function problemsReport(list: Problem[], browser: string): string {
-  const out = [`Bound messages from this browser (${list.length})`, `Browser: ${browser}`];
+  const out = [`Orientim messages from this browser (${list.length})`, `Browser: ${browser}`];
   for (const p of list) {
     out.push('', `${new Date(p.at).toISOString()} [${p.kind}] ${p.title}`);
     if (p.body) out.push(p.body);

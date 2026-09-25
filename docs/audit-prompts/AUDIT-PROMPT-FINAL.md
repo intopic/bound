@@ -1,6 +1,6 @@
-# Master prompt: research and compatibility audit of Bound Protected Swap
+# Master prompt: research and compatibility audit of Orientim Protected Swap
 
-You are a senior Solana engineer. Before Bound Protected Swap meets real users and real agents, we
+You are a senior Solana engineer. Before Orientim Protected Swap meets real users and real agents, we
 want a **research audit, not a test run**. We have already tested our code heavily (the list is in
 section 2). What we have not done well enough is look outward: at how Solana, wallets, tokens,
 Jupiter, Pump.fun, RPC providers and agents actually work today (September 2026), and then read our
@@ -13,8 +13,8 @@ Your job, in this order:
    How wallets treat a transaction with two signers. Which tokens and token features exist and are
    traded. How Jupiter and Pump.fun behave and change. How prices and blockhashes go stale, and how
    good products refresh them. How agents trade and hold their keys. How others solve the problem
-   Bound solves.
-2. **Read our code against what you learned.** For each area, is Bound compatible? Will it work
+   Orientim solves.
+2. **Read our code against what you learned.** For each area, is Orientim compatible? Will it work
    reliably? Where will it break, refuse, or lose a user or a fee?
 3. **Find what we missed.** Situations, tokens, wallets, behaviours or upcoming changes that the code
    and the documents do not account for.
@@ -40,22 +40,22 @@ Your job, in this order:
 - **Say plainly what you could not confirm.** An honest "unknown" is more useful to us than a guess.
 - **Our documents are claims, not facts:** `SECURITY.md`, `AUDIT.md` (section 0r lists the latest
   changes), `AGENT-API.md`, `API-AGJENTET.md`, `README.md`,
-  `skills/bound-protected-swap/SKILL.md`. Where a document and the code disagree, the code is what
+  `skills/orientim-protected-swap/SKILL.md`. Where a document and the code disagree, the code is what
   runs: report the disagreement.
 - Earlier audits were run by a session of the same model that wrote the code, so they were not
   independent. Do not assume they were right.
 
 ---
 
-## 1. What Bound is
+## 1. What Orientim is
 
-Jupiter chooses where to trade; Bound decides what authority that trade gets.
+Jupiter chooses where to trade; Orientim decides what authority that trade gets.
 
 - The swap instruction receives a one-time key **E** and temporary token accounts holding exactly
   the approved amount, never the wallet **W**.
-- W signs first with `signTransaction` (no send). Bound checks that what W returned is byte for byte
+- W signs first with `signTransaction` (no send). Orientim checks that what W returned is byte for byte
   what it verified, and E signs last.
-- There is no Bound program on chain. The fee is 0.2% of the input, paid in the input token, inside
+- There is no Orientim program on chain. The fee is 0.2% of the input, paid in the input token, inside
   the same transaction.
 - The guarantee is in `SECURITY.md` ("Guarantee"). The verifier's seven rules are in `README.md`;
   the load-bearing ones are R6 (the signers are exactly W and E) and R1 (W never inside the external
@@ -63,7 +63,7 @@ Jupiter chooses where to trade; Bound decides what authority that trade gets.
 - Three shapes: A (token → SOL), B (SOL → token), C (token → token). Transactions are v0, or v1
   behind a flag.
 - Two ways in: the page (`apps/web`), and the agent API with its skill (`/api/v1/prepare` and
-  `/api/v1/finalize`; the agent's own verifier in `skills/bound-protected-swap`).
+  `/api/v1/finalize`; the agent's own verifier in `skills/orientim-protected-swap`).
 
 **Recent changes** (`AUDIT.md` section 0r), each one worth reading closely:
 
@@ -72,10 +72,10 @@ Jupiter chooses where to trade; Bound decides what authority that trade gets.
 | Jupiter | The verifier reads the arguments of Jupiter's `route_v2` and `shared_accounts_route_v2` and refuses any other Jupiter instruction, a platform fee, positive slippage, a tolerance above 0.5% (3% with the Pump curve program), a quote below the minimum, or more input than E's account holds |
 | Pump.fun | The per-buyer account each Pump market opens (PDA `["user_volume_accumulator", E]`) is closed at the end with Pump's `close_user_volume_accumulator`, and its lamports go on to W |
 | Agents | The skill bundles the full verifier and checks every swap on the agent's own RPC before signing. The API seals W's output balance in the ticket and re-checks it at finalize |
-| Relays | `/api/rpc` sends and simulates only Bound-shaped transactions |
+| Relays | `/api/rpc` sends and simulates only Orientim-shaped transactions |
 | Outcomes | "Failed" only at confirmed; "expired" only against the finalized block height |
 | Fees | Network-fee limit 0.0005 SOL by default, never above 0.001 SOL |
-| Lookup tables | Bound's own accounts are never loaded from a lookup table |
+| Lookup tables | Orientim's own accounts are never loaded from a lookup table |
 
 **How the page keeps prices and transactions fresh today** (`apps/web/components/SwapApp.tsx`, top
 of file):
@@ -86,7 +86,7 @@ of file):
 - If a question to the user (price moved, costs) stays open more than 15 s, the swap is rebuilt.
 - When Jupiter or the RPC answer "busy", the page waits 30 s before building ahead again.
 - The minimum is never lowered silently. If the market moved beyond the tolerance, the user is asked.
-- Bound reads the blockhash itself (`getLatestBlockhash` at confirmed) at the end of prepare. Its
+- Orientim reads the blockhash itself (`getLatestBlockhash` at confirmed) at the end of prepare. Its
   lifetime ends the swap; there is no re-send with a new blockhash.
 - Agents get a ticket from `prepare` that is valid until the blockhash expires. They must verify,
   sign and `finalize` within that window.
@@ -103,9 +103,9 @@ of file):
 - a skill for agents, not an SDK or an MCP server.
 
 **Rules the owner has set:**
-- every Solana token should be swappable, unless Bound cannot isolate it safely;
+- every Solana token should be swappable, unless Orientim cannot isolate it safely;
 - the page stays simple;
-- Bound is authority protection, not a DEX or a router.
+- Orientim is authority protection, not a DEX or a router.
 
 **Known and open.** Not new findings, but tell us if your research changes them:
 - no real-wallet test yet;
@@ -126,7 +126,7 @@ of file):
 | `packages/jupiter` | Jupiter client; `swap.ts`, the whole pipeline from quote to countersign |
 | `apps/web/components/SwapApp.tsx` | The page's flow, refresh logic and every message a user reads |
 | `apps/web/lib/server/*` | Relays, rate limits, the agent API (`agent/api.ts`, `ticket.ts`, `config.ts`) |
-| `skills/bound-protected-swap` | `SKILL.md`, `examples/swap.ts`, `src/verify.ts` (bundled into `lib/bound-verify.mjs`) |
+| `skills/orientim-protected-swap` | `SKILL.md`, `examples/swap.ts`, `src/verify.ts` (bundled into `lib/orientim-verify.mjs`) |
 
 **Already tested by us. Do not repeat these; read them if useful:**
 - about 380 unit, property and mutation tests, plus fuzzing;
@@ -159,10 +159,10 @@ need to know, with the source.
 - Blockhash lifetime in practice, and durable nonces.
 - Rent today and the rent changes still to come.
 - Every SIMD or feature activated in 2025–2026, or scheduled, that changes how a transaction like
-  Bound's behaves: account locking, CPI privileges, duplicate accounts, size, fees, the classic
+  Orientim's behaves: account locking, CPI privileges, duplicate accounts, size, fees, the classic
   Token program's rewrite (p-token), Token-2022 upgrades.
 
-### B. Freshness: how to refresh so neither the user nor Bound loses
+### B. Freshness: how to refresh so neither the user nor Orientim loses
 
 This is one of the most important questions for us.
 
@@ -177,25 +177,25 @@ This is one of the most important questions for us.
 - What does each way of losing cost, and who pays it?
   - **The user loses:** a failed swap that still pays fees, a stale minimum, too many questions, a
     swap that expires while the wallet is open.
-  - **Bound loses:** a swap that never lands (no fee), wasted Jupiter and RPC calls against rate
+  - **Orientim loses:** a swap that never lands (no fee), wasted Jupiter and RPC calls against rate
     limits and credits, a user who leaves.
 - What is the right refresh and rebuild strategy for:
   - the page;
   - the build ahead of the click;
   - an agent between `prepare` and `finalize`?
-- Should Bound ever re-send with a new blockhash? What is safe, given that W signs a specific
+- Should Orientim ever re-send with a new blockhash? What is safe, given that W signs a specific
   message?
 
 ### C. Tokens
 
 - The classic Token program today, including the p-token rewrite: anything that changes the
-  behaviour Bound relies on (transfers, closes, self-transfers, revokes).
+  behaviour Orientim relies on (transfers, closes, self-transfers, revokes).
 - Every Token-2022 extension that exists today, including those added in 2025–2026. For each, what
-  it can do during a swap, and whether Bound's allowlist (`AUDIT.md` section 0f, `verify.ts`)
+  it can do during a swap, and whether Orientim's allowlist (`AUDIT.md` section 0f, `verify.ts`)
   handles it correctly.
 - The tokens people actually trade on Solana today, by volume and by count: majors, stablecoins
   (USDC, USDT, PYUSD, USDG and others), LSTs, memecoins, Pump.fun tokens, tokenized stocks and
-  other RWAs, Token-2022 launches. Which of them would Bound refuse, and why? The owner's rule is
+  other RWAs, Token-2022 launches. Which of them would Orientim refuse, and why? The owner's rule is
   that every token should be swappable, so every refusal needs a reason.
 - Account states that matter: frozen, delegated, close authority, memo-required, CPI Guard,
   permanent delegate, default-frozen, pausable, scaled UI amount.
@@ -206,7 +206,7 @@ This is one of the most important questions for us.
   - what it returns;
   - which instructions and formats it can return (routes, shared accounts, exact-out, token ledger,
     Token-2022 routes, multi-hop);
-  - what the fields Bound drops (`otherInstructions`, `setupInstructions`, tips) can carry.
+  - what the fields Orientim drops (`otherInstructions`, `setupInstructions`, tips) can carry.
 - The on-chain program:
   - the layouts of `route_v2` and `shared_accounts_route_v2` from the deployed IDL or source;
   - how the slippage check is measured;
@@ -216,8 +216,8 @@ This is one of the most important questions for us.
   - Ultra against the Swap API;
   - rate limits and plans;
   - how Jupiter recommends third parties integrate;
-  - whether anything announced would break Bound.
-- How Bound would notice a format change before users do. The verifier refuses unknown formats, so
+  - whether anything announced would break Orientim.
+- How Orientim would notice a format change before users do. The verifier refuses unknown formats, so
   a change stops every swap.
 
 ### E. Pump.fun
@@ -235,7 +235,7 @@ This is one of the most important questions for us.
     rewards, cashback coins);
   - whether the upgrade authority can change it.
 - Other launchpads with similar per-buyer accounts (Bonk.fun, Raydium LaunchLab, Moonshot, Meteora
-  DBC and the like). Does Bound pay or leave behind a similar cost there?
+  DBC and the like). Does Orientim pay or leave behind a similar cost there?
 
 ### F. Wallets
 
@@ -246,15 +246,15 @@ This is one of the most important questions for us.
   - Does it sign a transaction that needs a second signature it does not hold, and return it
     unsent?
   - Does it change the message (Lighthouse assertions, added priority fees, reordered
-    instructions)? If it does, Bound refuses the swap.
+    instructions)? If it does, Orientim refuses the swap.
   - What warnings does it show for such a transaction?
 - Mobile: Mobile Wallet Adapter, in-app browsers, deep links.
 - Embedded wallets (Phantom embedded, Privy, Dynamic, Magic, Web3Auth) and smart or multisig
-  wallets (Squads, Swig): which can use Bound, which cannot, and what the page should say.
+  wallets (Squads, Swig): which can use Orientim, which cannot, and what the page should say.
 
 ### G. RPC and confirmation
 
-- What Bound's outcome messages rely on:
+- What Orientim's outcome messages rely on:
   - preflight refusals;
   - `getSignatureStatuses` with and without history;
   - commitment levels and `minContextSlot`;
@@ -274,7 +274,7 @@ This is one of the most important questions for us.
   - agent wallets from wallet companies.
 
   Can each of them sign one of two signers and return the transaction unsent? Can their policy
-  engines express "only sign Bound-shaped transactions"?
+  engines express "only sign Orientim-shaped transactions"?
 - What agent developers expect from a swap API: request and response shapes, idempotency, errors,
   timing.
 - Agent-specific risks: prompt injection through token names or metadata, a compromised skill
@@ -292,7 +292,7 @@ This is one of the most important questions for us.
 
 ## 4. Part 2: read the code against the research
 
-For each area, write a short **compatibility table**: what the world does (sourced), what Bound does
+For each area, write a short **compatibility table**: what the world does (sourced), what Orientim does
 (`file:line`), and a verdict. The verdict is one of:
 - works;
 - works with a limit (say which);
@@ -307,14 +307,14 @@ For each area, write a short **compatibility table**: what the world does (sourc
   consider? Are there rules that refuse legitimate swaps for no safety reason?
 - **Tokens:** go through the traded tokens you found. For each group: swappable, refused (why), or
   swappable with a condition. Pay attention to Token-2022 and to the newest launches.
-- **Jupiter:** which responses Bound accepts and refuses, and what happens to users on the day
+- **Jupiter:** which responses Orientim accepts and refuses, and what happens to users on the day
   Jupiter changes a format or deprecates an endpoint.
 - **Pump.fun:** is the route refund built exactly as the programs expect? What happens on a Pump
   upgrade?
 - **Wallets:** a table of the wallets you researched: works, refuses (why), unknown. What the user
   sees in each case.
 - **Freshness:** compare the page's intervals and rebuild rules (section 1), and the agent ticket's
-  lifetime, with your findings in 3B. Where do users or Bound lose today? Give your recommended
+  lifetime, with your findings in 3B. Where do users or Orientim lose today? Give your recommended
   intervals and rules, with the reasoning.
 - **Confirmation and messages:** does every outcome message claim only what the RPC semantics you
   researched can prove?
@@ -349,7 +349,7 @@ Use these as a starting checklist, not a limit:
   or lying RPC; Jupiter slow, refusing or malformed.
 - **Parallel:** two tabs or two devices swapping into the same token; many agents at once; a ticket
   finalized twice or after expiry.
-- **Adversarial:** a malicious DEX; a compromised Jupiter API or Bound server; a phishing clone; an
+- **Adversarial:** a malicious DEX; a compromised Jupiter API or Orientim server; a phishing clone; an
   agent dropping the fee; a stolen API key or secret; hostile token metadata aimed at an agent.
 
 ---
@@ -370,7 +370,7 @@ Look especially for:
   fee cap.
 - **Coverage:** more tokens and wallets working safely.
 - **Robustness to upstream changes:** Jupiter formats, Pump upgrades, wallet behaviour, SIMDs.
-- **What agents need** to adopt Bound.
+- **What agents need** to adopt Orientim.
 - **Cost:** fewer calls per swap, and fee paths that leak.
 
 ---

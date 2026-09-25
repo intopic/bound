@@ -1,5 +1,5 @@
 /**
- * Route selection: a route whose accounts, together with Bound's own, exceed Solana's 64-account
+ * Route selection: a route whose accounts, together with Orientim's own, exceed Solana's 64-account
  * limit must count as "does not fit" (try a smaller maxAccounts), not crash the pipeline. Seen on
  * mainnet with USDC → HNT on 19 September 2026.
  */
@@ -9,7 +9,7 @@ import {
   generateKeyPairSigner, pipe, setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, tokenAccountSizeFor } from '@bound/core';
+import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, tokenAccountSizeFor } from '@orientim/core';
 import {
   compileIfFits, DEFAULT_SETTINGS, isMinimumOutputCheckInstruction, PUMP_CURVE_PROGRAM, quotedMinimum, slippageFor,
   strictMinimumOutput,
@@ -18,7 +18,7 @@ import {
 describe('the strict on-chain minimum model', () => {
   const quote = { outAmount: '1000000', otherAmountThreshold: '1' };
 
-  it('never lets a weak router threshold lower Bound\'s slippage floor', () => {
+  it('never lets a weak router threshold lower Orientim\'s slippage floor', () => {
     expect(strictMinimumOutput(quote, 50)).toBe(995_000n);
   });
 

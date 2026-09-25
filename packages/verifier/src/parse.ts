@@ -3,7 +3,7 @@ import type { AccountRole, Address } from '@solana/kit';
 import {
   ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, COMPUTE_BUDGET_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, SYSTEM_PROGRAM,
   TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
-} from '@bound/core/constants';
+} from '@orientim/core/constants';
 
 export type Account = { address: Address; role: AccountRole };
 export type RawInstruction = {
@@ -109,9 +109,9 @@ export function parseInstruction(ix: RawInstruction): Parsed {
     return invalid(`System instruction ${data.length >= 4 ? view(data).getUint32(0, true) : '?'}`);
   }
 
-  // Pump's close_user_volume_accumulator, the one instruction of a market's program Bound itself
+  // Pump's close_user_volume_accumulator, the one instruction of a market's program Orientim itself
   // places (review FA-05). Exactly its IDL shape; any other Pump instruction outside the route is
-  // not one Bound would write.
+  // not one Orientim would write.
   if (program === PUMP_CURVE_PROGRAM || program === PUMP_AMM_PROGRAM) {
     if (data.length !== 8 || CLOSE_USER_VOLUME_ACCUMULATOR.some((b, i) => data[i] !== b) || acc.length !== 4) {
       return invalid('a Pump instruction other than closing the per-buyer account');

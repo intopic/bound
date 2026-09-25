@@ -95,7 +95,7 @@ export function checkBuildResponse(r: unknown): BuildResponse {
 }
 
 /**
- * Jupiter Swap API V2. In the browser the URLs point at Bound's stateless proxy (D8), which adds
+ * Jupiter Swap API V2. In the browser the URLs point at Orientim's stateless proxy (D8), which adds
  * the API key; on the server they point at api.jup.ag directly.
  */
 export function createJupiterClient(opts: {
@@ -161,7 +161,7 @@ export function createJupiterClient(opts: {
         taker: p.taker,
         slippageBps: String(p.slippageBps),
         maxAccounts: String(p.maxAccounts),
-        // SOL is wrapped and unwrapped by Bound's own trusted instructions, never by Jupiter.
+        // SOL is wrapped and unwrapped by Orientim's own trusted instructions, never by Jupiter.
         wrapAndUnwrapSol: 'false',
       });
       // Never `payer`: with payer = W, W appeared inside the swap instruction (D12).

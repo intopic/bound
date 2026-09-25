@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { isAddress } from '@solana/kit';
-import type { TokenInfo } from '@bound/jupiter';
+import type { TokenInfo } from '@orientim/jupiter';
 import { isSupported, searchTokens, SOL_MINT } from '@/lib/client/tokens';
 import { shortAddress } from '@/lib/client/format';
 import { Modal } from './Modal';
 
 /**
- * Icons are served by Bound's own origin (audit B-08): the browser never contacts the hosts that
+ * Icons are served by Orientim's own origin (audit B-08): the browser never contacts the hosts that
  * token creators choose, and the page's img-src stays 'self' data:. A letter is shown when the
  * icon is missing or its host is not on the server's list.
  */
