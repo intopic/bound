@@ -1292,22 +1292,18 @@ export function SwapApp() {
       <section className="hero" id="swap">
         <div className="container hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">Protected trading on Solana</p>
-            <h1 className="hero-title">
-              The trade gets authority.
-              <br />
-              Your wallet doesn&apos;t.
-            </h1>
+            <p className="eyebrow">Protected swaps on Solana</p>
+            <h1 className="hero-title">Swap without handing over your wallet.</h1>
             <p className="hero-sub">
-              Protected Solana swaps for people and AI agents. Each swap can touch only the amount you approve, never the
-              rest of your wallet.
+              Every swap runs through a one-time key that holds only the amount you approve. See the minimum and every fee
+              before you sign.
             </p>
             <ul className="hero-points">
-              <li>Verified before you sign</li>
-              <li>Only the amount you approve</li>
-              <li>No lasting permissions</li>
+              <li>The route never holds your wallet&apos;s authority</li>
+              <li>Minimum enforced on chain</li>
+              <li>Checked before you sign</li>
             </ul>
-            <a className="text-link hero-agents" href="#developers">Building an agent? Use the API and the skill →</a>
+            <a className="text-link hero-agents" href="#agents">Building an agent? Explore the API and the skill →</a>
           </div>
 
           <div className="hero-app">
@@ -1321,6 +1317,7 @@ export function SwapApp() {
           <p className="swap-title"><ShieldIcon /> Protected swap</p>
           <span className={`status-badge ${badge[0]}`}><span className="dot" aria-hidden="true" />{badge[1]}</span>
         </div>
+        <div className={`scan-line${phase === 'checking' ? ' on' : ''}`} aria-hidden="true" />
 
         <div className="box">
           <div className="box-top">

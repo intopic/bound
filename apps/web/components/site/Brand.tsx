@@ -38,8 +38,10 @@ export function SiteHeader({ right }: { right: ReactNode }) {
         <Logo />
         <nav className="site-nav" aria-label="Main">
           <a href="/#swap">Swap</a>
+          <a href="/#how">How it works</a>
+          <a href="/#agents">Agents</a>
           <a href="/#security">Security</a>
-          <a href="/#developers">Developers</a>
+          <a href="/docs">Docs</a>
         </nav>
         <div className="header-right">{right}</div>
       </div>
@@ -49,8 +51,8 @@ export function SiteHeader({ right }: { right: ReactNode }) {
 
 const FOOTER: [string, [string, string][]][] = [
   ['Product', [['Swap', '/#swap'], ['Supported tokens', '/supported'], ['Fees', '/fees'], ['Status', '/status']]],
-  ['Developers', [['Docs', '/docs'], ['Agent skill', '/docs#skill'], ['API', '/docs#api'], ['Audits', '/audits']]],
-  ['Trust', [['Security', '/security'], ['Risks', '/risks'], ['Terms', '/terms'], ['Privacy', '/privacy']]],
+  ['Developers', [['Docs', '/docs'], ['Agent skill', '/docs#skill'], ['API', '/docs#api'], ['API access', '/docs#access'], ['Reviews', '/audits']]],
+  ['Trust', [['Security', '/security'], ['Real swaps', '/proof'], ['Risks', '/risks'], ['Terms', '/terms'], ['Privacy', '/privacy']]],
 ];
 
 export function SiteFooter() {

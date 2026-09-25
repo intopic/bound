@@ -93,8 +93,15 @@ Authorization: Bearer ori_...
           <li>0.3%, inside the transaction you sign, in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL.</li>
           <li>The verifier refuses any fee above 1% and any network fee above 0.001 SOL.</li>
           <li>Wallets must be able to sign first and hand the transaction back: local keys and signing services work; sign-and-send-only wallets and multisig vaults do not.</li>
-          <li>API keys are issued by Orientim during early access.</li>
         </ul>
+      </section>
+
+      <section id="access">
+        <h2>API access</h2>
+        <p>
+          The agent API is in early access. Keys are issued by Orientim; the request form opens with the public launch. The
+          skill, the command line and this documentation are open now, so your integration can be ready before your key is.
+        </p>
       </section>
 
       <section>

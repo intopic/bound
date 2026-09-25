@@ -1403,6 +1403,32 @@ treasury"); a 1% fee by the agent's fee limit; a minimum of 1000 by the agent's 
 
 ---
 
+## 0zl. The landing that says what only Orientim can say (26 September 2026)
+
+The owner's direction: the product has one truth no other swap on Solana has, and the page should
+say it with confidence, show it moving, and prove it. The plan, with live prototypes, was agreed first
+(an artifact, "Orientim Landing Blueprint"); then phases A and B were built.
+
+- **The words**: "Swap without handing over your wallet." Below it: every swap runs through a one-time
+  key that holds only the amount you approve. Every strong line is literally true: the route never
+  holds the wallet's authority, the minimum is enforced on chain, the transaction is checked before
+  the wallet opens. None of "safe", "unhackable", "best price" or "fully audited".
+- **The order**: hero with the real swap; a strip of what was tested live on mainnet, linking to the
+  transactions; the capsule; the difference; three steps; agents; security and evidence; fees; eight
+  questions; a closing band.
+- **The motion**, inline SVG and CSS inside the page's own CSP, stopped for people who ask for less
+  motion. The capsule shows the approved amount crossing the route under a one-time key while the rest
+  of the wallet stays locked. The authority map toggles a typical swap and an Orientim swap. The
+  agent's terminal replays its real mainnet swap and the tampered swap it refused. A line runs across
+  the card while a transaction is checked.
+- **Proof**: /proof lists the mainnet swaps with Phantom, Trust Wallet and the agent, and the attack
+  the agent refused.
+- **Accuracy**: the status page says a key is "Configured", not that the service is connected. The
+  reviews page states each review's kind, and that no professional firm has audited Orientim yet.
+  The agent API is "early access" at /docs#access, with no request channel promised before one exists.
+
+---
+
 ## 1. What Orientim is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
