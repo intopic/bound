@@ -1373,6 +1373,36 @@ Checked: 550 tests; next build; every page answers; no horizontal scroll at 390 
 
 ---
 
+## 0zk. The first agent swaps on mainnet (25 September 2026)
+
+The agent API run end to end with real funds, the way a customer's bot runs it: the skill's example
+(`examples/swap.ts`) as the agent, a fresh wallet of its own funded with 0.03 SOL by the owner, the
+local server with the agent API on, the public Solana RPC as the agent's own RPC, and the agent's own
+Jupiter price as its floor. No person and no wallet app: the agent prepared, verified, signed,
+finalized and confirmed each swap itself. The owner started each run; the outcome was read back from
+the chain every time.
+
+| Swap | Transaction | What it proves |
+| --- | --- | --- |
+| 0.01 SOL → 1.222039 USDC | `4iTJkZXKf5MJpZXJ9biVcgCyJuH9WSqGHnsCB3XMHdoA28vKSuXj37o8vfu9k1kYS5ePjxVz8caEAn1UJCGsYoTM` | a classic token; two signers, the agent and the one-time key |
+| 1.222039 USDC → 0.00996 SOL | `2RmL9qN93nHCnkC1z6xATASwt15NVCMBRczP9a6GfVEhQACEG6QzbxmyqCbMBP2g1Ut7ocC2tseavhzTt6vRf88g` | SOL as the output, the fee from what arrived |
+| 0.01 SOL → 337,152.32 AI | `4oGqF2g42ESsjZJyEPf4M1iBD7ri9yLcTCRqhpSz3ryjphwzjq6zFFhQ7ZjU6AarLAUnTPzMYAL9hHhvJZmsubzK` | a Token-2022 Pump.fun token on its bonding curve; the market's 0.0013 SOL account returned in the same swap |
+| 337,152.32 AI → 0.00964 SOL | `5fu9yHXQxJUnxoq9ZyPP9seTtHsHwV5z4YEtKENkzKbDx3DkvkzQeG7zNcUERPuPNkNgpVeHLr9Hp9RAcd9TkgfN` | selling on the curve |
+
+Every swap: at least the minimum arrived, the fee (0.3%, in SOL) reached the treasury, nothing stayed
+under the one-time key, and the agent's state directory held no pending record afterwards. The four
+swaps cost the agent 0.0005 SOL beyond its two new accounts' deposits (0.003 SOL, its own), most of it
+the small token's price impact both ways.
+
+**A compromised server, tested (no funds moved).** A proxy between the agent and the server changed
+the prepared swap six ways; the agent ran its check (`--dry-run`) and refused each before anything
+was signed. The fee sent to the address that swept the old treasury (`AQ49…`) was refused for a hash
+that no longer matched, and, when the attacker restated the hash and the policy too, by the verifier
+("unexpected SOL transfer") and by the pinned treasury ("the fee goes to AQ49…, not Orientim's
+treasury"); a 1% fee by the agent's fee limit; a minimum of 1000 by the agent's own floor.
+
+---
+
 ## 1. What Orientim is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
