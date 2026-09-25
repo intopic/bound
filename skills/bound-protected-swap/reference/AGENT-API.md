@@ -269,4 +269,4 @@ The API is off unless the deployment sets `BOUND_API_SECRET` and `BOUND_API_KEYS
 (`node tools/agent-key.ts --secret` and `node tools/agent-key.ts <id>` make them; only a hash of
 each key is stored). Optional: `BOUND_API_SECRET_PREVIOUS` while rotating the secret,
 `BOUND_API_FEE_BPS`, `BOUND_API_PER_MINUTE`. The kill switch `BOUND_DISABLED=1` stops both
-endpoints. Design and threat model: `API-AGJENTET.md`.
+endpoints. Threat model: `SECURITY.md`; the history of every review and fix: `docs/AUDIT.md`.

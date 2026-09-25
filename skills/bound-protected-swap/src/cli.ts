@@ -9,6 +9,7 @@
  *   bound-verify finalize   {"checked": ..., "signature": "..."}    0 confirmed   1 not swapped   3 unknown: recover before anything new
  *   bound-verify recover                                            0 all settled   3 something is still unknown
  *   bound-verify resolve    {"signature": "...", "outcome": "..."}  0 settled   1 refused (it could still land, or is not kept)
+ *   3 also when the state directory cannot be read: nothing is prepared or changed until it can.
  *   bound-verify check      {"prepared": ..., "intent": {...}}      0 safe to sign   1 refused   (for bots that call the API themselves)
  *   2 on any usage or configuration error; 5 when `intent.id` names an order that already swapped or
  *   whose transaction may still land (the same order is never swapped twice).
@@ -114,7 +115,12 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     if (typeof signature !== 'string' || (outcome !== 'confirmed' && outcome !== 'failed' && outcome !== 'expired')) {
       return usage('resolve reads {"signature": "<a kept swap>", "outcome": "confirmed" | "failed" | "expired"}, once you looked it up in a full history.');
     }
-    const kept = (await store.list()).find(s => s.signature === signature);
+    let kept: Awaited<ReturnType<typeof store.list>>[number] | undefined;
+    try {
+      kept = (await store.list()).find(s => s.signature === signature);
+    } catch (e) {
+      return { code: 3, output: { ok: false, error: `The kept swaps could not be read: ${messageOf(e)}. Nothing was changed.` } };
+    }
     if (!kept) return { code: 1, output: { ok: false, error: `No kept swap has the signature ${signature}. Nothing was changed.` } };
     let release: () => void;
     try {
@@ -138,13 +144,20 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
   if (command === 'prepare') {
     if (!isIntent(body.intent)) return usage(`prepare reads {"intent": ${INTENT_SHAPE}}.`);
     // One swap at a time, and none while an earlier one could still land (engineering audit S1-M-01).
-    const pending = (await store.list()).map(s => s.signature);
+    // A state directory that cannot be read is an answer too, not a stack trace (Stage 2 re-run, E5).
+    const orderId = body.intent.id;
+    let pending: string[];
+    let prior: OrderRecord | null;
+    try {
+      pending = (await store.list()).map(s => s.signature);
+      prior = orderId ? await store.order(orderId) : null;
+    } catch (e) {
+      return { code: 3, output: { ok: false, sent: false, error: `The kept swaps could not be read: ${messageOf(e)}. Nothing was prepared; fix the state directory first.` } };
+    }
     if (pending.length) {
       return { code: 3, output: { ok: false, pending, error: 'Earlier swaps are not settled yet: run `bound-verify recover` first. Nothing was prepared.' } };
     }
     // The same order, asked again: said, not swapped twice (final audit, item 7).
-    const orderId = body.intent.id;
-    const prior = orderId ? await store.order(orderId) : null;
     if (prior && (prior.state === 'confirmed' || prior.state === 'pending')) {
       return { code: 5, output: { ok: false, order: { id: orderId, ...prior }, error: prior.state === 'confirmed' ? 'This order already swapped. Nothing new was prepared.' : 'This order has a transaction that may still land: run `bound-verify recover`. Nothing new was prepared.' } };
     }

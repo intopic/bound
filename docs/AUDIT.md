@@ -1197,6 +1197,16 @@ matrix (section 0zb) had no time limit of its own at full size and vitest stoppe
 5 s. No counterexample was reported; the properties now have the fuzz run's limit, and all five pass
 at 200,000 cases each (about three minutes on this machine).
 
+The same day the repository was tidied: the working documents that were superseded (the agent API's
+Albanian design draft, the second audit's brief, the research notes of 20 September) and three
+scripts that no longer ran or had served their purpose (the devnet page test, whose pages were never
+in the repository; the Lighthouse census; the Pump accumulator research, now part of the pipeline and
+the canary) left the tree, and remain in its history. This log, the manual wallet test and the audit
+briefs moved to `docs/`. The auditor's Stage 2 re-run (its branch, with an agent API harness) found
+one more thing, E5 (low): `bound-verify prepare` and `recover` threw when the state directory could not
+be read, so a bot got a stack trace instead of JSON. Both, and `resolve`, now answer with exit code 3
+and nothing is prepared or changed.
+
 ---
 
 ## 1. What Bound is

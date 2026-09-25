@@ -51,13 +51,19 @@ bound/
 │   ├── verifier/   the 7 rules and the certificate (pure, no network, independent of the compiler) + tests
 │   ├── solana/     chain snapshot, simulation, send/confirm, ephemeral key
 │   └── jupiter/    Jupiter Swap API V2 client, prepare → finalize pipeline, route repair
-├── apps/web/       Next.js dApp, CSP proxy, stateless API routes (/api/rpc, /api/jupiter/*, /api/token-icon, /api/status)
+├── apps/web/       Next.js dApp, CSP proxy, stateless API routes (/api/rpc, /api/jupiter/*, /api/token-icon,
+│                   /api/status) and the agent API (/api/v1/prepare, /api/v1/finalize)
+├── skills/bound-protected-swap/   the package agents and bots download: SKILL.md, the verifier bundle,
+│                                  the `bound-verify` command and the example (AGENT-API.md)
 ├── tests/
-│   ├── integration/mainnet.ts   T4 (30 pairs, v0 + v1), T1 runtime attacks and T5 minimum output, simulated on mainnet
-│   ├── integration/large.ts     T7: growing sizes up to about $10M — there is no cap per swap
-│   ├── cpi/                     T6: a malicious swap program (Rust) executed against the protected transaction in a real Solana VM
-│   └── e2e/                     browser tests (Microsoft Edge via Playwright)
-└── spikes/         phase 1 prototype and the wallet test pages (mainnet + devnet)
+│   ├── integration/   mainnet simulations: T4, T1 and T5 (mainnet.ts), T7 sizes (large.ts), T9 cost of
+│   │                  protection (thresholds.ts), Jupiter's floor, Pump.fun, Token-2022 and issuer stablecoins
+│   ├── cpi/           T6: a malicious swap program (Rust) executed against the protected transaction in a real Solana VM
+│   └── e2e/           browser tests (Microsoft Edge via Playwright)
+├── tools/          skill build, release digest, live check, canary, agent API keys
+├── docs/           AUDIT.md (every review, finding and fix), TESTIMI.md (the manual wallet test, in
+│                   Albanian), audit-prompts/ (the briefs given to auditors)
+└── .github/        CI, fuzz, T6, canary, release and live-check workflows
 ```
 
 The verifier (`packages/verifier`, `@bound/verifier`) imports only `@solana/kit`, the token program
@@ -93,7 +99,6 @@ node skills/bound-protected-swap/examples/swap.ts   # the agent skill's example 
 node tools/build-skill.ts             # rebuild the verifier bundled in the skill (CI checks it)
 node tests/integration/jupiter-floor.ts   # Jupiter's on-chain floor and where it is measured, on mainnet state
 node tools/canary.ts                  # do seven protected swaps, with every kind of fee, v1 and Pump.fun, still build and execute?
-node tests/integration/pump-accumulator.ts   # the research behind closing Pump's per-buyer account (FA-05)
 node tests/e2e/pump-card.ts           # what a Pump.fun buy shows before the wallet opens (same server as e2e)
 npm run build:digest      # one hash over everything the browser loads, to compare with a release
 node tools/check-live.ts --site <url> --manifest build-digest.txt   # is a site serving that release?
@@ -152,10 +157,9 @@ off-chain minimum is not accepted as protection; a route that cannot express the
 Not in scope: price movement and MEV within that tolerance, the value of the token you buy,
 approvals granted elsewhere before, phishing sites that do not use Bound, and Token-2022 tokens
 whose extensions Bound refuses (a permanent delegate a program can sign for, frozen by default,
-pausable and the rest, listed in AUDIT.md section 0f), and what a token's own issuer can do outside
+pausable and the rest, listed in docs/AUDIT.md section 0f), and what a token's own issuer can do outside
 the swap (PYUSD's, for example, can move it in any wallet; the page says so). Transfer-fee tokens are supported: Bound prices the active schedule
 from the current epoch and harvests temporary accounts before closing them.
 
-See `SECURITY.md` for the threat model, `AUDIT.md` for the audit brief (with the fixes from the first
-review), `AUDITIMI.md` for the engineering-audit brief in Albanian and `TESTIMI.md` for the manual
-test guide.
+See `SECURITY.md` for the threat model, `AGENT-API.md` for the agent API, `docs/AUDIT.md` for every
+review, finding and fix, and `docs/TESTIMI.md` for the manual wallet test.

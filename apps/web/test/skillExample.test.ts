@@ -1136,3 +1136,27 @@ describe('the third audit: what "no record" proves, a finalize asked again, what
     expect(tight.join()).toContain('(maxSolCostLamports)');
   });
 });
+
+describe('the Stage 2 re-run: bound-verify answers even when its state directory fails (E5)', () => {
+  it('prepare, recover and resolve answer in JSON, and prepare builds nothing', async () => {
+    const b = await bound();
+    const stateDir = mkdtempSync(join(tmpdir(), 'bound-e5-'));
+    const files = createFileStore(stateDir);
+    const broken = { ...files, list: async () => { throw new Error('ENOSPC: no space left on device'); } };
+    let prepares = 0;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/prepare')) prepares++;
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const deps = { rpc: b.agentRpc, apiUrl: 'http://bound.test', apiKey: KEY, fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60, store: broken };
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' };
+    const prepared = await runCli('prepare', { intent }, deps);
+    expect(prepared.code).toBe(3);
+    expect(String(prepared.output.error)).toContain('ENOSPC');
+    expect(prepares).toBe(0);
+    const recovered = await runCli('recover', {}, deps);
+    expect(recovered).toMatchObject({ code: 3, output: { ok: false } });
+    expect(String(recovered.output.error)).toContain('ENOSPC');
+    expect((await runCli('resolve', { signature: 'any', outcome: 'expired' }, deps)).code).toBe(3);
+  });
+});

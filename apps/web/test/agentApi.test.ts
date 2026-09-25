@@ -1,5 +1,5 @@
 /**
- * The agent API (API-AGJENTET.md, section 7): the real pipeline behind /v1/prepare and /v1/finalize,
+ * The agent API (AGENT-API.md): the real pipeline behind /v1/prepare and /v1/finalize,
  * against the fake RPC and Jupiter the pipeline's own tests use. The fee holds because Bound signs
  * as E only the exact message it built; every test here that changes that message must end with
  * nothing signed and nothing sent.

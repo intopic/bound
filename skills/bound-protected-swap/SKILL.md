@@ -201,7 +201,7 @@ It needs Node 22.18 or later and `npm ci` in this folder, and reads `SOLANA_RPC_
 | Command | Input (stdin) | Exit code |
 | --- | --- | --- |
 | `recover` | none | 0 all settled; 3 an earlier outcome is still unknown, or its record could not be updated (`bookkeepingErrors`): start nothing new |
-| `resolve` | `{"signature": "<a kept swap>", "outcome": "confirmed" \| "failed" \| "expired"}` | 0 settled (the chain's answer is used when your RPC has one); 1 refused: it could still land, or no swap with that signature is kept. Only after you looked the signature up in a full history (an explorer), for a swap `recover` can no longer prove |
+| `resolve` | `{"signature": "<a kept swap>", "outcome": "confirmed" \| "failed" \| "expired"}` | 0 settled (the chain's answer is used when your RPC has one); 1 refused: it could still land, or no swap with that signature is kept; 3 the state directory cannot be read. Only after you looked the signature up in a full history (an explorer), for a swap `recover` can no longer prove |
 | `prepare` | `{"intent": {"owner", "inputMint", "outputMint", "amountIn", "id", ...}}` | 0 sign `message`; 1 refused; 3 settle first; 4 Bound said no (`error.code`, as below); 5 this order (`id`) already swapped or may still land |
 | `finalize` | `{"checked": <prepare's checked, unchanged>, "signature": "<base58>"}` | 0 confirmed; 1 not swapped; 3 unknown: run `recover` before anything new. Asked again for a swap it kept, it answers with that swap's signature and outcome (`resumed`) |
 | `check` | `{"prepared": <prepare answer>, "intent": {...}}` | 0 safe to sign; 1 refused (for bots that call the API themselves) |

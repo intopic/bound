@@ -5,7 +5,7 @@ import type { KeyPairSigner } from '@solana/kit';
 /**
  * The agent API is stateless (no database, and prepare and finalize may run on different
  * instances), so what finalize needs from prepare travels with the agent as a ticket, sealed with
- * a MAC only the server can make (API-AGJENTET.md, section 4, option a).
+ * a MAC only the server can make: the server keeps no state (AGENT-API.md).
  *
  * The one-time key E is not stored anywhere: it is derived from the server secret and the ticket's
  * nonce, so any instance holding the secret derives the same E. A leaked secret lets its holder

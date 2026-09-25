@@ -12,13 +12,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "integration": "node tests/integration/mainnet.ts",
     "thresholds": "node tests/integration/thresholds.ts",
-    "lighthouse": "node tests/integration/lighthouse-usage.ts",
     "cpi": "cargo build-sbf --manifest-path tests/cpi/attacker/Cargo.toml && node tests/cpi/run.ts",
     "dev": "npm run dev -w @bound/web",
     "build": "npm run build -w @bound/web",
     "build:digest": "node tools/build-digest.ts --write",
-    "e2e": "node tests/e2e/smoke.ts",
-    "e2e:devnet": "node tests/e2e/devnet.ts"
+    "e2e": "node tests/e2e/smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",

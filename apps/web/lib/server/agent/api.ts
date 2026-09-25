@@ -11,7 +11,7 @@ import { rateLimited } from '../rateLimit';
 import { ephemeralFor, kidOf, newNonce, openTicket, sealTicket } from './ticket';
 
 /**
- * The agent API (API-AGJENTET.md): the same protected swap the page builds, with E held by the
+ * The agent API (AGENT-API.md): the same protected swap the page builds, with E held by the
  * server instead of the browser. Bound signs as E last, and only the exact message it built and
  * verified, which is what makes the fee hold for bots and agents without a program on chain.
  *
