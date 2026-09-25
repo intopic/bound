@@ -1,6 +1,6 @@
 # Bound — udhëzuesi i testimit
 
-Sistemi v0.1 është i ndërtuar, i rregulluar pas disa auditimeve dhe i testuar automatikisht (numrat e fundit: `AUDIT.md`, seksionet 0u deri 0y). Mbeten testimi me wallet-in tënd (fillimisht falas në devnet, pastaj një swap i vogël real në mainnet) dhe Etapa 2 e auditimit të pavarur: rikuperimi me një RPC që gabon qëllimisht, portofolet reale dhe matjet. Tabela më poshtë është historike: disa numra janë nga datat e para.
+Sistemi v0.1 është i ndërtuar, i rregulluar pas disa auditimeve dhe i testuar automatikisht (numrat e fundit: `docs/AUDIT.md`, seksionet 0u deri 0zf). Mbeten testimi me wallet-in tënd (fillimisht falas në devnet, pastaj një swap i vogël real në mainnet) dhe Etapa 2 e auditimit të pavarur: rikuperimi me një RPC që gabon qëllimisht, portofolet reale dhe matjet. Tabela më poshtë është historike: disa numra janë nga datat e para.
 
 ## Çfarë është testuar tashmë automatikisht
 
@@ -71,9 +71,11 @@ npm run dev
 
 Raporti është prova mbi të cilën shkruhet rregulli i pranimit. Pa të, çdo rregull për atë që pranojmë nga wallet-i është hamendje.
 
-## Testi 1: falas në devnet (sjellja e Phantom-it)
+## Testi 1 (opsional): falas në devnet (sjellja e Phantom-it)
 
-Ky test tregon si sillet Phantom me nënshkruesin e dytë (E). Nuk kushton asgjë.
+Ky test tregon si sillet Phantom me nënshkruesin e dytë (E). Nuk kushton asgjë. Faqja e tij ndodhet
+vetëm në këtë kompjuter, te dosja `spikes\wallet-test` (nuk është pjesë e repo-s). Testi 0 dhe
+Testi 2 mjaftojnë nëse ajo dosje mungon.
 
 1. Në Phantom: Settings → Developer Settings → Testnet Mode → **Solana Devnet**.
 2. Merr SOL devnet falas te https://faucet.solana.com (me adresën e wallet-it të testimit).
@@ -93,11 +95,13 @@ npm run dev
 
 ## Testi 2: swap real në mainnet me dApp-in
 
-Kostoja reale: disa cent (fee e rrjetit). 1 USDC kthehet në SOL që mbetet i yti. Në test mode nuk paguhet fee e Bound.
+Kostoja reale: disa cent (fee e rrjetit) dhe fee e Bound 0.3%. 2 USDC kthehen në SOL që mbetet i yti. Në test mode nuk paguhet fee e Bound.
 
-**Me thesar të vendosur:** dërgo më parë të paktën 0.01 SOL te wallet-i i thesarit. Pa to, faqja nuk ndërton asnjë swap ("Bound's fee can't be collected right now"): Bound nuk bën më swap pa fee (AUDIT.md 0zb).
+**Me thesar të vendosur:** wallet-i i thesarit duhet të ekzistojë në zinxhir, përndryshe faqja nuk ndërton asnjë swap ("Bound's fee can't be collected right now"): Bound nuk bën swap pa fee. Thesari `5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw` ekziston tashmë, pra nuk duhet dërguar asgjë.
 
-1. Në wallet-in e testimit duhen **~0.02 SOL** dhe **~2 USDC** në rrjetin Solana.
+**Shuma më e vogël është $1.** Nën të, faqja shfaq "Minimum swap: $1" dhe nuk ndërton asgjë. Prandaj testet më poshtë përdorin 2 USDC ose 0.01 SOL.
+
+1. Në wallet-in e testimit duhen **~0.03 SOL** dhe **~4 USDC** në rrjetin Solana.
 2. Ndërto dhe nis dApp-in:
 
 ```powershell
@@ -107,17 +111,17 @@ npm run start -w @bound/web
 ```
 
 3. Hap http://localhost:3000 dhe kliko **Connect wallet** → Phantom.
-4. Shkruaj **1** USDC → SOL. Nën "You receive" duhet të shfaqet **Minimum output … · enforced on successful execution**.
+4. Shkruaj **2** USDC → SOL. Nën "You receive" duhet të shfaqet **Minimum received … SOL · if less would arrive, the swap cancels itself**.
 5. Kliko **Protected swap**. Ndërsa hapet Phantom, faqja shfaq minimumin e saktë që do të kontrollohet dhe fee-n e saktë të rrjetit. Nëse çmimi ka lëvizur më shumë se toleranca (0.5%, ose 3% në bonding curve) që kur e pe, faqja të pyet para se të hapet Phantom-i: **Continue with the new minimum** ose **Cancel**.
 6. Në dritaren e Phantom-it kontrollo:
-   - −1 USDC dhe +SOL;
+   - −2 USDC dhe +SOL;
    - që nuk ka asnjë ndryshim tjetër në asetet e tua;
    - çfarë paralajmërimi shfaq (screenshot).
-7. Aprovo. Duhet të dalë "Swapped 1 USDC for ~… SOL" me lidhjen për Solscan.
+7. Aprovo. Duhet të dalë "Swapped 2 USDC for … SOL" me lidhjen për Solscan.
 8. Në Solscan hap transaksionin dhe kontrollo që te instruction-i i **Jupiter** nuk shfaqet adresa e wallet-it tënd.
-9. Provo edhe **SOL → USDC** (0.005 SOL) dhe një memecoin, p.sh. **USDC → BONK** (1 USDC). Nëse nuk ke pasur kurrë BONK, faqja shfaq rreshtin **New BONK account: 0.00148844 SOL, one time, stays yours** (shuma vjen nga Solana). Kjo është depozita që Solana mban në llogarinë tënde të re dhe mbetet e jotja.
+9. Provo edhe **SOL → USDC** (0.01 SOL) dhe një memecoin, p.sh. **USDC → BONK** (2 USDC). Nëse nuk ke pasur kurrë BONK, faqja shfaq rreshtin **New BONK account: 0.00148844 SOL, one time, stays yours** (shuma vjen nga Solana). Kjo është depozita që Solana mban në llogarinë tënde të re dhe mbetet e jotja.
 10. Provo edhe ngjitjen e adresës së një coin-i te kërkimi. Nëse Jupiter nuk e njeh, faqja e lexon nga Solana dhe e shënon "Not listed on Jupiter".
-11. Te "Your recent swaps" çdo swap shfaqet si **pending** sapo nisesh dhe pastaj merr statusin përfundimtar. Nëse shfaqet **check Solscan**, rezultati nuk dihej ende; hape lidhjen para se të provosh përsëri.
+11. Te "Your recent swaps" çdo swap shfaqet si **pending** sapo nisesh dhe pastaj merr statusin përfundimtar. Nëse rezultati nuk dihet ende, butoni shkruan **Waiting for your last swap** dhe faqja nuk nis swap tjetër nga ky wallet derisa rrjeti ta vërtetojë. E kontrollon vetë çdo 10 sekonda. Vetëm nëse rrjeti nuk mund ta vërtetojë më, shfaqet butoni **I've checked it**: shtype pasi ta kesh parë transaksionin në Solscan.
 
 ## Testi 3: Solflare dhe Backpack
 
@@ -139,7 +143,7 @@ Krijo `apps\web\.env.local` nga `apps\web\.env.example` dhe plotëso:
 - `RPC_URL`: Helius (ose një ofrues tjetër me pagesë). Nyja publike nuk mjafton: të kufizon shpejt dhe nuk pranon dërgime nga një faqe web.
 - `JUPITER_API_KEY`: key falas nga https://developers.jup.ag/portal. **I domosdoshëm**: pa të, Jupiter i refuzon kërkesat pas një ose dy, dhe faqja shfaq "busy". Vendose edhe para testit me wallet.
 
-**Llogaritë e treasury-t.** Bound nuk e bën më përdoruesin të paguajë qiranë e llogarisë së fee-së. Nëse treasury nuk ka llogari për tokenin që paguan përdoruesi, ai swap bëhet pa fee. Prandaj krijo një herë llogaritë e treasury-t për tokenët kryesorë (USDC, USDT, JUP, BONK, WIF etj.). Mënyra më e thjeshtë: nga një wallet tjetër dërgo një sasi shumë të vogël të secilit token te adresa e treasury-t. Wallet-i krijon llogarinë automatikisht dhe ti paguan ~0.002 SOL për secilin token. Për SOL nuk duhet asgjë.
+**Llogaritë e treasury-t.** Bound nuk e bën përdoruesin të paguajë qiranë e llogarisë së fee-së. Kur treasury nuk ka llogari për asnjërin token të swap-it, fee paguhet në SOL nga wallet-i i klientit, 0.3% e vlerës së swap-it (faqja e tregon para se të hapet wallet-i). Nëse do që fee e USDC dhe e USDT të vijë në vetë atë token, krijo një herë llogaritë e treasury-t për to: nga një wallet tjetër dërgo një sasi shumë të vogël USDC dhe USDT te adresa e treasury-t (kushton ~0.002 SOL për secilin). Për SOL nuk duhet asgjë.
 
 - **Treasury:** mbaje çelësin në një hardware wallet ose në një multisig (p.sh. Squads). Serverit i jepet vetëm adresa.
 - **Publikimi:** build-i bëhet nga një tag i nënshkruar në GitHub dhe publikohet hash-i i build-it, që çdokush të kontrollojë se faqja është ajo e audituar.
@@ -149,4 +153,4 @@ Krijo `apps\web\.env.local` nga `apps\web\.env.example` dhe plotëso:
 
 ## Nëse diçka shkon keq
 
-Asnjë fond nuk humbet nga një gabim i Bound: ose transaksioni nuk nënshkruhet fare, ose ekzekutohet i tëri, ose anulohet i tëri. Nëse swap-i jep më pak se minimumi, anulohet i tëri. I vetmi kosto e mundshme është fee e rrjetit, nëse një transaksion i dërguar dështon on-chain. Nëse faqja thotë "We couldn't confirm the result yet", mos e përsërit swap-in pa e parë lidhjen në Solscan: transaksioni mund të ketë kaluar.
+Asnjë fond nuk humbet nga një gabim i Bound: ose transaksioni nuk nënshkruhet fare, ose ekzekutohet i tëri, ose anulohet i tëri. Nëse swap-i jep më pak se minimumi, anulohet i tëri. I vetmi kosto e mundshme është fee e rrjetit, nëse një transaksion i dërguar dështon on-chain. Nëse faqja thotë "We couldn't confirm the result yet", transaksioni mund të ketë kaluar: faqja nuk të lë të nisësh swap tjetër nga i njëjti wallet derisa ta dijë rezultatin, dhe ti mund ta shohësh në Solscan me lidhjen që të jep.

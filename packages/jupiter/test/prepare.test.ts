@@ -795,14 +795,26 @@ describe("Jupiter's floor, tightened to Bound's minimum (engineering review H-03
 
 describe('the smallest swap, about $1, so that none costs more to build than it brings (the owner rule)', () => {
   const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
-  it('a fee in USDC below 3,000 base units ($0.003, the fee of $1) is refused; at $1 the swap is built', async () => {
+  it('a fee in USDC below 2,500 base units (about $0.83 of swap) is refused; at $1 and more the swap is built', async () => {
     const feeAccount: [Address, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
     const small = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n, minFee: MIN_FEE }).catch((e: BoundError) => e);
     expect((small as BoundError).code).toBe('amount-too-small');
     expect((small as BoundError).message).toContain('about $1');
-    // settings.feeBps is the test default (20): $1.5 carries 3,000 units, the floor.
+    // settings.feeBps is the test default (20): $1.5 carries 3,000 units, above the floor.
     const enough = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 1_500_000n, minFee: MIN_FEE });
     expect(enough.policy.fee).toBeGreaterThanOrEqual(MIN_FEE.stableUnits);
+  });
+
+  it('a swap of $1 into SOL is built: its fee in SOL comes off the minimum, below the fee of exactly $1 (debugging pass)', async () => {
+    // 1 USDC for 6,666,666 lamports (SOL at $150). The fee is taken from the minimum, after the 0.5%
+    // tolerance, so it is a little under the fee of $1: a floor of exactly that refused this swap.
+    const wallet: [Address, Account] = [TREASURY, { owner: address('11111111111111111111111111111111'), data: new Uint8Array(0) }];
+    const built = await prepare(WSOL_MINT, {
+      treasury: TREASURY, chain: [wallet], amountIn: 1_000_000n, minFee: MIN_FEE, jupiter: fakeJupiter({ out: 6_666_666n }),
+    });
+    expect(built.policy.feeSide).toBe('output');
+    expect(built.policy.fee).toBeGreaterThanOrEqual(MIN_FEE.lamports);
+    expect(built.policy.fee).toBeLessThan(20_000n);
   });
 
   it('without the setting (test mode, a deployment that wants none) nothing is refused for its size', async () => {

@@ -1209,6 +1209,39 @@ and nothing is prepared or changed.
 
 ---
 
+## 0zf. A debugging pass over code, logic and intent (25 September 2026)
+
+The owner asked for a line-by-line debugging of the whole product before the wallet test. Read in
+full: the policy, the compiler, the verifier and its parser, the pipeline, the Solana helpers, the
+page and its client helpers, every server route and proxy, the agent API and its tickets, the
+skill's check, example and command. Run alongside: the test suite, the browser smoke, the canary
+and T13/T14 on mainnet state (Pump.fun buys and sells, with the F5 rule of 0ze active: 24/24 on the
+curve, 30/30 on PumpSwap), and a new property test that builds every combination the compiler
+makes and holds the verifier to it (`combinations.test.ts`: every fee side, a Pump refund, hops, a
+taxing input, v0 and v1, 1,500 cases): no disagreement.
+
+Found and fixed:
+
+| Finding | Why it mattered | Fix |
+| --- | --- | --- |
+| The page's fee setting read "0.3" as a crash and "" as 0 | The Vercel step is next: `NEXT_PUBLIC_BOUND_FEE_BPS=0.3` (a percentage) stopped the page from loading at all; an empty one made every swap fail as "too small"; a mistyped treasury ran a fee-free page, and a fee-free agent API with no sign of it | `lib/settings.ts`, read the same way by the page, the agent API and the build: `next.config.ts` refuses a wrong fee, treasury or network-fee limit with what to fix, and a treasury with a fee of 0. The agent API stays off with an unreadable treasury |
+| The smallest swap refused $1 | The page allows $1, but the pipeline asked for a fee of exactly the fee of $1: taken from the minimum, after the tolerance, a fee on the output is a little less, and a fee in SOL follows SOL's price. A swap of $1 into SOL, and of USDC into BONK paying in SOL, was refused as "below the smallest swap" | `MIN_FEE` lowered under the page's rule: 2,500 base units of USDC or USDT, 10,000 lamports. The page's $1 is the rule people meet; the pipeline's floor catches only the really small, for agents too |
+| The manual wallet test would have failed | `docs/TESTIMI.md` swapped 1 USDC and 0.005 SOL (under $1 at today's price), asked for 0.01 SOL to be sent to a treasury that already exists, said a pair without a treasury account swaps fee-free, and quoted texts the page no longer shows | Amounts of 2 USDC and 0.01 SOL, the treasury as it is, the fee in SOL, the page's current texts, the wait for an unsettled swap, and the devnet test marked as a local page |
+| The agent's own floor refused taxing tokens | `ownMinimum` priced the route for the amount less Bound's fee, ignoring a Token-2022 transfer fee: for a token taxing more than about 1.5%, the agent's floor sat above what any honest route delivers, and the check refused every such swap | `inputTransferFee` reads the tax from the mint on the agent's RPC, for the epoch now, and `ownMinimum` prices what reaches the route (`inputTax`), as the pipeline does |
+| An old history entry could hold a wallet back for good | An entry without its last valid block (an older build's) could never be marked over, so "I've checked it" never appeared | Such an entry is over once 15 minutes have passed, far beyond any transaction's life |
+| Another tab did not see a swap in flight | The history was read once per tab, so a tab already open let the same wallet start a swap while another tab's was unsettled | The page follows the history across tabs (`storage` event) |
+| A balance that could not be read was called a change | After the wallet signed, a failed read of the output balance said "your balance changed while the wallet was open" | Said as it is: Bound could not re-read the balance, stopped before signing, and nothing moved |
+| A malformed answer from Jupiter could crash a build | Only the amounts and the swap instruction's outline were checked; a route step without a label or an account without its roles threw a TypeError mid-build | `checkBuildResponse` checks everything the pipeline reads, down to the labels, the accounts and the lookup tables |
+| Token search and labels served other sites | The RPC, build and icon relays refuse requests other websites make from their visitors' browsers; these two did not | The same refusal |
+
+Checked and found right (a second look at what could have been wrong): the ATA size of a mint with a
+confidential transfer fee (the account-side amount is added by the owner's configuration, not at
+creation: PYUSD's accounts are 187 bytes on mainnet, as the code says), the rent fallbacks, the
+compiler's order against the verifier's, the SOL-output accounting of what arrived, the relays'
+body limits and allowlists, the ticket's MAC and fields, the CSP and the deep links.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

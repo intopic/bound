@@ -21,10 +21,11 @@
 import { fetchAddressesForLookupTables, getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@solana/kit';
 import type { Address, Rpc, SolanaRpcApi } from '@solana/kit';
 import { findAssociatedTokenPda } from '@solana-program/token';
-import { JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '@bound/core/constants';
+import { JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '@bound/core/constants';
 import type { ChainSnapshot, Policy } from '@bound/core/types';
 import { readAccounts } from '@bound/solana';
-import { routeAccountFor, verify } from '@bound/verifier';
+import { hasTransferFee, routeAccountFor, transferFeeOf, transferFeeOn, verify } from '@bound/verifier';
+import type { TransferFee } from '@bound/verifier';
 
 /** When "no record" proves a transaction never landed (third audit, F1); `confirm` in the example uses them. */
 export { pastProof, provesNeverLanded, STATUS_CACHE_BLOCKS } from '@bound/solana';
@@ -261,9 +262,16 @@ async function leftUnderKey(
 export async function ownMinimum(args: {
   inputMint: string; outputMint: string; amountIn: string; taker: string;
   maxFeeBps?: number; maxBelowBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
+  /**
+   * The transfer fee the input token charges now (`inputTransferFee`), if any: such a token keeps a
+   * cut of the transfer into the temporary account, so the route is priced for what arrives there.
+   * Without it, the floor of a taxing token would sit above what any honest route can deliver.
+   */
+  inputTax?: TransferFee | null;
 }): Promise<string> {
   const amount = BigInt(args.amountIn);
-  const routed = amount - (amount * BigInt(args.maxFeeBps ?? 30)) / 10_000n;
+  const afterFee = amount - (amount * BigInt(args.maxFeeBps ?? 30)) / 10_000n;
+  const routed = args.inputTax ? afterFee - transferFeeOn(afterFee, args.inputTax) : afterFee;
   const url = new URL(args.jupiterUrl ?? 'https://api.jup.ag/swap/v2/build');
   const query = {
     inputMint: args.inputMint, outputMint: args.outputMint, amount: routed.toString(), taker: args.taker, slippageBps: '50', maxAccounts: '64',
@@ -282,6 +290,18 @@ export async function ownMinimum(args: {
   const curve = r.swapInstruction?.accounts?.some(a => a.pubkey === PUMP_CURVE_PROGRAM) ?? false;
   const below = BigInt(args.maxBelowBps ?? (curve ? 500 : 200));
   return ((BigInt(r.outAmount!) * (10_000n - below)) / 10_000n).toString();
+}
+
+/**
+ * The transfer fee a Token-2022 input token charges in the current epoch, read on your RPC; null
+ * when it charges none (a classic token, or no TransferFeeConfig). For `ownMinimum`'s `inputTax`.
+ */
+export async function inputTransferFee(rpc: Rpc<SolanaRpcApi>, mint: string, timeoutMs = 10_000): Promise<TransferFee | null> {
+  const state = (await readAccounts(rpc as never, [mint as Address], { timeoutMs })).accounts.get(mint);
+  if (!state || state.owner !== TOKEN_2022_PROGRAM || !hasTransferFee(state.data)) return null;
+  // Which of the two fee settings applies depends on the epoch, as the token program decides it.
+  const { epoch } = await rpc.getEpochInfo({ commitment: 'confirmed' }).send({ abortSignal: AbortSignal.timeout(timeoutMs) });
+  return transferFeeOf(state.data, BigInt(epoch));
 }
 
 /**

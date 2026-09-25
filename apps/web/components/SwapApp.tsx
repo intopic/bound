@@ -26,7 +26,8 @@ import {
 } from '@/lib/client/tokens';
 import type { MintFacts } from '@/lib/client/tokens';
 import {
-  addHistory, historyWorks, HistoryNotSaved, isUnsettled, lifetimeOver, readHistory, settledHistoryStatus, STATUS_LABEL, unsettledFor, updateHistory,
+  addHistory, HISTORY_KEY, historyWorks, HistoryNotSaved, isUnsettled, lifetimeOver, readHistory, settledHistoryStatus, STATUS_LABEL, unsettledFor,
+  updateHistory,
 } from '@/lib/client/history';
 import type { HistoryEntry, HistoryStatus, SignatureState } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
@@ -193,13 +194,14 @@ const aheadKey = (owner: string, input: string, output: string, amountIn: bigint
 /**
  * A build made ahead is used only if the output account still holds what its minimum was built on
  * (B and C: the check is that balance plus the minimum). Another swap into the same token since
- * then, even from another device, sends the click back to building.
+ * then, even from another device, sends the click back to building. Null when the balance could not
+ * be read: not a change, and not "unchanged" either.
  */
-async function outputBalanceUnchanged(p: PreparedSwap): Promise<boolean> {
+async function outputBalanceUnchanged(p: PreparedSwap): Promise<boolean | null> {
   const wOut = p.policy.accounts.wOut;
   if (!wOut) return true;
   const now = await fetchAccounts(getRpc(), [wOut]).then(m => tokenAmountOf(m.get(wOut)?.data)).catch(() => null);
-  return now === p.outputBalanceBefore;
+  return now === null ? null : now === p.outputBalanceBefore;
 }
 
 /**
@@ -742,6 +744,16 @@ export function SwapApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes, busyTries, history]);
 
+  // --- another tab of this page may record or settle a swap: its history is this tab's too, so a swap
+  // started there holds this wallet back here as well (third audit, F2).
+  useEffect(() => {
+    const sync = (e: StorageEvent) => {
+      if (e.key === HISTORY_KEY) setHistory(readHistory());
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
+
   // --- a swap this wallet waits on is looked up again while the page is visible: every 10 s while it
   // could still land or be proven expired, every 30 s once only a full history could tell (F2).
   const waitingOn = W ? unsettledFor(history, W) : [];
@@ -1040,7 +1052,15 @@ export function SwapApp() {
       // The minimum is checked on chain as W_out's balance before plus the minimum. If that balance
       // moved while the wallet was open (another swap into this token, from another device, or a
       // transfer), the check could count those tokens: stop before E signs (review FA-04).
-      if (!(await outputBalanceUnchanged(toSend))) {
+      const balanceKept = await outputBalanceUnchanged(toSend);
+      if (balanceKept === null) {
+        setNotice({
+          kind: 'info', title: `Bound couldn't re-read your ${outToken.symbol} balance`,
+          body: 'It stopped before adding its signature, so this swap can never run. No funds moved; try again in a moment.',
+        });
+        return;
+      }
+      if (!balanceKept) {
         setNotice({
           kind: 'info', title: `Your ${outToken.symbol} balance changed while the wallet was open`,
           body: 'Another swap or a transfer arrived. Bound stopped before adding its signature, so this swap can never run. No funds moved; try again.',

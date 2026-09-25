@@ -56,7 +56,14 @@ describe('"no record" proves nothing once the node may have forgotten (third aud
   it('a swap past its lifetime is marked over, so the user may set it aside once they looked it up', () => {
     expect(lifetimeOver(entry('1000'), view(1_000n))).toBe(false);
     expect(lifetimeOver(entry('1000'), view(100_000n))).toBe(true);
-    expect(lifetimeOver(entry(), view(100_000n))).toBe(false);
+    expect(lifetimeOver(entry(), view(100_000n), 1_000)).toBe(false);
+  });
+
+  it('an entry that does not name its last block can be set aside once no transaction could still live', () => {
+    const old = entry(undefined, { at: 0 });
+    expect(lifetimeOver(old, view(null), 60_000)).toBe(false);
+    expect(lifetimeOver(old, view(null), 16 * 60_000)).toBe(true);
+    expect(lifetimeOver(entry('not-a-height', { at: 0 }), view(1n), 16 * 60_000)).toBe(true);
   });
 });
 

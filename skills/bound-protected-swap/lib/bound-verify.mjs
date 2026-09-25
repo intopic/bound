@@ -356,6 +356,43 @@ const EXTENSION_NAMES = {
 	27: "pausable accounts",
 	28: "permissioned burn"
 };
+/**
+* Reads the TransferFeeConfig extension. Its value holds two authorities (32 bytes each), the
+* withheld amount, and then the older and newer fee, each `{ epoch: u64, maximum: u64, bps: u16 }`.
+* The newer one applies once its epoch has arrived, exactly as the token program decides it.
+*/
+function transferFeeOf(data, epoch) {
+	if (data.length <= 165 || data[165] !== 1) return null;
+	const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+	for (let at = 166; at + 4 <= data.length;) {
+		const type = view.getUint16(at, true);
+		const length = view.getUint16(at + 2, true);
+		const value = at + 4;
+		if (type === 0) break;
+		if (type === 1) {
+			if (length < 108 || value + 108 > data.length) return null;
+			const read = (from) => ({
+				epoch: view.getBigUint64(from, true),
+				maximum: view.getBigUint64(from + 8, true),
+				bps: view.getUint16(from + 16, true)
+			});
+			const older = read(value + 72);
+			const newer = read(value + 90);
+			const active = epoch >= newer.epoch ? newer : older;
+			return active.bps === 0 ? null : {
+				bps: active.bps,
+				maximum: active.maximum
+			};
+		}
+		at = value + length;
+	}
+	return null;
+}
+/** What the token program withholds on a transfer of `amount`: rounded up, never above the cap. */
+function transferFeeOn(amount, fee) {
+	const raw = (amount * BigInt(fee.bps) + 9999n) / 10000n;
+	return raw > fee.maximum ? fee.maximum : raw;
+}
 function hasTransferFee(data) {
 	if (data.length <= 165 || data[165] !== 1) return false;
 	const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -1063,7 +1100,8 @@ async function leftUnderKey(transaction, key, rpc, minContextSlot = 0n, timeoutM
 */
 async function ownMinimum(args) {
 	const amount = BigInt(args.amountIn);
-	const routed = amount - amount * BigInt(args.maxFeeBps ?? 30) / 10000n;
+	const afterFee = amount - amount * BigInt(args.maxFeeBps ?? 30) / 10000n;
+	const routed = args.inputTax ? afterFee - transferFeeOn(afterFee, args.inputTax) : afterFee;
 	const url = new URL(args.jupiterUrl ?? "https://api.jup.ag/swap/v2/build");
 	const query = {
 		inputMint: args.inputMint,
@@ -1084,6 +1122,16 @@ async function ownMinimum(args) {
 	const curve = r.swapInstruction?.accounts?.some((a) => a.pubkey === PUMP_CURVE_PROGRAM) ?? false;
 	const below = BigInt(args.maxBelowBps ?? (curve ? 500 : 200));
 	return (BigInt(r.outAmount) * (10000n - below) / 10000n).toString();
+}
+/**
+* The transfer fee a Token-2022 input token charges in the current epoch, read on your RPC; null
+* when it charges none (a classic token, or no TransferFeeConfig). For `ownMinimum`'s `inputTax`.
+*/
+async function inputTransferFee(rpc, mint, timeoutMs = 1e4) {
+	const state = (await readAccounts(rpc, [mint], { timeoutMs })).accounts.get(mint);
+	if (!state || state.owner !== TOKEN_2022_PROGRAM || !hasTransferFee(state.data)) return null;
+	const { epoch } = await rpc.getEpochInfo({ commitment: "confirmed" }).send({ abortSignal: AbortSignal.timeout(timeoutMs) });
+	return transferFeeOf(state.data, BigInt(epoch));
 }
 /**
 * The most Bound's fee in SOL may be for a swap that neither token can carry the fee for, from a
@@ -1115,4 +1163,4 @@ async function ownSolFeeLimit(args) {
 	return Number(limit);
 }
 //#endregion
-export { BOUND_TREASURY, STATUS_CACHE_BLOCKS, ownMinimum, ownSolFeeLimit, pastProof, provesNeverLanded, verifyPrepared };
+export { BOUND_TREASURY, STATUS_CACHE_BLOCKS, inputTransferFee, ownMinimum, ownSolFeeLimit, pastProof, provesNeverLanded, verifyPrepared };

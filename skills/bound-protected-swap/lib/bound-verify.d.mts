@@ -72,7 +72,15 @@ export function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc:
 export function ownMinimum(args: {
   inputMint: string; outputMint: string; amountIn: string; taker: string;
   maxFeeBps?: number; maxBelowBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
+  /** The input token's transfer fee now (`inputTransferFee`): the route is priced for what arrives. */
+  inputTax?: { bps: number; maximum: bigint } | null;
 }): Promise<string>;
+
+/**
+ * The transfer fee a Token-2022 input token charges in the current epoch, read on your RPC; null
+ * when it charges none.
+ */
+export function inputTransferFee(rpc: Rpc<SolanaRpcApi>, mint: string, timeoutMs?: number): Promise<{ bps: number; maximum: bigint } | null>;
 
 /**
  * The most Bound's fee in SOL may be, from a price the agent asks Jupiter for itself: `maxFeeBps`

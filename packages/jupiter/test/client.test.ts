@@ -34,6 +34,12 @@ describe('Jupiter /build responses are validated', () => {
     ['a swap instruction without accounts', { ...good, swapInstruction: { ...good.swapInstruction, accounts: null } }],
     ['no route plan', { ...good, routePlan: null }],
     ['a body that is not an object', 'oops'],
+    // What a build reads further down: a missing label crashed the route's naming with a TypeError.
+    ['a route step without a label', { ...good, routePlan: [{ percent: 100 }] }],
+    ['an account without its roles', { ...good, swapInstruction: { ...good.swapInstruction, accounts: [{ pubkey: good.inputMint }] } }],
+    ['a setup instruction without data', { ...good, setupInstructions: [{ programId: good.inputMint, accounts: [] }] }],
+    ['lookup tables that are not lists of addresses', { ...good, addressesByLookupTableAddress: { x: 'y' } }],
+    ['no mints', { ...good, inputMint: undefined }],
   ];
   for (const [name, body] of bad) {
     it(`${name} is refused with a JupiterError`, () => {

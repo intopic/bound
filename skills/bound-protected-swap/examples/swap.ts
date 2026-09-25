@@ -40,7 +40,7 @@ import {
   getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder, verifySignature,
 } from '@solana/kit';
 import type { Address, Rpc, SignatureBytes, SignatureDictionary, SolanaRpcApi, Transaction, TransactionPartialSigner } from '@solana/kit';
-import { ownMinimum, ownSolFeeLimit, pastProof, provesNeverLanded, verifyPrepared } from '../lib/bound-verify.mjs';
+import { inputTransferFee, ownMinimum, ownSolFeeLimit, pastProof, provesNeverLanded, verifyPrepared } from '../lib/bound-verify.mjs';
 
 export type Intent = {
   owner: string;
@@ -693,6 +693,7 @@ export async function prepareChecked(args: {
   const minOut = args.intent.minOut ?? await ownMinimum({
     inputMint: args.intent.inputMint, outputMint: args.intent.outputMint, amountIn: args.intent.amountIn, taker: owner,
     maxFeeBps: args.intent.maxFeeBps, maxBelowBps: args.intent.maxBelowBps, apiKey: args.jupiterApiKey, fetchImpl,
+    inputTax: await inputTransferFee(args.rpc, args.intent.inputMint, args.requestTimeoutMs),
   });
   const intent: Intent = { ...args.intent, owner, minOut };
   const prepared = await call<Prepared>(fetchImpl, `${args.apiUrl}/api/v1/prepare`, args.apiKey, {
@@ -920,7 +921,10 @@ async function main() {
 
   if (process.argv.includes('--dry-run')) {
     const owner = flag('owner') ?? (console.error('--dry-run needs --owner <address>.'), process.exit(2));
-    const minOut = intent.minOut ?? await ownMinimum({ inputMint, outputMint, amountIn, taker: owner, maxFeeBps: intent.maxFeeBps, maxBelowBps: intent.maxBelowBps, apiKey: jupiterApiKey });
+    const minOut = intent.minOut ?? await ownMinimum({
+      inputMint, outputMint, amountIn, taker: owner, maxFeeBps: intent.maxFeeBps, maxBelowBps: intent.maxBelowBps, apiKey: jupiterApiKey,
+      inputTax: await inputTransferFee(rpc, inputMint),
+    });
     const prepared = await call<Prepared>(fetch, `${apiUrl}/api/v1/prepare`, apiKey, {
       owner, inputMint, outputMint, amountIn, minOut,
       ...(intent.acceptCostBps ? { acceptCostBps: intent.acceptCostBps } : {}), ...(intent.version ? { version: 1 } : {}),

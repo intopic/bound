@@ -55,8 +55,14 @@ export type SwapSettings = BoundConfig & {
   minFee?: { lamports: bigint; stableUnits: bigint };
 };
 
-/** About $1 of swap at 0.3%: 3,000 base units of USDC or USDT, 20,000 lamports of SOL. */
-export const MIN_FEE = { lamports: 20_000n, stableUnits: 3_000n } as const;
+/**
+ * The floor under the page's rule of $1 (MIN_SWAP_USD), and the rule itself for agents: 2,500 base
+ * units of USDC or USDT (the fee of about $0.83), 10,000 lamports of SOL (the fee of $0.50 to $1 while
+ * SOL is worth $150 to $300). It sits below the fee of $1 on purpose: a fee on the output is taken
+ * from the minimum, after the tolerance, and a fee in SOL follows SOL's price, so a floor at exactly
+ * $1 refused swaps of $1 that the page had let through (debugging pass, 25 September 2026).
+ */
+export const MIN_FEE = { lamports: 10_000n, stableUnits: 2_500n } as const;
 export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Bound takes, about $1. Swap a larger amount.";
 
 /** Is a fee of `fee` in `feeMint` below the smallest one `minFee` allows? */

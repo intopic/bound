@@ -67,13 +67,23 @@ export function settledHistoryStatus(
   return provesNeverLanded(view, lastValid, lastValid - BLOCKHASH_LIFE_BLOCKS + 1n) ? 'expired' : null;
 }
 
+/**
+ * A transaction lives 150 blocks, about a minute: one recorded longer ago than this can no longer
+ * land, whatever its entry says. Used only for an entry that does not name its last block (an older
+ * build's, or one this browser damaged), which would otherwise hold its wallet back for good.
+ */
+const LIFETIME_BOUND_MS = 15 * 60_000;
+
 /** Is the finalized chain past this swap's last valid block, so that it can no longer land? */
-export function lifetimeOver(entry: HistoryEntry, view: Pick<StatusView, 'coveredHeight'>): boolean {
+export function lifetimeOver(entry: HistoryEntry, view: Pick<StatusView, 'coveredHeight'>, now = Date.now()): boolean {
   const lastValid = lastValidOf(entry);
-  return lastValid !== null && view.coveredHeight !== null && view.coveredHeight > lastValid;
+  if (lastValid === null) return typeof entry.at === 'number' && now - entry.at > LIFETIME_BOUND_MS;
+  return view.coveredHeight !== null && view.coveredHeight > lastValid;
 }
 
-const KEY = 'bound.history.v1';
+/** Where the history is kept; other tabs of the page watch it (a `storage` event). */
+export const HISTORY_KEY = 'bound.history.v1';
+const KEY = HISTORY_KEY;
 const PROBE = 'bound.history.probe';
 const MAX = 50;
 

@@ -1,9 +1,10 @@
-import { address, isAddress } from '@solana/kit';
+import { address } from '@solana/kit';
 import { createJupiterClient, MIN_FEE } from '@bound/jupiter';
 import type { JupiterClient } from '@bound/jupiter';
 import { createRetryingRpc } from '@bound/solana';
 import type { SolanaRpc } from '@bound/solana';
 import { serverConfig } from '../config';
+import { treasurySetting } from '../../settings';
 import type { AgentDeps } from './api';
 
 /**
@@ -60,7 +61,14 @@ export function agentDeps(): AgentDeps | null {
     console.error(`The agent API is off: its fee is ${feeBps} bps, above the verifier's ceiling of 100.`);
     return null;
   }
-  const treasury = process.env.NEXT_PUBLIC_BOUND_TREASURY?.trim() ?? '';
+  // A treasury that is set but cannot be read would make every API swap fee-free: the API stays off.
+  let treasury: string | null;
+  try {
+    treasury = treasurySetting(process.env.NEXT_PUBLIC_BOUND_TREASURY);
+  } catch (e) {
+    console.error(`The agent API is off: ${(e as Error).message}`);
+    return null;
+  }
   const identity = `${rpcUrl}|${jupiterApiKey ?? ''}`;
   if (clients?.for !== identity) {
     clients = {
@@ -84,7 +92,7 @@ export function agentDeps(): AgentDeps | null {
     keys,
     // The verifier refuses anything above 1% whatever is configured here.
     feeBps,
-    treasury: isAddress(treasury) ? address(treasury) : null,
+    treasury: treasury ? address(treasury) : null,
     excludeDexes: server.excludeDexes,
     maxNetworkFeeLamports: server.maxNetworkFeeLamports,
     disabled: server.disabled,

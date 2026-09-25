@@ -33,7 +33,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BOUND_TREASURY, ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
+import { BOUND_TREASURY, inputTransferFee, ownMinimum } from '../../../skills/bound-protected-swap/lib/bound-verify.mjs';
 import { routeAccountFor } from '@bound/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
@@ -1158,5 +1158,39 @@ describe('the Stage 2 re-run: bound-verify answers even when its state directory
     expect(recovered).toMatchObject({ code: 3, output: { ok: false } });
     expect(String(recovered.output.error)).toContain('ENOSPC');
     expect((await runCli('resolve', { signature: 'any', outcome: 'expired' }, deps)).code).toBe(3);
+  });
+});
+
+describe("the agent's own floor for a token that taxes its transfers", () => {
+  it("is priced for what reaches the route: the amount less the fee, less the token's own tax", async () => {
+    let asked = '';
+    const fetchImpl = (async (url: string) => {
+      asked = new URL(url).searchParams.get('amount') ?? '';
+      return new Response(JSON.stringify({ inputMint: USDC, outputMint: WSOL_MINT, inAmount: asked, outAmount: '1000000' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const base = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: WSOL_MINT, fetchImpl };
+    await ownMinimum(base);
+    expect(asked).toBe('997000');
+    // 2% on every transfer: 997,000 routed, 19,940 of it kept by the token on the way in.
+    await ownMinimum({ ...base, inputTax: { bps: 200, maximum: 10n ** 12n } });
+    expect(asked).toBe('977060');
+  });
+
+  it("reads the tax from the mint on the agent's own RPC, for the epoch now; none for a classic token", async () => {
+    const mintData = new Uint8Array(166 + 4 + 108);
+    mintData[44] = 6;
+    mintData[165] = 1; // a mint, with extensions
+    const view = new DataView(mintData.buffer);
+    view.setUint16(166, 1, true); // TransferFeeConfig
+    view.setUint16(168, 108, true);
+    view.setBigUint64(170 + 90, 800n, true); // the newer schedule starts at epoch 800
+    view.setBigUint64(170 + 98, 5_000n, true); // at most 5,000 base units
+    view.setUint16(170 + 106, 150, true); // 1.5%
+    const rpcWith = (owner: string) => ({
+      getMultipleAccounts: () => ({ send: async () => ({ context: { slot: 1n }, value: [{ owner, lamports: 1n, data: [Buffer.from(mintData).toString('base64'), 'base64'] }] }) }),
+      getEpochInfo: () => ({ send: async () => ({ epoch: 900n }) }),
+    }) as unknown as Rpc<SolanaRpcApi>;
+    expect(await inputTransferFee(rpcWith('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'), USDC)).toEqual({ bps: 150, maximum: 5_000n });
+    expect(await inputTransferFee(rpcWith('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'), USDC)).toBeNull();
   });
 });

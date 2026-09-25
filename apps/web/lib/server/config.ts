@@ -1,4 +1,5 @@
 import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@bound/core';
+import { maxNetworkFeeSetting } from '../settings';
 
 /**
  * Server-only settings. Secrets (RPC URLs, API keys) never reach the browser (D8).
@@ -7,9 +8,23 @@ import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@bound/core';
  * compromised server cannot change where fees go or how large they are (audit B-01).
  */
 let warnedNoJupiterKey = false;
+let warnedMaxFee = false;
+
+/** F_max as configured; the default, said once, when the value cannot be read (the build refuses it too). */
+function configuredMaxFee(): bigint {
+  try {
+    return maxNetworkFeeSetting(process.env.BOUND_MAX_NETWORK_FEE_LAMPORTS);
+  } catch (e) {
+    if (!warnedMaxFee) {
+      warnedMaxFee = true;
+      console.error(`${(e as Error).message} Using 500000.`);
+    }
+    return 500_000n;
+  }
+}
 
 export function serverConfig() {
-  const maxFee = BigInt(process.env.BOUND_MAX_NETWORK_FEE_LAMPORTS ?? '500000');
+  const maxFee = configuredMaxFee();
   // Jupiter's API asks for a key on every endpoint; without one it answers a request or two and then
   // refuses, so quotes fail as "busy" under any load (final audit, H1). Said once, where the
   // operator reads it; /api/status says it too.

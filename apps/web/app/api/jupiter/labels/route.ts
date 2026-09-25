@@ -1,12 +1,14 @@
 import { UPSTREAM_TIMEOUT_MS } from '@/lib/server/body';
 import { serverConfig } from '@/lib/server/config';
+import { fromAnotherSite } from '@/lib/server/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 let cache: { body: string; expires: number } | null = null;
 
 /** Program id → DEX label, used to name the DEX to exclude when a route fails in simulation. */
-export async function GET() {
+export async function GET(req: Request) {
+  if (fromAnotherSite(req)) return Response.json({ error: "Bound's proxy serves Bound's own page" }, { status: 403 });
   if (!cache || cache.expires < Date.now()) {
     const { jupiterApiKey } = serverConfig();
     const upstream = await fetch('https://api.jup.ag/swap/v2/program-id-to-label', {

@@ -214,7 +214,7 @@ function sameMessage(a: Uint8Array, b: Uint8Array): boolean {
   return left.length === right.length && left.every((x, i) => x === right[i]);
 }
 
-/** The report as text, ready to paste into WALLET-FLOWS.md as the evidence behind the rule. */
+/** The report as text, to send back with the manual wallet test (docs/TESTIMI.md, test 0): the evidence behind the rule. */
 export function reportText(wallet: string, d: WalletDiagnosis): string {
   const ixLine = (ix: SeenInstruction) => [
     `  [${ix.position}] program ${ix.program ?? `lookup#${ix.programIndex}`}`,

@@ -1,4 +1,9 @@
 import type { NextConfig } from 'next';
+import { checkDeploymentSettings } from './lib/settings';
+
+// A wrong setting stops the build with what to fix, instead of a page that does not load, refuses
+// every swap, or runs without its fee (lib/settings.ts).
+checkDeploymentSettings(process.env);
 
 // The Content-Security-Policy for pages is set per request, with a nonce, in proxy.ts (audit B-08).
 // API responses are JSON (or images from /api/token-icon, which set their own CSP) under nosniff.

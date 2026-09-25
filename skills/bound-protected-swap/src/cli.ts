@@ -38,7 +38,7 @@ import {
   resolvePending, resumeSigned,
 } from '../examples/swap.ts';
 import type { Checked, Intent, OrderBook, OrderRecord, PendingStore, Prepared } from '../examples/swap.ts';
-import { ownMinimum, ownSolFeeLimit } from '../lib/bound-verify.mjs';
+import { inputTransferFee, ownMinimum, ownSolFeeLimit } from '../lib/bound-verify.mjs';
 
 export type CliDeps = {
   rpc: Rpc<SolanaRpcApi>;
@@ -80,6 +80,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       intent.minOut ??= await ownMinimum({
         inputMint: intent.inputMint, outputMint: intent.outputMint, amountIn: intent.amountIn, taker: intent.owner,
         maxFeeBps: intent.maxFeeBps, maxBelowBps: intent.maxBelowBps, apiKey: deps.jupiterApiKey, fetchImpl: deps.fetchImpl,
+        inputTax: await inputTransferFee(deps.rpc, intent.inputMint, deps.requestTimeoutMs),
       });
       if ((prepared.policy as { feeSide?: unknown }).feeSide === 'sol' && intent.maxSolFeeLamports === undefined) {
         intent.maxSolFeeLamports = await ownSolFeeLimit({
