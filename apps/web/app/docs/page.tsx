@@ -7,8 +7,6 @@ export const metadata = {
   description: 'Protected Solana swaps for bots and AI agents: the skill, the API and the command line.',
 };
 
-const REFERENCE = 'https://github.com/intopic/bound/blob/main/AGENT-API.md';
-
 /** The agent API in the words a developer needs first; AGENT-API.md is the full reference. */
 export default async function Page() {
   signPageChunks('docs/page');
@@ -37,8 +35,10 @@ export default async function Page() {
 
       <section id="skill">
         <h2>Agent skill</h2>
-        <p>For coding agents: instructions, a working example that needs only <code>@solana/kit</code>, and the bundled verifier.</p>
-        <pre><code>npx skills add intopic/bound --skill orientim-protected-swap</code></pre>
+        <p>
+          For coding agents: instructions, a working example that needs only <code>@solana/kit</code>, and the check it runs before
+          every signature. The skill is delivered with your API key.
+        </p>
         <p>The agent needs, from you and never in chat:</p>
         <ul>
           <li><code>ORIENTIM_API_URL</code>: <code>https://orientim.com</code></li>
@@ -106,10 +106,7 @@ Authorization: Bearer ori_...
 
       <section>
         <h2>Full reference</h2>
-        <p>
-          Every field, error and recovery step is in the <a href={REFERENCE}>agent API reference</a>, which also ships inside the
-          skill as <code>reference/AGENT-API.md</code>.
-        </p>
+        <p>Every field, error and recovery step is in the reference that ships with the skill.</p>
       </section>
     </InfoPage>
   );

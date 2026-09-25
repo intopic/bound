@@ -7,8 +7,11 @@ const TABS: { id: string; label: string; code: string; note: string }[] = [
   {
     id: 'skill',
     label: 'Agent skill',
-    code: 'npx skills add intopic/bound --skill orientim-protected-swap',
-    note: 'Adds the skill to your coding agent: instructions, a working example and the verifier it runs before every signature.',
+    code: [
+      'ORIENTIM_API_KEY=ori_… SOLANA_RPC_URL=https://<your rpc> \\',
+      '  node examples/swap.ts --in <mint> --out <mint> --amount 5000000',
+    ].join('\n'),
+    note: 'The skill comes with your API key: instructions for your coding agent, a working example and the check it runs before every signature.',
   },
   {
     id: 'api',

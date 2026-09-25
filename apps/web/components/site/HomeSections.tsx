@@ -3,10 +3,9 @@ import { DevTabs } from './DevTabs';
 import { AgentTerminal, AuthorityMap, CapsuleFlow } from './Motion';
 
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
-const SOURCE = 'https://github.com/intopic/bound';
 
 /** What has been proven on mainnet, each one on the proof page with its transaction. */
-const PROOF = ['Phantom', 'Trust Wallet', 'AI agents', 'Token-2022', 'Pump.fun launch curve', 'Open source'];
+const PROOF = ['Phantom', 'Trust Wallet', 'AI agents', 'Token-2022', 'Pump.fun launch curve'];
 
 const CAPSULE_STEPS = [
   ['The amount moves into a one-time key', 'Only what you approve leaves your wallet, into a key that exists for this one swap.'],
@@ -158,7 +157,7 @@ export function HomeSections() {
             <a href="/security"><b>How protection works</b><span>The model, its assumptions and its limits</span></a>
             <a href="/proof"><b>Real swaps</b><span>Every test on mainnet, with its transaction</span></a>
             <a href="/audits"><b>Reviews</b><span>What each review found, and its type</span></a>
-            <a href={SOURCE}><b>Source code</b><span>The verifier and everything around it</span></a>
+            <a href="/supported"><b>Supported tokens</b><span>What can be swapped, and why some can&apos;t</span></a>
           </div>
         </div>
       </section>

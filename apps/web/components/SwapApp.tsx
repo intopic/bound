@@ -83,13 +83,13 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
   switch (o.kind) {
     case 'price':
       return {
-        title: 'The protected route pays less than the price you saw',
+        title: 'The price changed',
         body: <p>Minimum received is now <strong>{o.now}</strong> (was {o.was}). Nothing has been signed.</p>,
         go: 'Continue with the new minimum',
       };
     case 'cost':
       return {
-        title: `This route gives ${o.gap} less than the best unprotected route`,
+        title: `This swap gets ${o.gap} less than the market price`,
         body: <p>{o.severe ? 'A smaller amount often gets a better price. ' : ''}Nothing has been signed.</p>,
         go: 'Continue',
       };
@@ -167,19 +167,17 @@ function extrasOf(
   // the click, or showed less than it came to (engineering audit S1-M-02).
   if (p.policy.feeSide === 'sol' && p.policy.fee > 0n && (t.shownSolFee === null || p.policy.fee * 100n > t.shownSolFee * 105n)) {
     lines.push(
-      `Orientim fee: ${formatExact(p.policy.fee, 9)} SOL from your wallet, ${Number(FEE_BPS) / 100}% of what this swap is worth in SOL now`
-      + (t.shownSolFee !== null ? ` (the page estimated ~${formatExact(t.shownSolFee, 9)} SOL).` : '. Neither token of this pair can carry it.'),
+      `Orientim fee: ${formatExact(p.policy.fee, 9)} SOL` + (t.shownSolFee !== null ? ` (shown earlier as ~${formatExact(t.shownSolFee, 9)} SOL).` : '.'),
     );
   }
   const { routeRent, routeRefund } = p.oneTimeCosts;
   // When closing the account returns all of it (PumpSwap), the market keeps nothing: nothing to ask.
   if (routeRent > 0n && routeRefund > 0n && routeRefund < routeRent) {
     lines.push(
-      `Market account fee: ${formatExact(routeRent - routeRefund, 9)} SOL. This market takes ${formatExact(routeRent, 9)} SOL from every new buyer for an account; `
-      + `Orientim closes that account in the same swap, so ${formatExact(routeRefund, 9)} SOL comes straight back to you.`,
+      `Market account fee: ${formatExact(routeRent - routeRefund, 9)} SOL, kept by this market.`,
     );
   } else if (routeRent > 0n && routeRefund === 0n) {
-    lines.push(`Market account fee: ${formatExact(routeRent, 9)} SOL. This market charges it to every new buyer, and it does not come back.`);
+    lines.push(`Market account fee: ${formatExact(routeRent, 9)} SOL, kept by this market.`);
   }
   if (p.tokenTax) {
     lines.push(`Token tax: ${formatExact(p.tokenTax.extraOnInput, t.inDecimals)} ${t.inSymbol} goes to the token's issuer, not to Orientim.`);
@@ -269,53 +267,81 @@ function explainError(e: unknown): Notice {
   return { ...wordsFor(e), detail: errorDetail(e) };
 }
 
-function wordsFor(e: unknown): Notice {
-  if (e instanceof HistoryNotSaved) return NO_STORAGE;
-  if (e instanceof OrientimError) {
-    const titles: Record<OrientimError['code'], string> = {
-      'unsupported-token': 'This token is not supported yet',
-      'token-data-mismatch': "The token's data could not be confirmed on chain",
-      'output-account-restricted': 'Your account for this token is restricted',
-      'no-route': 'No protected route right now',
-      'bad-quote': 'Only bad prices were offered',
-      'price-moved': 'The price moved',
-      'insufficient-sol': 'Not enough SOL',
-      'costs-more': 'This route gives less than the best price',
-      'simulation-failed': 'The swap would fail',
-      'verification-failed': "We couldn't build a protected swap",
-      'wallet-changed-transaction': 'Your wallet changed the transaction',
-      expired: 'The swap expired',
-      busy: 'Too many requests right now',
-      unavailable: "The price service didn't answer",
-      'insufficient-balance': 'Not enough of this token',
-      'input-account-restricted': 'Your account for this token is restricted',
-      'route-format': 'Protected swaps are waiting for an update',
-      'fee-unavailable': "Orientim's fee can't be collected right now",
-      'amount-too-small': 'This amount is too small',
-      'network-unavailable': "Couldn't reach the network",
-    };
-    // Load or an upstream change, not the swap: the message already says that nothing was signed.
-    if (e.code === 'busy' || e.code === 'unavailable' || e.code === 'route-format' || e.code === 'fee-unavailable' || e.code === 'network-unavailable') {
-      return { kind: 'info', title: titles[e.code], body: e.message };
-    }
-    // The rule behind a refusal is for whoever investigates, not for the person swapping (final audit).
-    if (e.violations.length) console.warn('Orientim refused this swap:', e.violations);
-    const rules = '';
-    if (e.code === 'wallet-changed-transaction') {
+/** Said at the end of every refusal: the person's question is whether anything happened. */
+const NOTHING_SENT = 'Nothing was sent and no funds moved.';
+
+/**
+ * The words for a refusal, from the person's side: what is wrong with this swap and what to do. How
+ * Orientim works inside (keys, signatures, simulations, rules) stays out of them; the raw error is
+ * kept for "Copy details" and the console. The pipeline's own messages are for the agent API.
+ */
+function orientimWords(e: OrientimError): Notice {
+  const m = e.message;
+  switch (e.code) {
+    case 'unsupported-token':
+      return { kind: 'error', title: "This token can't be swapped here", body: `A protected swap isn't available for this token. ${NOTHING_SENT}` };
+    case 'token-data-mismatch':
+      return { kind: 'error', title: "Token details couldn't be confirmed", body: `Reload the page and try again. ${NOTHING_SENT}` };
+    case 'output-account-restricted':
+      return /frozen/.test(m)
+        ? { kind: 'error', title: 'Your account for this token is frozen', body: `The token's issuer has frozen it, so it can't receive this swap. ${NOTHING_SENT}` }
+        : { kind: 'error', title: "Your account for this token can't receive this swap", body: `Its settings don't allow a swap to deliver to it. ${NOTHING_SENT}` };
+    case 'input-account-restricted':
+      return { kind: 'error', title: 'Your account for this token is frozen', body: `The token's issuer has frozen it, so it can't be sent. ${NOTHING_SENT}` };
+    case 'no-route':
+      return /does not fit/.test(m)
+        ? { kind: 'error', title: 'This amount is too large for one swap', body: `Try a smaller amount. ${NOTHING_SENT}` }
+        : { kind: 'error', title: 'No route available right now', body: `No market can complete this swap at the moment. Try another amount, or try again shortly. ${NOTHING_SENT}` };
+    case 'bad-quote':
+      return { kind: 'error', title: 'Prices are unavailable right now', body: `Try again in a moment. ${NOTHING_SENT}` };
+    case 'price-moved':
+      return { kind: 'info', title: 'The price changed', body: `Check the new price and try again. ${NOTHING_SENT}` };
+    case 'insufficient-sol':
+      return { kind: 'error', title: 'Not enough SOL', body: `${m} ${NOTHING_SENT}` };
+    case 'insufficient-balance':
+      return { kind: 'error', title: 'Not enough of this token', body: `${m} ${NOTHING_SENT}` };
+    case 'costs-more':
+      return { kind: 'error', title: 'This swap would get a lower price', body: `The route available right now pays less than the market price. Try a smaller amount, or try again shortly. ${NOTHING_SENT}` };
+    case 'simulation-failed':
+      return /price moved|slippage/i.test(m)
+        ? { kind: 'info', title: 'The price moved', body: `It changed too much while your swap was being prepared. Try again. ${NOTHING_SENT}` }
+        : { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` };
+    case 'verification-failed':
+      return /network fee/i.test(m)
+        ? { kind: 'info', title: 'Network fees are too high right now', body: `Try again in a moment. ${NOTHING_SENT}` }
+        : { kind: 'error', title: "This swap can't be completed safely", body: `It didn't pass Orientim's checks. Try again, or try a different amount or token. ${NOTHING_SENT}` };
+    case 'wallet-changed-transaction': {
       const details = e.violations.map(v => v.detail);
       const title = details.includes('the wallet did not sign')
         ? "Your wallet didn't sign the transaction"
         : details.includes('the wallet changed the transaction message')
           ? 'Your wallet changed the transaction'
-          : "Your wallet's response didn't pass the check";
-      return { kind: 'error', title, body: `Orientim stopped before adding the last signature${rules}. Nothing was sent and no funds moved.` };
+          : "Your wallet's answer couldn't be accepted";
+      return { kind: 'error', title, body: NOTHING_SENT };
     }
-    // A route can be priced perfectly and still not fit: 64 accounts per transaction is Solana's
-    // limit, and a very large swap needs more pools than that.
-    const title = e.code === 'no-route' && e.message.includes('does not fit')
-      ? 'This amount is too large for one protected transaction'
-      : titles[e.code];
-    return { kind: 'error', title, body: `${e.message}${rules} No funds moved.` };
+    case 'expired':
+      return { kind: 'info', title: 'The swap expired', body: `It wasn't approved in time. Try again. ${NOTHING_SENT}` };
+    case 'busy':
+      return { kind: 'info', title: 'Too many requests right now', body: 'Wait a few seconds and try again. Nothing was signed.' };
+    case 'unavailable':
+      return { kind: 'info', title: "The price service didn't answer", body: 'Try again in a moment. Nothing was signed.' };
+    case 'route-format':
+      return { kind: 'info', title: 'Swaps are paused for an update', body: 'Protected swaps will resume shortly. Nothing was signed.' };
+    case 'fee-unavailable':
+      return { kind: 'info', title: 'Swaps are temporarily unavailable', body: 'Try again later. Your funds are not affected.' };
+    case 'amount-too-small':
+      return { kind: 'error', title: 'This amount is too small', body: 'The smallest swap is about $1. Swap a larger amount.' };
+    case 'network-unavailable':
+      return { kind: 'info', title: "Couldn't reach the network", body: 'Try again in a moment. Nothing was signed.' };
+  }
+}
+
+function wordsFor(e: unknown): Notice {
+  if (e instanceof HistoryNotSaved) return NO_STORAGE;
+  if (e instanceof OrientimError) {
+    // What exactly was refused is for whoever investigates, not for the person swapping (final audit).
+    if (e.violations.length) console.warn('Orientim refused this swap:', e.violations);
+    return orientimWords(e);
   }
   const message = String((e as Error)?.message ?? e);
   // An RPC failure is read from its HTTP status: a production build of kit replaces the message
@@ -324,23 +350,17 @@ function wordsFor(e: unknown): Notice {
   if (/reject|denied|cancel|4001/i.test(message)) return { kind: 'info', title: 'Swap cancelled in your wallet', body: 'No funds moved.' };
   if (/paused/i.test(message)) return { kind: 'info', title: 'Protected swaps are paused', body: 'Nothing was sent. Your funds are not affected.' };
   if (http === 429 || (e instanceof JupiterError && e.status === 429)) {
-    return { kind: 'info', title: 'Too many requests right now', body: 'Wait a few seconds and try again. Nothing was sent and no funds moved.' };
+    return { kind: 'info', title: 'Too many requests right now', body: 'Wait a few seconds and try again. Nothing was signed.' };
   }
   if (/ed25519/i.test(message)) {
-    return { kind: 'error', title: "This browser can't create Orientim's one-time key", body: "Update it, or open Orientim in your wallet's browser. No funds moved." };
+    return { kind: 'error', title: "This browser isn't supported", body: "Update it, or open Orientim in your wallet's browser. No funds moved." };
   }
   if ((http !== null && http >= 500) || jupiterBusy(e) || /failed to fetch|fetch failed|networkerror|load failed/i.test(message)) {
-    return {
-      kind: 'info', title: "Couldn't reach the network",
-      body: 'The connection to Solana or the price service failed. Nothing was sent and no funds moved; try again in a moment.',
-    };
+    return { kind: 'info', title: "Couldn't reach the network", body: `Check your connection and try again in a moment. ${NOTHING_SENT}` };
   }
   // The raw error is for the console, not the page: it is rarely readable, and never actionable.
   console.error(e);
-  return {
-    kind: 'error', title: 'Something went wrong',
-    body: 'Orientim stopped before adding its signature, so this swap can never run. No funds moved. Try again.',
-  };
+  return { kind: 'error', title: 'Something went wrong', body: `${NOTHING_SENT} Try again.` };
 }
 
 /**
@@ -362,28 +382,28 @@ function outcomeNotice(
       // The usual reason, and the one that needs no support: the market moved past the minimum.
       return why.onPrice
         ? {
-          kind: 'error', title: 'The price moved before the swap landed',
-          body: `Less than your minimum of ${t.minimum} would have arrived, so the swap reverted and nothing was swapped. Only the network fee was paid; you can try again.`,
+          kind: 'error', title: 'The price moved before the swap completed',
+          body: `Less than your minimum of ${t.minimum} would have arrived, so nothing was swapped. Only the network fee was paid; you can try again.`,
           link,
         }
-        : { kind: 'error', title: 'The swap failed on chain and was reverted', body: 'Only the network fee was paid.', link };
+        : { kind: 'error', title: "The swap didn't complete", body: 'It was reverted on the network. Only the network fee was paid.', link };
     case 'expired':
       return { kind: 'info', title: "The swap didn't land in time", body: 'It expired without executing and can no longer execute. No funds moved.', link };
     case 'rejected':
       if (why.refusal === 'paused') {
-        return { kind: 'info', title: 'Protected swaps were paused', body: 'Orientim paused new swaps before this one was sent. It was never broadcast, so no funds moved.' };
+        return { kind: 'info', title: 'Protected swaps were paused', body: "New swaps were paused before this one was sent. It wasn't sent, so no funds moved." };
       }
       if (why.refusal === 'busy') {
-        return { kind: 'info', title: 'Too many requests right now', body: 'This swap was never broadcast, so no funds moved. Wait a few seconds and try again.' };
+        return { kind: 'info', title: 'Too many requests right now', body: "This swap wasn't sent, so no funds moved. Wait a few seconds and try again." };
       }
       return {
-        kind: 'info', title: 'Solana refused the swap before sending it',
-        body: 'It was never broadcast, so no funds moved. This usually means the price moved; try again.',
+        kind: 'info', title: "The network didn't accept the swap",
+        body: "It wasn't sent, so no funds moved. The price may have changed; try again.",
       };
     default:
       return {
         kind: 'info', title: "We couldn't confirm the result yet",
-        body: 'The swap may still go through or may already have. Orientim keeps checking, and starts no new swap from this wallet until the network settles it.', link,
+        body: "It may still complete. Orientim keeps checking and won't start another swap from this wallet until it knows.", link,
       };
   }
 }
@@ -1056,7 +1076,7 @@ export function SwapApp() {
         // Without a height, how long the swap stays valid is unknown: the wallet is not opened on a
         // guess (final audit, M-04).
         if (left === null) {
-          throw new OrientimError('network-unavailable', "Orientim couldn't read how long this swap stays valid, so your wallet was not opened. Nothing was signed; try again in a moment.");
+          throw new OrientimError('network-unavailable', "Couldn't read the network's block height, so the wallet was not opened. Nothing was signed; try again in a moment.");
         }
         if (left >= MIN_BLOCKS_FOR_WALLET) break;
         if (round === 2) throw new OrientimError('expired', "The swap's time ran out while it was being prepared or while you answered. Nothing was signed; try again.");
@@ -1100,15 +1120,15 @@ export function SwapApp() {
       const balanceKept = await outputBalanceUnchanged(toSend);
       if (balanceKept === null) {
         setNotice({
-          kind: 'info', title: `Orientim couldn't re-read your ${outToken.symbol} balance`,
-          body: 'It stopped before adding its signature, so this swap can never run. No funds moved; try again in a moment.',
+          kind: 'info', title: `Your ${outToken.symbol} balance couldn't be confirmed`,
+          body: 'The swap was stopped before sending. Nothing was sent and no funds moved; try again in a moment.',
         });
         return;
       }
       if (!balanceKept) {
         setNotice({
           kind: 'info', title: `Your ${outToken.symbol} balance changed while the wallet was open`,
-          body: 'Another swap or a transfer arrived. Orientim stopped before adding its signature, so this swap can never run. No funds moved; try again.',
+          body: 'Another swap or a transfer arrived, so this swap was stopped before sending. Nothing was sent and no funds moved; try again.',
         });
         return;
       }
@@ -1210,7 +1230,7 @@ export function SwapApp() {
   // is one extra transfer. Said before the swap, not after it.
   if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
     inWarnings.push(
-      `${tokenIn.symbol} charges ${inFacts.transferFee.bps / 100}% on every transfer, and a protected swap makes one transfer more than an unprotected one, so you pay it twice. The tax goes to the token, not to Orientim.`,
+      `${tokenIn.symbol} charges ${inFacts.transferFee.bps / 100}% on every transfer, and this swap moves it twice, so the tax applies twice. The tax goes to the token, not to Orientim.`,
     );
   }
   if (tokenOut && outFacts && outFacts !== 'missing' && outFacts.transferFee) {
@@ -1223,7 +1243,7 @@ export function SwapApp() {
   // which counts what reaches your account (review BR-05). The user is told before they hold it.
   for (const [token, f, list] of [[tokenIn, inFacts, inWarnings], [tokenOut, outFacts, outWarnings]] as const) {
     if (token && f && f !== 'missing' && f.issuerCanMove) {
-      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it; Orientim neither adds nor changes it, and your minimum output still holds in this swap.`);
+      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it, and your minimum still holds in this swap.`);
     }
   }
   const deepLink = typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '';
@@ -1387,29 +1407,21 @@ export function SwapApp() {
           </ul>
         )}
 
-        <div className="protection">
-          <p className="protection-title">Your order. Your limits.</p>
-          <div className="detail-row">
-            <span>Approved amount</span>
-            <span>{tokenIn && amountIn && inDecimals !== null ? `${formatUnits(amountIn, inDecimals, 6)} ${tokenIn.symbol}` : '—'}</span>
+        {quote && tokenIn && tokenOut && amountIn && inDecimals !== null && outDecimals !== null && minReceived !== null && (
+          <div className="protection">
+            <p className="protection-title">Your order. Your limits.</p>
+            <div className="detail-row">
+              <span>Minimum received</span>
+              <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
+            </div>
+            <ul className="protection-facts">
+              <li>Only {formatUnits(amountIn, inDecimals, 6)} {tokenIn.symbol} can be used</li>
+              <li>No access to the rest of your wallet</li>
+              <li>No lasting permissions</li>
+            </ul>
+            <p className="protection-note">If less than the minimum would arrive, the whole swap cancels itself.</p>
           </div>
-          <div className="detail-row">
-            <span>Minimum received</span>
-            <span>{quote && tokenOut && outDecimals !== null && minReceived !== null ? `${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}` : '—'}</span>
-          </div>
-          <div className="detail-row">
-            <span>Access to your other assets</span>
-            <span>None</span>
-          </div>
-          <div className="detail-row">
-            <span>Lasting permissions</span>
-            <span>None</span>
-          </div>
-          <p className="protection-note">
-            The swap route gets only this amount, not the rest of your wallet, and a market&apos;s account fee when one is
-            shown. If less than the minimum would arrive, the whole swap cancels itself.
-          </p>
-        </div>
+        )}
 
         <details className="details" open={detailsOpen} onToggle={e => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)}>
           <summary>
@@ -1489,8 +1501,7 @@ export function SwapApp() {
           <div className="banner info">
             {pending && (
               <p>
-                Minimum output enforced on successful execution: <strong>{pending.minReceived}</strong>. If less would arrive,
-                the whole transaction reverts. Network fee: {pending.networkFee}.
+                Minimum received: <strong>{pending.minReceived}</strong>. Network fee: {pending.networkFee}.
                 {pending.solFee && <> Orientim fee: {pending.solFee}.</>}
                 {pending.oneTimeCost && <> Also: {pending.oneTimeCost}.</>}
                 {pending.removesDelegate && <> {pending.removesDelegate}</>}
@@ -1499,8 +1510,7 @@ export function SwapApp() {
               </p>
             )}
             <p>
-              {wallet?.name} shows this transaction and a second signer: Orientim&apos;s one-time key for this swap, which is
-              normal.
+              {wallet?.name} may show a second signer. That is normal for a protected swap.
             </p>
           </div>
         )}
@@ -1548,10 +1558,7 @@ export function SwapApp() {
         )}
       </section>
 
-      <p className="card-foot">
-        You approve the exact transaction in your wallet. Orientim never asks for your seed phrase.
-        {status?.maxUsdPerSwap != null && ` Swaps are limited to ${formatUsd(status.maxUsdPerSwap)} while we run in alpha.`}
-      </p>
+      {status?.maxUsdPerSwap != null && <p className="card-foot">Swaps are limited to {formatUsd(status.maxUsdPerSwap)} while we run in alpha.</p>}
 
       {history.length > 0 && (
         <section className="card history">

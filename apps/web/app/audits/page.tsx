@@ -4,7 +4,6 @@ import { signPageChunks } from '@/lib/server/scriptIntegrity';
 
 export const metadata = { title: 'Audits — Orientim', description: 'The reviews of Orientim, what they found and what was fixed.' };
 
-const LOG = 'https://github.com/intopic/bound/blob/main/docs/AUDIT.md';
 
 /** The kind of each review is part of what it is worth: none of these is a professional firm's audit. */
 const REVIEWS: [string, string, string, string][] = [
@@ -29,7 +28,7 @@ export default async function Page() {
   signPageChunks('audits/page');
   await connection();
   return (
-    <InfoPage eyebrow="Audits" title="Reviews and how Orientim is tested" lead="Every review of Orientim, what kind of review it was, its findings and their fixes, in one public log with the validation for each fix.">
+    <InfoPage eyebrow="Audits" title="Reviews and how Orientim is tested" lead="Every review of Orientim, what kind of review it was, and what it covered.">
       <section>
         <h2>Reviews</h2>
         <div className="table-wrap">
@@ -39,8 +38,8 @@ export default async function Page() {
           </table>
         </div>
         <p>
-          Every finding is recorded with its status and the validation for its fix in <a href={LOG}>docs/AUDIT.md</a>. Orientim has
-          not yet been audited by a professional security firm; that audit comes before the public launch.
+          Every finding is recorded with its status and the validation for its fix in Orientim&apos;s audit log. Orientim has not
+          yet been audited by a professional security firm; that audit comes before the public launch.
         </p>
       </section>
       <section>

@@ -112,8 +112,7 @@ try {
 
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
   check('page loads with USDC → SOL preselected', await page.getByRole('button', { name: /SOL/ }).first().isVisible());
-  check('protection panel is shown', await page.getByText('Your order. Your limits.').isVisible());
-  check('protection is said in plain words', await page.getByText('The swap route gets only this amount').isVisible());
+  check('the card is the protected swap', await page.getByText('Protected swap', { exact: true }).first().isVisible());
   check('test mode banner without a treasury', await page.getByText('Test mode: no Orientim fee is charged.').isVisible());
   await page.screenshot({ path: `${OUT}/1-start.png` });
 
@@ -125,6 +124,8 @@ try {
   await page.getByLabel('Amount to pay').fill('5');
   await page.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 20_000 });
   check('live quote appears', true, await page.locator('.box').nth(1).locator('.amount').innerText());
+  check('with a quote, the limits of this swap are shown', await page.getByText('Your order. Your limits.').isVisible()
+    && await page.getByText('No access to the rest of your wallet').isVisible());
   await page.screenshot({ path: `${OUT}/2-quote.png` });
 
   const clickedAt = await page.evaluate(() => Date.now());
@@ -163,7 +164,7 @@ try {
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
   const m = await mobile.newPage();
   await m.goto(URL, { waitUntil: 'networkidle' });
-  await m.getByText('Your order. Your limits.').waitFor({ timeout: 20_000 });
+  await m.getByText('Protected swap', { exact: true }).first().waitFor({ timeout: 20_000 });
   const overflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('mobile layout has no horizontal scroll', !overflow);
   await m.getByRole('button', { name: 'Connect wallet' }).first().click();

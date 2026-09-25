@@ -1429,6 +1429,26 @@ say it with confidence, show it moving, and prove it. The plan, with live protot
 
 ---
 
+## 0zm. Closed source, and a page that speaks about the swap, not the mechanism (26 September 2026)
+
+The owner's decisions: Orientim is a closed-source company product, and nothing of the mechanism
+reaches the person swapping.
+
+- **Closed source**: the page no longer says "open source" or links the repository; the skill is
+  delivered with an API key instead of installed from GitHub; the reviews page names Orientim's audit
+  log without linking it. The skill still ships its code to the agent's machine, as any SDK does; the
+  server stays private. Making the repository private is the owner's step on GitHub.
+- **Messages**: every refusal and outcome the page shows is now worded from the person's side: what
+  is wrong with this swap and what to do, ending in "Nothing was sent and no funds moved." when that
+  is so. No one-time key, signature, simulation, verifier, route or rule appears in them. The raw
+  error stays for "Copy details" and the console; the pipeline's own messages are unchanged for the
+  agent API, where developers need them.
+- **The card**: "Your order. Your limits." appears once there is a quote, with the minimum received
+  and three facts (only this amount can be used, no access to the rest of the wallet, no lasting
+  permissions); the approved amount no longer repeats "You pay". The line under the card is gone.
+
+---
+
 ## 1. What Orientim is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
