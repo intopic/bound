@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkDeploymentSettings, feeBpsSetting, maxNetworkFeeSetting, treasurySetting } from '../lib/settings.ts';
 
-const TREASURY = '5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw';
+const TREASURY = 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
 
 describe('deployment settings', () => {
   it('the fee is whole basis points, 30 when unset or empty', () => {

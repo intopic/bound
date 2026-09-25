@@ -97,7 +97,7 @@ npm run dev
 
 Kostoja reale: disa cent (fee e rrjetit) dhe fee e Bound 0.3%. 2 USDC kthehen në SOL që mbetet i yti. Në test mode nuk paguhet fee e Bound.
 
-**Me thesar të vendosur:** wallet-i i thesarit duhet të ekzistojë në zinxhir, përndryshe faqja nuk ndërton asnjë swap ("Bound's fee can't be collected right now"): Bound nuk bën swap pa fee. Thesari `5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw` ekziston tashmë, pra nuk duhet dërguar asgjë.
+**Me thesar të vendosur:** wallet-i i thesarit duhet të ekzistojë në zinxhir, përndryshe faqja nuk ndërton asnjë swap ("Bound's fee can't be collected right now"): Bound nuk bën swap pa fee. Thesari `ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE` ekziston tashmë, pra nuk duhet dërguar asgjë. (Thesari i mëparshëm, `5EmN…2bAw`, u zëvendësua më 25 shtator 2026 sepse dikush tjetër kishte çelësin e tij: `docs/AUDIT.md` 0zh.)
 
 **Shuma më e vogël është $1.** Nën të, faqja shfaq "Minimum swap: $1" dhe nuk ndërton asgjë. Prandaj testet më poshtë përdorin 2 USDC ose 0.01 SOL.
 

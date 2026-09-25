@@ -32,7 +32,7 @@ The user provides these; never ask for them in chat, and never print or log them
   service that signs a transaction and hands it back unsent) as `wallet` to `protectedSwap`. The
   service's signature is used only once it verifies against the checked message, and a service that
   changes the transaction is refused. One that can only sign and send cannot be used: Bound signs last.
-- Bound's treasury is pinned in the skill: `5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw`. The fee goes there or
+- Bound's treasury is pinned in the skill: `ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE`. The fee goes there or
   nowhere; a swap whose fee goes to any other wallet is refused. `BOUND_TREASURY` names another
   treasury only for another Bound deployment.
 - `JUPITER_API_KEY`: for the agent's own price (free at https://developers.jup.ag/portal). Get one:

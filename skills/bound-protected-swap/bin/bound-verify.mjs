@@ -949,7 +949,7 @@ async function verifyPrepared(prepared, limits, rpc, opts = {}) {
 	if (p.jupiterProgram !== JUPITER_PROGRAM) problems.push(`the swap program is ${p.jupiterProgram}, not Jupiter`);
 	if (p.ephemeral !== prepared.temporaryAuthority) problems.push("the one-time key differs from the one stated");
 	if (p.feeBps > BigInt(limits.maxFeeBps ?? 30)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
-	if (p.treasury !== null && p.treasury !== (limits.treasury || "5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw")) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
+	if (p.treasury !== null && p.treasury !== (limits.treasury || "ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE")) problems.push(`the fee goes to ${p.treasury}, not Bound's treasury`);
 	if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1e6)) problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
 	if (p.feeSide === "sol") {
 		if (limits.maxSolFeeLamports === void 0) problems.push("the Bound fee is paid in SOL at a price the check cannot see: set maxSolFeeLamports from a price you got yourself (ownSolFeeLimit asks Jupiter)");

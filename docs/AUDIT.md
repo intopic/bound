@@ -1297,6 +1297,36 @@ Jupiter on the page; a paid plan removes the wait.
 
 ---
 
+## 0zh. The treasury was swept by someone else; a new one (25 September 2026)
+
+Reading the treasury's history after the owner's Trust Wallet swap showed that every fee Bound sent
+to `5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw` left it 5 to 10 seconds later, in a transaction
+signed with that wallet's own key, for `AQ49yUbqp2K1cTsG7vSfnGsK6MKcuzXjeEWTmXHR3Pcp`: all eleven
+fees of the wallet test (518,339 lamports), each time down to the 650,240 lamports the account must
+keep. That address held 1.26 SOL and received from six other wallets in the same three hours, the
+pattern of a sweeper that holds stolen keys. The same wallet had been emptied on 1 December 2025
+(1.516 SOL to `DnkYab…`), and on 21 September 2026 tokens were sold from it and the SOL swept to the
+same `AQ49…`. The owner confirmed the wallet is compromised.
+
+Bound did its part: every fee went to the treasury it was configured with, and nothing in Bound can
+move a treasury's funds. What failed is the treasury's key, outside Bound. The loss is the test's fees,
+about 0.0005 SOL, because it was found before launch.
+
+- **The new treasury is `ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE`**: the page's
+  `NEXT_PUBLIC_BOUND_TREASURY`, and the skill's pin (`BOUND_TREASURY`, its type, SHA256SUMS and the
+  site's copy of them). Read before it was used: a system account with 0.0154 SOL, 54 transactions
+  since November 2024, every outgoing transfer one its owner made (to the old treasury, to the test
+  wallet, the Trust swap); 0.156 SOL sat in it for three minutes today and nothing took it.
+- Its history carries 100-lamport transfers from lookalike addresses right after each of its own
+  transfers: address poisoning, which only works when an address is copied from a wallet's history.
+  Copy the treasury's address from the wallet itself, never from a list of past transactions.
+- A hot wallet on the owner's computer is a stopgap. Before real volume the treasury belongs on a
+  hardware wallet or a Squads multisig (docs/TESTIMI.md, "Para publikimit").
+- **A treasury is now read before it is used**, not only checked to exist: its outgoing transfers, who
+  signs them and how soon after money arrives.
+
+---
+
 ## 1. What Bound is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

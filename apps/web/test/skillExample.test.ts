@@ -216,7 +216,7 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
     const b = await bound();
     const honest = await honestAnswer(b);
     const { treasury: _named, ...unnamed } = intentFor(b.wallet);
-    expect(BOUND_TREASURY).toBe('5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw');
+    expect(BOUND_TREASURY).toBe('ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE');
     // This deployment's treasury is not Bound's, so an agent that named none refuses the fee.
     expect((await checkPrepared(honest, unnamed, b.agentRpc)).join()).toContain(`the fee goes to ${TREASURY}, not Bound's treasury`);
     const toBound = { ...honest, policy: { ...honest.policy, treasury: BOUND_TREASURY } };

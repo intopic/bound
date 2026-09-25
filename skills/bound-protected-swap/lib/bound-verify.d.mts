@@ -5,7 +5,7 @@ import type { Rpc, SolanaRpcApi } from '@solana/kit';
  * Bound's treasury wallet, pinned like the fee: unless the agent names another, Bound's fee may go
  * here or nowhere, whatever the server says.
  */
-export declare const BOUND_TREASURY: '5EmNJ6DWf3jQSg7gnRgRmTK8KJZ4ahAbcN8QL6YB2bAw';
+export declare const BOUND_TREASURY: 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
 
 /** What the agent asked for, and the most it accepts. */
 export type AgentLimits = {
