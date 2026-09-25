@@ -11,6 +11,9 @@ import type { Address } from '@solana/kit';
 import { unsupportedExtension } from '../src/index.ts';
 
 const RUNS = Number(process.env.BOUND_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 200_000 : 3_000));
+// At full size a property takes 20 to 40 s on CI, far past vitest's default 5 s (the fuzz run of
+// 345a82d timed out on all four, without a single counterexample).
+const TIMEOUT = 60_000 + RUNS;
 
 const encoder = getAddressEncoder();
 const onCurve: Uint8Array[] = await Promise.all(Array.from({ length: 6 }, async () => Uint8Array.from(encoder.encode((await generateKeyPairSigner()).address))));
@@ -72,7 +75,7 @@ describe('Token-2022: any combination of extensions (final audit, item 4)', () =
       ),
       { numRuns: RUNS },
     );
-  });
+  }, TIMEOUT);
 
   it('every combination of the entries a swap can live with is accepted', () => {
     fc.assert(
@@ -81,7 +84,7 @@ describe('Token-2022: any combination of extensions (final audit, item 4)', () =
       }),
       { numRuns: RUNS },
     );
-  });
+  }, TIMEOUT);
 
   it('an entry hidden after an empty slot is refused: the token program reads past the gap, so the verifier must too', () => {
     fc.assert(
@@ -94,7 +97,7 @@ describe('Token-2022: any combination of extensions (final audit, item 4)', () =
       ),
       { numRuns: RUNS },
     );
-  });
+  }, TIMEOUT);
 
   it('an area cut short is refused, wherever the cut falls', () => {
     fc.assert(
@@ -110,7 +113,7 @@ describe('Token-2022: any combination of extensions (final audit, item 4)', () =
       }),
       { numRuns: RUNS },
     );
-  });
+  }, TIMEOUT);
 
   it('the fixtures mean what they say: ordinary keys are on the curve, program addresses are not', () => {
     const decode = getAddressDecoder();

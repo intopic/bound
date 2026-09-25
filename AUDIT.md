@@ -1192,6 +1192,10 @@ Tests: `send.test.ts` (a late look, a node far ahead), `history.test.ts` (the wi
 refuses, unsettled entries kept, one wallet blocked), `skillExample.test.ts` (late recovery, an
 older record, `resolve` by code and command, a repeated finalize with the RPC down, bookkeeping,
 an account left open, the SOL ceiling) and `prepare.test.ts` (a route that leaves an account open).
+Found while checking the runs: the weekly fuzz run of `345a82d` had failed, because the Token-2022
+matrix (section 0zb) had no time limit of its own at full size and vitest stopped each property after
+5 s. No counterexample was reported; the properties now have the fuzz run's limit, and all five pass
+at 200,000 cases each (about three minutes on this machine).
 
 ---
 
