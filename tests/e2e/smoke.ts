@@ -112,8 +112,8 @@ try {
 
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
   check('page loads with USDC → SOL preselected', await page.getByRole('button', { name: /SOL/ }).first().isVisible());
-  check('protection panel is shown', await page.getByText('Wallet authority protected').isVisible());
-  check('protection is one plain line', await page.getByText('The swap can use only the amount you swap, and').isVisible());
+  check('protection panel is shown', await page.getByText('Your order. Your limits.').isVisible());
+  check('protection is said in plain words', await page.getByText('The swap route gets only this amount').isVisible());
   check('test mode banner without a treasury', await page.getByText('Test mode: no Orientim fee is charged.').isVisible());
   await page.screenshot({ path: `${OUT}/1-start.png` });
 
@@ -163,7 +163,7 @@ try {
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
   const m = await mobile.newPage();
   await m.goto(URL, { waitUntil: 'networkidle' });
-  await m.getByText('Wallet authority protected').waitFor({ timeout: 20_000 });
+  await m.getByText('Your order. Your limits.').waitFor({ timeout: 20_000 });
   const overflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('mobile layout has no horizontal scroll', !overflow);
   await m.getByRole('button', { name: 'Connect wallet' }).first().click();
@@ -174,7 +174,7 @@ try {
   check('the wallet window closes with Escape', !(await m.getByRole('dialog').isVisible()));
 
   // The page that says what is and is not guaranteed, one tap from the swap (final audit, M3).
-  await m.getByRole('link', { name: 'How Orientim protects you' }).click();
+  await m.getByRole('link', { name: 'Security', exact: true }).last().click();
   await m.getByRole('heading', { name: 'How Orientim protects you' }).waitFor({ timeout: 15_000 });
   const howOverflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('"How Orientim protects you" opens from the swap page and fits a phone', !howOverflow);

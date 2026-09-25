@@ -241,7 +241,7 @@ transaction that may have landed. This holds while the person keeps this browser
 | Pump.fun bonding curve and PumpSwap | Swapped; the per-buyer account is closed and its rent returned, or the route is refused |
 | Any other market that opens an account and leaves it open | Refused (third audit, F5) |
 | Routes too large for one transaction | Refused: Orientim never splits a swap |
-| Wallets that sign and return (Wallet Standard `signTransaction`) | Supported; the real-wallet test is still to be done |
+| Wallets that sign and return (Wallet Standard `signTransaction`) | Supported: tested on mainnet with Phantom, which returns the message byte for byte, and Trust Wallet (docs/AUDIT.md 0zg) |
 | Sign-and-send-only wallets, multisig vaults | Cannot sign first: not supported |
 | v1 transactions | Built only when enabled and only for a route too big for v0 |
 

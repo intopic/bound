@@ -38,6 +38,7 @@ import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib
 import type { Problem } from '@/lib/client/problems';
 import { Modal } from './Modal';
 import { TokenIcon, TokenPicker } from './TokenPicker';
+import { ShieldIcon, SiteHeader } from './site/Brand';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
 /** `detail`: the raw error behind the words, kept in this browser for when help is asked (never shown by itself). */
@@ -440,6 +441,7 @@ export function SwapApp() {
   const accountRef = useRef<HTMLDivElement>(null);
   // The rate reads "1 input ≈ x output" until the user turns it around.
   const [rateInverted, setRateInverted] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [balances, setBalances] = useState<{ sol: bigint; tokenIn: bigint } | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -955,6 +957,8 @@ export function SwapApp() {
   // costs a build or two, not one per keystroke; the click builds as before when none is ready.
   const ahead = useRef<{ key: string; startedAt: number; settled: boolean; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
   const aheadStarts = useRef<number[]>([]);
+  // The build ahead passed every rule for exactly these inputs: the card may say "Verified" (and only then).
+  const [verifiedKey, setVerifiedKey] = useState<string | null>(null);
   const [aheadSettledAt, setAheadSettledAt] = useState(0);
   useEffect(() => {
     if (phase !== 'idle' || blocker || !wallet || !W || !tokenIn || !tokenOut || !amountIn || !quote || !status || minReceived === null) return;
@@ -979,7 +983,10 @@ export function SwapApp() {
       entry.task = (async () => {
         const E = await createEphemeral();
         return { prepared: await prepareProtectedSwap(swapDeps(status), { ...request, ephemeral: E }), E };
-      })().catch((e: unknown) => {
+      })().then(built => {
+        setVerifiedKey(key);
+        return built;
+      }).catch((e: unknown) => {
         if (busyError(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
         return null;
       }).finally(() => {
@@ -1248,13 +1255,18 @@ export function SwapApp() {
   const deepLink = typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '';
   const origin = typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : '';
 
+  const version = wallet ? chooseVersion(supportedVersions(wallet), V1_ENABLED) : null;
+  const shownKey = W && tokenIn && tokenOut && amountIn && quote && version !== null && minReceived !== null
+    ? aheadKey(W, tokenIn.id, tokenOut.id, amountIn, quote.at, version, minReceived) : null;
+  const badge: [string, string] = status && !status.enabled ? ['paused', 'Paused']
+    : phase === 'checking' ? ['checking', 'Checking…']
+      : phase === 'wallet' || phase === 'sending' || (shownKey !== null && verifiedKey === shownKey) ? ['verified', 'Verified']
+        : ['ready', 'Protection on'];
+
   return (
-    <main className="page">
-      <header className="top">
-        <span className="brand">
-          <ShieldIcon /> Orientim
-        </span>
-        {W ? (
+    <>
+      <SiteHeader
+        right={W ? (
           <div className="account" ref={accountRef}>
             <button className="ghost wallet-pill" onClick={() => setAccountMenu(v => !v)} aria-expanded={accountMenu}>
               {wallet?.icon && (
@@ -1271,11 +1283,11 @@ export function SwapApp() {
             )}
           </div>
         ) : (
-          <button className="ghost" onClick={() => setWalletMenu(true)}>
+          <button className="ghost connect" onClick={() => setWalletMenu(true)}>
             Connect wallet
           </button>
         )}
-      </header>
+      />
 
       {walletMenu && !W && (
         <Modal title="Connect a wallet" onClose={() => setWalletMenu(false)}>
@@ -1303,12 +1315,39 @@ export function SwapApp() {
         </Modal>
       )}
 
+      <section className="hero" id="swap">
+        <div className="container hero-grid">
+          <div className="hero-copy">
+            <p className="eyebrow">Protected trading on Solana</p>
+            <h1 className="hero-title">
+              The trade gets authority.
+              <br />
+              Your wallet doesn&apos;t.
+            </h1>
+            <p className="hero-sub">
+              Protected Solana swaps for people and AI agents. Each swap can touch only the amount you approve, never the
+              rest of your wallet.
+            </p>
+            <ul className="hero-points">
+              <li>Verified before you sign</li>
+              <li>Only the amount you approve</li>
+              <li>No lasting permissions</li>
+            </ul>
+            <a className="text-link hero-agents" href="#developers">Building an agent? Use the API and the skill →</a>
+          </div>
+
+          <div className="hero-app">
       {status && !status.enabled && (
         <div className="banner error">Protected swaps are paused while we check something. Your funds are not affected.</div>
       )}
       {!TREASURY && <div className="banner info">Test mode: no Orientim fee is charged.</div>}
 
       <section className="card swap">
+        <div className="swap-head">
+          <p className="swap-title"><ShieldIcon /> Protected swap</p>
+          <span className={`status-badge ${badge[0]}`}><span className="dot" aria-hidden="true" />{badge[1]}</span>
+        </div>
+
         <div className="box">
           <div className="box-top">
             <span className="label">You pay</span>
@@ -1378,13 +1417,34 @@ export function SwapApp() {
         )}
 
         <div className="protection">
-          <p className="protection-title">
-            <ShieldIcon /> Wallet authority protected
+          <p className="protection-title">Your order. Your limits.</p>
+          <div className="detail-row">
+            <span>Approved amount</span>
+            <span>{tokenIn && amountIn && inDecimals !== null ? `${formatUnits(amountIn, inDecimals, 6)} ${tokenIn.symbol}` : '—'}</span>
+          </div>
+          <div className="detail-row">
+            <span>Minimum received</span>
+            <span>{quote && tokenOut && outDecimals !== null && minReceived !== null ? `${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}` : '—'}</span>
+          </div>
+          <div className="detail-row">
+            <span>Access to your other assets</span>
+            <span>None</span>
+          </div>
+          <div className="detail-row">
+            <span>Lasting permissions</span>
+            <span>None</span>
+          </div>
+          <p className="protection-note">
+            The swap route gets only this amount, not the rest of your wallet, and a market&apos;s account fee when one is
+            shown. If less than the minimum would arrive, the whole swap cancels itself.
           </p>
-          <p className="protection-note">The swap can use only the amount you swap, and a market&apos;s account fee when one is shown. It can&apos;t touch anything else in your wallet.</p>
         </div>
 
-        <div className="details">
+        <details className="details" open={detailsOpen} onToggle={e => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)}>
+          <summary>
+            <span>{rate ?? 'Rate and fees'}</span>
+            <span className="summary-hint">Fees ▾</span>
+          </summary>
           {rate && (
             <div className="detail-row">
               <span>Rate</span>
@@ -1405,12 +1465,6 @@ export function SwapApp() {
             <div className="detail-row" title={quote.curve ? 'This token is still on its Pump.fun launch curve, where prices move fast.' : undefined}>
               <span>Max slippage</span>
               <span>{`${tolerance}%`}</span>
-            </div>
-          )}
-          {quote && tokenOut && outDecimals !== null && minReceived !== null && (
-            <div className="detail-row">
-              <span>Minimum received</span>
-              <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
             </div>
           )}
           {tokenIn && swapAmount !== null && swapAmount > 0n && inDecimals !== null && (
@@ -1449,8 +1503,7 @@ export function SwapApp() {
               <span>{rent !== null ? `${formatExact(rent, 9)} SOL` : '—'}</span>
             </div>
           )}
-          {quote && <p className="hint">If less than the minimum would arrive, the whole swap cancels itself.</p>}
-        </div>
+        </details>
 
         {phase === 'confirm' && offer && (
           <div className="banner info" role="alertdialog" aria-label={offerCopy(offer).title}>
@@ -1481,8 +1534,8 @@ export function SwapApp() {
               </p>
             )}
             <p>
-              {wallet?.name} will show the amounts and a second signer. That second signer is Orientim&apos;s temporary key, which
-              is normal.
+              {wallet?.name} shows this transaction and a second signer: Orientim&apos;s one-time key for this swap, which is
+              normal.
             </p>
           </div>
         )}
@@ -1530,20 +1583,10 @@ export function SwapApp() {
         )}
       </section>
 
-      {picking && (
-        <TokenPicker
-          popular={popular}
-          selected={picking === 'in' ? tokenIn?.id : tokenOut?.id}
-          onClose={() => setPicking(null)}
-          onPick={t => {
-            const other = picking === 'in' ? tokenOut : tokenIn;
-            const same = picking === 'in' ? tokenIn : tokenOut;
-            if (other && t.id === other.id) flip();
-            else if (!same || t.id !== same.id) (picking === 'in' ? setTokenIn : setTokenOut)(t);
-            setPicking(null);
-          }}
-        />
-      )}
+      <p className="card-foot">
+        You approve the exact transaction in your wallet. Orientim never asks for your seed phrase.
+        {status?.maxUsdPerSwap != null && ` Swaps are limited to ${formatUsd(status.maxUsdPerSwap)} while we run in alpha.`}
+      </p>
 
       {history.length > 0 && (
         <section className="card history">
@@ -1564,19 +1607,25 @@ export function SwapApp() {
           </details>
         </section>
       )}
+          </div>
+        </div>
+      </section>
 
-      <footer className="foot">
-        <p>
-          Orientim never asks for your seed phrase.
-          {status?.maxUsdPerSwap != null && ` Swaps are limited to ${formatUsd(status.maxUsdPerSwap)} while we run in alpha.`}
-        </p>
-        <p>What you approve is all the swap can touch. <a href="/how">How Orientim protects you</a></p>
-        <p>
-          Orientim works with any token pair Jupiter can route and Orientim can safely isolate. It protects your wallet, not the
-          price or value of the token you buy.
-        </p>
-      </footer>
-    </main>
+      {picking && (
+        <TokenPicker
+          popular={popular}
+          selected={picking === 'in' ? tokenIn?.id : tokenOut?.id}
+          onClose={() => setPicking(null)}
+          onPick={t => {
+            const other = picking === 'in' ? tokenOut : tokenIn;
+            const same = picking === 'in' ? tokenIn : tokenOut;
+            if (other && t.id === other.id) flip();
+            else if (!same || t.id !== same.id) (picking === 'in' ? setTokenIn : setTokenOut)(t);
+            setPicking(null);
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -1588,11 +1637,3 @@ function FlipIcon() {
   );
 }
 
-function ShieldIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
-  );
-}

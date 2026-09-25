@@ -1348,6 +1348,31 @@ repository as it is.
 
 ---
 
+## 0zj. orientim.com: the swap first, then the site (25 September 2026)
+
+The owner's structure: the swap is usable on the first screen, the rest of the site follows it.
+Dark, calm, green only for actions and protection, one soft light instead of a picture (a photo
+would slow a phone and look like the speculative sites the plan avoids).
+
+- **Header**: Orientim, Swap, Security, Developers, Connect wallet (a menu once connected).
+- **Hero**: "The trade gets authority. Your wallet doesn't." beside the swap card; on a phone the card
+  follows a short headline.
+- **The card**: a status that says "Verified" only for a transaction that passed every rule (the
+  one built ahead of the click, or the one in the wallet), "Checking…" while it is checked, "Protection
+  on" otherwise; "Your order. Your limits.": approved amount, minimum received, access to other
+  assets (none), lasting permissions (none); the rate on one line with the fees folded under it.
+- **Below**: how it works in three steps, what is guaranteed and what is not, the agent skill, API and
+  command line with a copy button, the fees, a closing band, a footer with every page.
+- **Pages**: Security (the former /how, which now redirects), Docs, Fees, Supported, Status (read live),
+  Audits, and Terms, Privacy and Risks marked as drafts until a lawyer has read them.
+- Fonts are served from Orientim's own origin (next/font), so the CSP's font-src stays 'self'; every
+  new page carries the nonce and signs its chunks like the others.
+
+Checked: 550 tests; next build; every page answers; no horizontal scroll at 390 px; the browser smoke
+24/25 (the test-mode check cannot pass on a treasury build).
+
+---
+
 ## 1. What Orientim is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
