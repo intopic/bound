@@ -82,7 +82,7 @@ export default async function Page() {
         </ul>
       </section>
 
-      <section>
+      <section id="wallet">
         <h2>What your wallet shows</h2>
         <p>
           Wallets show a protected swap in their own way. Phantom shows the amounts. Others, such as Trust Wallet, list the

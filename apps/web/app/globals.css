@@ -168,12 +168,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .warnings { margin: 12px 0 0; padding: 9px 12px 9px 28px; background: var(--warn-bg); color: var(--warn); border: 1px solid rgba(242, 196, 107, .18); border-radius: var(--radius); font-size: 13px; }
 
 .protection { margin-top: 12px; padding: 12px 14px; background: var(--ok-bg); border: 1px solid var(--ok-line); border-radius: 14px; }
-.protection-title { margin: 0 0 6px; font-family: var(--font-display); font-weight: 700; font-size: 14px; color: var(--text); }
 .protection .detail-row span:last-child { color: var(--text); }
-.protection-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
-.protection-facts { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 0; padding: 0; font-size: 12px; color: var(--text); }
-.protection-facts li { display: inline-flex; align-items: center; gap: 6px; }
-.protection-facts li::before { content: ''; width: 9px; height: 5px; margin-top: -3px; border-left: 2px solid var(--accent); border-bottom: 2px solid var(--accent); transform: rotate(-45deg); }
 .extras { margin: 6px 0; padding-left: 18px; }
 .extras li { margin: 2px 0; }
 

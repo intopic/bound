@@ -111,8 +111,8 @@ npm run start -w @orientim/web
 ```
 
 3. Hap http://localhost:3000 dhe kliko **Connect wallet** → Phantom.
-4. Shkruaj **2** USDC → SOL. Nën shumën që merr shfaqet vlera në dollarë, dhe poshtë, te rreshtat, **Rate**, **Price impact**, **Max slippage**, **Minimum received … SOL** dhe shënimi **If less than the minimum would arrive, the whole swap cancels itself.** Për tokenin kliko mbi të (p.sh. **USDC ▾**): hapet dritarja **Select a token** me kërkimin lart, si te DEX-et.
-5. Kliko **Protected swap**. Ndërsa hapet Phantom, faqja shfaq minimumin e saktë që do të kontrollohet dhe fee-n e saktë të rrjetit. Nëse çmimi ka lëvizur më shumë se toleranca (0.5%, ose 3% në bonding curve) që kur e pe, faqja të pyet para se të hapet Phantom-i: **Continue with the new minimum** ose **Cancel**.
+4. Shkruaj **2** USDC → SOL. Nën shumën që merr shfaqet vlera në dollarë, dhe poshtë, te rreshtat, **Rate**, **Price impact**, **Max slippage**, **Minimum received … SOL** (kalo miun sipër për shënimin se swap-i anulohet nëse arrin më pak), **Spend limit 2 USDC** dhe **Wallet access: This swap only**. Për tokenin kliko mbi të (p.sh. **USDC ▾**): hapet dritarja **Select a token** me kërkimin lart, si te DEX-et.
+5. Kliko **Protected swap**. Ndërsa hapet Phantom, rreshti **Minimum received** tregon minimumin e saktë që do të kontrollohet, dhe te **Fees ▾** del fee-ja e saktë e rrjetit. Nëse çmimi ka lëvizur më shumë se toleranca (0.5%, ose 3% në bonding curve) që kur e pe, faqja të pyet para se të hapet Phantom-i: **Continue with the new minimum** ose **Cancel**.
 6. Në dritaren e Phantom-it kontrollo:
    - −2 USDC dhe +SOL;
    - që nuk ka asnjë ndryshim tjetër në asetet e tua;
@@ -121,7 +121,7 @@ npm run start -w @orientim/web
 8. Në Solscan hap transaksionin dhe kontrollo që te instruction-i i **Jupiter** nuk shfaqet adresa e wallet-it tënd.
 9. Provo edhe **SOL → USDC** (0.01 SOL) dhe një memecoin, p.sh. **USDC → BONK** (2 USDC). Nëse nuk ke pasur kurrë BONK, Phantom tregon edhe rreth 0.0015 SOL për llogarinë e re të BONK-ut: është depozita që Solana mban në atë llogari dhe mbetet e jotja, si në çdo DEX, prandaj faqja nuk e liston si kosto.
 10. Provo edhe ngjitjen e adresës së një coin-i te dritarja **Select a token**: tokeni del menjëherë, dhe **Enter** e zgjedh. Nëse Jupiter nuk e njeh, faqja e lexon nga Solana dhe e shënon "Not listed on Jupiter". Nëse zgjedh tokenin që është në anën tjetër, dy anët ndërrohen.
-11. Te "Your recent swaps" çdo swap shfaqet si **pending** sapo nisesh dhe pastaj merr statusin përfundimtar. Nëse rezultati nuk dihet ende, butoni shkruan **Waiting for your last swap** dhe faqja nuk nis swap tjetër nga ky wallet derisa rrjeti ta vërtetojë. E kontrollon vetë çdo 10 sekonda. Vetëm nëse rrjeti nuk mund ta vërtetojë më, shfaqet butoni **I've checked it**: shtype pasi ta kesh parë transaksionin në Solscan.
+11. Te "Recent swaps" çdo swap shfaqet si **pending** sapo nisesh dhe pastaj merr statusin përfundimtar. Nëse rezultati nuk dihet ende, butoni shkruan **Waiting for your last swap** dhe faqja nuk nis swap tjetër nga ky wallet derisa rrjeti ta vërtetojë. E kontrollon vetë çdo 10 sekonda. Vetëm nëse rrjeti nuk mund ta vërtetojë më, shfaqet butoni **I've checked it**: shtype pasi ta kesh parë transaksionin në Solscan.
 
 ## Testi 3: Solflare dhe Backpack
 

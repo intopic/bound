@@ -388,11 +388,11 @@ function outcomeNotice(
   const link = solscan(signature);
   switch (status) {
     case 'confirmed':
-      // What the route could use, and nothing more is claimed: the network fee, and Orientim's fee
-      // when it is paid in SOL, also leave the wallet, as the card showed (independent audit, ORI-15).
+      // What arrived, and a word about the price only when the fill needs one: the minimum and the
+      // spend limit were on the card before the wallet opened.
       return {
         kind: 'success', title: t.received ? `Swapped ${t.paid} for ${t.received}` : `Swapped ${t.paid} for at least ${t.minimum}`,
-        body: `${why.vsQuote ? `${why.vsQuote} ` : ''}${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could use only ${t.exposed}.`,
+        body: why.vsQuote || undefined,
         link,
       };
     case 'failed':
@@ -1248,6 +1248,9 @@ export function SwapApp() {
   // the price impact, the tolerance and the minimum. Display only: every amount that is enforced
   // is computed in base units elsewhere.
   const shownOut = quote ? quote.out - (outputFee ?? 0n) : null;
+  // A fee paid in SOL leaves the wallet on top of the amount, so the spend limit names it (ORI-15):
+  // its exact amount once the swap is built, the estimate before.
+  const solFeeOnTop = pending ? pending.solFee : solFeeEstimate !== null ? `~${formatUnits(solFeeEstimate, 9, 6)} SOL` : null;
   const outPrice = usablePrice(tokenOut);
   const outUsd = shownOut !== null && shownOut > 0n && outPrice !== null && outDecimals !== null ? (Number(shownOut) / 10 ** outDecimals) * outPrice : null;
   const rate = (() => {
@@ -1458,17 +1461,19 @@ export function SwapApp() {
 
         {quote && tokenIn && tokenOut && amountIn && inDecimals !== null && outDecimals !== null && minReceived !== null && (
           <div className="protection">
-            <p className="protection-title">Your order. Your limits.</p>
-            <div className="detail-row">
+            <div className="detail-row" title="If less than this would arrive, the whole swap cancels itself on-chain.">
               <span>Minimum received{tolerance !== null && <small className="detail-sub"> · {tolerance}% slippage</small>}</span>
-              <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
+              {/* While the wallet is open, the exact minimum it was asked to sign: never below the one shown. */}
+              <span>{pending ? pending.minReceived : `${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
             </div>
-            <ul className="protection-facts">
-              <li>Only {formatUnits(amountIn, inDecimals, 6)} {tokenIn.symbol} can be used</li>
-              <li>No access to the rest of your wallet</li>
-              <li>No lasting permissions</li>
-            </ul>
-            <p className="protection-note">If less than the minimum would arrive, the whole swap cancels itself on-chain.</p>
+            <div className="detail-row" title="The most this swap can take from your wallet, besides the network fee.">
+              <span>Spend limit</span>
+              <span>{`${formatUnits(amountIn, inDecimals, 6)} ${tokenIn.symbol}${solFeeOnTop ? ` + ${solFeeOnTop} fee` : ''}`}</span>
+            </div>
+            <div className="detail-row" title="No access to the rest of your wallet, and no permission that outlasts the swap.">
+              <span>Wallet access</span>
+              <span>This swap only</span>
+            </div>
           </div>
         )}
 
@@ -1525,9 +1530,9 @@ export function SwapApp() {
                       : '—'}
             </span>
           </div>
-          <div className="detail-row" title="The exact amount is shown before you sign.">
+          <div className="detail-row" title="The exact amount is shown here while your wallet is open.">
             <span>Network fee</span>
-            <span>~0.00002 SOL</span>
+            <span>{pending ? pending.networkFee : '~0.00002 SOL'}</span>
           </div>
         </details>
 
@@ -1548,18 +1553,17 @@ export function SwapApp() {
 
         {phase === 'wallet' && (
           <div className="banner info">
-            {pending && (
+            {/* Only what this swap adds: its minimum, spend limit and network fee are on the card. */}
+            {pending && (pending.oneTimeCost || pending.removesDelegate || pending.tokenTax || pending.busyNetwork) && (
               <p>
-                Minimum received: <strong>{pending.minReceived}</strong>. Network fee: {pending.networkFee}.
-                {pending.solFee && <> Orientim fee: {pending.solFee}.</>}
-                {pending.oneTimeCost && <> Also: {pending.oneTimeCost}.</>}
+                {pending.oneTimeCost && <>Plus {pending.oneTimeCost}.</>}
                 {pending.removesDelegate && <> {pending.removesDelegate}</>}
                 {pending.tokenTax && <> {pending.tokenTax}</>}
                 {pending.busyNetwork && <> {pending.busyNetwork}</>}
               </p>
             )}
             <p>
-              {wallet?.name} may show a second signer. That is normal for a protected swap.
+              <a href="/security#wallet" target="_blank" rel="noreferrer">What will {wallet?.name ?? 'your wallet'} show?</a>
             </p>
           </div>
         )}
@@ -1610,9 +1614,9 @@ export function SwapApp() {
       {status?.maxUsdPerSwap != null && <p className="card-foot">Swaps are limited to {formatUsd(status.maxUsdPerSwap)} while we run in alpha.</p>}
 
       {history.length > 0 && (
-        <section className="card history">
+        <section className="history">
           <details>
-            <summary>Your recent swaps (stored only in this browser)</summary>
+            <summary>Recent swaps</summary>
             <ul>
               {history.map(h => (
                 <li key={h.signature}>
