@@ -45,7 +45,7 @@ export function SiteHeader({ right }: { right: ReactNode }) {
           <a href="/#how">How it works</a>
           <a href="/#agents">Agents</a>
           <a href="/#security">Security</a>
-          <a href="/docs">Docs</a>
+          <a href="/developers">Developers</a>
         </nav>
         <div className="header-right">{right}</div>
       </div>
@@ -55,7 +55,7 @@ export function SiteHeader({ right }: { right: ReactNode }) {
 
 const FOOTER: [string, [string, string][]][] = [
   ['Product', [['Swap', '/#swap'], ['Supported tokens', '/security#supported'], ['Fees', '/security#fees'], ['Status', '/status']]],
-  ['Developers', [['Docs', '/docs'], ['Agent skill', '/docs#skill'], ['API', '/docs#api'], ['API access', '/docs#access']]],
+  ['Developers', [['Overview', '/developers'], ['Quickstart', '/developers#start'], ['API reference', '/developers#api'], ['API keys', '/developers#access']]],
   ['Legal', [['Security', '/security'], ['Terms and risks', '/terms'], ['Privacy', '/privacy']]],
 ];
 

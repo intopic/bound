@@ -95,8 +95,8 @@ export function HomeSections() {
                 {AGENT_POINTS.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
               </ul>
               <div className="cta-actions">
-                <a className="button primary-link" href="/docs#access">Get an API key</a>
-                <a className="button ghost-link" href="/docs">Read the docs</a>
+                <a className="button primary-link" href="/developers#access">Get an API key</a>
+                <a className="button ghost-link" href="/developers">Developer docs</a>
               </div>
             </div>
             <div className="agent-media">
@@ -177,7 +177,7 @@ export function HomeSections() {
             </div>
             <div className="cta-actions">
               <a className="button primary-link" href="#swap">Start swapping</a>
-              <a className="button ghost-link" href="/docs#access">Get an API key</a>
+              <a className="button ghost-link" href="/developers#access">Get an API key</a>
             </div>
           </div>
         </div>
