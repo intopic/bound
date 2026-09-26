@@ -307,11 +307,10 @@ a.ghost { display: inline-flex; align-items: center; }
 
 /* ---- proof, motion, agents, evidence, questions */
 .proof-strip { border-bottom: 1px solid var(--line-soft); background: var(--bg-2); }
-.proof-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding-block: 16px; }
-.one-key { display: flex; align-items: flex-start; gap: 12px; margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
-.one-key svg { flex: none; margin-top: 2px; color: var(--accent); }
+.proof-row { display: flex; justify-content: center; padding-block: 16px; }
+.one-key { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); text-align: center; text-wrap: balance; }
+.one-key svg { margin-right: 10px; vertical-align: -3px; color: var(--accent); }
 .one-key strong { margin-right: 4px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
-.proof-row .text-link { margin-left: auto; }
 
 /* The two diagrams sit on glass: a panel that blurs a soft light behind it, so it reads as depth
    rather than a flat card. Without backdrop-filter the panel is simply solid. */
@@ -474,7 +473,6 @@ a.ghost { display: inline-flex; align-items: center; }
   .cta-band { padding: 26px 22px; }
   .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .agent-points, .evidence { grid-template-columns: minmax(0, 1fr); }
-  .proof-row .text-link { margin-left: 0; }
   .capsule-card { padding: 14px; }
   .modal-backdrop { align-items: flex-end; padding: 0; }
   .modal { max-width: none; max-height: 88vh; border-radius: 18px 18px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }

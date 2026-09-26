@@ -50,14 +50,13 @@ const FAQ: [string, string][] = [
 export function HomeSections() {
   return (
     <>
-      {/* The one line under the hero: how every swap is protected, and where to see it done on mainnet. */}
+      {/* The one line under the hero: how every swap is protected. */}
       <section className="proof-strip" aria-label="How every swap is protected">
         <div className="container proof-row">
           <p className="one-key">
             <KeyIcon />
-            <span><strong>One swap, one key.</strong> It holds only your amount, and it’s gone when the swap ends.</span>
+            <strong>One swap, one key.</strong> It holds only your amount, and it’s gone when the swap ends.
           </p>
-          <a className="text-link" href="/proof">See the transactions →</a>
         </div>
       </section>
 
