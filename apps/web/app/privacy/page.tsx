@@ -8,7 +8,7 @@ export default async function Page() {
   signPageChunks('privacy/page');
   await connection();
   return (
-    <InfoPage eyebrow="Privacy" title="Privacy" draft lead="Orientim has no accounts and no database. It keeps as little as a swap needs, and most of it stays in your own browser.">
+    <InfoPage eyebrow="Privacy" title="Privacy" updated="26 September 2026" draft lead="Orientim has no accounts and no database. It keeps as little as a swap needs, and most of it stays in your own browser.">
       <section>
         <h2>What stays in your browser</h2>
         <ul>
@@ -25,7 +25,7 @@ export default async function Page() {
             transaction you signed. These include your wallet address, as every Solana app&apos;s requests do.
           </li>
           <li>Price and route requests, relayed to Jupiter without your wallet address.</li>
-          <li>Token icons, fetched by the server so that your browser never contacts the hosts token creators choose.</li>
+          <li>Token icons, which the server fetches so that your browser never contacts hosts chosen by token creators.</li>
           <li>Your IP address, used in memory to limit how often requests can be made, and in the hosting provider&apos;s logs.</li>
         </ul>
         <p>
@@ -53,8 +53,8 @@ export default async function Page() {
         <p>Every Solana transaction, including your swaps, is public on the blockchain and can be read by anyone.</p>
       </section>
       <section>
-        <h2>Changes and contact</h2>
-        <p>This notice may change; the date of the current version will be shown here. A contact address will be added before launch.</p>
+        <h2>Changes</h2>
+        <p>This notice may change. The version in force is the one on this page, with the date shown at the top.</p>
       </section>
     </InfoPage>
   );

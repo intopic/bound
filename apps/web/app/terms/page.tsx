@@ -19,7 +19,7 @@ export default async function Page() {
   signPageChunks('terms/page');
   await connection();
   return (
-    <InfoPage eyebrow="Terms" title="Terms of use" draft lead="By using Orientim you agree to these terms, including the risks set out below.">
+    <InfoPage eyebrow="Terms" title="Terms of use" updated="26 September 2026" draft lead="By using Orientim you agree to these terms, including the risks set out below.">
       <section>
         <h2>What Orientim is</h2>
         <p>
@@ -36,9 +36,8 @@ export default async function Page() {
       <section>
         <h2>What Orientim keeps</h2>
         <p>
-          Nothing. Orientim has no accounts and no database, and its servers keep no record of your swaps, your wallet or your
-          keys. Your recent swaps are kept in your own browser, so that the page can follow their outcome. The privacy notice
-          says what passes through Orientim&apos;s servers.
+          Nothing. Orientim has no accounts and keeps no record of your swaps; your recent swaps stay in your own browser. The{' '}
+          <a href="/privacy">privacy notice</a> says what passes through Orientim&apos;s servers.
         </p>
       </section>
       <section>
@@ -79,7 +78,7 @@ export default async function Page() {
         <p>
           Orientim protects your wallet&apos;s authority during a swap. It does not guarantee the price or the value of any token,
           that a swap will be available, or that a transaction will be included by the network. Orientim may pause new swaps at
-          any time. The software is provided as it is, to the extent the law allows.
+          any time. The software is provided as is, to the extent the law allows.
         </p>
       </section>
       <section>
@@ -91,7 +90,7 @@ export default async function Page() {
       </section>
       <section>
         <h2>Changes</h2>
-        <p>These terms may change; the date of the current version will be shown here. The governing law and a contact address will be added before launch.</p>
+        <p>These terms may change. The version in force is the one on this page, with the date shown at the top.</p>
       </section>
     </InfoPage>
   );

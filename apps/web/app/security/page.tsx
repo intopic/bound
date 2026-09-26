@@ -14,11 +14,11 @@ export const metadata = {
 const SUPPORTED: [string, string][] = [
   ['SOL and standard SPL tokens', 'Supported'],
   ['Token-2022 tokens with metadata, groups, close authority or confidential transfers', 'Supported'],
-  ['Token-2022 tokens with a transfer tax', 'Supported; the tax is stated before your wallet opens'],
-  ['Stablecoins whose issuer holds a permanent delegate (PYUSD, USDG, AUSD, CASH)', 'Supported, with a warning'],
+  ['Token-2022 tokens with a transfer tax', 'Supported; the tax is shown before your wallet opens'],
+  ['Stablecoins whose issuer can move balances (PYUSD, USDG, AUSD, CASH)', 'Supported, with a warning'],
   ['Pump.fun tokens, on the launch curve and on PumpSwap', 'Supported'],
   ['Tokens with an active transfer hook, frozen by default, pausable, non-transferable or interest-bearing', 'Refused, with the reason: Orientim cannot isolate them'],
-  ['Markets that open an account and leave it open', 'Refused: the deposit would be lost'],
+  ['Routes through a market that would leave an account open', 'Refused: its deposit would be lost'],
   ['Routes too large for one transaction', 'Refused: Orientim never splits a swap'],
 ];
 
@@ -34,17 +34,17 @@ export default async function Page() {
     <InfoPage
       eyebrow="Security"
       title="How Orientim protects you"
-      lead="A normal swap hands the swap program your wallet's authority for the whole transaction. Orientim builds the swap so that the program never gets it: only the amount you swap is placed where the program can reach it, under a one-time key that exists for this one transaction."
+      lead="A typical swap acts with your wallet's authority for the whole transaction. Orientim builds each swap so that the swap program never gets it: only the amount you approve is placed within its reach, under a one-time key that exists for this one transaction."
     >
       <section>
         <h2>What happens when you swap</h2>
         <ol>
-          <li>Orientim asks Jupiter for a route and builds one transaction around it.</li>
+          <li>Orientim finds a route across Solana&apos;s markets and builds one transaction around it.</li>
           <li>
             Before your wallet opens, your browser checks every instruction of that exact transaction against Orientim&apos;s
             rules. If it contains anything else, nothing is signed.
           </li>
-          <li>Your wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature.</li>
+          <li>Your wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature, with the one-time key.</li>
           <li>The swap runs. If less than the minimum you saw would arrive, the whole transaction is cancelled.</li>
         </ol>
       </section>
@@ -61,29 +61,20 @@ export default async function Page() {
       </section>
 
       <section>
-        <h2>What it does not do</h2>
+        <h2>What it does not cover</h2>
         <ul>
-          <li>It protects your wallet, not the price or the value of the token you buy.</li>
+          <li>It protects your wallet, not the price or the future value of the token you buy.</li>
           <li>
-            The minimum for a token you buy is checked against your balance as the network reported it when the swap was
-            built.
+            Tokens Orientim cannot isolate are refused, with the reason: those whose issuer can run code on every transfer or
+            move balances through a program.
           </li>
-          <li>
-            Tokens whose issuer can run code on every transfer, or move balances through a program, are refused: Orientim
-            cannot isolate them. Some wallets cannot be used: those that can only sign and send at once, and multisig
-            vaults.
-          </li>
-          <li>The checks run in this page, which Orientim serves: open Orientim only at orientim.com.</li>
-          <li>
-            Orientim keeps your swaps in this browser to follow their outcome, so it needs this site&apos;s data allowed. While
-            the network cannot yet say whether your last swap went through, it starts no new one from the same wallet.
-          </li>
-          <li>It cannot protect a wallet or a device that is already compromised.</li>
+          <li>It cannot protect a wallet, a key or a device that is already compromised.</li>
+          <li>Open Orientim only at orientim.com. A copy elsewhere is not Orientim.</li>
         </ul>
       </section>
 
       <section>
-        <h2>What your wallet shows</h2>
+        <h2>What your wallet may show</h2>
         <p>
           Wallets show a protected swap in their own way. Phantom shows the amounts. Others, such as Trust Wallet, list the
           transaction&apos;s steps instead:
@@ -93,8 +84,8 @@ export default async function Page() {
           <li><strong>Close account, owner: the one-time key</strong>: Orientim closing its temporary accounts; what is in them comes back to your wallet.</li>
           <li><strong>A small transfer to Orientim&apos;s treasury</strong>: the Orientim fee.</li>
           <li>
-            <strong>Addresses loaded from a lookup table</strong>: a standard way for Solana transactions routed through Jupiter
-            to fit their size limit. Some wallets cannot display those addresses and warn about it.
+            <strong>Addresses loaded from a lookup table</strong>: a standard way for large Solana transactions to fit their size
+            limit. Some wallets cannot display those addresses and warn about it.
           </li>
         </ul>
       </section>
@@ -106,7 +97,7 @@ export default async function Page() {
           <table>
             <thead><tr><th>Cost</th><th>Amount</th><th>Who receives it</th></tr></thead>
             <tbody>
-              <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText} of the swap` : 'None on this deployment'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
+              <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText} of the swap` : 'None'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
               <tr><td>Network fee</td><td>Usually ~0.00002 SOL, never more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is shown before you sign.</td></tr>
               <tr><td>Market account fee</td><td>Only on some markets, such as a Pump.fun launch curve</td><td>The market. Shown and asked about before your wallet opens.</td></tr>
               <tr><td>Token transfer tax</td><td>Only on tokens that tax transfers</td><td>The token&apos;s issuer. Stated before your wallet opens.</td></tr>
@@ -123,7 +114,7 @@ export default async function Page() {
       <section id="supported">
         <h2>Supported tokens and wallets</h2>
         <p>
-          Orientim works with any token pair Jupiter can route and Orientim can safely isolate. Paste any token&apos;s address in
+          Orientim works with any token pair that has a route on Solana&apos;s markets and that Orientim can isolate safely. Paste any token&apos;s address in
           the token window to check it: a token Orientim cannot swap safely is marked, and the page says why.
         </p>
         <div className="table-wrap">
