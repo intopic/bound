@@ -67,13 +67,16 @@ export function HomeSections() {
             <p className="eyebrow">How protection works</p>
             <h2>The swap gets the amount. Never your wallet.</h2>
           </div>
-          <div className="capsule-card">
-            <CapsuleFlow />
-            <ol className="capsule-steps">
-              {CAPSULE_STEPS.map(([title, text], i) => (
-                <li key={title}><span className="step-n">{i + 1}</span><div><h3>{title}</h3><p>{text}</p></div></li>
-              ))}
-            </ol>
+          <div className="glass-stage">
+            <div className="ambient" aria-hidden="true" />
+            <div className="capsule-card">
+              <CapsuleFlow />
+              <ol className="capsule-steps">
+                {CAPSULE_STEPS.map(([title, text], i) => (
+                  <li key={title}><span className="step-n">{i + 1}</span><div><h3>{title}</h3><p>{text}</p></div></li>
+                ))}
+              </ol>
+            </div>
           </div>
         </div>
       </section>
