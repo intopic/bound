@@ -1393,7 +1393,7 @@ export function SwapApp() {
             <span className="label">You pay</span>
             {balances && tokenIn && inDecimals !== null && (
               <span className="balance">
-                Balance {formatUnits(balances.tokenIn, inDecimals, 6)}
+                Balance <span className="num">{formatUnits(balances.tokenIn, inDecimals, 6)}</span>
                 <button className="chip" onClick={() => setShare(true)} disabled={busy || maxIn <= 0n}>Half</button>
                 <button className="chip" onClick={() => setShare(false)} disabled={busy || maxIn <= 0n}>Max</button>
               </span>
