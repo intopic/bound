@@ -70,17 +70,32 @@ const UINT = /^\d{1,20}$/;
 export function checkBuildResponse(r: unknown): BuildResponse {
   const b = r as Partial<BuildResponse> | null;
   const ix = b?.swapInstruction;
+  const isAccount = (a: unknown) => {
+    const x = a as Partial<ApiAccount> | null;
+    return !!x && typeof x.pubkey === 'string' && typeof x.isSigner === 'boolean' && typeof x.isWritable === 'boolean';
+  };
+  const isInstruction = (i: unknown) => {
+    const x = i as Partial<ApiInstruction> | null;
+    return !!x && typeof x.programId === 'string' && Array.isArray(x.accounts) && x.accounts.every(isAccount) && typeof x.data === 'string';
+  };
+  const tables = b?.addressesByLookupTableAddress;
+  // Every part the pipeline reads, down to the labels and the lookup tables, so that a malformed
+  // answer is a refusal here and never a crash in the middle of a build (TypeError on a missing label).
   const ok =
     !!b && typeof b === 'object' &&
+    typeof b.inputMint === 'string' && typeof b.outputMint === 'string' &&
     UINT.test(String(b.inAmount)) && UINT.test(String(b.outAmount)) && UINT.test(String(b.otherAmountThreshold)) &&
-    Array.isArray(b.routePlan) && Array.isArray(b.setupInstructions) &&
-    !!ix && typeof ix.programId === 'string' && Array.isArray(ix.accounts) && typeof ix.data === 'string';
+    Array.isArray(b.routePlan) && b.routePlan.every(p => typeof p?.swapInfo?.label === 'string') &&
+    Array.isArray(b.setupInstructions) && b.setupInstructions.every(isInstruction) &&
+    isInstruction(ix) &&
+    (tables === null || tables === undefined || (typeof tables === 'object' && !Array.isArray(tables)
+      && Object.values(tables).every(list => Array.isArray(list) && list.every(a => typeof a === 'string'))));
   if (!ok) throw new JupiterError('Jupiter returned a malformed quote', 502);
   return b as BuildResponse;
 }
 
 /**
- * Jupiter Swap API V2. In the browser the URLs point at Bound's stateless proxy (D8), which adds
+ * Jupiter Swap API V2. In the browser the URLs point at Orientim's stateless proxy (D8), which adds
  * the API key; on the server they point at api.jup.ag directly.
  */
 export function createJupiterClient(opts: {
@@ -146,7 +161,7 @@ export function createJupiterClient(opts: {
         taker: p.taker,
         slippageBps: String(p.slippageBps),
         maxAccounts: String(p.maxAccounts),
-        // SOL is wrapped and unwrapped by Bound's own trusted instructions, never by Jupiter.
+        // SOL is wrapped and unwrapped by Orientim's own trusted instructions, never by Jupiter.
         wrapAndUnwrapSol: 'false',
       });
       // Never `payer`: with payer = W, W appeared inside the swap instruction (D12).

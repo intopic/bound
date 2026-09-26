@@ -1,18 +1,20 @@
 import { getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@bound/core';
-import type { TxVersion } from '@bound/core';
-import { BoundError, countersignProtectedSwap, DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
-import type { JupiterClient } from '@bound/jupiter';
-import { fetchAccounts, fetchMints, httpStatusOf, sendOnce } from '@bound/solana';
-import type { SolanaRpc } from '@bound/solana';
+import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
+import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
+import type { TxVersion } from '@orientim/core';
+import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
+import type { JupiterClient } from '@orientim/jupiter';
+import { fetchAccounts, fetchMints, httpStatusOf, sendOnce } from '@orientim/solana';
+import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
 import { rateLimited } from '../rateLimit';
+import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openTicket, sealTicket } from './ticket';
 
 /**
- * The agent API (API-AGJENTET.md): the same protected swap the page builds, with E held by the
- * server instead of the browser. Bound signs as E last, and only the exact message it built and
+ * The agent API (AGENT-API.md): the same protected swap the page builds, with E held by the
+ * server instead of the browser. Orientim signs as E last, and only the exact message it built and
  * verified, which is what makes the fee hold for bots and agents without a program on chain.
  *
  *   POST /api/v1/prepare   build and verify → the unsigned transaction and a ticket
@@ -25,6 +27,12 @@ export type AgentDeps = {
   secrets: readonly Uint8Array[];
   /** SHA-256 of each API key (hex) → the key's id. The keys themselves are never stored. */
   keys: ReadonlyMap<string, string>;
+  /**
+   * The secrets that seal self-serve keys (ORIENTIM_KEY_SECRET, then its predecessor), none when
+   * self-serve keys are off; and the wallets whose keys are revoked (ORIENTIM_API_REVOKED).
+   */
+  keySecrets?: readonly Uint8Array[];
+  revokedWallets?: ReadonlySet<string>;
   feeBps: bigint;
   treasury: Address | null;
   excludeDexes: readonly string[];
@@ -35,8 +43,10 @@ export type AgentDeps = {
   v1: boolean;
   /** Requests per minute per API key, for each endpoint. */
   perMinute: number;
+  /** The smallest fee a swap may carry (about $1 of swap); none when unset. */
+  minFee?: { lamports: bigint; stableUnits: bigint } | null;
   /**
-   * The oldest skill version prepare serves (BOUND_MIN_SKILL_VERSION), or none. Only prepare asks:
+   * The oldest skill version prepare serves (ORIENTIM_MIN_SKILL_VERSION), or none. Only prepare asks:
    * a swap already signed is always finalized, whatever the copy of the skill that signed it.
    */
   minSkillVersion?: string | null;
@@ -66,16 +76,23 @@ const fail = (status: number, code: string, message: string, extra: Record<strin
 const sha256Hex = async (bytes: ArrayLike<number>) =>
   Buffer.from(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(bytes))).toString('hex');
 
-/** The key's id, or the response that refuses the request. */
-async function authenticate(req: Request, deps: AgentDeps): Promise<string | Response> {
+/**
+ * The key's id, and the wallet it is bound to (a self-serve key) or none (a key issued by hand), or
+ * the response that refuses the request.
+ */
+async function authenticate(req: Request, deps: AgentDeps): Promise<{ id: string; wallet: string | null } | Response> {
   const header = req.headers.get('authorization') ?? '';
-  const key = /^Bearer\s+(\S{16,200})$/i.exec(header)?.[1];
-  const id = key ? deps.keys.get(await sha256Hex(new TextEncoder().encode(key))) : undefined;
-  if (!id) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>.');
-  if (rateLimited(`agent:${new URL(req.url).pathname}:${id}`, deps.perMinute)) {
+  const key = /^Bearer\s+(\S{16,400})$/i.exec(header)?.[1];
+  const manual = key ? deps.keys.get(await sha256Hex(new TextEncoder().encode(key))) : undefined;
+  const own = !manual && key && deps.keySecrets?.length
+    ? await openKey(deps.keySecrets, key, Math.floor(Date.now() / 1000), deps.revokedWallets)
+    : null;
+  const auth = manual ? { id: manual, wallet: null } : own;
+  if (!auth) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>.');
+  if (rateLimited(`agent:${new URL(req.url).pathname}:${auth.id}`, deps.perMinute)) {
     return fail(429, 'rate-limited', 'Too many requests for this API key. Wait a few seconds and try again.', {}, { 'retry-after': '10' });
   }
-  return id;
+  return auth;
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {
@@ -98,7 +115,7 @@ function amount(v: unknown): bigint | null {
 
 /** Every refusal in the words the page uses, with what an agent needs to act on it. */
 function explain(e: unknown): Response {
-  if (e instanceof BoundError) {
+  if (e instanceof OrientimError) {
     const violations = e.violations.length ? { violations: e.violations } : {};
     switch (e.code) {
       // Both need the user's yes before the agent asks again: a worse price is a new authorization,
@@ -119,11 +136,11 @@ function explain(e: unknown): Response {
       case 'busy':
       case 'unavailable':
         return fail(503, e.code, e.message, {}, { 'retry-after': '5' });
-      // Bound cannot collect its fee on this swap (its treasury wallet is not ready, or the pair
+      // Orientim cannot collect its fee on this swap (its treasury wallet is not ready, or the pair
       // cannot be priced in SOL): nothing is built for free (final audit, item 9).
       case 'fee-unavailable':
         return fail(503, e.code, e.message, {}, { 'retry-after': '60' });
-      // Jupiter's format changed: nothing builds until Bound is updated, so do not retry soon.
+      // Jupiter's format changed: nothing builds until Orientim is updated, so do not retry soon.
       case 'route-format':
         return fail(503, e.code, e.message, {}, { 'retry-after': '300' });
       case 'expired':
@@ -138,17 +155,18 @@ function explain(e: unknown): Response {
   if (http === 429) return fail(503, 'busy', 'The network is busy. Wait a few seconds and try again. Nothing was sent.', {}, { 'retry-after': '5' });
   if (http !== null && http >= 500) return fail(503, 'unavailable', "The network didn't answer. Nothing was sent; try again in a moment.");
   console.error(e);
-  return fail(500, 'internal', 'Something went wrong. Nothing was signed by Bound or sent.');
+  return fail(500, 'internal', 'Something went wrong. Nothing was signed by Orientim or sent.');
 }
 
 export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Response> {
   if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was built.');
-  const key = await authenticate(req, deps);
-  if (key instanceof Response) return key;
+  const auth = await authenticate(req, deps);
+  if (auth instanceof Response) return auth;
+  const key = auth.id;
   // A copy of the skill older than this deployment serves: say so, rather than fail some other way.
-  const skill = req.headers.get('x-bound-skill') ?? '';
+  const skill = req.headers.get('x-orientim-skill') ?? '';
   if (deps.minSkillVersion && skill && olderThan(skill, deps.minSkillVersion)) {
-    return fail(426, 'skill-outdated', `This copy of the Bound skill (${skill}) is older than ${deps.minSkillVersion}, the oldest this deployment serves. Get the current skill and prepare again. Nothing was built.`, {
+    return fail(426, 'skill-outdated', `This copy of the Orientim skill (${skill}) is older than ${deps.minSkillVersion}, the oldest this deployment serves. Get the current skill and prepare again. Nothing was built.`, {
       minimum: deps.minSkillVersion,
     });
   }
@@ -160,6 +178,10 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     if (typeof v !== 'string' || !isAddress(v)) return fail(400, 'bad-request', `${name} must be a Solana address.`);
   }
   if (inputMint === outputMint) return fail(400, 'bad-request', 'inputMint and outputMint must differ.');
+  // A self-serve key prepares swaps for the wallet that got it, and for no other.
+  if (auth.wallet && owner !== auth.wallet) {
+    return fail(403, 'wrong-wallet', `This API key belongs to ${auth.wallet}; it prepares swaps for that wallet only. Nothing was built.`);
+  }
   const amountIn = amount(body.amountIn);
   if (amountIn === null) return fail(400, 'bad-request', 'amountIn must be a positive integer in base units, as a string.');
   const minOut = body.minOut === undefined ? undefined : amount(body.minOut);
@@ -169,13 +191,19 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (acceptCostBps === null) return fail(400, 'bad-request', 'acceptCostBps, when given, must be an integer string.');
   const version: TxVersion = body.version === 1 ? 1 : 0;
   if (body.version !== undefined && body.version !== 0 && body.version !== 1) return fail(400, 'bad-request', 'version must be 0 or 1.');
+  // The route's slippage tolerance, as a person chooses it on the page: 0.1% to 15%. The agent's own
+  // check holds the route to the same number, from its own intent.
+  const slippageBps = body.slippageBps;
+  if (slippageBps !== undefined && !(typeof slippageBps === 'number' && Number.isInteger(slippageBps) && slippageBps >= 10 && slippageBps <= MAX_CHOSEN_SLIPPAGE_BPS)) {
+    return fail(400, 'bad-request', `slippageBps, when given, must be a whole number of bps from 10 to ${MAX_CHOSEN_SLIPPAGE_BPS}.`);
+  }
   if (version === 1 && !deps.v1) return fail(400, 'bad-request', 'v1 transactions are not enabled on this deployment; use version 0.');
 
   try {
     const [inMint, outMint] = [inputMint as Address, outputMint as Address];
     const mints = await fetchMints(deps.rpc, [inMint, outMint]);
     for (const m of [inMint, outMint]) {
-      if (!mints.get(m)?.exists) return fail(422, 'unsupported-token', `${m} is not a token Bound can swap.`);
+      if (!mints.get(m)?.exists) return fail(422, 'unsupported-token', `${m} is not a token Orientim can swap.`);
     }
     const nonce = newNonce();
     const [secret] = deps.secrets;
@@ -191,12 +219,14 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
           excludeDexes: deps.excludeDexes,
           maxNetworkFeeLamports: deps.maxNetworkFeeLamports,
           jupiterProgram: JUPITER_PROGRAM,
+          ...(deps.minFee ? { minFee: deps.minFee } : {}),
+          ...(slippageBps !== undefined ? { chosenSlippageBps: slippageBps as number } : {}),
         },
       },
       {
         owner: owner as Address, ephemeral: E, inputMint: inMint, outputMint: outMint, amountIn,
         inputDecimals: mints.get(inMint)!.decimals, outputDecimals: mints.get(outMint)!.decimals,
-        // The agent's floor is what its wallet keeps; with a fee on the output, Bound enforces more.
+        // The agent's floor is what its wallet keeps; with a fee on the output, Orientim enforces more.
         acceptedMinReceived: minOut, acceptedCostBps: acceptCostBps, version,
       },
     );
@@ -234,12 +264,24 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         networkFeeLamports: prepared.networkFeeLamports,
         outputAccountRentLamports: prepared.oneTimeCosts.outputAccountRent,
         routeRentLamports: prepared.oneTimeCosts.routeRent,
-        // Returned to the wallet in the same transaction when Bound closes the market's account (FA-05).
+        // Returned to the wallet in the same transaction when Orientim closes the market's account (FA-05).
         routeRefundLamports: prepared.oneTimeCosts.routeRefund,
+        // All the SOL the swap costs and does not return, in one number (third audit, priority 4):
+        // the network fee, rent the route keeps, and Orientim's fee when paid in SOL. A new output
+        // account's rent is apart: it stays the wallet's own.
+        keptSolLamports: prepared.networkFeeLamports + prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund
+          + (p.feeSide === 'sol' ? p.fee : 0n),
         tokenTax: prepared.tokenTax,
       },
       // networkBusy: the priority fee is at its limit, so the swap may land late or expire (FA-15).
       notices: { ...prepared.notices, networkBusy: prepared.priorityFeeCapped },
+      // What the mint accounts say about the tokens themselves: an issuer that can freeze balances or
+      // mint more. Orientim's word; the skill reads the same on the agent's own RPC.
+      tokens: {
+        input: { freezeAuthority: mints.get(inMint)!.freezeAuthority, mintAuthority: mints.get(inMint)!.mintAuthority },
+        output: { freezeAuthority: mints.get(outMint)!.freezeAuthority, mintAuthority: mints.get(outMint)!.mintAuthority },
+      },
+      ...(slippageBps !== undefined ? { slippageBps } : {}),
       route: prepared.quote.route,
       certificate: prepared.certificate,
       policy: p,
@@ -258,15 +300,16 @@ const EARLIER =
   'If an earlier finalize of this ticket went out, that transaction can still land until lastValidBlockHeight: check its signature on your own RPC before preparing again.';
 
 export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Response> {
-  const key = await authenticate(req, deps);
-  if (key instanceof Response) return key;
+  const auth = await authenticate(req, deps);
+  if (auth instanceof Response) return auth;
+  const key = auth.id;
   const body = await readJson(req);
   if (!body || typeof body.ticket !== 'string' || typeof body.signedTransaction !== 'string') {
     return fail(400, 'bad-request', 'Send { "ticket": "...", "signedTransaction": "<base64>" }.');
   }
   const opened = await openTicket(deps.secrets, body.ticket);
   // A ticket issued to another key is refused in the same words as a forged one.
-  if (!opened || opened.ticket.key !== key) return fail(400, 'invalid-ticket', 'This ticket was not issued by Bound to this API key. Nothing was signed or sent.');
+  if (!opened || opened.ticket.key !== key) return fail(400, 'invalid-ticket', 'This ticket was not issued by Orientim to this API key. Nothing was signed or sent.');
   const { ticket, secret } = opened;
 
   let returned: Transaction;
@@ -277,10 +320,10 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
   } catch {
     return fail(400, 'bad-request', 'signedTransaction must be a base64 Solana transaction.');
   }
-  // The fee holds here: Bound signs as E only the message whose hash it sealed into the ticket after
+  // The fee holds here: Orientim signs as E only the message whose hash it sealed into the ticket after
   // building and verifying it. A message with the fee removed, or any byte changed, is another hash.
   if ((await sha256Hex(returned.messageBytes)) !== ticket.msg) {
-    return fail(400, 'transaction-changed', 'This is not the transaction Bound built. Bound signs only the exact message it built and verified; nothing was signed or sent.');
+    return fail(400, 'transaction-changed', 'This is not the transaction Orientim built. Orientim signs only the exact message it built and verified; nothing was signed or sent.');
   }
   // The transaction's id is the wallet's signature (W pays, so it signs first), already in these
   // bytes: without it nothing could have been sent, by this request or an earlier one.
@@ -300,7 +343,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
   try {
     onChain = (await deps.rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()).value[0];
   } catch {
-    return refuse(503, 'unavailable', 'Bound could not read from the network whether this transaction was already sent, so this request sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
+    return refuse(503, 'unavailable', 'Orientim could not read from the network whether this transaction was already sent, so this request sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
   }
 
   try {
@@ -344,11 +387,11 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     });
   } catch (e) {
     // Every path here ends before a send: say what this request did, and name the transaction.
-    if (e instanceof BoundError && e.code === 'expired') {
-      return refuse(410, 'expired', 'The transaction reached the end of its lifetime before Bound signed it now.');
+    if (e instanceof OrientimError && e.code === 'expired') {
+      return refuse(410, 'expired', 'The transaction reached the end of its lifetime before Orientim signed it now.');
     }
-    if (e instanceof BoundError && e.code === 'wallet-changed-transaction') {
-      return refuse(400, e.code, 'Your wallet\'s signature does not match the transaction Bound built; this request signed and sent nothing.', e.violations.length ? { violations: e.violations } : {});
+    if (e instanceof OrientimError && e.code === 'wallet-changed-transaction') {
+      return refuse(400, e.code, 'Your wallet\'s signature does not match the transaction Orientim built; this request signed and sent nothing.', e.violations.length ? { violations: e.violations } : {});
     }
     const http = httpStatusOf(e);
     if (http === 429) return refuse(503, 'busy', 'The network is busy, so this request sent nothing. Wait a few seconds and try finalize again.', {}, { 'retry-after': '5' });

@@ -1,6 +1,6 @@
 /**
  * The server-side controls from both reviews (B-05, B-06, B-08, C-04, C-07, C-08): they must hold
- * for direct API calls, not only for requests made by Bound's own page.
+ * for direct API calls, not only for requests made by Orientim's own page.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { iconHostAllowed, proxyIcon, sniffImage } from '../lib/server/iconProxy.ts';
@@ -9,13 +9,13 @@ import { clientKey, rateLimited } from '../lib/server/rateLimit.ts';
 import { proxyRpc } from '../lib/server/rpcProxy.ts';
 import { createNoopSigner, getBase64EncodedWireTransaction } from '@solana/kit';
 import { getTransferSolInstruction } from '@solana-program/system';
-import { compileProtectedSwap } from '@bound/core';
+import { compileProtectedSwap } from '@orientim/core';
 import { compileRaw, LIFETIME, scenario } from '../../../packages/verifier/test/fixtures.ts';
 
 let n = 0;
 const uniqueIp = () => `203.0.113.${++n % 250}-${n}`;
 const rpcRequest = (body: unknown, headers: Record<string, string> = {}) =>
-  new Request('http://bound.test/api/rpc', {
+  new Request('http://orientim.test/api/rpc', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-vercel-forwarded-for': uniqueIp(), ...headers },
     body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -24,19 +24,19 @@ const upstreamOk = () => vi.fn(async () => Response.json({ jsonrpc: '2.0', id: 1
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  delete process.env.BOUND_DISABLED;
-  delete process.env.BOUND_CLIENT_IP_HEADER;
+  delete process.env.ORIENTIM_DISABLED;
+  delete process.env.ORIENTIM_CLIENT_IP_HEADER;
 });
 
 describe('B-06, C-04: the client key comes only from the header the ingress overwrites', () => {
-  const key = (headers: Record<string, string>) => clientKey(new Request('http://bound.test/', { headers }));
+  const key = (headers: Record<string, string>) => clientKey(new Request('http://orientim.test/', { headers }));
 
   it('on Vercel (default) it reads x-vercel-forwarded-for and ignores every other header', () => {
     expect(key({ 'x-vercel-forwarded-for': '198.51.100.7', 'cf-connecting-ip': '1.1.1.1', 'x-forwarded-for': '2.2.2.2' })).toBe('198.51.100.7');
   });
 
   it('behind Cloudflare, a client-sent x-vercel-forwarded-for cannot mint a new identity (C-04)', () => {
-    process.env.BOUND_CLIENT_IP_HEADER = 'cf-connecting-ip';
+    process.env.ORIENTIM_CLIENT_IP_HEADER = 'cf-connecting-ip';
     expect(key({ 'cf-connecting-ip': '198.51.100.8', 'x-vercel-forwarded-for': 'spoofed-1' })).toBe('198.51.100.8');
     expect(key({ 'cf-connecting-ip': '198.51.100.8', 'x-vercel-forwarded-for': 'spoofed-2' })).toBe('198.51.100.8');
   });
@@ -89,32 +89,32 @@ describe('RPC proxy', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('timed out', 'TimeoutError'); }));
     const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }), 'https://rpc.test');
     expect(res.status).toBe(504);
-    expect(res.headers.get('x-bound-not-forwarded')).toBeNull();
+    expect(res.headers.get('x-orientim-not-forwarded')).toBeNull();
   });
 
   it('never forwards the local-refusal marker from an upstream response', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('busy', {
-      status: 429, headers: { 'x-bound-not-forwarded': '1' },
+      status: 429, headers: { 'x-orientim-not-forwarded': '1' },
     })));
     const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }), 'https://rpc.test');
     expect(res.status).toBe(429);
-    expect(res.headers.get('x-bound-not-forwarded')).toBeNull();
+    expect(res.headers.get('x-orientim-not-forwarded')).toBeNull();
   });
 
   it('B-05: the kill switch refuses sendTransaction on the server, with a 4xx (never forwarded)', async () => {
-    process.env.BOUND_DISABLED = '1';
+    process.env.ORIENTIM_DISABLED = '1';
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
     const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'sendTransaction', params: ['AA=='] }), 'https://rpc.test');
     expect(res.status).toBe(403);
-    expect(res.headers.get('x-bound-not-forwarded')).toBe('1');
+    expect(res.headers.get('x-orientim-not-forwarded')).toBe('1');
     expect(upstream).not.toHaveBeenCalled();
   });
 
   it('B-06: sendTransaction has its own limit per client, sized for re-broadcasts', async () => {
     vi.stubGlobal('fetch', upstreamOk());
     const ip = uniqueIp();
-    // A Bound transaction: the relay sends nothing else (FA-06).
+    // A Orientim transaction: the relay sends nothing else (FA-06).
     const s = await scenario();
     const { transaction } = compileProtectedSwap({
       policy: s.policy, swapInstruction: s.swapIx, intermediates: s.intermediates, version: 0, lifetime: LIFETIME,
@@ -130,10 +130,10 @@ describe('RPC proxy', () => {
 
 describe('Jupiter build proxy', () => {
   const build = (query: string) =>
-    proxyBuild(new Request(`http://bound.test/api/jupiter/build?${query}`, { headers: { 'x-vercel-forwarded-for': uniqueIp() } }));
+    proxyBuild(new Request(`http://orientim.test/api/jupiter/build?${query}`, { headers: { 'x-vercel-forwarded-for': uniqueIp() } }));
 
   it('B-05: the kill switch refuses new builds on the server', async () => {
-    process.env.BOUND_DISABLED = '1';
+    process.env.ORIENTIM_DISABLED = '1';
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
     expect((await build('inputMint=a&wrapAndUnwrapSol=false')).status).toBe(503);
@@ -156,7 +156,7 @@ describe('Jupiter build proxy', () => {
   });
 });
 
-describe('B-08: token icons are served from Bound, from listed hosts only', () => {
+describe('B-08: token icons are served from Orientim, from listed hosts only', () => {
   const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
   // Each test uses its own mint, because the proxy caches icon URLs per mint.
   const MINTS = [
@@ -165,7 +165,7 @@ describe('B-08: token icons are served from Bound, from listed hosts only', () =
     '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',
   ];
   const icon = (mint: string) =>
-    proxyIcon(new Request(`http://bound.test/api/token-icon?mint=${mint}`, { headers: { 'x-vercel-forwarded-for': uniqueIp() } }));
+    proxyIcon(new Request(`http://orientim.test/api/token-icon?mint=${mint}`, { headers: { 'x-vercel-forwarded-for': uniqueIp() } }));
   /**
    * Jupiter's token record for the mint that was asked for points at `iconUrl` (C-08: the record
    * must match the requested mint, or the proxy stops before the path under test). Every fetched
@@ -260,7 +260,7 @@ describe('B-08: token icons are served from Bound, from listed hosts only', () =
   });
 });
 
-describe('the RPC relay sends and simulates only Bound transactions (review FA-06)', () => {
+describe('the RPC relay sends and simulates only Orientim transactions (review FA-06)', () => {
   const call = (method: string, wire: string, encoding = 'base64') =>
     proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method, params: [wire, { encoding }] }), 'https://rpc.test');
 
@@ -273,12 +273,12 @@ describe('the RPC relay sends and simulates only Bound transactions (review FA-0
     for (const method of ['sendTransaction', 'simulateTransaction']) {
       const res = await call(method, wire);
       expect(res.status).toBe(422);
-      expect(res.headers.get('x-bound-not-forwarded')).toBe('1');
+      expect(res.headers.get('x-orientim-not-forwarded')).toBe('1');
     }
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it('a Bound swap is relayed, v0 and v1', async () => {
+  it('a Orientim swap is relayed, v0 and v1', async () => {
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
     const s = await scenario();
@@ -299,11 +299,11 @@ describe('the RPC relay sends and simulates only Bound transactions (review FA-0
   });
 });
 
-describe("the relay passes Bound's close of a Pump market's account (FA-05)", () => {
+describe("the relay passes Orientim's close of a Pump market's account (FA-05)", () => {
   it('a swap that closes the account the market opened for E is relayed', async () => {
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
-    const { PUMP_CURVE_PROGRAM, WSOL_MINT } = await import('@bound/core');
+    const { PUMP_CURVE_PROGRAM, WSOL_MINT } = await import('@orientim/core');
     const { BONK } = await import('../../../packages/verifier/test/fixtures.ts');
     const s = await scenario({ input: WSOL_MINT, output: BONK, routeRefund: { program: PUMP_CURVE_PROGRAM, lamports: 1_346_200n } });
     const { transaction } = compileProtectedSwap({
@@ -317,19 +317,19 @@ describe("the relay passes Bound's close of a Pump market's account (FA-05)", ()
   });
 });
 
-describe("Bound's proxies serve Bound's own page (final audit, M2)", () => {
+describe("Orientim's proxies serve Orientim's own page (final audit, M2)", () => {
   const crossSite = { 'sec-fetch-site': 'cross-site', 'x-vercel-forwarded-for': uniqueIp() };
 
-  it("another website's page cannot spend Bound's RPC, Jupiter or icon quota through its visitors", async () => {
+  it("another website's page cannot spend Orientim's RPC, Jupiter or icon quota through its visitors", async () => {
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
     expect((await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }, { 'sec-fetch-site': 'cross-site' }), 'https://rpc.test')).status).toBe(403);
-    expect((await proxyBuild(new Request('http://bound.test/api/jupiter/build?wrapAndUnwrapSol=false', { headers: crossSite }))).status).toBe(403);
-    expect((await proxyIcon(new Request('http://bound.test/api/token-icon?mint=So11111111111111111111111111111111111111112', { headers: crossSite }))).status).toBe(403);
+    expect((await proxyBuild(new Request('http://orientim.test/api/jupiter/build?wrapAndUnwrapSol=false', { headers: crossSite }))).status).toBe(403);
+    expect((await proxyIcon(new Request('http://orientim.test/api/token-icon?mint=So11111111111111111111111111111111111111112', { headers: crossSite }))).status).toBe(403);
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it("Bound's own page, and a client that is not a browser, are served as before", async () => {
+  it("Orientim's own page, and a client that is not a browser, are served as before", async () => {
     vi.stubGlobal('fetch', upstreamOk());
     for (const site of ['same-origin', undefined]) {
       const res = await proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [] }, site ? { 'sec-fetch-site': site } : {}), 'https://rpc.test');
@@ -357,9 +357,9 @@ describe('the skill hashes the site publishes (final audit, item 10)', () => {
     const text = await res.text();
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
-    const onDisk = readFileSync(join(import.meta.dirname, '../../../skills/bound-protected-swap/SHA256SUMS'), 'utf8').replace(/\r\n/g, '\n');
+    const onDisk = readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/SHA256SUMS'), 'utf8').replace(/\r\n/g, '\n');
     expect(text).toBe(onDisk);
-    expect(text).toMatch(/^[0-9a-f]{64} {2}lib\/bound-verify\.mjs$/m);
-    expect(res.headers.get('x-bound-skill-version')).toBe('1.0.0');
+    expect(text).toMatch(/^[0-9a-f]{64} {2}lib\/orientim-verify\.mjs$/m);
+    expect(res.headers.get('x-orientim-skill-version')).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/package.json'), 'utf8')).version);
   });
 });

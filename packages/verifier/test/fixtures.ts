@@ -20,8 +20,8 @@ import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } 
 import {
   ataOf, buildPolicy, eventAuthorityOf, JUPITER_PROGRAM, protectedInstructions, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
   TOKEN_PROGRAM, withRouteRefund, withTakerRent, WSOL_MINT,
-} from '@bound/core';
-import type { AccountState, ChainSnapshot, IntermediateAta, Policy, TxVersion } from '@bound/core';
+} from '@orientim/core';
+import type { AccountState, ChainSnapshot, IntermediateAta, Policy, TxVersion } from '@orientim/core';
 
 export const USDC = address('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 export const BONK = address('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263');
@@ -158,7 +158,7 @@ export async function scenario(opts: {
     intermediates.push({ ata: await ataOf(E.address, mint, tokenProgram), mint, tokenProgram, transferFee: taxes(mint) });
   }
 
-  // The market charges E the account's rent before the swap and Bound returns it after.
+  // The market charges E the account's rent before the swap and Orientim returns it after.
   const routeAccount = opts.routeRefund ? await routeAccountOf(opts.routeRefund.program, E.address) : null;
   if (opts.routeRefund) {
     policy = withRouteRefund(withTakerRent(policy, opts.routeRefund.lamports), {
@@ -295,7 +295,7 @@ export const honest = (s: Scenario) =>
     policy: s.policy, swapInstruction: s.swapIx, intermediates: s.intermediates, outputBalanceBefore: s.wOutBalance,
   });
 
-/** A v1 transaction whose config also carries a heap size, which Bound never sets (B-07). */
+/** A v1 transaction whose config also carries a heap size, which Orientim never sets (B-07). */
 export function compileRawV1WithHeap(feePayer: Address, ixs: Instruction[]): Transaction {
   return compileTransaction(pipe(
     createTransactionMessage({ version: 1 }),

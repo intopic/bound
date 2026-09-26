@@ -12,7 +12,7 @@ export const WSOL_MINT = address('So11111111111111111111111111111111111111112');
 export const USDC_MINT = address('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 export const USDT_MINT = address('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB');
 /**
- * The tokens the Bound fee is taken in first, on whichever side of the swap they are, the way
+ * The tokens the Orientim fee is taken in first, on whichever side of the swap they are, the way
  * Jupiter takes its own: SOL, then USDC, then USDT. Otherwise the fee is in the input token when the
  * treasury has an account for it, and otherwise in SOL from the wallet at the swap's value (`sol`);
  * fee-free only while the treasury wallet does not exist or the pair cannot be priced in SOL.
@@ -59,6 +59,12 @@ export const MAX_TAKER_RENT_LAMPORTS = 5_000_000n; // 0.005 SOL
  */
 export const MAX_ROUTE_SLIPPAGE_BPS = 50;
 export const MAX_CURVE_SLIPPAGE_BPS = 300;
+/**
+ * The most tolerance a person may choose on the page (its slippage setting): 15%. Only the page asks
+ * the verifier for a tolerance, with that person's own choice, and never for more than this; a
+ * server and the agent skill never do, so their routes keep the two ceilings above.
+ */
+export const MAX_CHOSEN_SLIPPAGE_BPS = 1_500;
 /** Pump.fun's bonding-curve program: a route through it is priced on the curve. */
 export const PUMP_CURVE_PROGRAM = address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
 /** PumpSwap, the market a Pump.fun token moves to after its curve. */
@@ -66,7 +72,7 @@ export const PUMP_AMM_PROGRAM = address('pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FM
 /**
  * close_user_volume_accumulator, the same Anchor discriminator in both Pump programs' IDLs: closes
  * the account a Pump market opens for every buyer and returns its lamports to the buyer, who in a
- * Bound swap is E (review FA-05). Accounts: [user (signer), account, event authority, program].
+ * Orientim swap is E (review FA-05). Accounts: [user (signer), account, event authority, program].
  */
 export const CLOSE_USER_VOLUME_ACCUMULATOR = [249, 69, 164, 218, 150, 103, 84, 138] as const;
 export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
@@ -76,4 +82,4 @@ export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
  * Only an upper bound for display when the RPC cannot answer: the live value comes from
  * getMinimumBalanceForRentExemption (audit C-09).
  */
-export const TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS = 2_039_280n;
+export const TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS = 2_039_280n;

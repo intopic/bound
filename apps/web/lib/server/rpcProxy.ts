@@ -1,5 +1,5 @@
 import { readBodyLimited, UPSTREAM_TIMEOUT_MS } from './body';
-import { notBoundShaped } from './boundShape';
+import { notOrientimShaped } from './orientimShape';
 import { serverConfig } from './config';
 import { clientKey, fromAnotherSite, rateLimited } from './rateLimit';
 
@@ -23,14 +23,14 @@ const rpcError = (id: unknown, code: number, message: string, status: number, no
       headers: {
         'cache-control': 'no-store',
         // The sender may say "not broadcast" only when this proxy stopped the request locally.
-        ...(notForwarded ? { 'x-bound-not-forwarded': '1' } : {}),
+        ...(notForwarded ? { 'x-orientim-not-forwarded': '1' } : {}),
       },
     },
   );
 
 export async function proxyRpc(req: Request, target: string | null): Promise<Response> {
   if (!target) return rpcError(null, -32601, 'Not configured', 404);
-  if (fromAnotherSite(req)) return rpcError(null, -32600, "Bound's RPC serves Bound's own page", 403);
+  if (fromAnotherSite(req)) return rpcError(null, -32600, "Orientim's RPC serves Orientim's own page", 403);
   const client = clientKey(req);
   if (rateLimited(`rpc:${client}`, LIMIT_PER_MINUTE)) return rpcError(null, -32005, 'Too many requests', 429);
   const text = await readBodyLimited(req, MAX_BODY_BYTES); // bytes, counted while reading (C-07)
@@ -53,14 +53,14 @@ export async function proxyRpc(req: Request, target: string | null): Promise<Res
     if (serverConfig().disabled) return rpcError(body.id, -32000, 'Protected swaps are paused', 403);
     if (rateLimited(`send:${client}`, SENDS_PER_MINUTE)) return rpcError(body.id, -32005, 'Too many requests', 429);
   }
-  // After the kill switch and the send limit: only Bound's own transactions are sent or simulated
-  // through Bound's RPC account (review FA-06). A local refusal: nothing was forwarded, so the
+  // After the kill switch and the send limit: only Orientim's own transactions are sent or simulated
+  // through Orientim's RPC account (review FA-06). A local refusal: nothing was forwarded, so the
   // sender may say "never broadcast".
   if (body.method === 'sendTransaction' || body.method === 'simulateTransaction') {
     const params = Array.isArray(body.params) ? body.params : [];
     const options = (params[1] ?? {}) as { encoding?: unknown };
-    const why = options.encoding === 'base64' ? notBoundShaped(params[0]) : 'only base64 transactions are relayed';
-    if (why) return rpcError(body.id, -32602, `Only Bound transactions are relayed: ${why}`, 422);
+    const why = options.encoding === 'base64' ? notOrientimShaped(params[0]) : 'only base64 transactions are relayed';
+    if (why) return rpcError(body.id, -32602, `Only Orientim transactions are relayed: ${why}`, 422);
   }
 
   try {

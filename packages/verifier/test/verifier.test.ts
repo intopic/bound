@@ -12,8 +12,8 @@ import { createNoopSigner } from '@solana/kit';
 import {
   compileProtectedSwap, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, protectedInstructions, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
   routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, withTakerRent, WSOL_MINT,
-} from '@bound/core';
-import type { AccountState, RuleId, TxVersion } from '@bound/core';
+} from '@orientim/core';
+import type { AccountState, RuleId, TxVersion } from '@orientim/core';
 import { verify } from '../src/index.ts';
 import { BONK, compileRaw, cuIxs, honest, JUP, LIFETIME, randomAddress, routeV2Data, scenario, USDC } from './fixtures.ts';
 import type { Scenario } from './fixtures.ts';
@@ -549,11 +549,11 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
     ixs[i] = { ...ixs[i], data };
     return ixs;
   };
-  const check = async (make: (s: Scenario) => Uint8Array, opts: { curve?: boolean } = {}) => {
+  const check = async (make: (s: Scenario) => Uint8Array, opts: { curve?: boolean; maxSlippageBps?: number } = {}) => {
     const s = await scenario();
     const extra = opts.curve ? [{ address: PUMP_CURVE_PROGRAM, role: AccountRole.READONLY }] : [];
     if (opts.curve) (s.snapshot.accounts as Map<string, AccountState | null>).set(PUMP_CURVE_PROGRAM, { owner: SYSTEM_PROGRAM, lamports: 1n, data: new Uint8Array(36) });
-    return verify(mutated(s, withData(s, make(s), extra)), s.policy, s.snapshot);
+    return verify(mutated(s, withData(s, make(s), extra)), s.policy, s.snapshot, { maxSlippageBps: opts.maxSlippageBps });
   };
   const set = (d: Uint8Array, at: number, bytes: number, value: number) => {
     const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
@@ -626,7 +626,7 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
 
   it('any other instruction of Jupiter is refused, so a new format stops swaps instead of passing unread', async () => {
     const v = await check(() => new Uint8Array([229, 23, 203, 151, 122, 227, 173, 42, 1, 2, 3, 4]));
-    expect(details(v).join()).toContain('not a route Bound can read');
+    expect(details(v).join()).toContain('not a route Orientim can read');
   });
 
   it('a tolerance above 0.5% is refused, and above 3% on a bonding curve', async () => {
@@ -636,13 +636,26 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
     expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, 301), { curve: true })).join()).toContain('tolerates 301 bps');
   });
 
-  it('a quote below the minimum output is refused: Jupiter would enforce less than Bound promised', async () => {
+  it('a tolerance the person chose on the page is the ceiling instead, on any route, and never above 15%', async () => {
+    const at = (bps: number, chosen: number, curve = false) =>
+      check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, bps), { curve, maxSlippageBps: chosen });
+    expect((await at(1_000, 1_000)).violations).toEqual([]);
+    expect(details(await at(1_001, 1_000)).join()).toContain('tolerates 1001 bps, above 1000');
+    expect((await at(1_500, 20_000)).violations).toEqual([]);
+    expect(details(await at(1_501, 20_000)).join()).toContain('tolerates 1501 bps, above 1500');
+    // Chosen below the usual ceiling: a curve route is held to it as well.
+    expect(details(await at(300, 100, true)).join()).toContain('tolerates 300 bps, above 100');
+    // Not a number of bps: the usual ceilings hold.
+    expect(details(await at(51, Number.NaN)).join()).toContain('tolerates 51 bps, above 50');
+  });
+
+  it('a quote below the minimum output is refused: Jupiter would enforce less than Orientim promised', async () => {
     const v = await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut - 1n));
     expect(details(v).join()).toContain('below the minimum output');
   });
 
   it("a minimum above Jupiter's own floor is refused, though its quote covers it (engineering review H-03)", async () => {
-    // Quoted one unit above the minimum at 0.5%: Jupiter would let through 0.5% less than Bound
+    // Quoted one unit above the minimum at 0.5%: Jupiter would let through 0.5% less than Orientim
     // promised, and a deposit arriving with the swap could make up the rest in the balance check.
     expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut + 1n, 50))).join()).toContain("own floor");
     // The same quote with the tolerance tightened until its floor reaches the minimum passes.
@@ -660,11 +673,11 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
   });
 });
 
-describe("Bound's own accounts are never loaded from a lookup table (review FA-16)", () => {
+describe("Orientim's own accounts are never loaded from a lookup table (review FA-16)", () => {
   for (const [name, pick] of [
     ['W_out', (s: Scenario) => s.policy.accounts.wOut!],
     ['E_in', (s: Scenario) => s.policy.accounts.eIn],
-    ["Bound's fee account", (s: Scenario) => s.policy.accounts.feeDestination!],
+    ["Orientim's fee account", (s: Scenario) => s.policy.accounts.feeDestination!],
   ] as const) {
     it(`${name} in a table the message uses is refused`, async () => {
       const s = await scenario({ input: USDC, output: BONK });

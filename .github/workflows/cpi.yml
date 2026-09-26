@@ -1,6 +1,6 @@
 name: CPI
 
-# T6: build the malicious swap program and run it against Bound's protected transaction inside a
+# T6: build the malicious swap program and run it against Orientim's protected transaction inside a
 # real Solana VM. Separate from CI because it needs the Rust and Solana toolchains.
 on:
   # Every push to main, whatever it touched (review FA-10): the guarantee is tested on each change

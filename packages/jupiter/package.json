@@ -1,5 +1,5 @@
 {
-  "name": "@bound/jupiter",
+  "name": "@orientim/jupiter",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@bound/core": "*",
-    "@bound/solana": "*",
-    "@bound/verifier": "*"
+    "@orientim/core": "*",
+    "@orientim/solana": "*",
+    "@orientim/verifier": "*"
   }
 }

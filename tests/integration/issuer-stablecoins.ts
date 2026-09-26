@@ -1,9 +1,9 @@
 /**
  * T12: stablecoins whose issuer holds a permanent delegate — PYUSD, USDG, AUSD, CASH.
  *
- * Bound used to refuse every Token-2022 mint with a permanent delegate. It now accepts one whose
+ * Orientim used to refuse every Token-2022 mint with a permanent delegate. It now accepts one whose
  * delegate is an ordinary key, because such a key can act only by signing and R6 admits no signer
- * but W and E. These tokens also carry extensions Bound had never executed through: a confidential
+ * but W and E. These tokens also carry extensions Orientim had never executed through: a confidential
  * transfer fee, a transfer fee set to zero, a hook with no program, a default account state. Unit
  * tests say the rule reads them correctly; only the real programs can say that a protected swap
  * through them executes and leaves nothing behind. This asks them, on mainnet state:
@@ -11,7 +11,7 @@
  *   in    the token → SOL, from a real holder: the swap executes, and both temporary accounts are
  *         gone afterwards (the one question the unit tests cannot answer)
  *   out   SOL → the token, for a wallet that has no account of it yet: the swap executes, and the
- *         account the token program creates is exactly the size Bound priced its rent at
+ *         account the token program creates is exactly the size Orientim priced its rent at
  *
  * Nothing is signed or sent; simulations run with sigVerify off and a real holder as fee payer.
  *
@@ -22,10 +22,10 @@ import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   ataOf, JUPITER_PROGRAM, TOKEN_2022_PROGRAM, tokenAccountSizeFor, tokenAmountOf, WSOL_MINT,
-} from '@bound/core';
-import { createEphemeral, createRetryingRpc, fetchAccounts } from '@bound/solana';
-import { unsupportedExtension } from '@bound/verifier';
-import { BoundError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
+} from '@orientim/core';
+import { createEphemeral, createRetryingRpc, fetchAccounts } from '@orientim/solana';
+import { unsupportedExtension } from '@orientim/verifier';
+import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 
 const rpc = createRetryingRpc(process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com', 8);
 const jupiter = createJupiterClient({
@@ -111,7 +111,7 @@ for (const token of TOKENS) {
       );
     } catch (e) {
       check(token.symbol, 'as input: built, verified and certified', false,
-        `${e instanceof BoundError ? e.code : 'error'}: ${(e as Error).message.slice(0, 260)}`);
+        `${e instanceof OrientimError ? e.code : 'error'}: ${(e as Error).message.slice(0, 260)}`);
     }
   }
 
@@ -128,7 +128,7 @@ for (const token of TOKENS) {
     const created = sim.after[0];
     if (created) {
       const expected = tokenAccountSizeFor(TOKEN_2022_PROGRAM, mintState.data);
-      check(token.symbol, 'as output: the new account is the size Bound priced', created.data.length === expected,
+      check(token.symbol, 'as output: the new account is the size Orientim priced', created.data.length === expected,
         `krijuar ${created.data.length} bajt, parashikuar ${expected}`);
       check(token.symbol, 'as output: the rent shown is the rent charged', created.lamports === prepared.oneTimeCosts.outputAccountRent,
         `ngarkuar ${created.lamports}, shfaqur ${prepared.oneTimeCosts.outputAccountRent}`);
@@ -137,7 +137,7 @@ for (const token of TOKENS) {
     }
   } catch (e) {
     check(token.symbol, 'as output: built, verified and certified', false,
-      `${e instanceof BoundError ? e.code : 'error'}: ${(e as Error).message.slice(0, 260)}`);
+      `${e instanceof OrientimError ? e.code : 'error'}: ${(e as Error).message.slice(0, 260)}`);
   }
 }
 

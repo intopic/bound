@@ -38,7 +38,7 @@ try {
     const account = { address: addr, publicKey: new Uint8Array(key), chains: ['solana:mainnet'], features: ['solana:signTransaction'], label: 'Test' };
     const wallet = {
       version: '1.0.0',
-      name: 'Bound Test Wallet',
+      name: 'Orientim Test Wallet',
       icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyIDIiPjxyZWN0IHdpZHRoPSIyIiBoZWlnaHQ9IjIiIGZpbGw9IiM4ODgiLz48L3N2Zz4=',
       chains: ['solana:mainnet'],
       accounts: [account],
@@ -88,12 +88,12 @@ try {
   await page.goto(URL, { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
   await page.getByRole('button', { name: 'Connect wallet' }).first().click();
-  await page.getByRole('button', { name: 'Bound Test Wallet' }).click();
+  await page.getByRole('button', { name: 'Orientim Test Wallet' }).click();
   await page.getByText('GJRs…7npE').waitFor({ timeout: 10_000 });
 
   // A: the price, refused at first.
   await page.getByLabel('Amount to pay').fill('5');
-  await page.getByText(/Minimum received .* SOL/).waitFor({ timeout: 90_000 });
+  await page.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 90_000 });
   check('A. a busy price is retried until it arrives', true);
   check('A. the button says the prices are busy while it retries', labels.includes('Prices are busy, retrying…'), [...new Set(labels)].join(' | '));
   // The labels in the order they were seen, each once per stretch: says when a wrong one appeared.
@@ -131,8 +131,8 @@ try {
   let statusFailures = 2;
   await fresh.route('**/api/status', route => (statusFailures-- > 0 ? route.fulfill({ status: 503, body: 'down' }) : route.continue()));
   await fresh.goto(URL);
-  await fresh.getByText("Couldn't reach Bound").waitFor({ timeout: 15_000 });
-  await fresh.getByText("Couldn't reach Bound").waitFor({ state: 'detached', timeout: 30_000 });
+  await fresh.getByText("Couldn't reach Orientim").waitFor({ timeout: 15_000 });
+  await fresh.getByText("Couldn't reach Orientim").waitFor({ state: 'detached', timeout: 30_000 });
   check('D. an unreachable status is retried, and the page recovers without a reload', statusFailures < 0);
   await stillWorks(fresh);
 } finally {
@@ -142,9 +142,9 @@ try {
 /** After recovering, the page accepts an amount and prices it. */
 async function stillWorks(p: Page) {
   await p.getByRole('button', { name: 'Connect wallet' }).first().click();
-  await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
+  await p.getByRole('button', { name: 'Orientim Test Wallet' }).click();
   await p.getByLabel('Amount to pay').fill('5');
-  await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 60_000 });
+  await p.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 60_000 });
   check('D. and then prices a swap', true);
 }
 

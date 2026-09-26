@@ -1,5 +1,5 @@
 {
-  "name": "bound",
+  "name": "orientim",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -8,23 +8,22 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "test:fuzz": "vitest run packages/verifier/test/property.test.ts packages/verifier/test/extensions.test.ts --mode fuzz",
+    "test:fuzz": "vitest run packages/verifier/test/property.test.ts packages/verifier/test/extensions.test.ts packages/verifier/test/slippage.property.test.ts packages/jupiter/test/slippage.property.test.ts apps/web/test/agents.property.test.ts apps/web/test/pure.property.test.ts --mode fuzz",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "integration": "node tests/integration/mainnet.ts",
     "thresholds": "node tests/integration/thresholds.ts",
-    "lighthouse": "node tests/integration/lighthouse-usage.ts",
     "cpi": "cargo build-sbf --manifest-path tests/cpi/attacker/Cargo.toml && node tests/cpi/run.ts",
-    "dev": "npm run dev -w @bound/web",
-    "build": "npm run build -w @bound/web",
+    "dev": "npm run dev -w @orientim/web",
+    "build": "npm run build -w @orientim/web",
     "build:digest": "node tools/build-digest.ts --write",
-    "e2e": "node tests/e2e/smoke.ts",
-    "e2e:devnet": "node tests/e2e/devnet.ts"
+    "e2e": "node tests/e2e/smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",
     "fast-check": "^4.10.1",
     "litesvm": "^1.4.1",
     "playwright-core": "^1.63.0",
+    "rolldown": "1.2.9",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },

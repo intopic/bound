@@ -58,7 +58,7 @@ export function onAccountChange(wallet: Wallet, listener: (accounts: readonly Wa
 
 /**
  * The transaction version to build first for a wallet: v0 whenever it signs v0. v1 is live on
- * mainnet, but no Bound v1 transaction has landed yet (review BR-12), and not every signer behind a
+ * mainnet, but no Orientim v1 transaction has landed yet (review BR-12), and not every signer behind a
  * wallet reads it: Ledger's Solana app parses a v1 message as v0 and fails (research audit F-13).
  * So v1 is only for a wallet that signs nothing else, or for a route too big for v0 (`v1Fallback`).
  * Null when the wallet signs neither.
@@ -79,7 +79,7 @@ export function supportedVersions(wallet: Wallet): readonly (string | number)[] 
 }
 
 /**
- * The wallet signs first, without sending (D4). Bound checks what comes back before E signs. The
+ * The wallet signs first, without sending (D4). Orientim checks what comes back before E signs. The
  * wallet is told the commitment and slot the blockhash was read at, so that its own simulation is
  * not run on older state, where the blockhash is unknown and the swap looks broken (research audit
  * F-15). A wallet may ignore them.
@@ -91,4 +91,21 @@ export async function walletSign(
   const options = { preflightCommitment: 'confirmed' as const, ...(minContextSlot ? { minContextSlot: Number(minContextSlot) } : {}) };
   const [out] = await f.signTransaction({ account, transaction, chain: CHAIN, options });
   return out.signedTransaction;
+}
+
+type SignMessageFeature = {
+  signMessage(...inputs: { account: WalletAccount; message: Uint8Array }[]): Promise<readonly { signedMessage: Uint8Array; signature: Uint8Array }[]>;
+};
+
+/** Whether the wallet can sign a plain message (Wallet Standard `solana:signMessage`), which an API key needs. */
+export const signsMessages = (wallet: Wallet) => 'solana:signMessage' in wallet.features;
+
+/**
+ * The wallet's signature of a plain message. Only for Orientim's API-key message, checked by the
+ * caller first: a signature over bytes someone else chose could be a signature for a transaction.
+ */
+export async function walletSignMessage(wallet: Wallet, account: WalletAccount, message: Uint8Array): Promise<Uint8Array> {
+  const f = wallet.features['solana:signMessage'] as SignMessageFeature;
+  const [out] = await f.signMessage({ account, message });
+  return out.signature;
 }

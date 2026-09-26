@@ -31,7 +31,7 @@ type Status = { confirmationStatus: 'processed' | 'confirmed' | 'finalized'; err
 /** Each read takes the next scripted value; the last one repeats. 'throw' simulates a failed read. */
 function fakeRpc(script: {
   firstSend?: 'ok' | Error; statuses?: (Status | 'throw')[]; heights?: bigint[]; finalizedHeights?: bigint[];
-  /** The slot the node answering each status read had reached; the finalized slot is 500,000. */
+  /** The slot the node answering each status read had reached; the finalized slot is 500,000 (a processed node is some 40 ahead). */
   statusSlots?: bigint[];
 }) {
   let sends = 0;
@@ -48,7 +48,7 @@ function fakeRpc(script: {
     }),
     getSignatureStatuses: () => ({
       send: async () => {
-        const slot = next(script.statusSlots ?? [1_000_000n], statusReads);
+        const slot = next(script.statusSlots ?? [500_040n], statusReads);
         const s = next(script.statuses ?? [null], statusReads++);
         if (s === 'throw') throw new Error('status read failed');
         return { context: { slot }, value: [s] };
@@ -81,9 +81,9 @@ async function run(script: Parameters<typeof fakeRpc>[0]) {
 
 const confirmed: Status = { confirmationStatus: 'confirmed', err: null };
 const processed: Status = { confirmationStatus: 'processed', err: null };
-const httpError = (statusCode: number, stoppedByBound = false) => {
+const httpError = (statusCode: number, stoppedByOrientim = false) => {
   const headers = new Headers();
-  if (stoppedByBound) headers.set('x-bound-not-forwarded', '1');
+  if (stoppedByOrientim) headers.set('x-orientim-not-forwarded', '1');
   return new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, { headers, message: 'error', statusCode } as never);
 };
 
@@ -104,7 +104,7 @@ describe('C-03: the outcome of a send', () => {
     expect(result.status).toBe('confirmed');
   });
 
-  it('an upstream 4xx is ambiguous without Bound\'s local-refusal marker', async () => {
+  it('an upstream 4xx is ambiguous without Orientim\'s local-refusal marker', async () => {
     const { result } = await run({ firstSend: httpError(429), statuses: [confirmed] });
     expect(result.status).toBe('confirmed');
   });
@@ -122,7 +122,7 @@ describe('C-03: the outcome of a send', () => {
     expect(reads).toBe(0);
   });
 
-  it("a refusal from Bound's proxy (4xx) means it was never broadcast", async () => {
+  it("a refusal from Orientim's proxy (4xx) means it was never broadcast", async () => {
     expect((await run({ firstSend: httpError(429, true) })).result.status).toBe('rejected');
   });
 
@@ -152,7 +152,7 @@ describe('C-03: the outcome of a send', () => {
 });
 
 describe('who refused a send that was never broadcast', () => {
-  it("Bound's kill switch (403 from the relay) is told as a pause, not as a price move", async () => {
+  it("Orientim's kill switch (403 from the relay) is told as a pause, not as a price move", async () => {
     const { result } = await run({ firstSend: httpError(403, true) });
     expect(result.status).toBe('rejected');
     expect(result.refusal).toBe('paused');
@@ -262,6 +262,20 @@ describe('outcomes are said only once the chain proves them (review FA-07)', () 
     expect(result.status).toBe('unknown');
     const covered = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 50n] });
     expect(covered.result.status).toBe('expired');
+  });
+
+  it('long after the lifetime, "no record" proves nothing: the node may have forgotten it (third audit, F1)', async () => {
+    // The status cache holds the last 300 blocks; this transaction could land from block -49 on.
+    const late = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 500n] });
+    expect(late.result.status).toBe('unknown');
+    // It stops looking as soon as that is clear, rather than asking until it gives up: one read
+    // while it could still land, one of the full history after.
+    expect(late.reads).toBe(2);
+  });
+
+  it('a status node far ahead of the finalized view proves nothing either: its cache may start past the swap (F1)', async () => {
+    const { result } = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 10n], statusSlots: [505_000n] });
+    expect(result.status).toBe('unknown');
   });
 
   it('expiry needs the finalized height past the lifetime too, so a lagging node cannot make it expired', async () => {

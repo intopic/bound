@@ -28,7 +28,7 @@ try {
   await context.addInitScript(({ addr, key }) => {
     const account = { address: addr, publicKey: new Uint8Array(key), chains: ['solana:mainnet'], features: ['solana:signTransaction'], label: 'Test' };
     const wallet = {
-      version: '1.0.0', name: 'Bound Test Wallet',
+      version: '1.0.0', name: 'Orientim Test Wallet',
       icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyIDIiPjxyZWN0IHdpZHRoPSIyIiBoZWlnaHQ9IjIiIGZpbGw9IiM4ODgiLz48L3N2Zz4=',
       chains: ['solana:mainnet'], accounts: [account],
       features: {
@@ -53,7 +53,7 @@ try {
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
     await page.getByRole('button', { name: 'Connect wallet' }).first().click();
-    await page.getByRole('button', { name: 'Bound Test Wallet' }).click();
+    await page.getByRole('button', { name: 'Orientim Test Wallet' }).click();
     // SOL in, the Pump.fun token out.
     await page.getByRole('button', { name: 'Switch tokens' }).click();
     await page.locator('.box').nth(1).locator('button.token').click();

@@ -6,14 +6,14 @@
  * to make cross-program invocations of its own, with any account metas it likes. This test deploys
  * such a program (tests/cpi/attacker) into a real Solana VM and lets it run.
  *
- * Bound gives it exactly what the design allows — the temporary account E_in, the one-time key E
- * and, for token outputs, the wallet's output account W_out — and the runtime, not Bound, decides
+ * Orientim gives it exactly what the design allows — the temporary account E_in, the one-time key E
+ * and, for token outputs, the wallet's output account W_out — and the runtime, not Orientim, decides
  * the rest. Every case asserts the same invariant: nothing beyond the approved amount moves, no
  * permission survives the transaction, and a swap that does not deliver the minimum reverts whole.
  *
  *   node tests/cpi/run.ts
  *
- * Needs tests/cpi/attacker/target/deploy/bound_attacker.so (cargo build-sbf) and Linux or macOS:
+ * Needs tests/cpi/attacker/target/deploy/orientim_attacker.so (cargo build-sbf) and Linux or macOS:
  * litesvm ships no Windows binary. CI (.github/workflows/cpi.yml) does both.
  */
 import {
@@ -31,15 +31,15 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import {
   ataOf, buildPolicy, compileProtectedSwap, MINT_SIZE, SYSTEM_PROGRAM, tokenAmountOf, TOKEN_2022_PROGRAM,
   TOKEN_PROGRAM, withTakerRent, WSOL_MINT,
-} from '@bound/core';
-import type { AccountState, ChainSnapshot, Policy } from '@bound/core';
-import { verify } from '@bound/verifier';
+} from '@orientim/core';
+import type { AccountState, ChainSnapshot, Policy } from '@orientim/core';
+import { verify } from '@orientim/verifier';
 
-const SO = 'tests/cpi/attacker/target/deploy/bound_attacker.so';
+const SO = 'tests/cpi/attacker/target/deploy/orientim_attacker.so';
 const OUT_DIR = 'tests/cpi/results';
 const SOL = 1_000_000_000n;
 
-// The swap under test: 100 IN (6 decimals) for at least 10 OUT (9 decimals), Bound fee 0.5%.
+// The swap under test: 100 IN (6 decimals) for at least 10 OUT (9 decimals), Orientim fee 0.5%.
 const AMOUNT_IN = 100_000_000n;
 const FEE_BPS = 50n;
 const FEE = (AMOUNT_IN * FEE_BPS) / 10_000n;
@@ -109,7 +109,7 @@ function attackerData(inners: Inner[]): Uint8Array {
 /** Index of an account in the external instruction (see `externalInstruction`). */
 const IX = { token: 0, system: 1, E: 2, eIn: 3, output: 4, attackerIn: 5, pool: 6, poolAuthority: 7 } as const;
 
-/** E_in → the attacker's own account, authority E: the one move Bound's design allows. */
+/** E_in → the attacker's own account, authority E: the one move Orientim's design allows. */
 const takeFrom = (amount: bigint): Inner => ({
   program: IX.token,
   metas: [{ key: IX.eIn, w: true }, { key: IX.attackerIn, w: true }, { key: IX.E, s: true }],
@@ -312,7 +312,7 @@ async function setup(tokenProgram: Address = TOKEN_PROGRAM, issuer?: IssuerDeleg
 type Variant = 'C' | 'A';
 
 /**
- * The external instruction exactly as Bound hands it over: the attacker's program, and only the
+ * The external instruction exactly as Orientim hands it over: the attacker's program, and only the
  * accounts the design allows it to see. `extra` is for the case where the route also demands an
  * account it must never get.
  */
@@ -392,7 +392,7 @@ const balancesOf = (w: World): Balances => ({
   treasury: tokensOf(w.svm, w.treasuryIn),
 });
 
-/** Bound's promise, checked against the chain after every case. */
+/** Orientim's promise, checked against the chain after every case. */
 function invariants(w: World, policy: Policy, before: Balances, after: Balances, succeeded: boolean): string[] {
   const bad: string[] = [];
   const same = (what: string, a: bigint, b: bigint) => {
@@ -405,7 +405,7 @@ function invariants(w: World, policy: Policy, before: Balances, after: Balances,
     same("the wallet's input", before.wIn, after.wIn);
     same("the wallet's output", before.wOut, after.wOut);
     same("the attacker's account", before.attackerIn, after.attackerIn);
-    same("Bound's fee account", before.treasury, after.treasury);
+    same("Orientim's fee account", before.treasury, after.treasury);
     if (before.wSol - after.wSol > MAX_NETWORK_FEE) bad.push(`the wallet lost ${before.wSol - after.wSol} lamports`);
     return bad;
   }
@@ -420,7 +420,7 @@ function invariants(w: World, policy: Policy, before: Balances, after: Balances,
     same("the wallet's token output account", before.wOut, after.wOut);
   } else {
     if (after.wOut - before.wOut < MIN_OUT) bad.push(`the wallet received ${after.wOut - before.wOut}, below the minimum ${MIN_OUT}`);
-    // The rent Bound sends E for the route's account is the one SOL the route may take besides the
+    // The rent Orientim sends E for the route's account is the one SOL the route may take besides the
     // network fee; it is stated in the certificate before the wallet signs.
     if (before.wSol - after.wSol > MAX_NETWORK_FEE + policy.takerRent) {
       bad.push(`the wallet lost ${before.wSol - after.wSol} lamports beyond the network fee and the stated route rent`);
@@ -446,11 +446,11 @@ type Case = {
   tokenProgram?: Address;
   /** A permanent delegate on both swap mints (Token-2022 only); see `IssuerDelegate`. */
   issuer?: IssuerDelegate;
-  /** Rent Bound sends E for an account the route opens in E's name (PumpSwap). */
+  /** Rent Orientim sends E for an account the route opens in E's name (PumpSwap). */
   takerRent?: bigint;
   /** What the malicious program attempts, in order. */
   inners: (w: World) => Inner[];
-  /** Accounts the route demands on top of what Bound allows. */
+  /** Accounts the route demands on top of what Orientim allows. */
   extra?: (w: World) => Address[];
   expect: 'succeeds' | 'reverts' | 'refused before signing';
   /** What the case proves, for the report. */
@@ -467,7 +467,7 @@ const CASES: Case[] = [
   {
     name: 'takes the approved amount and delivers nothing',
     variant: 'C', expect: 'reverts',
-    proves: "Bound's minimum-output check undoes the theft",
+    proves: "Orientim's minimum-output check undoes the theft",
     inners: () => [takeFrom(SWAP_AMOUNT)],
   },
   {
@@ -579,7 +579,7 @@ const CASES: Case[] = [
     inners: () => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT)],
   },
   {
-    // Bound's cleanup closes E_in unconditionally. A route that destroys it first would, if the
+    // Orientim's cleanup closes E_in unconditionally. A route that destroys it first would, if the
     // swap still counted as a success, keep the rent W paid to open it. It does not: the close
     // fails on an account that no longer exists, and that takes the whole transaction with it.
     name: 'destroys the temporary input account after emptying it',
@@ -598,7 +598,7 @@ const CASES: Case[] = [
   {
     // To re-create E_in and hide the theft, the attacker needs a payer that signs and holds
     // lamports. The only lamports within reach are E_in's own rent, and the only key it can sign
-    // for is its program-derived authority — which Bound handed over read-only. A cross-program
+    // for is its program-derived authority — which Orientim handed over read-only. A cross-program
     // call cannot widen that.
     name: 'sends the temporary account\'s rent to a key it can sign for',
     variant: 'C', expect: 'reverts',
@@ -731,7 +731,7 @@ const CASES: Case[] = [
   {
     // The delegate R7 lets through as an ordinary address is a multisig the route's program signs
     // for: it can move tokens out of the wallet's output account inside the swap. What stops it is
-    // Bound's minimum-output check, which counts that account's balance after the swap.
+    // Orientim's minimum-output check, which counts that account's balance after the swap.
     name: "issuer delegate is a multisig the route's program signs for: takes from the wallet's output balance and delivers the minimum",
     variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, issuer: 'multisig', expect: 'reverts',
     proves: 'a delegate hidden behind an ordinary-looking multisig can act inside the swap, and the minimum-output check reverts the whole transaction when it takes from what the wallet held',
@@ -756,16 +756,16 @@ const CASES: Case[] = [
   },
   {
     // The xStocks' shape: the delegate is an address a program can sign for. If that program is
-    // the route, it could sign as the issuer inside the swap, so Bound refuses before signing.
+    // the route, it could sign as the issuer inside the swap, so Orientim refuses before signing.
     name: "issuer delegate is the route program's own address",
     variant: 'C', tokenProgram: TOKEN_2022_PROGRAM, issuer: 'program', expect: 'refused before signing',
     proves: 'a delegate a program can sign for is refused (R7) before the wallet is ever asked',
     inners: () => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT)],
   },
   {
-    // PumpSwap charges each new buyer an account's rent, so Bound sends E exactly that. A hostile
+    // PumpSwap charges each new buyer an account's rent, so Orientim sends E exactly that. A hostile
     // route may pocket it instead: that is the most it can take on top of the approved amount.
-    name: 'route rent: takes the rent Bound sent the temporary key, and the approved amount',
+    name: 'route rent: takes the rent Orientim sent the temporary key, and the approved amount',
     variant: 'C', takerRent: 1_346_200n, expect: 'succeeds',
     proves: "the SOL a route can reach is the stated rent and nothing more; the wallet's own SOL stays out of reach",
     extra: w => [w.attacker],

@@ -5,15 +5,15 @@ import type { ReactNode } from 'react';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
 import { address, getTransactionEncoder } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
-import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@bound/core';
-import type { FeeSide, TxVersion } from '@bound/core';
+import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@orientim/core';
+import type { FeeSide, TxVersion } from '@orientim/core';
 import {
-  BoundError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, prepareProtectedSwap, quotedMinimum,
+  OrientimError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, quotedMinimum,
   revertedOnPrice,
-} from '@bound/jupiter';
-import type { PreparedSwap, TokenInfo } from '@bound/jupiter';
-import { createEphemeral, fetchAccounts, httpStatusOf, statusesCovering } from '@bound/solana';
-import type { SendOutcome, SendRefusal } from '@bound/solana';
+} from '@orientim/jupiter';
+import type { PreparedSwap, TokenInfo } from '@orientim/jupiter';
+import { createEphemeral, fetchAccounts, httpStatusOf, statusesCovering } from '@orientim/solana';
+import type { SendOutcome, SendRefusal } from '@orientim/solana';
 import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY, V1_ENABLED } from '@/lib/client/config';
@@ -25,16 +25,27 @@ import {
   amountReachingRoute, loadTokens, mintAta, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
 } from '@/lib/client/tokens';
 import type { MintFacts } from '@/lib/client/tokens';
-import { addHistory, isUnsettled, readHistory, settledHistoryStatus, STATUS_LABEL, updateHistory } from '@/lib/client/history';
+import {
+  addHistory, HISTORY_KEY, historyWorks, HistoryNotSaved, isUnsettled, lifetimeOver, readHistory, settledHistoryStatus, STATUS_LABEL, unsettledFor,
+  updateHistory,
+} from '@/lib/client/history';
 import type { HistoryEntry, HistoryStatus, SignatureState } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
 import { costsMoreThan, keptByMarket } from '@/lib/client/rebuild';
-import { receivedFromMeta } from '@/lib/client/received';
+import { fillAgainstQuote, receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
+import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
+import type { Problem } from '@/lib/client/problems';
+import { loadSlippage, percentText, saveSlippage, withSlippage } from '@/lib/client/slippage';
+import type { SlippageChoice } from '@/lib/client/slippage';
+import { Modal } from './Modal';
+import { SlippageSettings } from './SlippageSettings';
 import { TokenIcon, TokenPicker } from './TokenPicker';
+import { ShieldIcon, SiteHeader } from './site/Brand';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
-type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string };
+/** `detail`: the raw error behind the words, kept in this browser for when help is asked (never shown by itself). */
+type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string };
 /**
  * `curve`: the route trades on a Pump.fun bonding curve, so its tolerance is the wider one.
  * `impact`: how much this amount moves the market price, as Jupiter reports it: a fraction, so
@@ -45,13 +56,13 @@ type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number; at: 
 type Pending = {
   minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
   tokenTax: string | null; busyNetwork: string | null;
-  /** Bound's fee when it is paid in SOL from the wallet: its exact amount, priced when the swap was built. */
+  /** Orientim's fee when it is paid in SOL from the wallet: its exact amount, priced when the swap was built. */
   solFee: string | null;
 };
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
 /** A question the page puts to the user mid-swap, with nothing signed yet. */
 type Offer =
-  | { kind: 'price'; was: string; now: string }
+  | { kind: 'price'; was: string; now: string; tolerance: string }
   | { kind: 'cost'; gap: string; severe: boolean }
   | { kind: 'impact'; pct: string }
   | { kind: 'extras'; lines: string[] };
@@ -61,7 +72,6 @@ type SwapTexts = { paid: string; received: string; exposed: string; minimum: str
 // Quotes are asked for a neutral taker, so Jupiter never sees the user's address before a swap.
 const QUOTE_TAKER = '11111111111111111111111111111111';
 const SOL_RESERVE_LAMPORTS = 10_000_000n; // fees plus temporary rent, returned in the same transaction
-const TOKEN_ACCOUNT_SIZE = 165n;
 const OFFER_TIMEOUT_MS = 45_000;
 /** Price impact: a warning from 1%, a question before building from 5%, as swap pages usually do. */
 const IMPACT_WARN = 0.01;
@@ -76,15 +86,15 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
   switch (o.kind) {
     case 'price':
       return {
-        title: 'The protected route pays less than the price you saw',
-        body: <p>Minimum received is now <strong>{o.now}</strong> (was {o.was}). Nothing has been signed.</p>,
+        title: 'Price updated',
+        body: <p>At your {o.tolerance} slippage tolerance, you now receive at least <strong>{o.now}</strong> (was {o.was}). Nothing has been signed.</p>,
         go: 'Continue with the new minimum',
       };
     case 'cost':
       return {
-        title: `This route gives ${o.gap} less than the best unprotected route`,
-        body: <p>{o.severe ? 'A smaller amount often gets a better price. ' : ''}Nothing has been signed.</p>,
-        go: 'Continue',
+        title: `Best available rate for this amount: ${o.gap} below market`,
+        body: <p>A smaller amount often gets a better rate. Nothing has been signed.</p>,
+        go: 'Swap at this rate',
       };
     case 'impact':
       return {
@@ -110,6 +120,12 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
 const MIN_BLOCKS_FOR_WALLET = 100n;
 /** A swap built ahead of the click is used only this soon after its build started (its price). */
 const AHEAD_MAX_AGE_MS = 20_000;
+/** A build ahead starts only once the amount has stayed the same this long (the owner's rule). */
+const AHEAD_SETTLE_MS = 2_000;
+/** And at most this many a minute, per page. */
+const AHEAD_PER_MINUTE = 3;
+/** The smallest swap Orientim takes, in dollars, when the price is known (the pipeline holds to it too). */
+const MIN_SWAP_USD = 1;
 /**
  * Under load. A price Jupiter refused as busy is asked for again this many times, later each time;
  * after a busy answer the page builds nothing ahead of the click for a while, because every user
@@ -120,8 +136,8 @@ const BUSY_BACKOFF_MS = 30_000;
 /** Jupiter overloaded or silent (not the kill switch, which answers 503 with its own words). */
 const jupiterBusy = (e: unknown) =>
   e instanceof JupiterError && (e.status === 429 || (e.status >= 500 && !/paused/i.test(e.message)));
-const busyError = (e: unknown) => e instanceof BoundError && (e.code === 'busy' || e.code === 'unavailable');
-const UNREACHABLE = "Couldn't reach Bound";
+const busyError = (e: unknown) => e instanceof OrientimError && (e.code === 'busy' || e.code === 'unavailable');
+const UNREACHABLE = "Couldn't reach Orientim";
 
 /**
  * Why a token cannot be swapped safely, in words rather than the name of a Token-2022 extension.
@@ -137,7 +153,7 @@ const PLAIN_REFUSAL: Record<string, string> = {
   'memo required on transfer': 'it requires a note on every transfer',
   'confidential mint and burn': 'its supply can change in ways the chain does not show',
   'pausable accounts': 'its issuer can pause transfers',
-  'permissioned burn': 'it uses a burn rule Bound has not reviewed yet',
+  'permissioned burn': 'it uses a burn rule Orientim has not reviewed yet',
 };
 const plainRefusal = (reason: string) => PLAIN_REFUSAL[reason] ?? `it uses ${reason}`;
 
@@ -154,22 +170,20 @@ function extrasOf(
   // the click, or showed less than it came to (engineering audit S1-M-02).
   if (p.policy.feeSide === 'sol' && p.policy.fee > 0n && (t.shownSolFee === null || p.policy.fee * 100n > t.shownSolFee * 105n)) {
     lines.push(
-      `Bound fee: ${formatExact(p.policy.fee, 9)} SOL from your wallet, ${Number(FEE_BPS) / 100}% of what this swap is worth in SOL now`
-      + (t.shownSolFee !== null ? ` (the page estimated ~${formatExact(t.shownSolFee, 9)} SOL).` : '. Neither token of this pair can carry it.'),
+      `Orientim fee: ${formatExact(p.policy.fee, 9)} SOL` + (t.shownSolFee !== null ? ` (shown earlier as ~${formatExact(t.shownSolFee, 9)} SOL).` : '.'),
     );
   }
   const { routeRent, routeRefund } = p.oneTimeCosts;
   // When closing the account returns all of it (PumpSwap), the market keeps nothing: nothing to ask.
   if (routeRent > 0n && routeRefund > 0n && routeRefund < routeRent) {
     lines.push(
-      `Market account fee: ${formatExact(routeRent - routeRefund, 9)} SOL. This market takes ${formatExact(routeRent, 9)} SOL from every new buyer for an account; `
-      + `Bound closes that account in the same swap, so ${formatExact(routeRefund, 9)} SOL comes straight back to you.`,
+      `Market account fee: ${formatExact(routeRent - routeRefund, 9)} SOL, kept by this market.`,
     );
   } else if (routeRent > 0n && routeRefund === 0n) {
-    lines.push(`Market account fee: ${formatExact(routeRent, 9)} SOL. This market charges it to every new buyer, and it does not come back.`);
+    lines.push(`Market account fee: ${formatExact(routeRent, 9)} SOL, kept by this market.`);
   }
   if (p.tokenTax) {
-    lines.push(`Token tax: ${formatExact(p.tokenTax.extraOnInput, t.inDecimals)} ${t.inSymbol} goes to the token's issuer, not to Bound.`);
+    lines.push(`Token tax: ${formatExact(p.tokenTax.extraOnInput, t.inDecimals)} ${t.inSymbol} goes to the token's issuer, not to Orientim.`);
   }
   if (p.notices.removesDelegate) lines.push(`This also removes the spending permission you gave on your ${t.outSymbol} account.`);
   return lines;
@@ -185,13 +199,14 @@ const aheadKey = (owner: string, input: string, output: string, amountIn: bigint
 /**
  * A build made ahead is used only if the output account still holds what its minimum was built on
  * (B and C: the check is that balance plus the minimum). Another swap into the same token since
- * then, even from another device, sends the click back to building.
+ * then, even from another device, sends the click back to building. Null when the balance could not
+ * be read: not a change, and not "unchanged" either.
  */
-async function outputBalanceUnchanged(p: PreparedSwap): Promise<boolean> {
+async function outputBalanceUnchanged(p: PreparedSwap): Promise<boolean | null> {
   const wOut = p.policy.accounts.wOut;
   if (!wOut) return true;
   const now = await fetchAccounts(getRpc(), [wOut]).then(m => tokenAmountOf(m.get(wOut)?.data)).catch(() => null);
-  return now === p.outputBalanceBefore;
+  return now === null ? null : now === p.outputBalanceBefore;
 }
 
 /**
@@ -233,59 +248,114 @@ const QUOTE_MAX_AGE_MS = 45_000;
 /**
  * How many times a price refreshes on its own before the page waits to be asked. A tab left open
  * would otherwise ask for a price every 20 seconds for as long as it stays open, which is the
- * largest thing Bound would spend its rate limit on and none of it is a swap.
+ * largest thing Orientim would spend its rate limit on and none of it is a swap.
  */
 const AUTO_REFRESHES = 3;
 /** Token amounts are 64-bit on Solana; beyond this nothing on chain can hold the balance. */
 const MAX_U64 = 2n ** 64n - 1n;
 const solscan = (signature: string) => `https://solscan.io/tx/${signature}`;
+/** How often a swap the wallet waits on is looked up again (third audit, F2). */
+const SETTLE_EVERY_MS = 10_000;
+const SETTLE_BY_HAND_MS = 30_000;
 
-function explainError(e: unknown): Notice {
-  if (e instanceof BoundError) {
-    const titles: Record<BoundError['code'], string> = {
-      'unsupported-token': 'This token is not supported yet',
-      'token-data-mismatch': "The token's data could not be confirmed on chain",
-      'output-account-restricted': 'Your account for this token is restricted',
-      'no-route': 'No protected route right now',
-      'bad-quote': 'Only bad prices were offered',
-      'price-moved': 'The price moved',
-      'insufficient-sol': 'Not enough SOL',
-      'costs-more': 'This route gives less than the best price',
-      'simulation-failed': 'The swap would fail',
-      'verification-failed': "We couldn't build a protected swap",
-      'wallet-changed-transaction': 'Your wallet changed the transaction',
-      expired: 'The swap expired',
-      busy: 'Too many requests right now',
-      unavailable: "The price service didn't answer",
-      'insufficient-balance': 'Not enough of this token',
-      'input-account-restricted': 'Your account for this token is restricted',
-      'route-format': 'Protected swaps are waiting for an update',
-      'fee-unavailable': "Bound's fee can't be collected right now",
-      'amount-too-small': 'This amount is too small',
-      'network-unavailable': "Couldn't reach the network",
-    };
-    // Load or an upstream change, not the swap: the message already says that nothing was signed.
-    if (e.code === 'busy' || e.code === 'unavailable' || e.code === 'route-format' || e.code === 'fee-unavailable' || e.code === 'network-unavailable') {
-      return { kind: 'info', title: titles[e.code], body: e.message };
-    }
-    // The rule behind a refusal is for whoever investigates, not for the person swapping (final audit).
-    if (e.violations.length) console.warn('Bound refused this swap:', e.violations);
-    const rules = '';
-    if (e.code === 'wallet-changed-transaction') {
+/** Said when this browser will not keep a swap's record: without it, a swap whose answer is lost could be forgotten. */
+const NO_STORAGE: Notice = {
+  kind: 'error', title: "Your browser isn't saving this site's data",
+  body: 'Orientim keeps every swap it sends in this browser, so that a lost connection or a closed tab never loses track of it. '
+    + 'Allow site data (storage) for this site, or free some space, and try again. Nothing was sent and no funds moved.',
+};
+
+/**
+ * What a message about the price may say about this swap: the tolerance it was built at ("1%"), and
+ * whether a hint about Pump.fun's launch curve helps (a curve token, a chosen tolerance under 3%).
+ */
+type PriceContext = { tolerance?: string; curveHint?: boolean };
+const CURVE_HINT = 'This token is still on its launch curve and moves fast. Auto uses 3% for it.';
+const RAISE_TOLERANCE = 'Try again, or raise your slippage tolerance (⚙️).';
+
+/** The words for a failure, with the raw error kept beside them (lib/client/problems). */
+function explainError(e: unknown, price: PriceContext = {}): Notice {
+  return { ...wordsFor(e, price), detail: errorDetail(e) };
+}
+
+/** Said at the end of every refusal: the person's question is whether anything happened. */
+const NOTHING_SENT = 'Nothing was sent and no funds moved.';
+
+/**
+ * The words for a refusal, from the person's side: what is wrong with this swap and what to do. How
+ * Orientim works inside (keys, signatures, simulations, rules) stays out of them; the raw error is
+ * kept for "Copy details" and the console. The pipeline's own messages are for the agent API.
+ */
+function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
+  const m = e.message;
+  switch (e.code) {
+    case 'unsupported-token':
+      return { kind: 'error', title: "This token can't be swapped here", body: `A protected swap isn't available for this token. ${NOTHING_SENT}` };
+    case 'token-data-mismatch':
+      return { kind: 'error', title: "Token details couldn't be confirmed", body: `Reload the page and try again. ${NOTHING_SENT}` };
+    case 'output-account-restricted':
+      return /frozen/.test(m)
+        ? { kind: 'error', title: 'Your account for this token is frozen', body: `The token's issuer has frozen it, so it can't receive this swap. ${NOTHING_SENT}` }
+        : { kind: 'error', title: "Your account for this token can't receive this swap", body: `Its settings don't allow a swap to deliver to it. ${NOTHING_SENT}` };
+    case 'input-account-restricted':
+      return { kind: 'error', title: 'Your account for this token is frozen', body: `The token's issuer has frozen it, so it can't be sent. ${NOTHING_SENT}` };
+    case 'no-route':
+      return /does not fit/.test(m)
+        ? { kind: 'error', title: 'This amount is too large for one swap', body: `Try a smaller amount. ${NOTHING_SENT}` }
+        : { kind: 'error', title: 'No route available right now', body: `No market can complete this swap at the moment. Try another amount, or try again shortly. ${NOTHING_SENT}` };
+    case 'bad-quote':
+      return { kind: 'error', title: 'Prices are unavailable right now', body: `Try again in a moment. ${NOTHING_SENT}` };
+    case 'price-moved':
+      return { kind: 'info', title: 'Price updated', body: `Review the new price and swap again. ${NOTHING_SENT}` };
+    case 'insufficient-sol':
+      return { kind: 'error', title: 'Not enough SOL', body: `${m} ${NOTHING_SENT}` };
+    case 'insufficient-balance':
+      return { kind: 'error', title: 'Not enough of this token', body: `${m} ${NOTHING_SENT}` };
+    case 'costs-more':
+      return { kind: 'info', title: 'Best available rate is below market right now', body: `Try a smaller amount, or try again shortly. ${NOTHING_SENT}` };
+    case 'simulation-failed':
+      return /price moved|slippage/i.test(m)
+        ? {
+          kind: 'info', title: price.tolerance ? `Price moved beyond your ${price.tolerance} tolerance` : 'Price moved beyond your tolerance',
+          body: `${NOTHING_SENT} ${RAISE_TOLERANCE}${price.curveHint ? ` ${CURVE_HINT}` : ''}`,
+        }
+        : { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` };
+    case 'verification-failed':
+      return /network fee/i.test(m)
+        ? { kind: 'info', title: 'Network fees are too high right now', body: `Try again in a moment. ${NOTHING_SENT}` }
+        : { kind: 'error', title: 'Orientim stopped this swap before signing', body: `It didn't meet our safety checks. Try again, or try a different amount or token. ${NOTHING_SENT}` };
+    case 'wallet-changed-transaction': {
       const details = e.violations.map(v => v.detail);
       const title = details.includes('the wallet did not sign')
         ? "Your wallet didn't sign the transaction"
         : details.includes('the wallet changed the transaction message')
           ? 'Your wallet changed the transaction'
-          : "Your wallet's response didn't pass the check";
-      return { kind: 'error', title, body: `Bound stopped before adding the last signature${rules}. Nothing was sent and no funds moved.` };
+          : "Your wallet's answer couldn't be accepted";
+      return { kind: 'error', title, body: NOTHING_SENT };
     }
-    // A route can be priced perfectly and still not fit: 64 accounts per transaction is Solana's
-    // limit, and a very large swap needs more pools than that.
-    const title = e.code === 'no-route' && e.message.includes('does not fit')
-      ? 'This amount is too large for one protected transaction'
-      : titles[e.code];
-    return { kind: 'error', title, body: `${e.message}${rules} No funds moved.` };
+    case 'expired':
+      return { kind: 'info', title: 'The swap expired', body: `It wasn't approved in time. Try again. ${NOTHING_SENT}` };
+    case 'busy':
+      return { kind: 'info', title: 'Too many requests right now', body: 'Wait a few seconds and try again. Nothing was signed.' };
+    case 'unavailable':
+      return { kind: 'info', title: "The price service didn't answer", body: 'Try again in a moment. Nothing was signed.' };
+    case 'route-format':
+      return { kind: 'info', title: 'Swaps are paused for an update', body: 'Protected swaps will resume shortly. Nothing was signed.' };
+    case 'fee-unavailable':
+      return { kind: 'info', title: 'Swaps are temporarily unavailable', body: 'Try again later. Your funds are not affected.' };
+    case 'amount-too-small':
+      return { kind: 'error', title: 'This amount is too small', body: 'The smallest swap is about $1. Swap a larger amount.' };
+    case 'network-unavailable':
+      return { kind: 'info', title: "Couldn't reach the network", body: 'Try again in a moment. Nothing was signed.' };
+  }
+}
+
+function wordsFor(e: unknown, price: PriceContext = {}): Notice {
+  if (e instanceof HistoryNotSaved) return NO_STORAGE;
+  if (e instanceof OrientimError) {
+    // What exactly was refused is for whoever investigates, not for the person swapping (final audit).
+    if (e.violations.length) console.warn('Orientim refused this swap:', e.violations);
+    return orientimWords(e, price);
   }
   const message = String((e as Error)?.message ?? e);
   // An RPC failure is read from its HTTP status: a production build of kit replaces the message
@@ -294,23 +364,17 @@ function explainError(e: unknown): Notice {
   if (/reject|denied|cancel|4001/i.test(message)) return { kind: 'info', title: 'Swap cancelled in your wallet', body: 'No funds moved.' };
   if (/paused/i.test(message)) return { kind: 'info', title: 'Protected swaps are paused', body: 'Nothing was sent. Your funds are not affected.' };
   if (http === 429 || (e instanceof JupiterError && e.status === 429)) {
-    return { kind: 'info', title: 'Too many requests right now', body: 'Wait a few seconds and try again. Nothing was sent and no funds moved.' };
+    return { kind: 'info', title: 'Too many requests right now', body: 'Wait a few seconds and try again. Nothing was signed.' };
   }
   if (/ed25519/i.test(message)) {
-    return { kind: 'error', title: "This browser can't create Bound's one-time key", body: "Update it, or open Bound in your wallet's browser. No funds moved." };
+    return { kind: 'error', title: "This browser isn't supported", body: "Update it, or open Orientim in your wallet's browser. No funds moved." };
   }
   if ((http !== null && http >= 500) || jupiterBusy(e) || /failed to fetch|fetch failed|networkerror|load failed/i.test(message)) {
-    return {
-      kind: 'info', title: "Couldn't reach the network",
-      body: 'The connection to Solana or the price service failed. Nothing was sent and no funds moved; try again in a moment.',
-    };
+    return { kind: 'info', title: "Couldn't reach the network", body: `Check your connection and try again in a moment. ${NOTHING_SENT}` };
   }
   // The raw error is for the console, not the page: it is rarely readable, and never actionable.
   console.error(e);
-  return {
-    kind: 'error', title: 'Something went wrong',
-    body: 'Bound stopped before adding its signature, so this swap can never run. No funds moved. Try again.',
-  };
+  return { kind: 'error', title: 'Something went wrong', body: `${NOTHING_SENT} Try again.` };
 }
 
 /**
@@ -318,47 +382,54 @@ function explainError(e: unknown): Notice {
  * appears only when the transaction was refused before broadcast or can no longer execute.
  */
 function outcomeNotice(
-  status: SendOutcome, signature: string, t: SwapTexts, why: { refusal?: SendRefusal; onPrice?: boolean } = {},
+  status: SendOutcome, signature: string, t: SwapTexts,
+  why: { refusal?: SendRefusal; onPrice?: boolean; vsQuote?: string } & PriceContext = {},
 ): Notice {
   const link = solscan(signature);
   switch (status) {
     case 'confirmed':
+      // What the route could use, and nothing more is claimed: the network fee, and Orientim's fee
+      // when it is paid in SOL, also leave the wallet, as the card showed (independent audit, ORI-15).
       return {
         kind: 'success', title: t.received ? `Swapped ${t.paid} for ${t.received}` : `Swapped ${t.paid} for at least ${t.minimum}`,
-        body: `${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could spend only ${t.exposed} from your wallet.`,
+        body: `${why.vsQuote ? `${why.vsQuote} ` : ''}${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could use only ${t.exposed}.`,
         link,
       };
     case 'failed':
-      // The usual reason, and the one that needs no support: the market moved past the minimum.
+      // The usual reason, and the one that needs no support: the market moved past the minimum. The
+      // minimum held, which is the protection working, and said as such.
       return why.onPrice
         ? {
-          kind: 'error', title: 'The price moved before the swap landed',
-          body: `Less than your minimum of ${t.minimum} would have arrived, so the swap reverted and nothing was swapped. Only the network fee was paid; you can try again.`,
+          kind: 'info', title: why.tolerance ? `Swap cancelled: price moved beyond your ${why.tolerance} tolerance` : 'Swap cancelled: price moved beyond your tolerance',
+          body: `Your minimum of ${t.minimum} was enforced on-chain, so nothing was swapped. Only the network fee was used. ${RAISE_TOLERANCE}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
           link,
         }
-        : { kind: 'error', title: 'The swap failed on chain and was reverted', body: 'Only the network fee was paid.', link };
+        : { kind: 'error', title: "The swap didn't complete", body: 'It was reverted on the network. Only the network fee was paid.', link };
     case 'expired':
       return { kind: 'info', title: "The swap didn't land in time", body: 'It expired without executing and can no longer execute. No funds moved.', link };
     case 'rejected':
       if (why.refusal === 'paused') {
-        return { kind: 'info', title: 'Protected swaps were paused', body: 'Bound paused new swaps before this one was sent. It was never broadcast, so no funds moved.' };
+        return { kind: 'info', title: 'Protected swaps were paused', body: "New swaps were paused before this one was sent. It wasn't sent, so no funds moved." };
       }
       if (why.refusal === 'busy') {
-        return { kind: 'info', title: 'Too many requests right now', body: 'This swap was never broadcast, so no funds moved. Wait a few seconds and try again.' };
+        return { kind: 'info', title: 'Too many requests right now', body: "This swap wasn't sent, so no funds moved. Wait a few seconds and try again." };
       }
       return {
-        kind: 'info', title: 'Solana refused the swap before sending it',
-        body: 'It was never broadcast, so no funds moved. This usually means the price moved; try again.',
+        kind: 'info', title: "The network didn't accept the swap",
+        body: "It wasn't sent, so no funds moved. The price may have changed; try again.",
       };
     default:
       return {
         kind: 'info', title: "We couldn't confirm the result yet",
-        body: 'The swap may still go through or may already have. Check it on Solscan before trying again.', link,
+        body: "It may still complete. Orientim keeps checking and won't start another swap from this wallet until it knows.", link,
       };
   }
 }
 
-/** Pending or unknown swaps from earlier visits, settled from the chain (audit C-03). */
+/**
+ * Pending or unknown swaps, settled from the chain (audit C-03): on every visit, and every few
+ * seconds while one of them holds the wallet's next swap back (third audit, F2).
+ */
 async function settleHistory(): Promise<HistoryEntry[] | null> {
   const open = readHistory().filter(isUnsettled);
   if (!open.length) return null;
@@ -368,18 +439,24 @@ async function settleHistory(): Promise<HistoryEntry[] | null> {
   // the finalized slot whose height they are compared with; a lagging node proves no expiry (FA-07).
   const first = await statusesCovering(rpc, signatures);
   // Once the recorded lifetime is over, look again: one empty read is not enough evidence for the UI
-  // to invite a retry, and the second view must cover the lifetime too.
+  // to invite a retry, and the second view must prove it too (the lower covered height, the higher
+  // reach: the two together must still hold every block the swap could have landed in).
   const needsSecondLookup = open.some((h, i) =>
-    settledHistoryStatus(h, first.statuses[i] as SignatureState, first.coveredHeight) === 'expired');
+    settledHistoryStatus(h, first.statuses[i] as SignatureState, first) === 'expired');
   const second = needsSecondLookup ? await statusesCovering(rpc, signatures) : null;
-  const covered = !second ? first.coveredHeight
-    : first.coveredHeight === null || second.coveredHeight === null ? null
-      : second.coveredHeight < first.coveredHeight ? second.coveredHeight : first.coveredHeight;
+  const lower = (a: bigint | null, b: bigint | null) => (a === null || b === null ? null : a < b ? a : b);
+  const higher = (a: bigint | null, b: bigint | null) => (a === null || b === null ? null : a > b ? a : b);
+  const view = !second ? first : {
+    coveredHeight: lower(first.coveredHeight, second.coveredHeight),
+    reachHeight: higher(first.reachHeight, second.reachHeight),
+  };
   let list: HistoryEntry[] | null = null;
   for (const [i, h] of open.entries()) {
     const state = (first.statuses[i] ?? second?.statuses[i] ?? null) as SignatureState;
-    const next: HistoryStatus | null = settledHistoryStatus(h, state, covered);
+    const next: HistoryStatus | null = settledHistoryStatus(h, state, view);
     if (next) list = updateHistory(h.signature, next);
+    // It can no longer land, and nothing proves whether it did: unknown until someone looks it up.
+    else if (lifetimeOver(h, view) && !h.over) list = updateHistory(h.signature, 'unknown', undefined, { over: true });
   }
   return list;
 }
@@ -395,24 +472,34 @@ export function SwapApp() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [account, setAccount] = useState<WalletAccount | null>(null);
   const [walletMenu, setWalletMenu] = useState(false);
+  // The connected wallet's menu (copy the address, disconnect), as swap sites have it.
+  const [accountMenu, setAccountMenu] = useState(false);
+  const [addressCopied, setAddressCopied] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+  // The rate reads "1 input ≈ x output" until the user turns it around.
+  const [rateInverted, setRateInverted] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [balances, setBalances] = useState<{ sol: bigint; tokenIn: bigint } | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [detailsCopied, setDetailsCopied] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   // What the chain says about each selected mint: decimals and token program (audit C-01).
   const [facts, setFacts] = useState<Record<string, MintFacts | 'missing'>>({});
-  // Rent for a new token account, from the cluster (audit C-09).
-  const [rent, setRent] = useState<bigint | null>(null);
-  // Accounts that decide the Bound fee and the one-time costs shown before signing (audit B-09).
-  /** Where the Bound fee is taken, like Jupiter's: SOL first, then USDC and USDT, on either side; else the input. */
+  // Accounts that decide the Orientim fee and the one-time costs shown before signing (audit B-09).
+  /** Where the Orientim fee is taken, like Jupiter's: SOL first, then USDC and USDT, on either side; else the input. */
   const [feeSide, setFeeSide] = useState<FeeSide | null>('input');
-  const [outputAccountExists, setOutputAccountExists] = useState(true);
   const [clock, setClock] = useState(0);
   const [refreshes, setRefreshes] = useState(0);
+  // The person's slippage choice (⚙️): "auto" unless they chose one. Read after the first render, since
+  // the server renders without the browser's storage.
+  const [slippage, setSlippage] = useState<SlippageChoice>('auto');
+  useEffect(() => setSlippage(loadSlippage()), []);
+  const pageSettings = useMemo(() => withSlippage(DEFAULT_SETTINGS, slippage), [slippage]);
   // How many times in a row Jupiter refused the price as busy, and until when nothing is built ahead.
   const [busyTries, setBusyTries] = useState(0);
   const busyUntil = useRef(0);
@@ -424,6 +511,30 @@ export function SwapApp() {
   // beside the selected tokens instead of falling back to the classic program while they load.
   const inFacts = tokenIn ? facts[tokenIn.id] : undefined;
   const outFacts = tokenOut ? facts[tokenOut.id] : undefined;
+
+  // --- every message other than a success is kept in this browser with the raw error behind it, so
+  // one replaced by the next click can still be read (lib/client/problems). Nothing is sent anywhere.
+  const shown = useRef<Problem | null>(null);
+  useEffect(() => watchUncaught(), []);
+  useEffect(() => {
+    setDetailsCopied(false);
+    if (!notice || notice.kind === 'success') return;
+    const pair = tokenIn && tokenOut ? `${amountText || '?'} ${tokenIn.symbol} → ${tokenOut.symbol}` : 'no pair';
+    const who = wallet ? `${wallet.name} ${wallet.version}` : 'no wallet';
+    shown.current = {
+      at: Date.now(), kind: notice.kind, title: notice.title, body: notice.body, detail: notice.detail,
+      context: `${pair}, ${who}${notice.link ? `, ${notice.link}` : ''}`,
+    };
+    recordProblem(shown.current);
+    // Recorded once per message; the pair and wallet are read as they are when it appears.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notice]);
+
+  function copyDetails() {
+    if (!shown.current) return;
+    navigator.clipboard.writeText(problemsReport([shown.current], navigator.userAgent))
+      .then(() => setDetailsCopied(true), () => setDetailsCopied(false));
+  }
 
   // --- bootstrap
   // The page's settings and the kill switch. Without them nothing can be swapped, so a failure is
@@ -467,17 +578,6 @@ export function SwapApp() {
     settleHistory().then(list => list && setHistory(list)).catch(() => undefined);
   }, []);
 
-  // Rent for a new account of the selected output token, at the size the token program gives it:
-  // a Token-2022 account with a transfer fee or hook is larger than a classic one.
-  const outAccountSize = outFacts && outFacts !== 'missing' ? BigInt(outFacts.accountSize) : TOKEN_ACCOUNT_SIZE;
-  useEffect(() => {
-    let cancelled = false;
-    getRpc().getMinimumBalanceForRentExemption(outAccountSize).send()
-      .then(v => { if (!cancelled) setRent(BigInt(v)); })
-      .catch(() => { if (!cancelled) setRent(null); });
-    return () => { cancelled = true; };
-  }, [outAccountSize]);
-
   // --- on-chain facts for the selected tokens
   useEffect(() => {
     for (const t of [tokenIn, tokenOut]) {
@@ -520,9 +620,9 @@ export function SwapApp() {
   }, [refreshBalances]);
 
   // The fee is taken like Jupiter's: in SOL first, then USDC or USDT, on whichever side of the swap
-  // the treasury can receive them; otherwise in the input token; otherwise not at all (Bound never
-  // makes the user pay rent for Bound's account). No output account yet → the user pays its rent
-  // once and keeps it.
+  // the treasury can receive them; otherwise in the input token; otherwise not at all (Orientim never
+  // makes the user pay rent for Orientim's account). A new output account's deposit is Solana's and
+  // stays the user's, as on every swap site, so it is not listed as a cost (the owner's choice).
   const refreshAccounts = useCallback(async () => {
     const exists = async (a: Address) =>
       (await getRpc().getAccountInfo(a, { encoding: 'base64', commitment: 'confirmed' }).send()).value !== null;
@@ -547,11 +647,8 @@ export function SwapApp() {
         sol: walletReady,
       })
       : null;
-    const out = W && tokenOut && tokenOut.id !== SOL_MINT && outFacts && outFacts !== 'missing'
-      ? await exists(await mintAta(W, tokenOut.id, outFacts))
-      : true;
-    return { fee, out };
-  }, [tokenIn, tokenOut, W, inFacts, outFacts]);
+    return { fee };
+  }, [tokenIn, tokenOut, inFacts, outFacts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -559,7 +656,6 @@ export function SwapApp() {
       .then(r => {
         if (cancelled) return;
         setFeeSide(r.fee);
-        setOutputAccountExists(r.out);
       })
       .catch(() => undefined);
     return () => {
@@ -618,19 +714,19 @@ export function SwapApp() {
           // The same amount the swap itself will route: what is left after the token's own tax.
           inputMint: address(tokenIn.id), outputMint: address(tokenOut.id),
           amount: amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts),
-          taker: address(QUOTE_TAKER), slippageBps: DEFAULT_SETTINGS.slippageBps, maxAccounts: 64,
+          taker: address(QUOTE_TAKER), slippageBps: pageSettings.chosenSlippageBps ?? DEFAULT_SETTINGS.slippageBps, maxAccounts: 64,
           excludeDexes: status?.excludeDexes ?? DEFAULT_SETTINGS.excludeDexes,
         })
         .then(r => {
           if (cancelled) return;
           setBusyTries(0);
-          // Shown only if it answers this exact trade; the minimum is computed by Bound (C-02), with
+          // Shown only if it answers this exact trade; the minimum is computed by Orientim (C-02), with
           // the wider tolerance when the route trades on a Pump.fun bonding curve.
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
           setQuote(answersThis
             ? {
-              out: BigInt(r.outAmount), minOut: quotedMinimum(r, DEFAULT_SETTINGS), curve: isCurveRoute(r),
+              out: BigInt(r.outAmount), minOut: quotedMinimum(r, pageSettings), curve: isCurveRoute(r),
               impact: Number.isFinite(Number(r.priceImpactPct)) ? Math.max(0, Number(r.priceImpactPct)) : 0, at: Date.now(),
             }
             : null);
@@ -653,7 +749,7 @@ export function SwapApp() {
       clearTimeout(timer);
       setQuoting(false);
     };
-  }, [tokenIn, tokenOut, swapAmount, status, clock, inFacts]);
+  }, [tokenIn, tokenOut, swapAmount, status, clock, inFacts, pageSettings]);
 
   // A change of pair or amount makes the shown quote meaningless at once, and it is the user
   // acting, so the automatic refreshes start over.
@@ -676,15 +772,20 @@ export function SwapApp() {
   const blocker = useMemo((): string | null => {
     if (status && !status.enabled) return 'Protected swaps are paused';
     if (!W) return null;
+    // A swap from this wallet that the chain has not settled holds the next one back, whatever the
+    // time: a retry waits for the chain's answer, so the same swap never runs twice (third audit, F2).
+    if (unsettledFor(history, W).length) return 'Waiting for your last swap';
     if (!tokenIn || !tokenOut) return 'Select tokens';
     if (tokenIn.id === tokenOut.id) return 'Choose two different tokens';
     if (inFacts === 'missing' || outFacts === 'missing') return 'That address is not a token';
     if (!inFacts || !outFacts) return 'Reading token details…';
     const refused = inFacts.unsupported ?? outFacts.unsupported;
-    if (refused) return `Bound can't swap this token safely: ${plainRefusal(refused)}`;
+    if (refused) return `Orientim can't swap this token safely: ${plainRefusal(refused)}`;
     if (!amountIn || amountIn <= 0n) return 'Enter an amount';
     if (amountIn > MAX_U64) return 'Amount is too large';
     if (swapAmount !== null && swapAmount <= 0n) return 'Amount is too small';
+    // Said before anything is asked of Jupiter or the chain; the pipeline holds to it too.
+    if (TREASURY && usdValue !== null && usdValue < MIN_SWAP_USD) return `Minimum swap: ${formatUsd(MIN_SWAP_USD)}`;
     if (balances && amountIn > balances.tokenIn) return `Insufficient ${tokenIn.symbol}`;
     const solNeeded = SOL_RESERVE_LAMPORTS + (tokenIn.id === SOL_MINT ? amountIn : 0n);
     if (balances && balances.sol < solNeeded) return 'Not enough SOL for network fees';
@@ -707,7 +808,30 @@ export function SwapApp() {
     return null;
     // `clock` re-evaluates the age of the quote.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes, busyTries]);
+  }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes, busyTries, history]);
+
+  // --- another tab of this page may record or settle a swap: its history is this tab's too, so a swap
+  // started there holds this wallet back here as well (third audit, F2).
+  useEffect(() => {
+    const sync = (e: StorageEvent) => {
+      if (e.key === HISTORY_KEY) setHistory(readHistory());
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
+
+  // --- a swap this wallet waits on is looked up again while the page is visible: every 10 s while it
+  // could still land or be proven expired, every 30 s once only a full history could tell (F2).
+  const waitingOn = W ? unsettledFor(history, W) : [];
+  const onlyByHand = waitingOn.length > 0 && waitingOn.every(h => h.over);
+  useEffect(() => {
+    if (!waitingOn.length || phase !== 'idle') return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      settleHistory().then(list => list && setHistory(list)).catch(() => undefined);
+    }, onlyByHand ? SETTLE_BY_HAND_MS : SETTLE_EVERY_MS);
+    return () => clearInterval(timer);
+  }, [waitingOn.length, onlyByHand, phase]);
 
   // --- connect
   async function connect(w: Wallet) {
@@ -724,10 +848,31 @@ export function SwapApp() {
   }
 
   async function disconnect() {
+    setAccountMenu(false);
     if (wallet) await disconnectWallet(wallet).catch(() => undefined);
     setWallet(null);
     setAccount(null);
     setBalances(null);
+  }
+
+  useEffect(() => {
+    if (!accountMenu) return;
+    const outside = (e: MouseEvent) => {
+      if (!accountRef.current?.contains(e.target as Node)) setAccountMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setAccountMenu(false);
+    document.addEventListener('mousedown', outside);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', outside);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [accountMenu]);
+
+  function copyAddress() {
+    if (!W) return;
+    navigator.clipboard.writeText(W).then(() => setAddressCopied(true), () => setAddressCopied(false));
+    setTimeout(() => setAddressCopied(false), 1_500);
   }
 
   /** Shows the new minimum and waits for the user; no answer within 45 s counts as no. */
@@ -755,12 +900,14 @@ export function SwapApp() {
     rpc: getRpc(),
     jupiter: getJupiter(),
     settings: {
-      ...DEFAULT_SETTINGS,
+      ...pageSettings,
       feeBps: FEE_BPS,
       treasury: TREASURY,
       excludeDexes: s.excludeDexes,
       maxNetworkFeeLamports: BigInt(s.maxNetworkFeeLamports),
       jupiterProgram: JUPITER_PROGRAM,
+      // The smallest swap, about $1: none costs more to build than its fee brings.
+      ...(TREASURY ? { minFee: MIN_FEE } : {}),
     },
   });
 
@@ -784,7 +931,7 @@ export function SwapApp() {
           },
         );
       } catch (e) {
-        if (!(e instanceof BoundError) || round >= 2) throw e;
+        if (!(e instanceof OrientimError) || round >= 2) throw e;
         // A route too big for v0 may fit in v1, for a wallet that signs it (research audit F-13).
         if (e.code === 'no-route' && e.message.includes('does not fit') && version === 0 && args.v1Fallback) {
           version = 1;
@@ -797,6 +944,7 @@ export function SwapApp() {
             kind: 'price',
             was: `${formatExact(accepted, args.outDecimals)} ${symbol}`,
             now: `${formatExact(e.priceMoved.newMinReceived, args.outDecimals)} ${symbol}`,
+            tolerance: percentText(pageSettings.chosenSlippageBps ?? (args.expectCurve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)),
           });
           if (!accept) return null;
           accepted = e.priceMoved.newMinReceived;
@@ -828,7 +976,15 @@ export function SwapApp() {
   // Built once per amount, for its first price (and again when the user refreshes it), not on every
   // automatic refresh; and not while Jupiter is busy, since a build nobody clicks on still spends
   // the site's shared quota.
-  const ahead = useRef<{ key: string; startedAt: number; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
+  //
+  // What a build ahead may cost (the owner's rule): it starts only once the amount has stayed the same
+  // for AHEAD_SETTLE_MS, one at a time, and at most AHEAD_PER_MINUTE a minute. Someone trying amounts
+  // costs a build or two, not one per keystroke; the click builds as before when none is ready.
+  const ahead = useRef<{ key: string; startedAt: number; settled: boolean; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
+  const aheadStarts = useRef<number[]>([]);
+  // The build ahead passed every rule for exactly these inputs: the card may say "Verified" (and only then).
+  const [verifiedKey, setVerifiedKey] = useState<string | null>(null);
+  const [aheadSettledAt, setAheadSettledAt] = useState(0);
   useEffect(() => {
     if (phase !== 'idle' || blocker || !wallet || !W || !tokenIn || !tokenOut || !amountIn || !quote || !status || minReceived === null) return;
     if (inDecimals === null || outDecimals === null) return;
@@ -837,19 +993,35 @@ export function SwapApp() {
     if (version === null) return;
     const key = aheadKey(W, tokenIn.id, tokenOut.id, amountIn, quote.at, version, minReceived);
     if (ahead.current?.key === key) return;
+    // One at a time: a build still running for an older amount is left to finish, then this runs again.
+    if (ahead.current && !ahead.current.settled) return;
+    const now = Date.now();
+    aheadStarts.current = aheadStarts.current.filter(t => now - t < 60_000);
+    if (aheadStarts.current.length >= AHEAD_PER_MINUTE) return;
     const request = {
       owner: W, inputMint: address(tokenIn.id), outputMint: address(tokenOut.id), amountIn,
       inputDecimals: inDecimals, outputDecimals: outDecimals, acceptedMinReceived: minReceived, expectCurve: quote.curve, version,
     };
-    const task = (async () => {
-      const E = await createEphemeral();
-      return { prepared: await prepareProtectedSwap(swapDeps(status), { ...request, ephemeral: E }), E };
-    })().catch((e: unknown) => {
-      if (busyError(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
-      return null;
-    });
-    ahead.current = { key, startedAt: Date.now(), task };
-  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals, refreshes, minReceived]);
+    const timer = setTimeout(() => {
+      aheadStarts.current.push(Date.now());
+      const entry = { key, startedAt: Date.now(), settled: false, task: null as unknown as Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> };
+      entry.task = (async () => {
+        const E = await createEphemeral();
+        return { prepared: await prepareProtectedSwap(swapDeps(status), { ...request, ephemeral: E }), E };
+      })().then(built => {
+        setVerifiedKey(key);
+        return built;
+      }).catch((e: unknown) => {
+        if (busyError(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
+        return null;
+      }).finally(() => {
+        entry.settled = true;
+        setAheadSettledAt(Date.now());
+      });
+      ahead.current = entry;
+    }, AHEAD_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [phase, blocker, wallet, W, tokenIn, tokenOut, amountIn, quote, status, inDecimals, outDecimals, refreshes, minReceived, aheadSettledAt]);
 
   // --- the protected swap: build + verify → wallet signs first → re-verify → E signs last → send
   async function swap() {
@@ -861,11 +1033,17 @@ export function SwapApp() {
     if (version === null) {
       setNotice({
         kind: 'error', title: `${wallet.name} can't sign this kind of transaction`,
-        body: 'Bound needs a wallet that supports versioned transactions. Nothing was signed.',
+        body: 'Orientim needs a wallet that supports versioned transactions. Nothing was signed.',
       });
       return;
     }
-    // Decision A: one Bound swap at a time into the same token, across tabs.
+    // A swap is sent only once its record is kept, so this browser must keep one: asked before the
+    // wallet opens, not after the user signed (third audit, F3).
+    if (!historyWorks()) {
+      setNotice(NO_STORAGE);
+      return;
+    }
+    // Decision A: one Orientim swap at a time into the same token, across tabs.
     const lock = acquireSwapLock(W, outToken.id);
     if (!lock) {
       setNotice({
@@ -880,6 +1058,12 @@ export function SwapApp() {
     const sent: { signature: string | null } = { signature: null };
     let settled = true;
     const texts: SwapTexts = { paid: `${formatUnits(amountIn, inDecimals)} ${inToken.symbol}`, received: '', exposed: '', minimum: '' };
+    // The tolerance this swap is built at, for the words about its price.
+    const priceContext: PriceContext = {
+      tolerance: percentText(pageSettings.chosenSlippageBps ?? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)),
+      curveHint: quote.curve && pageSettings.chosenSlippageBps !== undefined && pageSettings.chosenSlippageBps < DEFAULT_SETTINGS.curveSlippageBps,
+    };
+    let vsQuote = '';
     const cancelled = () => setNotice({ kind: 'info', title: 'Swap cancelled', body: 'Nothing was signed and no funds moved.' });
     // A build made ahead of the click is used at most once.
     const early = ahead.current;
@@ -922,10 +1106,10 @@ export function SwapApp() {
         // Without a height, how long the swap stays valid is unknown: the wallet is not opened on a
         // guess (final audit, M-04).
         if (left === null) {
-          throw new BoundError('network-unavailable', "Bound couldn't read how long this swap stays valid, so your wallet was not opened. Nothing was signed; try again in a moment.");
+          throw new OrientimError('network-unavailable', "Couldn't read the network's block height, so the wallet was not opened. Nothing was signed; try again in a moment.");
         }
         if (left >= MIN_BLOCKS_FOR_WALLET) break;
-        if (round === 2) throw new BoundError('expired', "The swap's time ran out while it was being prepared or while you answered. Nothing was signed; try again.");
+        if (round === 2) throw new OrientimError('expired', "The swap's time ran out while it was being prepared or while you answered. Nothing was signed; try again.");
         setPhase('checking');
         const again = await build(E, prepared.quote.minReceived);
         if (!again) return cancelled();
@@ -934,17 +1118,13 @@ export function SwapApp() {
       }
       texts.minimum = `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
-      const newAccountRent = prepared.oneTimeCosts.outputAccountRent;
       // What the market keeps: the rent it takes, less what closing its account returns (FA-05).
       const routeRent = keptByMarket(prepared);
       setPending({
         minReceived: `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`,
         networkFee: `${formatExact(prepared.networkFeeLamports, 9)} SOL`,
-        oneTimeCost: [
-          newAccountRent > 0n ? `${formatExact(newAccountRent, 9)} SOL opens your ${outToken.symbol} account (one time, stays yours)` : '',
-          // Pump.fun charges every new buyer a small account deposit, and it does not come back.
-          routeRent > 0n ? `${formatExact(routeRent, 9)} SOL account fee charged by this market` : '',
-        ].filter(Boolean).join('; ') || null,
+        // Pump.fun charges every new buyer a small account deposit, and it does not come back.
+        oneTimeCost: routeRent > 0n ? `${formatExact(routeRent, 9)} SOL account fee charged by this market` : null,
         busyNetwork: prepared.priorityFeeCapped
           ? 'The network is busy and the network fee is at its limit, so this swap may take longer to land, or expire without executing. An expired swap costs nothing.'
           : null,
@@ -953,10 +1133,10 @@ export function SwapApp() {
           : null,
         tokenTax: prepared.tokenTax
           ? `${inToken.symbol} charges ${prepared.tokenTax.inputBps / 100}% on every transfer. Moving your ${inToken.symbol} into the protected account costs `
-            + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Bound.`
+            + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Orientim.`
           : null,
         solFee: prepared.policy.feeSide === 'sol' && prepared.policy.fee > 0n
-          ? `${formatExact(prepared.policy.fee, 9)} SOL from your wallet, at the swap's value in SOL now`
+          ? `${formatExact(prepared.policy.fee, 9)} SOL`
           : null,
       });
       setPhase('wallet');
@@ -967,10 +1147,18 @@ export function SwapApp() {
       // The minimum is checked on chain as W_out's balance before plus the minimum. If that balance
       // moved while the wallet was open (another swap into this token, from another device, or a
       // transfer), the check could count those tokens: stop before E signs (review FA-04).
-      if (!(await outputBalanceUnchanged(toSend))) {
+      const balanceKept = await outputBalanceUnchanged(toSend);
+      if (balanceKept === null) {
+        setNotice({
+          kind: 'info', title: `Your ${outToken.symbol} balance couldn't be confirmed`,
+          body: 'The swap was stopped before sending. Nothing was sent and no funds moved; try again in a moment.',
+        });
+        return;
+      }
+      if (!balanceKept) {
         setNotice({
           kind: 'info', title: `Your ${outToken.symbol} balance changed while the wallet was open`,
-          body: 'Another swap or a transfer arrived. Bound stopped before adding its signature, so this swap can never run. No funds moved; try again.',
+          body: 'Another swap or a transfer arrived, so this swap was stopped before sending. Nothing was sent and no funds moved; try again.',
         });
         return;
       }
@@ -980,23 +1168,30 @@ export function SwapApp() {
         rpc: getRpc(), prepared: toSend, walletSignedBytes: signed, ephemeral: E,
         onStatus: (s, signature) => {
           if (s !== 'sending') return;
-          // Recorded before anything is sent, so it is never lost (C-03).
-          sent.signature = signature;
+          // Recorded before anything is sent, and never sent unless recorded, so it is never lost
+          // (C-03, third audit F3): `addHistory` throws when this browser did not keep the record,
+          // and the send stops before its first request.
           setHistory(addHistory({
-            at: Date.now(), signature, status: 'pending',
+            at: Date.now(), signature, status: 'pending', owner: W,
             lastValidBlockHeight: toSend.lifetime.lastValidBlockHeight.toString(),
             ...texts, received: `at least ${texts.minimum}`,
           }));
+          sent.signature = signature;
         },
       });
       if (result.status === 'confirmed') {
         const got = await actualReceived(result.signature, toSend);
-        if (got !== null) texts.received = `${formatExact(got, outDecimals)} ${outToken.symbol}`;
+        if (got !== null) {
+          texts.received = `${formatExact(got, outDecimals)} ${outToken.symbol}`;
+          // Against the quote, net of a fee taken from the output.
+          const expected = toSend.quote.outAmount - (toSend.policy.feeSide === 'output' ? toSend.policy.fee : 0n);
+          vsQuote = fillAgainstQuote(got, expected, priceContext.tolerance ?? '');
+        }
       }
       setHistory(updateHistory(result.signature, result.status, texts.received || undefined));
       settled = result.status !== 'unknown';
       const onPrice = result.status === 'failed' && revertedOnPrice(toSend.transaction, result.error, JUPITER_PROGRAM);
-      setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice }));
+      setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice, vsQuote, ...priceContext }));
       if (result.status === 'confirmed') setAmountText('');
     } catch (e) {
       if (sent.signature) {
@@ -1006,7 +1201,7 @@ export function SwapApp() {
         setNotice(outcomeNotice('unknown', sent.signature, texts));
       } else {
         if (busyError(e) || jupiterBusy(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
-        setNotice(explainError(e));
+        setNotice(explainError(e, priceContext));
       }
     } finally {
       lock.release(settled);
@@ -1014,10 +1209,7 @@ export function SwapApp() {
       setPending(null);
       refreshBalances().catch(() => undefined);
       refreshAccounts()
-        .then(r => {
-          setFeeSide(r.fee);
-          setOutputAccountExists(r.out);
-        })
+        .then(r => setFeeSide(r.fee))
         .catch(() => undefined);
     }
   }
@@ -1026,7 +1218,7 @@ export function SwapApp() {
   const busy = phase !== 'idle';
   const buttonLabel = (() => {
     if (phase === 'checking') return 'Checking protection…';
-    if (phase === 'confirm') return 'The price moved';
+    if (phase === 'confirm') return 'Review the update';
     if (phase === 'wallet') return `Approve in ${wallet?.name ?? 'your wallet'}`;
     if (phase === 'sending') return 'Sending…';
     if (!W) return 'Connect wallet';
@@ -1044,20 +1236,38 @@ export function SwapApp() {
     setAmountText('');
   };
 
-  const setMax = () => {
+  // Max keeps enough SOL for the fees and the swap's temporary accounts when SOL is what is paid.
+  const maxIn = balances && tokenIn ? (tokenIn.id === SOL_MINT ? balances.tokenIn - SOL_RESERVE_LAMPORTS * 2n : balances.tokenIn) : 0n;
+  const setShare = (half: boolean) => {
     if (!balances || !tokenIn || inDecimals === null) return;
-    const max = tokenIn.id === SOL_MINT ? balances.tokenIn - SOL_RESERVE_LAMPORTS * 2n : balances.tokenIn;
-    if (max > 0n) setAmountText(formatExact(max, inDecimals).replace(/,/g, ''));
+    const amount = half ? (balances.tokenIn / 2n < maxIn ? balances.tokenIn / 2n : maxIn) : maxIn;
+    if (amount > 0n) setAmountText(formatExact(amount, inDecimals).replace(/,/g, ''));
   };
+
+  // What swap sites show under the amounts and above the button: the output's value in USD, the rate,
+  // the price impact, the tolerance and the minimum. Display only: every amount that is enforced
+  // is computed in base units elsewhere.
+  const shownOut = quote ? quote.out - (outputFee ?? 0n) : null;
+  const outPrice = usablePrice(tokenOut);
+  const outUsd = shownOut !== null && shownOut > 0n && outPrice !== null && outDecimals !== null ? (Number(shownOut) / 10 ** outDecimals) * outPrice : null;
+  const rate = (() => {
+    if (!quote || shownOut === null || shownOut <= 0n || !amountIn || !tokenIn || !tokenOut || inDecimals === null || outDecimals === null) return null;
+    const perIn = (Number(shownOut) / 10 ** outDecimals) / (Number(amountIn) / 10 ** inDecimals);
+    const n = (x: number) => x.toLocaleString('en-US', { maximumSignificantDigits: 6 });
+    return rateInverted ? `1 ${tokenOut.symbol} ≈ ${n(1 / perIn)} ${tokenIn.symbol}` : `1 ${tokenIn.symbol} ≈ ${n(perIn)} ${tokenOut.symbol}`;
+  })();
+  const tolerance = quote
+    ? (pageSettings.chosenSlippageBps ?? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)) / 100
+    : null;
 
   const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
   if (quote && quote.impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(quote.impact)}: this amount moves the market price.`);
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
-  // A token that taxes its own transfers costs more through Bound, because the protected account
+  // A token that taxes its own transfers costs more through Orientim, because the protected account
   // is one extra transfer. Said before the swap, not after it.
   if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
     inWarnings.push(
-      `${tokenIn.symbol} charges ${inFacts.transferFee.bps / 100}% on every transfer, and a protected swap makes one transfer more than an unprotected one, so you pay it twice. The tax goes to the token, not to Bound.`,
+      `${tokenIn.symbol} charges ${inFacts.transferFee.bps / 100}% on every transfer, and this swap moves it twice, so the tax applies twice. The tax goes to the token, not to Orientim.`,
     );
   }
   if (tokenOut && outFacts && outFacts !== 'missing' && outFacts.transferFee) {
@@ -1065,46 +1275,58 @@ export function SwapApp() {
       `${tokenOut.symbol} charges ${outFacts.transferFee.bps / 100}% on every transfer: the amount shown is what arrives after it.`,
     );
   }
-  // An issuer that can move the token anywhere is the token's nature, not something Bound grants:
+  // An issuer that can move the token anywhere is the token's nature, not something Orientim grants:
   // it can, in this wallet as in any other. What protects this swap from it is the minimum output,
   // which counts what reaches your account (review BR-05). The user is told before they hold it.
   for (const [token, f, list] of [[tokenIn, inFacts, inWarnings], [tokenOut, outFacts, outWarnings]] as const) {
     if (token && f && f !== 'missing' && f.issuerCanMove) {
-      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it; Bound neither adds nor changes it, and your minimum output still holds in this swap.`);
+      list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it, and your minimum still holds in this swap.`);
     }
   }
   const deepLink = typeof window !== 'undefined' ? encodeURIComponent(window.location.href) : '';
   const origin = typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : '';
 
+  const version = wallet ? chooseVersion(supportedVersions(wallet), V1_ENABLED) : null;
+  const shownKey = W && tokenIn && tokenOut && amountIn && quote && version !== null && minReceived !== null
+    ? aheadKey(W, tokenIn.id, tokenOut.id, amountIn, quote.at, version, minReceived) : null;
+  const badge: [string, string] = status && !status.enabled ? ['paused', 'Paused']
+    : phase === 'checking' ? ['checking', 'Checking…']
+      : phase === 'wallet' || phase === 'sending' || (shownKey !== null && verifiedKey === shownKey) ? ['verified', 'Verified']
+        : ['ready', 'Protection on'];
+
   return (
-    <main className="page">
-      <header className="top">
-        <span className="brand">
-          <ShieldIcon /> Bound
-        </span>
-        {W ? (
-          <button className="ghost wallet-pill" onClick={disconnect} title="Disconnect">
-            {wallet?.icon && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={wallet.icon} alt="" width={18} height={18} />
+    <>
+      <SiteHeader
+        right={W ? (
+          <div className="account" ref={accountRef}>
+            <button className="ghost wallet-pill" onClick={() => setAccountMenu(v => !v)} aria-expanded={accountMenu}>
+              {wallet?.icon && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={wallet.icon} alt="" width={18} height={18} />
+              )}
+              {shortAddress(W)} ▾
+            </button>
+            {accountMenu && (
+              <div className="account-menu" role="menu">
+                <button role="menuitem" onClick={copyAddress}>{addressCopied ? 'Copied' : 'Copy address'}</button>
+                <button role="menuitem" onClick={disconnect}>Disconnect</button>
+              </div>
             )}
-            {shortAddress(W)}
-          </button>
+          </div>
         ) : (
-          <button className="ghost" onClick={() => setWalletMenu(v => !v)}>
+          <button className="ghost connect" onClick={() => setWalletMenu(true)}>
             Connect wallet
           </button>
         )}
-      </header>
+      />
 
       {walletMenu && !W && (
-        <section className="card wallets">
-          <p className="label">Choose a wallet</p>
+        <Modal title="Connect a wallet" onClose={() => setWalletMenu(false)}>
           {wallets.length === 0 ? (
             <div className="muted">
               <p>No Solana wallet was found in this browser.</p>
               <p>
-                On a phone, open Bound inside your wallet:{' '}
+                On a phone, open Orientim inside your wallet:{' '}
                 <a href={`https://phantom.app/ul/browse/${deepLink}?ref=${origin}`}>Phantom</a>
                 {' · '}
                 <a href={`https://solflare.com/ul/v1/browse/${deepLink}?ref=${origin}`}>Solflare</a>
@@ -1121,22 +1343,60 @@ export function SwapApp() {
               </button>
             ))
           )}
-        </section>
+        </Modal>
       )}
 
+      <section className="hero" id="swap">
+        <div className="container hero-grid">
+          <div className="hero-copy">
+            <p className="eyebrow">Protected swaps on Solana</p>
+            <h1 className="hero-title">Swap without handing over your wallet.</h1>
+            <p className="hero-sub">
+              Every swap runs through a one-time key that holds only the amount you approve. See the minimum and every fee
+              before you sign.
+            </p>
+            <ul className="hero-points">
+              <li>The route never holds your wallet&apos;s authority</li>
+              <li>Minimum enforced on chain</li>
+              <li>Checked before you sign</li>
+            </ul>
+            <a className="text-link hero-agents" href="#agents">Building an agent? Explore the API and the skill →</a>
+          </div>
+
+          <div className="hero-app">
       {status && !status.enabled && (
         <div className="banner error">Protected swaps are paused while we check something. Your funds are not affected.</div>
       )}
-      {!TREASURY && <div className="banner info">Test mode: no Bound fee is charged.</div>}
+      {!TREASURY && <div className="banner info">Test mode: no Orientim fee is charged.</div>}
 
       <section className="card swap">
+        <div className="swap-head">
+          <p className="swap-title"><ShieldIcon /> Protected swap</p>
+          <div className="swap-head-end">
+            <SlippageSettings
+              choice={slippage}
+              disabled={busy}
+              onChange={c => {
+                setSlippage(c);
+                saveSlippage(c);
+                // The minimum on screen was for the old tolerance: a new quote shows the new one.
+                setQuote(null);
+              }}
+            />
+            <span className={`status-badge ${badge[0]}`}><span className="dot" aria-hidden="true" />{badge[1]}</span>
+          </div>
+        </div>
+        <div className={`scan-line${phase === 'checking' ? ' on' : ''}`} aria-hidden="true" />
+
         <div className="box">
           <div className="box-top">
             <span className="label">You pay</span>
             {balances && tokenIn && inDecimals !== null && (
-              <button className="link" onClick={setMax}>
+              <span className="balance">
                 Balance {formatUnits(balances.tokenIn, inDecimals, 6)}
-              </button>
+                <button className="chip" onClick={() => setShare(true)} disabled={busy || maxIn <= 0n}>Half</button>
+                <button className="chip" onClick={() => setShare(false)} disabled={busy || maxIn <= 0n}>Max</button>
+              </span>
             )}
           </div>
           <div className="box-row">
@@ -1158,7 +1418,7 @@ export function SwapApp() {
 
         <div className="flip">
           <button className="ghost" onClick={flip} disabled={busy} aria-label="Switch tokens">
-            ↓
+            <FlipIcon />
           </button>
         </div>
 
@@ -1175,13 +1435,10 @@ export function SwapApp() {
             </button>
           </div>
           <p className="hint">
-            {quote && tokenOut && outDecimals !== null
-              ? `Minimum received ${formatExact(quote.minOut - (outputFee ?? 0n), outDecimals)} ${tokenOut.symbol} · if less would arrive, the swap cancels itself`
-                + (quote.curve ? ' · 3% tolerance: this token is still on its Pump.fun launch curve and moves fast' : '')
-              : ' '}
+            {outUsd !== null ? `≈ ${formatUsd(outUsd)}` : ' '}
             {((quote && refreshes >= AUTO_REFRESHES) || (!quote && busyTries > QUOTE_BUSY_RETRIES)) && (
               <>
-                {' · '}
+                {outUsd !== null && ' · '}
                 <button type="button" className="link" onClick={refreshNow}>
                   Refresh price
                 </button>
@@ -1195,18 +1452,53 @@ export function SwapApp() {
             {[...inWarnings, ...outWarnings].map(w => (
               <li key={w}>{w}</li>
             ))}
-            <li>Bound protects your wallet during the swap. It can&apos;t tell you whether a token is worth buying.</li>
+            <li>Orientim protects your wallet during the swap. It can&apos;t tell you whether a token is worth buying.</li>
           </ul>
         )}
 
-        <div className="protection">
-          <p className="protection-title">
-            <ShieldIcon /> Wallet authority protected
-          </p>
-          <p className="protection-note">The swap can use only the amount you swap. It can&apos;t touch anything else in your wallet.</p>
-        </div>
+        {quote && tokenIn && tokenOut && amountIn && inDecimals !== null && outDecimals !== null && minReceived !== null && (
+          <div className="protection">
+            <p className="protection-title">Your order. Your limits.</p>
+            <div className="detail-row">
+              <span>Minimum received{tolerance !== null && <small className="detail-sub"> · {tolerance}% slippage</small>}</span>
+              <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
+            </div>
+            <ul className="protection-facts">
+              <li>Only {formatUnits(amountIn, inDecimals, 6)} {tokenIn.symbol} can be used</li>
+              <li>No access to the rest of your wallet</li>
+              <li>No lasting permissions</li>
+            </ul>
+            <p className="protection-note">If less than the minimum would arrive, the whole swap cancels itself on-chain.</p>
+          </div>
+        )}
 
-        <div className="details">
+        <details className="details" open={detailsOpen} onToggle={e => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)}>
+          <summary>
+            <span>{rate ?? 'Rate and fees'}</span>
+            <span className="summary-hint">Fees ▾</span>
+          </summary>
+          {rate && (
+            <div className="detail-row">
+              <span>Rate</span>
+              <button type="button" className="link rate" onClick={() => setRateInverted(v => !v)} title="Turn the rate around">
+                {rate} ⇄
+              </button>
+            </div>
+          )}
+          {quote && (
+            <div className="detail-row">
+              <span>Price impact</span>
+              <span className={quote.impact >= IMPACT_WARN ? 'warn-text' : undefined}>
+                {quote.impact < 0.0001 ? '<0.01%' : impactText(quote.impact)}
+              </span>
+            </div>
+          )}
+          {quote && tolerance !== null && (
+            <div className="detail-row" title={quote.curve ? 'This token is still on its Pump.fun launch curve, where prices move fast.' : undefined}>
+              <span>Slippage tolerance</span>
+              <span>{`${tolerance}%${slippage === 'auto' ? ' · Auto' : ''}`}</span>
+            </div>
+          )}
           {tokenIn && swapAmount !== null && swapAmount > 0n && inDecimals !== null && (
             <div className="detail-row">
               <span>Swap amount</span>
@@ -1214,7 +1506,7 @@ export function SwapApp() {
             </div>
           )}
           <div className="detail-row">
-            <span>{chargesFee ? `Bound fee ${Number(FEE_BPS) / 100}%` : 'Bound fee'}</span>
+            <span>Orientim fee</span>
             <span>
               {!TREASURY
                 ? '0 (test mode)'
@@ -1222,28 +1514,22 @@ export function SwapApp() {
                   ? "Can't be collected right now"
                   : feeSide === 'output'
                     ? outputFee !== null && tokenOut && outDecimals !== null
-                      ? `~${formatUnits(outputFee, outDecimals, 6)} ${tokenOut.symbol}, from what you receive`
+                      ? `~${formatUnits(outputFee, outDecimals, 6)} ${tokenOut.symbol}`
                       : '—'
                     : feeSide === 'sol'
                       ? solFeeEstimate !== null
-                        ? `~${formatUnits(solFeeEstimate, 9, 6)} SOL, from your wallet`
-                        : 'In SOL, from your wallet'
+                        ? `~${formatUnits(solFeeEstimate, 9, 6)} SOL`
+                        : '—'
                     : tokenIn && amountIn && inDecimals !== null
                       ? `${formatUnits(fee, inDecimals, 6)} ${tokenIn.symbol}`
                       : '—'}
             </span>
           </div>
-          <div className="detail-row">
+          <div className="detail-row" title="The exact amount is shown before you sign.">
             <span>Network fee</span>
-            <span>~0.00002 SOL, exact amount shown before you sign</span>
+            <span>~0.00002 SOL</span>
           </div>
-          {W && !outputAccountExists && tokenOut && (
-            <div className="detail-row" title="Solana keeps this deposit in your new token account. You get it back if you close the account.">
-              <span>New {tokenOut.symbol} account</span>
-              <span>{rent !== null ? `${formatExact(rent, 9)} SOL, one time, stays yours` : 'one-time deposit, stays yours'}</span>
-            </div>
-          )}
-        </div>
+        </details>
 
         {phase === 'confirm' && offer && (
           <div className="banner info" role="alertdialog" aria-label={offerCopy(offer).title}>
@@ -1264,9 +1550,8 @@ export function SwapApp() {
           <div className="banner info">
             {pending && (
               <p>
-                Minimum output enforced on successful execution: <strong>{pending.minReceived}</strong>. If less would arrive,
-                the whole transaction reverts. Network fee: {pending.networkFee}.
-                {pending.solFee && <> Bound fee: {pending.solFee}.</>}
+                Minimum received: <strong>{pending.minReceived}</strong>. Network fee: {pending.networkFee}.
+                {pending.solFee && <> Orientim fee: {pending.solFee}.</>}
                 {pending.oneTimeCost && <> Also: {pending.oneTimeCost}.</>}
                 {pending.removesDelegate && <> {pending.removesDelegate}</>}
                 {pending.tokenTax && <> {pending.tokenTax}</>}
@@ -1274,8 +1559,7 @@ export function SwapApp() {
               </p>
             )}
             <p>
-              {wallet?.name} will show the amounts and a second signer. That second signer is Bound&apos;s temporary key, which
-              is normal.
+              {wallet?.name} may show a second signer. That is normal for a protected swap.
             </p>
           </div>
         )}
@@ -1283,6 +1567,27 @@ export function SwapApp() {
         <button className="primary" onClick={onButton} disabled={busy || (!!W && !!blocker)}>
           {buttonLabel}
         </button>
+
+        {waitingOn.length > 0 && !busy && notice?.link !== solscan(waitingOn[0].signature) && (
+          <div className="banner info" role="status">
+            <p className="banner-title">Your last swap hasn&apos;t settled yet</p>
+            <p>
+              {waitingOn[0].over
+                ? "It can no longer go through, but the network can't prove whether it already did. Look it up on Solscan; once you have, you can swap again."
+                : 'Orientim starts no new swap from this wallet until the network says whether the last one went through, so the same swap never runs twice. It checks again every few seconds.'}
+            </p>
+            <a href={solscan(waitingOn[0].signature)} target="_blank" rel="noreferrer">
+              View on Solscan
+            </a>
+            {waitingOn[0].over && (
+              <div className="banner-actions">
+                <button className="ghost" onClick={() => setHistory(updateHistory(waitingOn[0].signature, 'checked'))}>
+                  I&apos;ve checked it
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {notice && (
           <div className={`banner ${notice.kind}`} role="status">
@@ -1293,22 +1598,16 @@ export function SwapApp() {
                 View on Solscan
               </a>
             )}
+            {notice.kind === 'error' && (
+              <div className="banner-actions">
+                <button className="ghost" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy details'}</button>
+              </div>
+            )}
           </div>
         )}
       </section>
 
-      {picking && (
-        <TokenPicker
-          popular={popular}
-          exclude={picking === 'in' ? tokenOut?.id : tokenIn?.id}
-          onClose={() => setPicking(null)}
-          onPick={t => {
-            if (picking === 'in') setTokenIn(t);
-            else setTokenOut(t);
-            setPicking(null);
-          }}
-        />
-      )}
+      {status?.maxUsdPerSwap != null && <p className="card-foot">Swaps are limited to {formatUsd(status.maxUsdPerSwap)} while we run in alpha.</p>}
 
       {history.length > 0 && (
         <section className="card history">
@@ -1329,27 +1628,33 @@ export function SwapApp() {
           </details>
         </section>
       )}
+          </div>
+        </div>
+      </section>
 
-      <footer className="foot">
-        <p>
-          Bound never asks for your seed phrase.
-          {status?.maxUsdPerSwap != null && ` Swaps are limited to ${formatUsd(status.maxUsdPerSwap)} while we run in alpha.`}
-        </p>
-        <p>What you approve is all the swap can touch. <a href="/how">How Bound protects you</a></p>
-        <p>
-          Bound works with any token pair Jupiter can route and Bound can safely isolate. It protects your wallet, not the
-          price or value of the token you buy.
-        </p>
-      </footer>
-    </main>
+      {picking && (
+        <TokenPicker
+          popular={popular}
+          selected={picking === 'in' ? tokenIn?.id : tokenOut?.id}
+          onClose={() => setPicking(null)}
+          onPick={t => {
+            const other = picking === 'in' ? tokenOut : tokenIn;
+            const same = picking === 'in' ? tokenIn : tokenOut;
+            if (other && t.id === other.id) flip();
+            else if (!same || t.id !== same.id) (picking === 'in' ? setTokenIn : setTokenOut)(t);
+            setPicking(null);
+          }}
+        />
+      )}
+    </>
   );
 }
 
-function ShieldIcon() {
+function FlipIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" />
-      <path d="M9 12l2 2 4-4" />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" />
     </svg>
   );
 }
+

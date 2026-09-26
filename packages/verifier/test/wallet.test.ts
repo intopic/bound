@@ -3,7 +3,7 @@ import {
   generateKeyPairSigner, getTransactionEncoder, partiallySignTransaction, signBytes,
 } from '@solana/kit';
 import type { Transaction } from '@solana/kit';
-import { compileProtectedSwap } from '@bound/core';
+import { compileProtectedSwap } from '@orientim/core';
 import { verifyWalletReturn } from '../src/index.ts';
 import { LIFETIME, scenario } from './fixtures.ts';
 

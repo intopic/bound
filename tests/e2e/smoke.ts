@@ -10,7 +10,7 @@
  *   node tests/e2e/smoke.ts [http://localhost:3000]
  */
 import { chromium } from 'playwright-core';
-import { getAddressEncoder, address } from '@solana/kit';
+import { getAddressEncoder, address, getBase58Decoder } from '@solana/kit';
 import { mkdirSync } from 'node:fs';
 
 const URL = process.argv[2] ?? 'http://localhost:3000';
@@ -38,7 +38,7 @@ try {
     };
     const wallet = {
       version: '1.0.0',
-      name: 'Bound Test Wallet',
+      name: 'Orientim Test Wallet',
       icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyIDIiPjxyZWN0IHdpZHRoPSIyIiBoZWlnaHQ9IjIiIGZpbGw9IiM4ODgiLz48L3N2Zz4=',
       chains: ['solana:mainnet'],
       accounts: [account],
@@ -94,7 +94,7 @@ try {
   const nonceOf = (h: string) => /'nonce-([^']+)'/.exec(h)?.[1] ?? null;
   const scriptSrc = /script-src([^;]*)/.exec(csp)?.[1] ?? '';
   check(
-    'CSP: per-request script nonce, no unsafe-inline scripts, images only from Bound',
+    'CSP: per-request script nonce, no unsafe-inline scripts, images only from Orientim',
     !!nonceOf(csp) && nonceOf(csp) !== nonceOf(second) && !scriptSrc.includes('unsafe-inline') && /img-src 'self' data:(;|$)/.test(csp),
     csp,
   );
@@ -112,25 +112,26 @@ try {
 
   await page.getByRole('button', { name: /USDC/ }).first().waitFor({ timeout: 20_000 });
   check('page loads with USDC → SOL preselected', await page.getByRole('button', { name: /SOL/ }).first().isVisible());
-  check('protection panel is shown', await page.getByText('Wallet authority protected').isVisible());
-  check('protection is one plain line', await page.getByText('The swap can use only the amount you swap.').isVisible());
-  check('test mode banner without a treasury', await page.getByText('Test mode: no Bound fee is charged.').isVisible());
+  check('the card is the protected swap', await page.getByText('Protected swap', { exact: true }).first().isVisible());
+  check('test mode banner without a treasury', await page.getByText('Test mode: no Orientim fee is charged.').isVisible());
   await page.screenshot({ path: `${OUT}/1-start.png` });
 
   await page.getByRole('button', { name: 'Connect wallet' }).first().click();
-  await page.getByRole('button', { name: 'Bound Test Wallet' }).click();
+  await page.getByRole('button', { name: 'Orientim Test Wallet' }).click();
   await page.getByText('GJRs…7npE').waitFor({ timeout: 10_000 });
   check('test wallet connects through the Wallet Standard', true);
 
   await page.getByLabel('Amount to pay').fill('5');
-  await page.getByText(/Minimum received .* SOL · if less would arrive, the swap cancels itself/).waitFor({ timeout: 20_000 });
+  await page.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 20_000 });
   check('live quote appears', true, await page.locator('.box').nth(1).locator('.amount').innerText());
+  check('with a quote, the limits of this swap are shown', await page.getByText('Your order. Your limits.').isVisible()
+    && await page.getByText('No access to the rest of your wallet').isVisible());
   await page.screenshot({ path: `${OUT}/2-quote.png` });
 
   const clickedAt = await page.evaluate(() => Date.now());
   await page.getByRole('button', { name: 'Protected swap' }).click();
   const banner = page.locator('.banner.error');
-  // If the price moved beyond the tolerance between the quote and the build, Bound asks first (C-02).
+  // If the price moved beyond the tolerance between the quote and the build, Orientim asks first (C-02).
   const moved = page.getByRole('button', { name: 'Continue with the new minimum' });
   await Promise.race([banner.waitFor({ timeout: 90_000 }), moved.waitFor({ timeout: 90_000 }).then(() => moved.click())]);
   await banner.waitFor({ timeout: 90_000 });
@@ -158,26 +159,29 @@ try {
   await page.screenshot({ path: `${OUT}/4-search.png` });
   const foreign = images.filter(u => !u.startsWith(URL) && !u.startsWith('data:'));
   const icons = images.filter(u => u.includes('/api/token-icon')).length;
-  check('every image comes from Bound (no third-party icon hosts)', foreign.length === 0 && icons > 0, `${icons} icon request(s)${foreign.length ? `, foreign: ${foreign.slice(0, 3).join(', ')}` : ''}`);
+  check('every image comes from Orientim (no third-party icon hosts)', foreign.length === 0 && icons > 0, `${icons} icon request(s)${foreign.length ? `, foreign: ${foreign.slice(0, 3).join(', ')}` : ''}`);
 
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
   const m = await mobile.newPage();
   await m.goto(URL, { waitUntil: 'networkidle' });
-  await m.getByText('Wallet authority protected').waitFor({ timeout: 20_000 });
+  await m.getByText('Protected swap', { exact: true }).first().waitFor({ timeout: 20_000 });
   const overflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('mobile layout has no horizontal scroll', !overflow);
   await m.getByRole('button', { name: 'Connect wallet' }).first().click();
   check('mobile without a wallet offers "open in Phantom"', await m.getByRole('link', { name: 'Phantom' }).isVisible());
   await m.screenshot({ path: `${OUT}/5-mobile.png`, fullPage: true });
+  // The wallet list is a window over the page, as on swap sites: Escape closes it.
+  await m.keyboard.press('Escape');
+  check('the wallet window closes with Escape', !(await m.getByRole('dialog').isVisible()));
 
   // The page that says what is and is not guaranteed, one tap from the swap (final audit, M3).
-  await m.getByRole('link', { name: 'How Bound protects you' }).click();
-  await m.getByRole('heading', { name: 'How Bound protects you' }).waitFor({ timeout: 15_000 });
+  await m.getByRole('link', { name: 'Security', exact: true }).last().click();
+  await m.getByRole('heading', { name: 'How Orientim protects you' }).waitFor({ timeout: 15_000 });
   const howOverflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
-  check('"How Bound protects you" opens from the swap page and fits a phone', !howOverflow);
+  check('"How Orientim protects you" opens from the swap page and fits a phone', !howOverflow);
   await m.screenshot({ path: `${OUT}/7-how.png`, fullPage: true });
 
-  // M-04 (final audit, Stage 2): the wallet never opens on a lifetime Bound could not read, nor on
+  // M-04 (final audit, Stage 2): the wallet never opens on a lifetime Orientim could not read, nor on
   // one that has run out. The RPC's block height is answered 503, then far past the swap's lifetime.
   for (const [what, answer, expected] of [
     ['cannot read the block height', 'fail', "Couldn't reach the network"],
@@ -194,9 +198,9 @@ try {
     });
     await p.goto(URL, { waitUntil: 'networkidle' });
     await p.getByRole('button', { name: 'Connect wallet' }).first().click();
-    await p.getByRole('button', { name: 'Bound Test Wallet' }).click();
+    await p.getByRole('button', { name: 'Orientim Test Wallet' }).click();
     await p.getByLabel('Amount to pay').fill('5');
-    await p.getByText(/Minimum received .* SOL/).waitFor({ timeout: 20_000 });
+    await p.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 20_000 });
     // Keyless Jupiter may answer "busy" first: that notice is load, not the case under test, so the
     // swap is asked again a few times; whatever shows, the wallet must never have been asked.
     let seen = '';
@@ -214,10 +218,81 @@ try {
     // notice: still a pass when the gate ran and the wallet was never asked.
     const load = /Too many requests|price service/.test(seen);
     check(
-      `the wallet does not open when Bound ${what}`,
+      `the wallet does not open when Orientim ${what}`,
       calls === 0 && heightAsked > 0 && (seen.includes(expected) || load),
       `${calls} signature request(s), ${heightAsked} height read(s); "${seen.slice(0, 100)}"`,
     );
+    await p.close();
+  }
+
+  // The owner's rule on cost: someone trying amounts costs a build or two ahead of the click, not one
+  // per amount. Three amounts a second and a half apart asked Jupiter 18 times before the rule.
+  {
+    const p = await context.newPage();
+    // Answers Jupiter gave, not its 429s: without a key it refuses bursts, and the page asks again.
+    let builds = 0;
+    let refused = 0;
+    p.on('response', r => {
+      if (!r.url().includes('/api/jupiter/build')) return;
+      if (r.status() === 429) refused++;
+      else builds++;
+    });
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.getByRole('button', { name: 'Connect wallet' }).first().click();
+    await p.getByRole('button', { name: 'Orientim Test Wallet' }).click();
+    for (const amount of ['7', '9', '12']) {
+      await p.getByLabel('Amount to pay').fill(amount);
+      await p.waitForTimeout(1_500);
+    }
+    await p.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 30_000 });
+    await p.waitForTimeout(8_000);
+    check('trying three amounts costs a few price requests, not one build per amount', builds <= 8, `${builds} answered by Jupiter, ${refused} refused as busy`);
+    await p.close();
+  }
+
+  // Third audit, F2: a swap from this wallet that the chain has not settled holds the next one back,
+  // whatever the time. One that can no longer land, and that nothing proves either way, the person
+  // sets aside by hand once they looked it up.
+  {
+    const p = await context.newPage();
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    const signature = getBase58Decoder().decode(crypto.getRandomValues(new Uint8Array(64)));
+    await p.evaluate(([addr, sig]) => localStorage.setItem('orientim.history.v1', JSON.stringify([{
+      at: Date.now() - 86_400_000, signature: sig, status: 'unknown', owner: addr, lastValidBlockHeight: '1', over: true,
+      paid: '5 USDC', received: '', exposed: '5 USDC',
+    }])), [SIM_WALLET, signature]);
+    await p.reload({ waitUntil: 'networkidle' });
+    await p.getByRole('button', { name: 'Connect wallet' }).first().click();
+    await p.getByRole('button', { name: 'Orientim Test Wallet' }).click();
+    await p.getByLabel('Amount to pay').fill('5');
+    const waiting = p.getByRole('button', { name: 'Waiting for your last swap' });
+    await waiting.waitFor({ timeout: 20_000 });
+    const held = await waiting.isDisabled();
+    await p.screenshot({ path: `${OUT}/8-waiting.png` });
+    await p.getByRole('button', { name: "I've checked it" }).click();
+    const freed = await p.getByRole('button', { name: 'Waiting for your last swap' }).waitFor({ state: 'detached', timeout: 20_000 }).then(() => true, () => false);
+    check('an unsettled swap from this wallet holds the next one back until it is settled or set aside', held && freed);
+    await p.close();
+  }
+
+  // Third audit, F3: a browser that will not keep the swap's record sends nothing, and says so before
+  // the wallet opens.
+  {
+    const p = await context.newPage();
+    await p.addInitScript(() => {
+      Storage.prototype.setItem = function setItem() { throw new DOMException('Site data is blocked.', 'SecurityError'); };
+    });
+    await p.goto(URL, { waitUntil: 'networkidle' });
+    await p.getByRole('button', { name: 'Connect wallet' }).first().click();
+    await p.getByRole('button', { name: 'Orientim Test Wallet' }).click();
+    await p.getByLabel('Amount to pay').fill('5');
+    await p.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 30_000 });
+    await p.getByRole('button', { name: 'Protected swap' }).click();
+    const banner = p.locator('.banner.error').first();
+    await banner.waitFor({ timeout: 20_000 });
+    const said = (await banner.innerText()).replace(/\s+/g, ' ');
+    const calls = await p.evaluate(() => (window as unknown as { __signCalls?: number }).__signCalls ?? 0);
+    check("a browser that won't keep the record opens no wallet and sends nothing", calls === 0 && /isn't saving this site's data/.test(said) && /Nothing was sent/.test(said), said.slice(0, 120));
     await p.close();
   }
 

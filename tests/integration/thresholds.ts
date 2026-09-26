@@ -1,7 +1,7 @@
 /**
  * T9: what the protection actually costs, measured rather than guessed.
  *
- * Bound asks the user when a protected route sits more than `askAboveBps` below the unrestricted
+ * Orientim asks the user when a protected route sits more than `askAboveBps` below the unrestricted
  * one, warns harder past `warnAboveBps`, and refuses past `badQuoteBps`. Those three numbers were
  * set by judgement. This walks the same route selection the pipeline walks — the same account
  * levels, the same exclusions, the same "does it fit in one transaction" test — across liquid and
@@ -18,13 +18,13 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   ataOf, buildPolicy, compileProtectedSwap, JUPITER_PROGRAM, LEGACY_SIZE_LIMIT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
   withMinOut, WSOL_MINT,
-} from '@bound/core';
-import type { IntermediateAta } from '@bound/core';
-import { createEphemeral, createRetryingRpc, fetchMints } from '@bound/solana';
+} from '@orientim/core';
+import type { IntermediateAta } from '@orientim/core';
+import { createEphemeral, createRetryingRpc, fetchMints } from '@orientim/solana';
 import {
   compileIfFits, createJupiterClient, DEFAULT_SETTINGS, intermediatesFromSetup, routeFloor, toKitInstruction,
-} from '@bound/jupiter';
-import type { BuildResponse } from '@bound/jupiter';
+} from '@orientim/jupiter';
+import type { BuildResponse } from '@orientim/jupiter';
 
 const arg = (name: string, fallback: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -81,7 +81,7 @@ async function measure(output: Listed, usd: number): Promise<Row> {
     feeAccountExists: true,
   });
   // Why a quote is missing matters: an upstream rate limit is not the same finding as a pair with
-  // no route, and lumping them together would overstate how often Bound cannot build.
+  // no route, and lumping them together would overstate how often Orientim cannot build.
   let lastError = '';
   const ask = (maxAccounts: number, exclude?: readonly string[]) => jupiter.build({
     inputMint: USDC as Address, outputMint: output.id as Address, amount: base.swapAmount, taker: E.address,

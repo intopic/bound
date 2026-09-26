@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { receivedFromMeta } from '../lib/client/received.ts';
+import { fillAgainstQuote, receivedFromMeta } from '../lib/client/received.ts';
 
 const W = 'GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE';
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
@@ -39,5 +39,21 @@ describe('what actually arrived (review BR-03)', () => {
   it('unknown when the transaction does not show the account', () => {
     const meta = { fee: 5_000n, preBalances: [], postBalances: [], postTokenBalances: [] };
     expect(receivedFromMeta(meta, { owner: W, outputMint: BONK, solOutput: false, routeRent: 0n })).toBeNull();
+  });
+});
+
+describe('what arrived, against the quote', () => {
+  it('says a better fill, and a fill well below the quote as the tolerance at work', () => {
+    expect(fillAgainstQuote(1_004_000n, 1_000_000n, '1%')).toBe('0.40% better than quoted.');
+    expect(fillAgainstQuote(959_000n, 1_000_000n, '10%')).toBe('Filled 4.1% below the quote, within your 10% tolerance.');
+    expect(fillAgainstQuote(990_000n, 1_000_000n, '3%')).toBe('Filled 1.0% below the quote, within your 3% tolerance.');
+  });
+
+  it('says nothing for an ordinary fill, or without a quote', () => {
+    expect(fillAgainstQuote(1_000_000n, 1_000_000n, '0.5%')).toBe('');
+    expect(fillAgainstQuote(1_000_400n, 1_000_000n, '0.5%')).toBe('');
+    expect(fillAgainstQuote(995_000n, 1_000_000n, '0.5%')).toBe('');
+    expect(fillAgainstQuote(5n, 0n, '1%')).toBe('');
+    expect(fillAgainstQuote(900_000n, 1_000_000n, '')).toBe('');
   });
 });

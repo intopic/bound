@@ -5,7 +5,7 @@ import {
   BPS_DENOMINATOR, FEE_TOKENS, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE,
   TOKEN_PROGRAM, WSOL_MINT,
 } from './constants.ts';
-import type { BoundConfig, FeeSide, Intent, Policy, Variant } from './types.ts';
+import type { OrientimConfig, FeeSide, Intent, Policy, Variant } from './types.ts';
 
 /** Token amount of a classic SPL token account (offset 64), or 0 for a missing account. */
 export function tokenAmountOf(data: Uint8Array | null | undefined): bigint {
@@ -50,7 +50,7 @@ export function variantOf(inputMint: Address, outputMint: Address): Variant {
   return 'C';
 }
 
-export function feeFor(amountIn: bigint, config: Pick<BoundConfig, 'feeBps' | 'treasury'>): bigint {
+export function feeFor(amountIn: bigint, config: Pick<OrientimConfig, 'feeBps' | 'treasury'>): bigint {
   return config.treasury ? (amountIn * config.feeBps) / BPS_DENOMINATOR : 0n;
 }
 
@@ -74,7 +74,7 @@ export function feeSideFor(
   return canReceive.sol ? 'sol' : null;
 }
 
-/** A fee on the output: `feeBps` of the minimum Bound enforces, never of more than will surely arrive. */
+/** A fee on the output: `feeBps` of the minimum Orientim enforces, never of more than will surely arrive. */
 export function outputFeeFor(minOut: bigint, feeBps: bigint): bigint {
   return (minOut * feeBps) / BPS_DENOMINATOR;
 }
@@ -134,7 +134,7 @@ export function withRouteRefund(policy: Policy, refund: RouteRefund | null): Pol
   if (!refund) {
     return { ...policy, routeRefund: 0n, routeRefundProgram: null, accounts: { ...policy.accounts, routeAccount: null, routeEventAuthority: null } };
   }
-  if (refund.program !== PUMP_CURVE_PROGRAM && refund.program !== PUMP_AMM_PROGRAM) throw new PolicyError('Only a Pump market opens an account Bound closes');
+  if (refund.program !== PUMP_CURVE_PROGRAM && refund.program !== PUMP_AMM_PROGRAM) throw new PolicyError('Only a Pump market opens an account Orientim closes');
   if (refund.lamports <= 0n || refund.lamports > MAX_TAKER_RENT_LAMPORTS) throw new PolicyError('Route refund outside the allowed range');
   return {
     ...policy, routeRefund: refund.lamports, routeRefundProgram: refund.program,
@@ -148,7 +148,7 @@ export async function buildPolicy(args: {
   ephemeral: Address;
   inputDecimals: number;
   outputDecimals: number;
-  config: BoundConfig;
+  config: OrientimConfig;
   /** The token program that owns each mint, as read from the chain. Classic SPL by default. */
   inputTokenProgram?: Address;
   outputTokenProgram?: Address;
@@ -156,8 +156,8 @@ export async function buildPolicy(args: {
   inputTransferFee?: boolean;
   /**
    * Whether ATA(treasury, inputMint) already exists on chain (and is not frozen). When the treasury
-   * can receive the fee in neither token, the swap is fee-free: Bound never makes the user pay rent
-   * for Bound's own account (audit B-09). Not read for SOL, which the treasury wallet receives.
+   * can receive the fee in neither token, the swap is fee-free: Orientim never makes the user pay rent
+   * for Orientim's own account (audit B-09). Not read for SOL, which the treasury wallet receives.
    */
   feeAccountExists: boolean;
   /** The same for ATA(treasury, outputMint); only USDC and USDT are charged on the output as tokens. */
@@ -168,7 +168,7 @@ export async function buildPolicy(args: {
    * (review BR-06). True by default.
    */
   treasuryWalletReady?: boolean;
-  /** Minimum output Bound enforces; usually set later from the chosen route (see `withMinOut`). */
+  /** Minimum output Orientim enforces; usually set later from the chosen route (see `withMinOut`). */
   minOut?: bigint;
   /**
    * The fee in lamports when no token of the swap can carry it: `feeBps` of what the swap is worth

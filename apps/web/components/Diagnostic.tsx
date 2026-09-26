@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import type { Wallet, WalletAccount } from '@wallet-standard/base';
 import { address, getTransactionEncoder } from '@solana/kit';
-import { JUPITER_PROGRAM } from '@bound/core';
-import type { TxVersion } from '@bound/core';
-import { DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
-import { createEphemeral } from '@bound/solana';
+import { JUPITER_PROGRAM } from '@orientim/core';
+import type { TxVersion } from '@orientim/core';
+import { DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
+import { createEphemeral } from '@orientim/solana';
 import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
@@ -15,11 +15,13 @@ import { readMint, SOL_MINT, USDC_MINT } from '@/lib/client/tokens';
 import { parseUnits, shortAddress } from '@/lib/client/format';
 import { diagnoseWalletReturn, reportText } from '@/lib/client/diagnose';
 import type { WalletDiagnosis } from '@/lib/client/diagnose';
+import { clearProblems, problemsReport, readProblems } from '@/lib/client/problems';
+import type { Problem } from '@/lib/client/problems';
 
 /**
  * What does a wallet do to a transaction it signs?
  *
- * Bound's whole guarantee is that the bytes it verified are the bytes that execute, and it refuses
+ * Orientim's whole guarantee is that the bytes it verified are the bytes that execute, and it refuses
  * anything else. Phantom documents that it may append its own assertions. Until a real wallet has
  * been watched doing it, any rule about what to accept is a guess. This page builds a real
  * protected swap, asks the wallet to sign it, and reports exactly what came back.
@@ -41,9 +43,13 @@ export function Diagnostic() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ diagnosis: WalletDiagnosis; report: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // The messages the swap page showed in this browser (lib/client/problems), read once it has loaded.
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [problemsCopied, setProblemsCopied] = useState(false);
+  useEffect(() => setProblems(readProblems()), []);
 
   useEffect(() => {
-    fetch('/api/status').then(r => r.json()).then(setStatus).catch(() => setError('Could not reach Bound.'));
+    fetch('/api/status').then(r => r.json()).then(setStatus).catch(() => setError('Could not reach Orientim.'));
   }, []);
 
   async function connect(w: Wallet) {
@@ -168,7 +174,7 @@ export function Diagnostic() {
           <h2>{d.identical ? 'The wallet changed nothing' : 'The wallet changed the transaction'}</h2>
           <p className="hint">
             {d.identical
-              ? 'The message it signed is byte-identical to the one Bound verified. The existing rule holds.'
+              ? 'The message it signed is byte-identical to the one Orientim verified. The existing rule holds.'
               : `Its own instructions sit as a ${d.placement}. Every line below is what the acceptance rule must be written against.`}
           </p>
 
@@ -195,6 +201,35 @@ export function Diagnostic() {
           <pre className="raw">{result.report}</pre>
         </section>
       )}
+
+      <section>
+        <h2>Messages the swap page showed in this browser</h2>
+        <p className="hint">
+          Every message other than a success, with the error behind it: the last 20, kept only in this
+          browser and never sent anywhere. Copy them when you ask for help.
+        </p>
+        {problems.length === 0 ? (
+          <p className="hint">None.</p>
+        ) : (
+          <>
+            <ul className="findings">
+              {problems.map(p => <li key={`${p.at}-${p.title}`}>{new Date(p.at).toLocaleString()} · {p.title}</li>)}
+            </ul>
+            <div className="banner-actions">
+              <button
+                className="ghost"
+                onClick={() => {
+                  navigator.clipboard.writeText(problemsReport(problems, navigator.userAgent))
+                    .then(() => setProblemsCopied(true), () => setProblemsCopied(false));
+                }}
+              >
+                {problemsCopied ? 'Copied' : 'Copy them all'}
+              </button>
+              <button className="ghost" onClick={() => { clearProblems(); setProblems([]); }}>Clear</button>
+            </div>
+          </>
+        )}
+      </section>
       </div>
     </main>
   );

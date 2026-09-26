@@ -8,7 +8,7 @@
  *   in   the token as input: the route must be quoted for what arrives in the temporary account,
  *        the withheld amount must be harvested, and the temporary account must close
  *   out   the token as output: does Jupiter's `outAmount` mean what the wallet actually receives,
- *        or the amount before the token's tax? Bound's minimum is enforced on the balance, so the
+ *        or the amount before the token's tax? Orientim's minimum is enforced on the balance, so the
  *        answer decides whether an honest swap executes or reverts
  *
  * Nothing is signed or sent; the simulation uses a real holder as fee payer.
@@ -20,10 +20,10 @@
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, tokenAmountOf, WSOL_MINT } from '@bound/core';
-import { createEphemeral, createRetryingRpc, fetchAccounts } from '@bound/solana';
-import { transferFeeOf, transferFeeOn } from '@bound/verifier';
-import { BoundError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@bound/jupiter';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
+import { createEphemeral, createRetryingRpc, fetchAccounts } from '@orientim/solana';
+import { transferFeeOf, transferFeeOn } from '@orientim/verifier';
+import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 
 const arg = (name: string, fallback: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -133,7 +133,7 @@ if (!who) {
     owner: address('GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE'), ephemeral: await createEphemeral(),
     inputMint: mint, outputMint: WSOL_MINT, amountIn: 1_000_000n,
     inputDecimals: token.decimals, outputDecimals: 9, version: 0, acceptedCostBps: 500n,
-  }).then(() => 'built', (e: unknown) => (e instanceof BoundError ? e.code : 'error'));
+  }).then(() => 'built', (e: unknown) => (e instanceof OrientimError ? e.code : 'error'));
   check(
     'the token is no longer refused as unsupported (the audit finding)',
     reached !== 'unsupported-token',
@@ -171,7 +171,7 @@ if (!who) {
     );
     check('the temporary account is gone afterwards', !sim.exists[0], sim.exists[0] ? 'it still exists' : '');
   } catch (e) {
-    const code = e instanceof BoundError ? e.code : 'error';
+    const code = e instanceof OrientimError ? e.code : 'error';
     check('the token is accepted as input (the audit found this refused)', false, `${code}: ${(e as Error).message.slice(0, 320)}`);
   }
 }
@@ -190,7 +190,7 @@ try {
   const sim = await simulate(prepared.transaction, [wOut]);
   const arrived = sim.after[0] === null ? null : sim.after[0] - before;
   check(
-    'an honest swap of it executes, so Bound\'s minimum is not above what really arrives',
+    'an honest swap of it executes, so Orientim\'s minimum is not above what really arrives',
     sim.err === null,
     sim.err ? `${json(sim.err)} — ${sim.logs.filter(l => /Error|error|failed/.test(l)).slice(-2).join(' | ')}` : '',
   );
@@ -205,7 +205,7 @@ try {
     rows.push({ name: `Jupiter outAmount për një token me taksë: ${meaning}`, ok: true, detail: `kuotoi ${quoted}, arritën ${arrived}` });
   }
 } catch (e) {
-  const code = e instanceof BoundError ? e.code : 'error';
+  const code = e instanceof OrientimError ? e.code : 'error';
   check('the token is accepted as output', false, `${code}: ${(e as Error).message.slice(0, 320)}`);
 }
 

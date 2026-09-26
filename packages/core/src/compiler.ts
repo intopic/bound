@@ -214,7 +214,7 @@ export function compileProtectedSwap(input: CompileInput): CompiledSwap {
         m,
       ),
     );
-    // Bound's own accounts stay in the message itself (review FA-16): each is replaced by the
+    // Orientim's own accounts stay in the message itself (review FA-16): each is replaced by the
     // table's own address, which never appears in the message, so its index is kept but unused.
     const own = new Set<string>([
       ...Object.values(input.policy.accounts).filter((a): a is Address => !!a),

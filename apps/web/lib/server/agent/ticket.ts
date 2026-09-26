@@ -5,11 +5,11 @@ import type { KeyPairSigner } from '@solana/kit';
 /**
  * The agent API is stateless (no database, and prepare and finalize may run on different
  * instances), so what finalize needs from prepare travels with the agent as a ticket, sealed with
- * a MAC only the server can make (API-AGJENTET.md, section 4, option a).
+ * a MAC only the server can make: the server keeps no state (AGENT-API.md).
  *
  * The one-time key E is not stored anywhere: it is derived from the server secret and the ticket's
  * nonce, so any instance holding the secret derives the same E. A leaked secret lets its holder
- * sign as E for Bound's own messages, which could drop the fee from them, and collect whatever is
+ * sign as E for Orientim's own messages, which could drop the fee from them, and collect whatever is
  * left under an E it derives. The skill's check refuses to sign a swap that would leave anything
  * there: every lamport W sends E must be spent by the route or returned in the same transaction, and
  * the account a Pump.fun market opens in E's name must end closed (research audit F-06, engineering
@@ -25,7 +25,7 @@ export type Ticket = {
   key: string;
   /** W, the wallet that must sign first. */
   owner: string;
-  /** SHA-256 of the exact message Bound built and verified, hex. Finalize signs nothing else. */
+  /** SHA-256 of the exact message Orientim built and verified, hex. Finalize signs nothing else. */
   msg: string;
   /** After this block height the message can no longer land. */
   lvbh: string;
@@ -46,10 +46,19 @@ async function hmac(key: Uint8Array, data: string): Promise<Uint8Array> {
 }
 
 const toB64url = (b: Uint8Array) => Buffer.from(b).toString('base64url');
+/**
+ * A MAC as Orientim writes it, and only so: 32 bytes in their one base64url spelling. The last of 43
+ * characters carries two unused bits, so three other spellings decode to the same bytes; each would
+ * be a second text for one seal (found by fuzzing, 26 September 2026).
+ */
+export function macOf(text: string): Uint8Array | null {
+  const bytes = Buffer.from(text, 'base64url');
+  return bytes.length === 32 && bytes.toString('base64url') === text ? new Uint8Array(bytes) : null;
+}
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
 
 /** Identifies a secret without revealing it (a MAC of a fixed label, not a hash of the secret). */
-export const kidOf = async (secret: Uint8Array) => hex(await hmac(secret, 'bound/agent/kid')).slice(0, 16);
+export const kidOf = async (secret: Uint8Array) => hex(await hmac(secret, 'orientim/agent/kid')).slice(0, 16);
 
 /** A fresh nonce for a new ticket. */
 export const newNonce = () => toB64url(globalThis.crypto.getRandomValues(new Uint8Array(16)));
@@ -59,13 +68,13 @@ export const newNonce = () => toB64url(globalThis.crypto.getRandomValues(new Uin
  * secret and nonce give the same E on every instance; any other nonce gives an unrelated one.
  */
 export async function ephemeralFor(secret: Uint8Array, nonce: string): Promise<KeyPairSigner> {
-  return createKeyPairSignerFromPrivateKeyBytes(await hmac(secret, `bound/agent/ephemeral/${nonce}`));
+  return createKeyPairSignerFromPrivateKeyBytes(await hmac(secret, `orientim/agent/ephemeral/${nonce}`));
 }
 
 /** `<payload>.<mac>`, both base64url. The payload is readable JSON; only the MAC is secret-bound. */
 export async function sealTicket(secret: Uint8Array, t: Ticket): Promise<string> {
   const payload = toB64url(enc.encode(JSON.stringify(t)));
-  return `${payload}.${toB64url(await hmac(secret, `bound/agent/ticket/${payload}`))}`;
+  return `${payload}.${toB64url(await hmac(secret, `orientim/agent/ticket/${payload}`))}`;
 }
 
 /** Constant time, so a MAC cannot be guessed byte by byte from response times (Node's own primitive). */
@@ -88,8 +97,9 @@ export async function openTicket(secrets: readonly Uint8Array[], token: string):
   if (t?.v !== 1 || typeof t.kid !== 'string') return null;
   for (const secret of secrets) {
     if ((await kidOf(secret)) !== t.kid) continue;
-    const expected = await hmac(secret, `bound/agent/ticket/${payload}`);
-    if (!sameBytes(expected, Buffer.from(mac, 'base64url'))) return null;
+    const expected = await hmac(secret, `orientim/agent/ticket/${payload}`);
+    const given = macOf(mac);
+    if (!given || !sameBytes(expected, given)) return null;
     const fields = [t.nonce, t.key, t.owner, t.msg, t.lvbh];
     if (fields.some(f => typeof f !== 'string') || !/^[0-9a-f]{64}$/.test(t.msg) || !/^\d{1,20}$/.test(t.lvbh)) return null;
     if ((t.wOut === undefined) !== (t.b0 === undefined)) return null;

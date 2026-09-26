@@ -18,7 +18,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-const PAGES = ['/', '/diagnostic'];
+// The public pages whose scripts matter: the swap, and the page that issues API keys.
+const PAGES = ['/', '/docs', '/security'];
 const STATIC = '/_next/static/';
 
 function arg(name: string, fallback?: string): string {
@@ -51,7 +52,7 @@ const problems: string[] = [];
 
 async function get(path: string): Promise<Response | null> {
   try {
-    return await fetch(site + path, { redirect: 'follow', headers: { 'user-agent': 'bound-live-check' } });
+    return await fetch(site + path, { redirect: 'follow', headers: { 'user-agent': 'orientim-live-check' } });
   } catch (e) {
     problems.push(`${path}: ${(e as Error).message}`);
     return null;

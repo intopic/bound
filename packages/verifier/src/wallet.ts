@@ -1,6 +1,6 @@
 import { getPublicKeyFromAddress, getTransactionDecoder, verifySignature } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import type { Verdict, Violation } from '@bound/core/types';
+import type { Verdict, Violation } from '@orientim/core/types';
 
 const sameBytes = (a: ArrayLike<number>, b: ArrayLike<number>) => {
   if (a.length !== b.length) return false;

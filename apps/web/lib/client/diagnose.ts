@@ -5,8 +5,8 @@ import { getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@so
 /**
  * What a wallet did to a transaction it was asked to sign.
  *
- * Bound's rule is that the bytes it verified are the bytes that execute. A wallet that appends its
- * own guard breaks that equality, and Bound cannot decide what to allow until it has seen what a
+ * Orientim's rule is that the bytes it verified are the bytes that execute. A wallet that appends its
+ * own guard breaks that equality, and Orientim cannot decide what to allow until it has seen what a
  * real wallet actually sends back. Nothing here judges or accepts anything: it decodes both
  * messages and states the difference, so the acceptance rule can be written from evidence.
  *
@@ -30,7 +30,7 @@ export type SeenInstruction = {
   position: number;
   program: string | null;
   programIndex: number;
-  /** The first data byte, which is the instruction selector for every program Bound touches. */
+  /** The first data byte, which is the instruction selector for every program Orientim touches. */
   discriminator: number | null;
   dataLength: number;
   data: string;
@@ -55,11 +55,11 @@ export type WalletDiagnosis = {
   identical: boolean;
   original: MessageFacts;
   returned: MessageFacts;
-  /** Where the wallet's own instructions sit relative to Bound's, once they are aligned. */
+  /** Where the wallet's own instructions sit relative to Orientim's, once they are aligned. */
   placement: 'none' | 'suffix' | 'prefix' | 'both' | 'not-aligned';
   addedBefore: SeenInstruction[];
   addedAfter: SeenInstruction[];
-  /** Positions of Bound's own instructions that came back different, when alignment failed. */
+  /** Positions of Orientim's own instructions that came back different, when alignment failed. */
   changedPositions: number[];
   newAccounts: string[];
   newSigners: string[];
@@ -140,7 +140,7 @@ function factsOf(wire: Uint8Array): MessageFacts {
 const key = (ix: SeenInstruction) =>
   `${ix.program ?? ix.programIndex}|${ix.data}|${ix.accounts.map(a => `${a.address ?? a.index}:${a.signer ? 's' : ''}${a.writable ? 'w' : ''}`).join(',')}`;
 
-/** The offset at which Bound's instruction list appears intact inside the returned one, or -1. */
+/** The offset at which Orientim's instruction list appears intact inside the returned one, or -1. */
 function alignment(before: SeenInstruction[], after: SeenInstruction[]): number {
   const want = before.map(key);
   const have = after.map(key);
@@ -186,14 +186,14 @@ export function diagnoseWalletReturn(originalWire: Uint8Array, returnedWire: Uin
     findings.push(`The wallet returned a different message: ${original.messageBytes} bytes in, ${returned.messageBytes} out.`);
     if (changedVersion) findings.push(`It changed the transaction version from ${original.version} to ${returned.version}.`);
     if (changedFeePayer) findings.push(`It changed the fee payer from ${original.feePayer} to ${returned.feePayer}.`);
-    if (changedBlockhash) findings.push('It changed the blockhash, so the lifetime is not the one Bound verified.');
+    if (changedBlockhash) findings.push('It changed the blockhash, so the lifetime is not the one Orientim verified.');
     if (offset < 0) {
       findings.push(changedPositions.length
-        ? `Bound's own instructions did not come back intact: positions ${changedPositions.join(', ')} differ.`
-        : "Bound's own instructions could not be found intact in the returned message.");
+        ? `Orientim's own instructions did not come back intact: positions ${changedPositions.join(', ')} differ.`
+        : "Orientim's own instructions could not be found intact in the returned message.");
     }
-    if (addedBefore.length) findings.push(`It added ${addedBefore.length} instruction(s) BEFORE Bound's, which a suffix-only rule would reject.`);
-    if (addedAfter.length) findings.push(`It appended ${addedAfter.length} instruction(s) after Bound's.`);
+    if (addedBefore.length) findings.push(`It added ${addedBefore.length} instruction(s) BEFORE Orientim's, which a suffix-only rule would reject.`);
+    if (addedAfter.length) findings.push(`It appended ${addedAfter.length} instruction(s) after Orientim's.`);
     for (const ix of [...addedBefore, ...addedAfter]) {
       findings.push(`Added: program ${ix.program ?? `#${ix.programIndex}`}, selector ${ix.discriminator ?? '—'}, ${ix.dataLength} data bytes, ${ix.accounts.length} account(s).`);
     }
@@ -214,7 +214,7 @@ function sameMessage(a: Uint8Array, b: Uint8Array): boolean {
   return left.length === right.length && left.every((x, i) => x === right[i]);
 }
 
-/** The report as text, ready to paste into WALLET-FLOWS.md as the evidence behind the rule. */
+/** The report as text, to send back with the manual wallet test (docs/TESTIMI.md, test 0): the evidence behind the rule. */
 export function reportText(wallet: string, d: WalletDiagnosis): string {
   const ixLine = (ix: SeenInstruction) => [
     `  [${ix.position}] program ${ix.program ?? `lookup#${ix.programIndex}`}`,

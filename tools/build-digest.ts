@@ -1,7 +1,7 @@
 /**
  * One number for the code a browser actually runs.
  *
- * A user who visits Bound is trusting that the page served is the page that was audited. The only
+ * A user who visits Orientim is trusting that the page served is the page that was audited. The only
  * way to make that checkable is to publish a digest of the built client assets and let anyone
  * rebuild from the same tag and compare. This computes that digest: every file under
  * `apps/web/.next/static`, hashed, sorted by path, hashed again.

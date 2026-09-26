@@ -1,11 +1,12 @@
 import { decompileTransactionMessage, getCompiledTransactionMessageDecoder } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@bound/core/constants';
-import type { ChainSnapshot, Policy, Violation } from '@bound/core/types';
+import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientim/core/constants';
+import type { ChainSnapshot, Policy, Violation } from '@orientim/core/types';
 import { verify } from './verify.ts';
+import type { VerifyOptions } from './verify.ts';
 
 /** Changes whenever a rule changes; every certificate names the verifier that issued it. */
-export const VERIFIER_VERSION = '0.8.1';
+export const VERIFIER_VERSION = '0.9.0';
 
 /**
  * What a verified transaction does, in terms a person or a wallet can check. It is issued only after
@@ -26,27 +27,27 @@ export type Certificate = {
   input: {
     mint: Address;
     decimals: number;
-    /** Everything that leaves the wallet in the input token: swap amount plus a Bound fee on the input. */
+    /** Everything that leaves the wallet in the input token: swap amount plus a Orientim fee on the input. */
     totalDebit: bigint;
     swapAmount: bigint;
-    /** The Bound fee when it is taken in the input token; 0 when it is taken from the output. */
-    boundFee: bigint;
+    /** The Orientim fee when it is taken in the input token; 0 when it is taken from the output. */
+    orientimFee: bigint;
     feeDestination: Address | null;
   };
   output: {
     mint: Address;
     decimals: number;
     /**
-     * What the wallet keeps at least, after a Bound fee taken from the output. Enforced on chain:
+     * What the wallet keeps at least, after a Orientim fee taken from the output. Enforced on chain:
      * if less than this plus that fee arrives, the whole transaction reverts.
      */
     minimumOutput: bigint;
-    /** The Bound fee when it is taken from the output (in SOL, USDC or USDT); 0 otherwise. */
-    boundFee: bigint;
+    /** The Orientim fee when it is taken from the output (in SOL, USDC or USDT); 0 otherwise. */
+    orientimFee: bigint;
     feeDestination: Address | null;
   };
   /**
-   * The Bound fee when neither token of the swap can carry it: paid in SOL from the wallet to the
+   * The Orientim fee when neither token of the swap can carry it: paid in SOL from the wallet to the
    * treasury wallet, before the swap, at what the swap was worth in SOL when it was built; 0
    * otherwise. The verifier checks where it goes and when, not the price it was computed at.
    */
@@ -83,8 +84,8 @@ export type Certification = { ok: true; certificate: Certificate } | { ok: false
 const hex = (bytes: Uint8Array) => [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
 
 /** Verifies the transaction and, only if every rule holds, issues its certificate. */
-export async function certify(transaction: Transaction, policy: Policy, snapshot: ChainSnapshot): Promise<Certification> {
-  const verdict = await verify(transaction, policy, snapshot);
+export async function certify(transaction: Transaction, policy: Policy, snapshot: ChainSnapshot, opts: VerifyOptions = {}): Promise<Certification> {
+  const verdict = await verify(transaction, policy, snapshot, opts);
   if (!verdict.ok) return { ok: false, violations: verdict.violations };
 
   const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
@@ -106,7 +107,7 @@ export async function certify(transaction: Transaction, policy: Policy, snapshot
         decimals: policy.inputDecimals,
         totalDebit: policy.amountIn,
         swapAmount: policy.swapAmount,
-        boundFee: policy.feeSide === 'input' ? policy.fee : 0n,
+        orientimFee: policy.feeSide === 'input' ? policy.fee : 0n,
         feeDestination: policy.feeSide === 'input' ? policy.accounts.feeDestination : null,
       },
       output: {
@@ -114,7 +115,7 @@ export async function certify(transaction: Transaction, policy: Policy, snapshot
         decimals: policy.outputDecimals,
         // Computed here, not with the policy builder's helper: the verifier stands apart from it.
         minimumOutput: policy.feeSide === 'output' ? policy.minOut - policy.fee : policy.minOut,
-        boundFee: policy.feeSide === 'output' ? policy.fee : 0n,
+        orientimFee: policy.feeSide === 'output' ? policy.fee : 0n,
         feeDestination: policy.feeSide === 'output' ? policy.accounts.feeDestination : null,
       },
       solFee: {

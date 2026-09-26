@@ -17,11 +17,11 @@ import type { Address, Transaction } from '@solana/kit';
 import { findAssociatedTokenPda } from '@solana-program/token';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, BPS_DENOMINATOR, JUPITER_PROGRAM, LAMPORTS_PER_SIGNATURE, LEGACY_SIZE_LIMIT,
-  MAX_COMPUTE_UNITS, MAX_CURVE_SLIPPAGE_BPS, MAX_ROUTE_SLIPPAGE_BPS, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
+  MAX_CHOSEN_SLIPPAGE_BPS, MAX_COMPUTE_UNITS, MAX_CURVE_SLIPPAGE_BPS, MAX_ROUTE_SLIPPAGE_BPS, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
   FEE_TOKENS, MAX_FEE_BPS, MAX_INTERMEDIATE_ACCOUNTS, MAX_LOADED_ACCOUNTS_DATA_SIZE, MINT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, V1_MAX_ACCOUNTS,
   V1_SIZE_LIMIT, WSOL_MINT,
-} from '@bound/core/constants';
-import type { AccountState, ChainSnapshot, Policy, RuleId, Verdict, Violation } from '@bound/core/types';
+} from '@orientim/core/constants';
+import type { AccountState, ChainSnapshot, Policy, RuleId, Verdict, Violation } from '@orientim/core/types';
 import { parseInstruction } from './parse.ts';
 import type { Account, Parsed, RawInstruction } from './parse.ts';
 
@@ -227,12 +227,12 @@ export function unsupportedExtension(data: Uint8Array, options: { allowTransferF
       // such a delegate can reach only the accounts of this mint the route was given: E's, which
       // are the route's anyway, and W_out, whose minimum-output check counts every token taken out
       // (SECURITY.md). What the issuer can do outside the transaction is the token's own nature:
-      // it holds in every wallet, is disclosed to the user, and is not Bound's to grant.
+      // it holds in every wallet, is disclosed to the user, and is not Orientim's to grant.
       if (nonZero(value, value + 32) && isOffCurveAddress(addressDecoder.decode(data.subarray(value, value + 32)))) {
         return 'permanent delegate controlled by a program';
       }
     } else if (type === 6) {
-      // New accounts, Bound's temporary ones included, start in this state. Frozen, they could never
+      // New accounts, Orientim's temporary ones included, start in this state. Frozen, they could never
       // receive the swap; initialized, the extension changes nothing a transfer does.
       if (data[value] !== 1) return 'accounts frozen by default';
     } else if (!ALLOWED_MINT_EXTENSIONS.has(type)) {
@@ -271,7 +271,7 @@ export function memoRequired(data: Uint8Array): boolean {
  * The arguments of Jupiter's route instruction that decide what Jupiter enforces on chain (review
  * FA-03). Its program stops the swap when this instruction's output is below `quotedOutAmount` less
  * `slippageBps`, whatever the destination held before: a second floor that does not depend on the
- * balance Bound read from the RPC. Read here so that a forged answer cannot switch it off.
+ * balance Orientim read from the RPC. Read here so that a forged answer cannot switch it off.
  *
  *   route_v2:                 [8 discriminator][in u64][quoted out u64][slippage u16][platform fee u16][positive slippage u16][route plan]
  *   shared_accounts_route_v2: the same after a one-byte id
@@ -354,14 +354,23 @@ const BEFORE_SWAP: Slot[] = [
 const AFTER_SWAP: Slot[] = [
   'minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate', 'closeRouteAccount', 'routeRefund',
 ];
-/** Bound's own cleanup of E's token accounts, all of which must be done before the route's account is closed. */
+/** Orientim's own cleanup of E's token accounts, all of which must be done before the route's account is closed. */
 const OWN_CLEANUP: Slot[] = ['minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate'];
 
 /**
  * The 7 rules of the plan (section 6), checked on the exact bytes the wallet will sign.
  * Pure: every chain fact comes from `snapshot`, fetched beforehand.
  */
-export async function verify(transaction: Transaction, policy: Policy, snapshot: ChainSnapshot): Promise<Verdict> {
+export type VerifyOptions = {
+  /**
+   * The tolerance the person chose on the page, in bps, for a route of any kind; at most
+   * MAX_CHOSEN_SLIPPAGE_BPS (15%). Unset, a route may carry 0.5%, or 3% on a Pump.fun bonding curve.
+   * Only the page passes it, with the person's own choice: never a server, never the agent skill.
+   */
+  maxSlippageBps?: number;
+};
+
+export async function verify(transaction: Transaction, policy: Policy, snapshot: ChainSnapshot, opts: VerifyOptions = {}): Promise<Verdict> {
   const violations: Violation[] = [];
   const fail = (rule: RuleId, detail: string) => void violations.push({ rule, detail });
   const p = policy;
@@ -398,7 +407,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   // and only in SOL, USDC or USDT. A pair without SOL pays in SOL from the wallet instead (`sol`),
   // before the swap, at a price the verifier cannot see: that amount is the policy's own statement,
   // held to a price by the page that built it or by the agent's own (the skill).
-  if (p.feeSide !== null && p.feeSide !== 'input' && p.feeSide !== 'output' && p.feeSide !== 'sol') fail('R2', 'the policy names no fee side Bound knows');
+  if (p.feeSide !== null && p.feeSide !== 'input' && p.feeSide !== 'output' && p.feeSide !== 'sol') fail('R2', 'the policy names no fee side Orientim knows');
   if ((p.treasury === null) !== (p.feeSide === null)) fail('R2', 'the policy has a treasury without a fee side, or the other way round');
   if (p.feeSide === 'output' && !FEE_TOKENS.includes(p.outputMint)) fail('R2', 'a fee on the output is taken only in SOL, USDC or USDT');
   if (p.feeSide === 'sol' && (A || B)) fail('R2', 'a fee in SOL from the wallet is only for a swap with no SOL on either side');
@@ -517,16 +526,19 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     if (x.kind !== 'external' || x.program !== JUPITER_PROGRAM) continue;
     const args = jupiterRouteArgs(x.data);
     if (!args) {
-      fail('R2', 'the Jupiter instruction is not a route Bound can read (route_v2 or shared_accounts_route_v2)');
+      fail('R2', 'the Jupiter instruction is not a route Orientim can read (route_v2 or shared_accounts_route_v2)');
       continue;
     }
     const curve = x.accounts.some(a => a.address === PUMP_CURVE_PROGRAM);
-    const maxSlippage = curve ? MAX_CURVE_SLIPPAGE_BPS : MAX_ROUTE_SLIPPAGE_BPS;
+    const chosen = opts.maxSlippageBps;
+    const maxSlippage = chosen !== undefined && Number.isInteger(chosen) && chosen >= 0
+      ? Math.min(chosen, MAX_CHOSEN_SLIPPAGE_BPS)
+      : curve ? MAX_CURVE_SLIPPAGE_BPS : MAX_ROUTE_SLIPPAGE_BPS;
     if (args.platformFeeBps !== 0 || args.positiveSlippageBps !== 0) {
       fail('R2', `the Jupiter route takes a platform fee (${args.platformFeeBps} bps) or positive slippage (${args.positiveSlippageBps} bps)`);
     }
     if (args.slippageBps > maxSlippage) fail('R2', `the Jupiter route tolerates ${args.slippageBps} bps, above ${maxSlippage}`);
-    // Jupiter's own floor covers the whole minimum, not only its quote: Bound's check counts the
+    // Jupiter's own floor covers the whole minimum, not only its quote: Orientim's check counts the
     // account's balance, which a deposit or another swap arriving at the same time also raises,
     // while Jupiter's counts only what this route delivered (engineering review H-03).
     const floor = jupiterFloor(args);
@@ -724,7 +736,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
       if (a.address === W) { fail('R1', 'the wallet is passed to the external program'); continue; }
       if (a.address === wIn) { fail('R1', "the wallet's input token account is passed to the external program"); continue; }
       if (a.address === feeDestination || a.address === p.treasury) {
-        fail('R1', "Bound's fee account is passed to the external program"); // B-11
+        fail('R1', "Orientim's fee account is passed to the external program"); // B-11
         continue;
       }
       if (a.address === wOut) continue;
@@ -741,12 +753,12 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     else if (hasCloseAuthority(snapshot.accounts.get(wOut))) fail('R1', 'W_out has a close authority set');
   }
 
-  // Bound's own accounts are named in the message itself, never loaded from a lookup table (review
+  // Orientim's own accounts are named in the message itself, never loaded from a lookup table (review
   // FA-16): a table is read from the RPC, and an address that resolves differently on chain than in
   // the snapshot would redirect a trusted transfer. Jupiter's tables hold pools, never these.
   const fromTables = new Set(loaded.slice(compiled.staticAccounts.length));
   const own: [string, Address | null][] = [
-    ['W_in', wIn], ['W_out', wOut], ['E_in', eIn], ['E_out', eOut], ["Bound's fee account", feeDestination],
+    ['W_in', wIn], ['W_out', wOut], ['E_in', eIn], ['E_out', eOut], ["Orientim's fee account", feeDestination],
     ['the treasury', p.treasury], ["the route's account", expected.routeAccount],
     ...[...intermediates.keys()].map(k => ['an intermediate account', k as Address] as [string, Address]),
   ];
@@ -805,7 +817,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     if (risky) fail('R7', `intermediate mint ${m.mint}: ${risky}`);
   }
 
-  // R7: both mints are token mints Bound can isolate - classic SPL (WSOL included), or Token-2022
+  // R7: both mints are token mints Orientim can isolate - classic SPL (WSOL included), or Token-2022
   // with none of the extensions that would break the guarantee.
   for (const mint of [p.inputMint, p.outputMint]) {
     const state = snapshot.accounts.get(mint);
@@ -816,5 +828,5 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     if (bad) fail('R7', `mint ${mint}: ${bad}`);
   }
 
-  return { ok: violations.length === 0, violations };
+  return { ok: violations.length === 0, violations, networkFeeLamports: signatureFee + priorityFee };
 }

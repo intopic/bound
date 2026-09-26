@@ -28,7 +28,7 @@ export function receivedFromMeta(
     const after = meta.postBalances[0];
     if (before === undefined || after === undefined) return null;
     // The market's account fee went out and most of it came back (FA-05): neither is swap output.
-    // A Bound fee taken from the output also left the wallet: what is counted is what it kept.
+    // A Orientim fee taken from the output also left the wallet: what is counted is what it kept.
     return BigInt(after) - BigInt(before) + BigInt(meta.fee) + swap.routeRent - (swap.routeRefund ?? 0n);
   }
   const mine = (list: readonly TokenBalance[] | null | undefined) =>
@@ -37,4 +37,18 @@ export function receivedFromMeta(
   if (!after.length) return null;
   const before = new Map(mine(meta.preTokenBalances).map(b => [b.accountIndex, BigInt(b.uiTokenAmount.amount)]));
   return after.reduce((sum, b) => sum + BigInt(b.uiTokenAmount.amount) - (before.get(b.accountIndex) ?? 0n), 0n);
+}
+
+/**
+ * How what arrived compares with what the quote expected (`expected`, net of a fee taken from the
+ * output). Said when it is better, or when it is well below the quote but within the tolerance the
+ * person set, so that a fill near the minimum reads as the tolerance at work. Empty otherwise.
+ */
+export function fillAgainstQuote(received: bigint, expected: bigint, tolerance: string): string {
+  if (expected <= 0n) return '';
+  const bps = Number(((received - expected) * 10_000n) / expected);
+  const pct = (b: number) => `${(Math.abs(b) / 100).toFixed(Math.abs(b) < 100 ? 2 : 1)}%`;
+  if (bps >= 5) return `${pct(bps)} better than quoted.`;
+  if (bps <= -100 && tolerance) return `Filled ${pct(bps)} below the quote, within your ${tolerance} tolerance.`;
+  return '';
 }
