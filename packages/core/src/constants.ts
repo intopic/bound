@@ -59,6 +59,12 @@ export const MAX_TAKER_RENT_LAMPORTS = 5_000_000n; // 0.005 SOL
  */
 export const MAX_ROUTE_SLIPPAGE_BPS = 50;
 export const MAX_CURVE_SLIPPAGE_BPS = 300;
+/**
+ * The most tolerance a person may choose on the page (its slippage setting): 15%. Only the page asks
+ * the verifier for a tolerance, with that person's own choice, and never for more than this; a
+ * server and the agent skill never do, so their routes keep the two ceilings above.
+ */
+export const MAX_CHOSEN_SLIPPAGE_BPS = 1_500;
 /** Pump.fun's bonding-curve program: a route through it is priced on the curve. */
 export const PUMP_CURVE_PROGRAM = address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
 /** PumpSwap, the market a Pump.fun token moves to after its curve. */

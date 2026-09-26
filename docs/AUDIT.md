@@ -1629,6 +1629,40 @@ configured site.
 - a multisig treasury;
 - the npm release.
 
+## 0zq. A slippage setting on the card, up to 15% (26 September 2026)
+
+The owner's decision: a slippage setting behind a gear, as swap sites have it, with Auto as the
+default and a limit of 15%. The verifier had a fixed ceiling on the tolerance a Jupiter route may
+carry: 0.5%, or 3% on a Pump.fun curve (review FA-03). The owner chose to allow up to 15%.
+
+What changed, and what did not:
+
+- **The verifier** takes an option, the tolerance the person chose. A route of any kind is held to
+  exactly that choice, never above 15% (`MAX_CHOSEN_SLIPPAGE_BPS`).
+  - Without the option, the ceilings stay 0.5% and 3%, and a value that is not a number of bps
+    leaves them in place.
+  - The verifier's version is now 0.9.0.
+- **Only the page passes the option**, with the person's own choice (`chosenSlippageBps` in the
+  swap settings). The route is built at that tolerance, and the minimum shown is the quote less it.
+- **The server and the agent skill never pass it**, so for agents and bots nothing changed: their
+  routes stay at 0.5% and 3%, and the agent API takes no tolerance from a request.
+- **Safe for the wallet at any tolerance.** The route never gets the wallet, and the minimum is
+  still enforced on chain. What the tolerance changes is how far below the quote that minimum sits.
+- **The page:**
+  - The gear on the card offers Auto, 0.5%, 1%, 3% or a value of one's own from 0.1% to 15%.
+  - Above 5% it warns that much less may arrive and bots can take the difference. Such a choice is
+    kept for that visit only, so that a high tolerance set for one fast token is not left on.
+  - On a phone, Auto is the gear alone, and a chosen value is always shown.
+  - Changing the tolerance drops the quote on screen, so the minimum shown is always the new one.
+- **Also:** the agents section's button now says "Get an API key", since keys come at once.
+
+**Tests:** 582 pass. The verifier holds a route to the chosen tolerance and never above 15%. The
+builder builds at the chosen tolerance on curve and ordinary routes alike. The helper tests cover
+parsing, storage (above 5% for the visit only) and settings.
+
+**In Edge:** the gear, the window, the warning at 10%, the refusal of 20%, and the choice kept
+after a reload, at 1280, 390 and 360 pixels. There were no page errors and no sideways scroll.
+
 ---
 
 ## 1. What Orientim is

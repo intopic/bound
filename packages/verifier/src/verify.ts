@@ -17,7 +17,7 @@ import type { Address, Transaction } from '@solana/kit';
 import { findAssociatedTokenPda } from '@solana-program/token';
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, BPS_DENOMINATOR, JUPITER_PROGRAM, LAMPORTS_PER_SIGNATURE, LEGACY_SIZE_LIMIT,
-  MAX_COMPUTE_UNITS, MAX_CURVE_SLIPPAGE_BPS, MAX_ROUTE_SLIPPAGE_BPS, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
+  MAX_CHOSEN_SLIPPAGE_BPS, MAX_COMPUTE_UNITS, MAX_CURVE_SLIPPAGE_BPS, MAX_ROUTE_SLIPPAGE_BPS, MAX_TAKER_RENT_LAMPORTS, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
   FEE_TOKENS, MAX_FEE_BPS, MAX_INTERMEDIATE_ACCOUNTS, MAX_LOADED_ACCOUNTS_DATA_SIZE, MINT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, V1_MAX_ACCOUNTS,
   V1_SIZE_LIMIT, WSOL_MINT,
 } from '@orientim/core/constants';
@@ -361,7 +361,16 @@ const OWN_CLEANUP: Slot[] = ['minOutCheck', 'harvestEIn', 'harvestIntermediate',
  * The 7 rules of the plan (section 6), checked on the exact bytes the wallet will sign.
  * Pure: every chain fact comes from `snapshot`, fetched beforehand.
  */
-export async function verify(transaction: Transaction, policy: Policy, snapshot: ChainSnapshot): Promise<Verdict> {
+export type VerifyOptions = {
+  /**
+   * The tolerance the person chose on the page, in bps, for a route of any kind; at most
+   * MAX_CHOSEN_SLIPPAGE_BPS (15%). Unset, a route may carry 0.5%, or 3% on a Pump.fun bonding curve.
+   * Only the page passes it, with the person's own choice: never a server, never the agent skill.
+   */
+  maxSlippageBps?: number;
+};
+
+export async function verify(transaction: Transaction, policy: Policy, snapshot: ChainSnapshot, opts: VerifyOptions = {}): Promise<Verdict> {
   const violations: Violation[] = [];
   const fail = (rule: RuleId, detail: string) => void violations.push({ rule, detail });
   const p = policy;
@@ -521,7 +530,10 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
       continue;
     }
     const curve = x.accounts.some(a => a.address === PUMP_CURVE_PROGRAM);
-    const maxSlippage = curve ? MAX_CURVE_SLIPPAGE_BPS : MAX_ROUTE_SLIPPAGE_BPS;
+    const chosen = opts.maxSlippageBps;
+    const maxSlippage = chosen !== undefined && Number.isInteger(chosen) && chosen >= 0
+      ? Math.min(chosen, MAX_CHOSEN_SLIPPAGE_BPS)
+      : curve ? MAX_CURVE_SLIPPAGE_BPS : MAX_ROUTE_SLIPPAGE_BPS;
     if (args.platformFeeBps !== 0 || args.positiveSlippageBps !== 0) {
       fail('R2', `the Jupiter route takes a platform fee (${args.platformFeeBps} bps) or positive slippage (${args.positiveSlippageBps} bps)`);
     }

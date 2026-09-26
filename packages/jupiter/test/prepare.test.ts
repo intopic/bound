@@ -47,7 +47,7 @@ async function prepare(output: Address, opts: {
   input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
   expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
   wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean; acceptedMinReceived?: bigint;
-  minFee?: SwapSettings['minFee']; leavesOpen?: readonly string[];
+  minFee?: SwapSettings['minFee']; leavesOpen?: readonly string[]; chosenSlippageBps?: number;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   // The wallet holds the input token, unless a test says otherwise through `chain`.
@@ -61,7 +61,10 @@ async function prepare(output: Address, opts: {
         walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations, cashback: opts.cashback,
         pumpSlippage: opts.pumpSlippage, failBeforeSwap: opts.failBeforeSwap, leavesOpen: opts.leavesOpen,
       }),
-      jupiter: opts.jupiter ?? fakeJupiter(), settings: { ...settings, treasury: opts.treasury ?? null, ...(opts.minFee ? { minFee: opts.minFee } : {}) },
+      jupiter: opts.jupiter ?? fakeJupiter(), settings: {
+        ...settings, treasury: opts.treasury ?? null, ...(opts.minFee ? { minFee: opts.minFee } : {}),
+        ...(opts.chosenSlippageBps !== undefined ? { chosenSlippageBps: opts.chosenSlippageBps } : {}),
+      },
     },
     {
       owner: W, ephemeral: await generateKeyPairSigner(), inputMint: opts.input ?? USDC, outputMint: output,
@@ -368,6 +371,19 @@ describe('slippage on a Pump.fun bonding curve', () => {
     const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Pump.fun', asked }) });
     expect(prepared.policy.minOut).toBe(floor(50));
     expect(asked.every(p => p.slippageBps === 50)).toBe(true);
+  });
+
+  it('a tolerance the person chose is the one every route is built and enforced at, curve or not', async () => {
+    const asked: BuildParams[] = [];
+    const wider = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Whirlpool', asked }), chosenSlippageBps: 300 });
+    expect(wider.policy.minOut).toBe(floor(300));
+    expect(asked.every(p => p.slippageBps === 300)).toBe(true);
+    const onCurve: BuildParams[] = [];
+    const tighter = await prepare(BONK, { jupiter: curve({ asked: onCurve }), chain: onChain, chosenSlippageBps: 100 });
+    expect(tighter.policy.minOut).toBe(floor(100));
+    expect(onCurve.every(p => p.slippageBps === 100)).toBe(true);
+    const most = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Whirlpool' }), chosenSlippageBps: 1_500 });
+    expect(most.policy.minOut).toBe(floor(1_500));
   });
 
   it('a minimum the user accepted still wins on the bonding curve when it is stricter', async () => {

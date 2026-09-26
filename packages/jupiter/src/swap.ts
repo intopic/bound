@@ -32,6 +32,12 @@ export type SwapSettings = OrientimConfig & {
    */
   curveSlippageBps: number;
   /**
+   * A tolerance the person chose on the page, for every route, curve or not: the route is built at
+   * it and the verifier holds it to it, never above 15% (MAX_CHOSEN_SLIPPAGE_BPS). Unset (the
+   * default, "Auto", and always on the server): `slippageBps`, or `curveSlippageBps` on a curve.
+   */
+  chosenSlippageBps?: number;
+  /**
    * How far below the unrestricted route a protected one may sit (D15). Under `askAboveBps` the
    * swap proceeds; above it the user is told the difference and decides, with a stronger warning
    * past `warnAboveBps`. Orientim refuses on its own only past `badQuoteBps`, where the number is no
@@ -302,7 +308,7 @@ export const BONDING_CURVE_LABEL = 'Pump.fun';
 /** The Pump.fun bonding-curve program, which a route through the curve invokes. */
 export { PUMP_CURVE_PROGRAM } from '@orientim/core';
 
-type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps'>;
+type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps' | 'chosenSlippageBps'>;
 
 /**
  * Does this route trade on a Pump.fun bonding curve? Jupiter's label says so, and the curve program
@@ -320,6 +326,7 @@ export function isCurveRoute(r: Pick<BuildResponse, 'routePlan' | 'swapInstructi
  * on chain.
  */
 export function slippageFor(r: Pick<BuildResponse, 'routePlan' | 'swapInstruction'>, settings: Slippages): number {
+  if (settings.chosenSlippageBps !== undefined) return settings.chosenSlippageBps;
   return isCurveRoute(r) ? settings.curveSlippageBps : settings.slippageBps;
 }
 
@@ -332,6 +339,8 @@ export function quotedMinimum(
   r: Pick<BuildResponse, 'routePlan' | 'swapInstruction' | 'outAmount' | 'otherAmountThreshold'>,
   settings: Slippages,
 ): bigint {
+  // A chosen tolerance is the one the quote was asked at, for any route.
+  if (settings.chosenSlippageBps !== undefined) return routeFloor(r, settings.chosenSlippageBps);
   return isCurveRoute(r) ? minimumOutput(BigInt(r.outAmount), settings.curveSlippageBps) : routeFloor(r, settings.slippageBps);
 }
 
@@ -788,7 +797,7 @@ export async function prepareProtectedSwap(deps: {
     // Each route is built at its own tolerance, so that Jupiter's program enforces a second floor on
     // chain that does not depend on the balance Orientim read from the RPC (review BR-01). A curve route
     // is asked for again at the curve tolerance once it is known to be one.
-    slippageBps: req.expectCurve ? settings.curveSlippageBps : settings.slippageBps,
+    slippageBps: settings.chosenSlippageBps ?? (req.expectCurve ? settings.curveSlippageBps : settings.slippageBps),
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
   };
   // Individual quotes fail transiently ("pool has not been updated", "zero tradable amount"):
@@ -1219,7 +1228,8 @@ export async function prepareProtectedSwap(deps: {
 
       // Verified and certified in one step: the certificate exists only if every rule held.
       const verifyStarted = performance.now();
-      const certification = await certify(final.transaction, chosenPolicy, snapshot);
+      // A tolerance the person chose is the only one the route may carry; unset, the verifier's own.
+      const certification = await certify(final.transaction, chosenPolicy, snapshot, { maxSlippageBps: settings.chosenSlippageBps });
       localMs += performance.now() - verifyStarted;
       const verdict = certification.ok ? { ok: true, violations: [] as Violation[] } : { ok: false, violations: certification.violations };
       // A route through a Token-2022 hop with a transfer hook or permanent delegate (B-10) is not

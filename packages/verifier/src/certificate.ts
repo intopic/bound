@@ -3,9 +3,10 @@ import type { Address, Transaction } from '@solana/kit';
 import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientim/core/constants';
 import type { ChainSnapshot, Policy, Violation } from '@orientim/core/types';
 import { verify } from './verify.ts';
+import type { VerifyOptions } from './verify.ts';
 
 /** Changes whenever a rule changes; every certificate names the verifier that issued it. */
-export const VERIFIER_VERSION = '0.8.2';
+export const VERIFIER_VERSION = '0.9.0';
 
 /**
  * What a verified transaction does, in terms a person or a wallet can check. It is issued only after
@@ -83,8 +84,8 @@ export type Certification = { ok: true; certificate: Certificate } | { ok: false
 const hex = (bytes: Uint8Array) => [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
 
 /** Verifies the transaction and, only if every rule holds, issues its certificate. */
-export async function certify(transaction: Transaction, policy: Policy, snapshot: ChainSnapshot): Promise<Certification> {
-  const verdict = await verify(transaction, policy, snapshot);
+export async function certify(transaction: Transaction, policy: Policy, snapshot: ChainSnapshot, opts: VerifyOptions = {}): Promise<Certification> {
+  const verdict = await verify(transaction, policy, snapshot, opts);
   if (!verdict.ok) return { ok: false, violations: verdict.violations };
 
   const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);

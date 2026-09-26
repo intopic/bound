@@ -57,6 +57,12 @@ const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1000000n;
 * wants SOL to spend, not to rent with, cannot fit under it.
 */
 const MAX_TAKER_RENT_LAMPORTS = 5000000n;
+/**
+* The most tolerance a person may choose on the page (its slippage setting): 15%. Only the page asks
+* the verifier for a tolerance, with that person's own choice, and never for more than this; a
+* server and the agent skill never do, so their routes keep the two ceilings above.
+*/
+const MAX_CHOSEN_SLIPPAGE_BPS = 1500;
 /** Pump.fun's bonding-curve program: a route through it is priced on the curve. */
 const PUMP_CURVE_PROGRAM = address("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 /** PumpSwap, the market a Pump.fun token moves to after its curve. */
@@ -514,11 +520,7 @@ const OWN_CLEANUP = [
 	"closeEOut",
 	"closeIntermediate"
 ];
-/**
-* The 7 rules of the plan (section 6), checked on the exact bytes the wallet will sign.
-* Pure: every chain fact comes from `snapshot`, fetched beforehand.
-*/
-async function verify(transaction, policy, snapshot) {
+async function verify(transaction, policy, snapshot, opts = {}) {
 	const violations = [];
 	const fail = (rule, detail) => void violations.push({
 		rule,
@@ -644,7 +646,9 @@ async function verify(transaction, policy, snapshot) {
 			fail("R2", "the Jupiter instruction is not a route Orientim can read (route_v2 or shared_accounts_route_v2)");
 			continue;
 		}
-		const maxSlippage = x.accounts.some((a) => a.address === PUMP_CURVE_PROGRAM) ? 300 : 50;
+		const curve = x.accounts.some((a) => a.address === PUMP_CURVE_PROGRAM);
+		const chosen = opts.maxSlippageBps;
+		const maxSlippage = chosen !== void 0 && Number.isInteger(chosen) && chosen >= 0 ? Math.min(chosen, MAX_CHOSEN_SLIPPAGE_BPS) : curve ? 300 : 50;
 		if (args.platformFeeBps !== 0 || args.positiveSlippageBps !== 0) fail("R2", `the Jupiter route takes a platform fee (${args.platformFeeBps} bps) or positive slippage (${args.positiveSlippageBps} bps)`);
 		if (args.slippageBps > maxSlippage) fail("R2", `the Jupiter route tolerates ${args.slippageBps} bps, above ${maxSlippage}`);
 		const floor = jupiterFloor(args);

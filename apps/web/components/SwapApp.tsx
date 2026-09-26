@@ -36,7 +36,10 @@ import { receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
 import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
 import type { Problem } from '@/lib/client/problems';
+import { loadSlippage, saveSlippage, withSlippage } from '@/lib/client/slippage';
+import type { SlippageChoice } from '@/lib/client/slippage';
 import { Modal } from './Modal';
+import { SlippageSettings } from './SlippageSettings';
 import { TokenIcon, TokenPicker } from './TokenPicker';
 import { ShieldIcon, SiteHeader } from './site/Brand';
 
@@ -479,6 +482,11 @@ export function SwapApp() {
   const [feeSide, setFeeSide] = useState<FeeSide | null>('input');
   const [clock, setClock] = useState(0);
   const [refreshes, setRefreshes] = useState(0);
+  // The person's slippage choice (⚙️): "auto" unless they chose one. Read after the first render, since
+  // the server renders without the browser's storage.
+  const [slippage, setSlippage] = useState<SlippageChoice>('auto');
+  useEffect(() => setSlippage(loadSlippage()), []);
+  const pageSettings = useMemo(() => withSlippage(DEFAULT_SETTINGS, slippage), [slippage]);
   // How many times in a row Jupiter refused the price as busy, and until when nothing is built ahead.
   const [busyTries, setBusyTries] = useState(0);
   const busyUntil = useRef(0);
@@ -693,7 +701,7 @@ export function SwapApp() {
           // The same amount the swap itself will route: what is left after the token's own tax.
           inputMint: address(tokenIn.id), outputMint: address(tokenOut.id),
           amount: amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts),
-          taker: address(QUOTE_TAKER), slippageBps: DEFAULT_SETTINGS.slippageBps, maxAccounts: 64,
+          taker: address(QUOTE_TAKER), slippageBps: pageSettings.chosenSlippageBps ?? DEFAULT_SETTINGS.slippageBps, maxAccounts: 64,
           excludeDexes: status?.excludeDexes ?? DEFAULT_SETTINGS.excludeDexes,
         })
         .then(r => {
@@ -705,7 +713,7 @@ export function SwapApp() {
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
           setQuote(answersThis
             ? {
-              out: BigInt(r.outAmount), minOut: quotedMinimum(r, DEFAULT_SETTINGS), curve: isCurveRoute(r),
+              out: BigInt(r.outAmount), minOut: quotedMinimum(r, pageSettings), curve: isCurveRoute(r),
               impact: Number.isFinite(Number(r.priceImpactPct)) ? Math.max(0, Number(r.priceImpactPct)) : 0, at: Date.now(),
             }
             : null);
@@ -728,7 +736,7 @@ export function SwapApp() {
       clearTimeout(timer);
       setQuoting(false);
     };
-  }, [tokenIn, tokenOut, swapAmount, status, clock, inFacts]);
+  }, [tokenIn, tokenOut, swapAmount, status, clock, inFacts, pageSettings]);
 
   // A change of pair or amount makes the shown quote meaningless at once, and it is the user
   // acting, so the automatic refreshes start over.
@@ -879,7 +887,7 @@ export function SwapApp() {
     rpc: getRpc(),
     jupiter: getJupiter(),
     settings: {
-      ...DEFAULT_SETTINGS,
+      ...pageSettings,
       feeBps: FEE_BPS,
       treasury: TREASURY,
       excludeDexes: s.excludeDexes,
@@ -1223,7 +1231,9 @@ export function SwapApp() {
     const n = (x: number) => x.toLocaleString('en-US', { maximumSignificantDigits: 6 });
     return rateInverted ? `1 ${tokenOut.symbol} ≈ ${n(1 / perIn)} ${tokenIn.symbol}` : `1 ${tokenIn.symbol} ≈ ${n(perIn)} ${tokenOut.symbol}`;
   })();
-  const tolerance = quote ? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps) / 100 : null;
+  const tolerance = quote
+    ? (pageSettings.chosenSlippageBps ?? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)) / 100
+    : null;
 
   const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
   if (quote && quote.impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(quote.impact)}: this amount moves the market price.`);
@@ -1337,7 +1347,19 @@ export function SwapApp() {
       <section className="card swap">
         <div className="swap-head">
           <p className="swap-title"><ShieldIcon /> Protected swap</p>
-          <span className={`status-badge ${badge[0]}`}><span className="dot" aria-hidden="true" />{badge[1]}</span>
+          <div className="swap-head-end">
+            <SlippageSettings
+              choice={slippage}
+              disabled={busy}
+              onChange={c => {
+                setSlippage(c);
+                saveSlippage(c);
+                // The minimum on screen was for the old tolerance: a new quote shows the new one.
+                setQuote(null);
+              }}
+            />
+            <span className={`status-badge ${badge[0]}`}><span className="dot" aria-hidden="true" />{badge[1]}</span>
+          </div>
         </div>
         <div className={`scan-line${phase === 'checking' ? ' on' : ''}`} aria-hidden="true" />
 

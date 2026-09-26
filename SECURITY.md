@@ -16,7 +16,9 @@ For every swap Orientim builds:
    a close authority is refused.
 3. The transaction grants no new authority over W's assets (no approvals, no ownership changes).
 4. The user receives at least the minimum they accepted before signing, which is never below the
-   quote less the slippage: 0.5%, or 3% when the route trades on a Pump.fun bonding curve. Orientim
+   quote less the slippage: 0.5%, or 3% when the route trades on a Pump.fun bonding curve, unless
+   the person chose another on the page (⚙️, from 0.1% to 15%; the verifier holds the route to that
+   choice, and a server or the agent skill can never raise it). Orientim
    checks it on chain after the swap; if less arrived, the whole transaction reverts. When a token
    is bought, the check compares the user's account for that token with its balance when the swap
    was prepared, and that balance is read from the RPC: the check assumes the RPC reports it
@@ -175,8 +177,10 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
 - Phishing sites that do not use Orientim, and approvals the user granted elsewhere before.
 - The value of the token bought (rug pulls, freeze authority, mint authority). The page warns about
   the last two.
-- Price movement and MEV within the slippage tolerance (0.5%, or 3% on a Pump.fun bonding curve):
-  the minimum output is the quoted amount minus that tolerance.
+- Price movement and MEV within the slippage tolerance (0.5%, or 3% on a Pump.fun bonding curve, or
+  what the person chose on the page, up to 15%): the minimum output is the quoted amount minus that
+  tolerance. The higher the tolerance, the more a bot that trades around the swap can take; above 5%
+  the page warns, and keeps the choice for that visit only.
 - Token-2022 tokens whose extensions Orientim refuses: a permanent delegate a program can sign for,
   accounts frozen by default, pausable, non-transferable, interest-bearing, a scaled UI amount, a
   required memo, a transfer hook with a real program, or any extension the verifier does not know.

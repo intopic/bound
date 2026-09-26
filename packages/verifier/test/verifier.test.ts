@@ -549,11 +549,11 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
     ixs[i] = { ...ixs[i], data };
     return ixs;
   };
-  const check = async (make: (s: Scenario) => Uint8Array, opts: { curve?: boolean } = {}) => {
+  const check = async (make: (s: Scenario) => Uint8Array, opts: { curve?: boolean; maxSlippageBps?: number } = {}) => {
     const s = await scenario();
     const extra = opts.curve ? [{ address: PUMP_CURVE_PROGRAM, role: AccountRole.READONLY }] : [];
     if (opts.curve) (s.snapshot.accounts as Map<string, AccountState | null>).set(PUMP_CURVE_PROGRAM, { owner: SYSTEM_PROGRAM, lamports: 1n, data: new Uint8Array(36) });
-    return verify(mutated(s, withData(s, make(s), extra)), s.policy, s.snapshot);
+    return verify(mutated(s, withData(s, make(s), extra)), s.policy, s.snapshot, { maxSlippageBps: opts.maxSlippageBps });
   };
   const set = (d: Uint8Array, at: number, bytes: number, value: number) => {
     const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
@@ -634,6 +634,19 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
     expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, 10_000))).join()).toContain('tolerates 10000 bps');
     expect((await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, 300), { curve: true })).violations).toEqual([]);
     expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, 301), { curve: true })).join()).toContain('tolerates 301 bps');
+  });
+
+  it('a tolerance the person chose on the page is the ceiling instead, on any route, and never above 15%', async () => {
+    const at = (bps: number, chosen: number, curve = false) =>
+      check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut * 2n, bps), { curve, maxSlippageBps: chosen });
+    expect((await at(1_000, 1_000)).violations).toEqual([]);
+    expect(details(await at(1_001, 1_000)).join()).toContain('tolerates 1001 bps, above 1000');
+    expect((await at(1_500, 20_000)).violations).toEqual([]);
+    expect(details(await at(1_501, 20_000)).join()).toContain('tolerates 1501 bps, above 1500');
+    // Chosen below the usual ceiling: a curve route is held to it as well.
+    expect(details(await at(300, 100, true)).join()).toContain('tolerates 300 bps, above 100');
+    // Not a number of bps: the usual ceilings hold.
+    expect(details(await at(51, Number.NaN)).join()).toContain('tolerates 51 bps, above 50');
   });
 
   it('a quote below the minimum output is refused: Jupiter would enforce less than Orientim promised', async () => {
