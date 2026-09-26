@@ -1475,6 +1475,44 @@ one signed message, prepare built its swap (nothing signed or sent), another wal
 feature stays off until the owner sets `ORIENTIM_KEY_SECRET` (`node tools/agent-key.ts --key-secret`);
 until then the page says API access opens with the public launch.
 
+## 0zo. The Solana Agent Kit plugin (26 September 2026)
+
+Solana Agent Kit v2 (sendaifun, 2.0.10) is where most Solana agents are built, so Orientim is one
+plugin away for them: `integrations/solana-agent-kit`, `@orientim/plugin-solana-agent-kit`. It adds
+`agent.methods.orientimSwap(agent, { outputMint, inputAmount, inputMint? })` and one tool,
+`ORIENTIM_PROTECTED_SWAP`, which the Agent Kit hands to Vercel AI, LangChain and OpenAI Agents.
+Underneath it is the skill's `protectedSwap`, bundled in: the same check on the agent's own RPC
+before the wallet signs, the same outcome read from the chain.
+
+What the Agent Kit's code required, read at the source before writing:
+
+- **The agent's own classes.** The Agent Kit tells a zod schema (`instanceof ZodObject`) and a
+  transaction by their class, so zod 3, @solana/web3.js and the Agent Kit are peer dependencies,
+  never bundled; the build refuses a bundle that contains them.
+- **The wallet.** Any Agent Kit wallet signs through its `signTransaction`. Its answer counts only
+  when it is the same message signed by that wallet (`signerFromSignTransaction`): a wallet that adds
+  a priority fee or changes the blockhash is refused before anything is sent. `signOnly` agents are
+  refused, since Orientim sends once the wallet has signed.
+- **The frameworks.** LangChain calls the handler without the schema, so the handler checks it too.
+  The Agent Kit's OpenAI adapter makes every field required, so optional fields are nullable and null
+  means "none". The executor adds `status: "success"` under the handler's answer, so the handler sets
+  `status` itself: `success` only when the swap confirmed.
+- **Amounts** are in whole tokens, as in the Agent Kit's own trade action. They are converted with each
+  mint's decimals, read on the agent's RPC, and rounded down: never more than was asked.
+- **The key.** Without `ORIENTIM_API_KEY`, the wallet signs Orientim's key message once (0zn, checked
+  first), and the key is kept in memory and handed to `onApiKey` for storage.
+- **One swap per wallet** at a time in a process: a second call waits for the first. The kept swaps
+  live in memory, or on disk with a lock (`stateDir`).
+
+Tested with the real Agent Kit, `KeypairWallet`, and the Vercel AI, LangChain and OpenAI adapters,
+against Orientim's agent API handlers on a fake chain. There are 16 tests. The tests for the queue
+and for the handler's own check were first seen to fail with the feature removed. The dist test
+loads the build both ways. The root tests leave `integrations/` to its own folder (vitest.config.ts);
+its dependencies (275 packages) live only there, so the site and its deploys are unchanged.
+
+Not done: the npm release, which is the owner's step and needs the `@orientim` scope. The package is
+marked private until then. A mainnet swap through the plugin is also still to come.
+
 ---
 
 ## 1. What Orientim is
