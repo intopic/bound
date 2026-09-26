@@ -34,11 +34,19 @@ export function rateLimited(key: string, limit: number, windowMs = 60_000): bool
   }
   const w = windows.get(key);
   if (!w || w.resetAt <= now) {
+    // Deleted first, so that a window starting again counts as the newest when the flood rule drops the oldest.
+    windows.delete(key);
     windows.set(key, { count: 1, resetAt: now + windowMs });
     return false;
   }
   w.count++;
   return w.count > limit;
+}
+
+/** Whole seconds until `key`'s window ends: what a Retry-After should say once it is limited. */
+export function secondsUntilReset(key: string): number {
+  const w = windows.get(key);
+  return w ? Math.max(1, Math.ceil((w.resetAt - Date.now()) / 1000)) : 1;
 }
 
 /**

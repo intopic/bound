@@ -2,15 +2,8 @@
 
 import { useState } from 'react';
 import type { Wallet } from '@wallet-standard/base';
+import { isKeyMessage } from '@/lib/client/keyMessage';
 import { connectWallet, signsMessages, useWallets, walletSignMessage } from '@/lib/client/wallets';
-
-/** Orientim's key message for this wallet on this site, and nothing else (the skill checks the same). */
-function isKeyMessage(message: unknown, wallet: string): message is string {
-  if (typeof message !== 'string' || message.length > 1_000 || !/^[\x20-\x7e\n]+$/.test(message)) return false;
-  const lines = message.split('\n');
-  return lines[0] === `${window.location.host} wants you to sign in with your Solana account:` && lines[1] === wallet
-    && lines[3] === 'Get an Orientim API key for this wallet. Signing costs nothing and gives no access to your funds.';
-}
 
 type Issued = { key: string; wallet: string; expiresAt: string };
 
@@ -41,7 +34,7 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
       if (c.status === 404) throw new Error('API access opens with the public launch.');
       const challenge = await c.json() as { message?: unknown; challenge?: string; error?: { message: string } };
       if (!c.ok) throw new Error(challenge.error?.message ?? 'Orientim could not prepare the message. Try again.');
-      if (!isKeyMessage(challenge.message, account.address)) throw new Error('The message was not the expected one, so nothing was signed.');
+      if (!isKeyMessage(challenge.message, window.location.host, account.address)) throw new Error('The message was not the expected one, so nothing was signed.');
       setBusy('Sign the message in your wallet…');
       const signature = await walletSignMessage(wallet, account, new TextEncoder().encode(challenge.message));
       setBusy('Getting your key…');

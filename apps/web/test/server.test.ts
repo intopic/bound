@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { iconHostAllowed, proxyIcon, sniffImage } from '../lib/server/iconProxy.ts';
 import { proxyBuild } from '../lib/server/jupiterProxy.ts';
-import { clientKey, rateLimited } from '../lib/server/rateLimit.ts';
+import { clientKey, rateLimited, secondsUntilReset } from '../lib/server/rateLimit.ts';
 import { proxyRpc } from '../lib/server/rpcProxy.ts';
 import { createNoopSigner, getBase64EncodedWireTransaction } from '@solana/kit';
 import { getTransferSolInstruction } from '@solana-program/system';
@@ -53,6 +53,46 @@ describe('B-06, C-04: the client key comes only from the header the ingress over
     const k = `test:${uniqueIp()}`;
     for (let i = 0; i < 5; i++) expect(rateLimited(k, 5)).toBe(false);
     expect(rateLimited(k, 5)).toBe(true);
+  });
+
+  it('says how long until a window ends, for Retry-After', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const t0 = Date.now() + 5 * 60_000;
+      vi.setSystemTime(t0);
+      const k = `test:retry:${uniqueIp()}`;
+      rateLimited(k, 1);
+      vi.setSystemTime(t0 + 45_500);
+      expect(secondsUntilReset(k)).toBe(15);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a window that starts again counts as the newest: a flood of new keys does not reset a limited client', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Far enough ahead that every earlier window has ended and the next call sweeps.
+      const t0 = Date.now() + 10 * 60_000;
+      vi.setSystemTime(t0);
+      rateLimited(`test:sweep:${uniqueIp()}`, 5);
+      const a = `test:limited:${uniqueIp()}`;
+      vi.setSystemTime(t0 + 1_000);
+      rateLimited(a, 1);
+      vi.setSystemTime(t0 + 2_000);
+      for (let i = 0; i < 10_000; i++) rateLimited(`test:early:${t0}:${i}`, 5);
+      vi.setSystemTime(t0 + 60_000);
+      rateLimited(`test:tick:${uniqueIp()}`, 5);
+      // A's first window ended at t0 + 61 s: it starts again, and A goes over its limit in it.
+      vi.setSystemTime(t0 + 62_000);
+      expect(rateLimited(a, 1)).toBe(false);
+      expect(rateLimited(a, 1)).toBe(true);
+      // A flood drops the oldest tenth: the early keys, not A, whose window is newer than theirs.
+      for (let i = 0; i < 40_000; i++) rateLimited(`test:flood:${t0}:${i}`, 5);
+      expect(rateLimited(a, 1)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -337,16 +377,27 @@ describe("Orientim's proxies serve Orientim's own page (final audit, M2)", () =>
     }
   });
 
-  it('/api/status says whether the deployment has a Jupiter key (final audit, H1)', async () => {
+  it('/api/status does not say whether the deployment has a Jupiter key: the operator reads it in the logs', async () => {
     const { publicStatus } = await import('../lib/server/config.ts');
-    delete process.env.JUPITER_API_KEY;
-    expect(publicStatus().jupiterKey).toBe(false);
     process.env.JUPITER_API_KEY = 'test-key';
     try {
-      expect(publicStatus().jupiterKey).toBe(true);
+      expect(Object.keys(publicStatus())).not.toContain('jupiterKey');
+      expect(JSON.stringify(publicStatus())).not.toContain('test-key');
     } finally {
       delete process.env.JUPITER_API_KEY;
     }
+  });
+
+  it('a mistyped USD cap refuses every swap instead of lifting the cap', async () => {
+    const { usdCap } = await import('../lib/server/config.ts');
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(usdCap(undefined)).toBeNull();
+    expect(usdCap('')).toBeNull();
+    expect(usdCap('250')).toBe(250);
+    expect(usdCap('1,000')).toBe(0);
+    expect(usdCap('abc')).toBe(0);
+    expect(usdCap('-5')).toBe(0);
+    error.mockRestore();
   });
 });
 

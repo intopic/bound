@@ -181,6 +181,8 @@ a.ghost { display: inline-flex; align-items: center; }
 .box-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .amount { flex: 1; min-width: 0; font-family: var(--font-display); font-size: 30px; font-weight: 600; letter-spacing: -0.01em; background: transparent; border: none; outline: none; color: var(--text); padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .amount::placeholder, .amount.placeholder { color: var(--faint); }
+/* The amount has no outline of its own: its box shows where the keyboard is. */
+.box:has(.amount:focus-visible) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .token { display: inline-flex; align-items: center; gap: 7px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px 6px 7px; font-weight: 600; white-space: nowrap; }
 .token:hover:not(:disabled) { border-color: #33454e; }
 .token-icon { border-radius: 50%; flex: none; }
@@ -421,7 +423,7 @@ a.ghost { display: inline-flex; align-items: center; }
 
 /* ---- developers: the contents beside the text, marking the section being read */
 .dev-page { padding: 40px 0 0; }
-.dev-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; align-items: start; }
+.devdocs-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; align-items: start; }
 .dev-aside { position: sticky; top: 88px; max-height: calc(100vh - 104px); overflow-y: auto; padding-bottom: 24px; }
 .dev-main.prose { max-width: 780px; min-width: 0; margin-top: 0; }
 .dev-head { padding-bottom: 12px; }
@@ -477,7 +479,7 @@ a.ghost { display: inline-flex; align-items: center; }
   .keeps-nothing .trust-icon { grid-row: span 2; margin: 0; }
   .split-media, .faq-wrap { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .dev-page { padding-top: 0; }
-  .dev-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .devdocs-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .dev-aside { top: 64px; z-index: 20; max-height: none; overflow: visible; margin: 0 -24px 24px; padding: 0 24px; background: rgba(12, 17, 23, .94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-soft); }
   .dev-nav-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 0; background: none; border: 0; color: var(--text); font: 600 14px var(--font-body); text-align: left; }
   .dev-nav-toggle::after { content: '▾'; color: var(--faint); }

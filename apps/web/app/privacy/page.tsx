@@ -24,13 +24,19 @@ export default async function Page() {
             Requests to the Solana network, relayed to Orientim&apos;s RPC provider: account reads, simulations and the
             transaction you signed. These include your wallet address, as every Solana app&apos;s requests do.
           </li>
-          <li>Price and route requests, relayed to Jupiter without your wallet address.</li>
+          <li>Price quotes, relayed to Jupiter without your wallet address.</li>
+          <li>
+            The swap you are about to make: with your wallet connected, the page prepares it shortly after you enter an amount,
+            so that it is ready when you swap. That request, relayed to Jupiter, names your wallet&apos;s account for the token you
+            receive, the tokens and the amount.
+          </li>
           <li>Token icons, which the server fetches so that your browser never contacts hosts chosen by token creators.</li>
           <li>Your IP address, used in memory to limit how often requests can be made, and in the hosting provider&apos;s logs.</li>
         </ul>
         <p>
-          None of it is kept: Orientim&apos;s servers answer each request and keep no record of it. Orientim does not use cookies,
-          analytics or advertising trackers.
+          Orientim&apos;s servers answer each request and keep no record of it. The hosting provider logs each request, with its
+          address, which can name a wallet or a token account, and its IP address, under its own retention rules. Orientim does
+          not use cookies, analytics or advertising trackers.
         </p>
       </section>
       <section id="developers">
@@ -39,7 +45,7 @@ export default async function Page() {
           <li>
             To issue an API key, Orientim checks the message your wallet signed and reads the wallet&apos;s SOL balance. It keeps
             neither. The key itself carries its wallet address and its expiry, sealed so that only Orientim can verify it:
-            Orientim keeps no list of keys.
+            Orientim keeps no list of the keys it issues.
           </li>
           <li>
             An agent&apos;s requests carry its wallet address, the tokens and the amount, as any swap does. They are used to build

@@ -32,9 +32,9 @@ export type SwapSettings = OrientimConfig & {
    */
   curveSlippageBps: number;
   /**
-   * A tolerance the person chose on the page, for every route, curve or not: the route is built at
-   * it and the verifier holds it to it, never above 15% (MAX_CHOSEN_SLIPPAGE_BPS). Unset (the
-   * default, "Auto", and always on the server): `slippageBps`, or `curveSlippageBps` on a curve.
+   * A tolerance the person chose on the page, or the agent in `slippageBps`, for every route, curve or
+   * not: the route is built at it and the verifier holds it to it, never above 15%
+   * (MAX_CHOSEN_SLIPPAGE_BPS). Unset (the default, "Auto"): `slippageBps`, or `curveSlippageBps` on a curve.
    */
   chosenSlippageBps?: number;
   /**

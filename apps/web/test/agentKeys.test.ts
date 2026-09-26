@@ -103,7 +103,7 @@ describe('the endpoints', () => {
     const got = await keyChallenge(new Request(`https://orientim.com/api/v1/keys/challenge?wallet=${W.address}`, { headers: from() }), deps(20_000_000n));
     expect(got.status).toBe(200);
     const c = await got.json() as { message: string; challenge: string };
-    expect(c.message).toContain('URI: https://orientim.com/docs#access');
+    expect(c.message).toContain('URI: https://orientim.com/developers#access');
     const res = await keyIssue(new Request('https://orientim.com/api/v1/keys', {
       method: 'POST', headers: from(), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
     }), deps(20_000_000n));
@@ -172,7 +172,7 @@ describe('the independent audit of 26 September (ORI-12, ORI-13)', () => {
     const res = await keyChallenge(new Request(`https://phishing.example/api/v1/keys/challenge?wallet=${W.address}`, { headers: from() }), site('https://orientim.com'));
     const { message } = await res.json() as { message: string };
     expect(message.split('\n')[0]).toBe('orientim.com wants you to sign in with your Solana account:');
-    expect(message).toContain('URI: https://orientim.com/docs#access');
+    expect(message).toContain('URI: https://orientim.com/developers#access');
   });
 
   it('a message Orientim wrote for another host is refused where the site is set', async () => {

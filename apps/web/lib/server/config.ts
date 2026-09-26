@@ -27,7 +27,7 @@ export function serverConfig() {
   const maxFee = configuredMaxFee();
   // Jupiter's API asks for a key on every endpoint; without one it answers a request or two and then
   // refuses, so quotes fail as "busy" under any load (final audit, H1). Said once, where the
-  // operator reads it; /api/status says it too.
+  // operator reads it, and never to the public.
   if (!process.env.JUPITER_API_KEY && process.env.NODE_ENV === 'production' && !warnedNoJupiterKey) {
     warnedNoJupiterKey = true;
     console.error('JUPITER_API_KEY is not set: Jupiter throttles keyless requests, and quotes will fail as "busy". Get a key at https://developers.jup.ag/portal.');
@@ -37,13 +37,29 @@ export function serverConfig() {
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
     // No limit unless one is configured: the protection does not depend on the amount, and a
     // limit would also block every token that has no USD price.
-    maxUsdPerSwap: process.env.ORIENTIM_MAX_USD_PER_SWAP ? Number(process.env.ORIENTIM_MAX_USD_PER_SWAP) : null,
+    maxUsdPerSwap: usdCap(process.env.ORIENTIM_MAX_USD_PER_SWAP),
     disabled: process.env.ORIENTIM_DISABLED === '1',
     excludeDexes: (process.env.ORIENTIM_EXCLUDE_DEXES ?? 'HumidiFi').split(',').map(s => s.trim()).filter(Boolean),
     // Clamped to the verifier's absolute ceiling (audit B-02); the verifier enforces it anyway.
     maxNetworkFeeLamports: maxFee < ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS ? maxFee : ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS,
   };
 }
+
+/**
+ * The operator's cap per swap, in USD, or null for none. A value that is set but is not a number
+ * ("1,000") becomes 0, which refuses every swap: a mistyped cap fails closed, never open.
+ */
+export function usdCap(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 0) return n;
+  if (!warnedBadCap) {
+    warnedBadCap = true;
+    console.error(`ORIENTIM_MAX_USD_PER_SWAP is not a number (${JSON.stringify(raw)}): every swap is refused until it is fixed.`);
+  }
+  return 0;
+}
+let warnedBadCap = false;
 
 /** What the browser is allowed to know. */
 export type PublicStatus = {
@@ -52,8 +68,6 @@ export type PublicStatus = {
   maxUsdPerSwap: number | null;
   excludeDexes: string[];
   maxNetworkFeeLamports: string;
-  /** Whether the deployment has a Jupiter API key; without one, quotes fail under load. */
-  jupiterKey: boolean;
 };
 
 export function publicStatus(): PublicStatus {
@@ -63,6 +77,5 @@ export function publicStatus(): PublicStatus {
     maxUsdPerSwap: c.maxUsdPerSwap,
     excludeDexes: c.excludeDexes,
     maxNetworkFeeLamports: c.maxNetworkFeeLamports.toString(),
-    jupiterKey: c.jupiterApiKey !== null,
   };
 }

@@ -29,7 +29,7 @@ const tools = createVercelAITools(agent, agent.actions);
 
 ## API key
 
-Get one on Orientim's docs page, under API access: connect the agent's wallet and sign one message.
+Get one at orientim.com/developers#access: connect the agent's wallet and sign one message.
 Signing costs nothing and moves nothing. The key works for that wallet only.
 
 Without `ORIENTIM_API_KEY`, the plugin gets a key itself: the agent's wallet signs Orientim's key

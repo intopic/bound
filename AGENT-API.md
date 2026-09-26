@@ -45,7 +45,8 @@ Every request carries an API key:
 Authorization: Bearer ori_...
 ```
 
-Requests are limited per key (60 per minute per endpoint by default). A `429` means wait and retry.
+Requests are limited to 60 a minute for each endpoint, counted per wallet for a self-serve key and per key for
+a key issued by hand. A `429` carries `Retry-After`: the seconds until the count starts again.
 
 ### API access: a key for your wallet, at once
 
@@ -66,7 +67,8 @@ POST /api/v1/keys
 → { "key": "ori_w1....", "wallet": "<address>", "expiresAt": "..." }
 ```
 
-The challenge must be signed within 10 minutes. **Sign only Orientim's key message for your own
+The challenge must be signed within 10 minutes. From one address, Orientim answers 30 challenges and
+issues 10 keys an hour; a `429` carries `Retry-After`. **Sign only Orientim's key message for your own
 wallet**: a signature over bytes someone else chose could be a signature for a transaction. The skill's
 `requestApiKey` (and `orientim-verify key-challenge`, then `key`) checks the message before anything is
 signed: this host, this wallet, the key statement, plain text and nothing more.
@@ -90,8 +92,9 @@ treasury account for the input) pays it in SOL from your wallet, before the swap
 swap is worth in SOL, as Jupiter prices it when prepare builds it. `amounts.feeMint` is then SOL,
 `policy.feeSide` is `sol` and `certificate.solFee` states it. The rules cannot see a price, so the
 skill's check requires a limit of your own for it (`maxSolFeeLamports`; `ownSolFeeLimit` asks Jupiter
-for one, and the example does this itself). Without a treasury wallet, or when the swap cannot be
-priced in SOL, it is fee-free.
+for one, and the example does this itself). When the treasury's wallet cannot receive the fee yet, or
+the swap cannot be priced in SOL, the swap is refused with `503 fee-unavailable` and nothing is built:
+Orientim never builds a swap free instead. Only a test deployment, without a treasury, is fee-free.
 
 ## 1. Prepare
 
@@ -113,9 +116,9 @@ Authorization: Bearer ori_...
 | --- | --- | --- |
 | `owner` | required | The wallet that pays and receives. It signs first. |
 | `inputMint`, `outputMint` | required | Mint addresses. SOL is `So11111111111111111111111111111111111111112`. |
-| `amountIn` | required | Base units, as a string (`"5000000"` is 5 USDC). The fee comes out of it. |
+| `amountIn` | required | Base units, as a string (`"5000000"` is 5 USDC). It includes the fee when the fee is taken in the input token; see Fee. |
 | `minOut` | optional | Your own floor, in base units of the output: what your wallet must keep, after a fee taken from the output. Orientim never enforces less than this. Without it, the floor is the route's quote less your `slippageBps`, or 0.5% (3% on a Pump.fun bonding curve) when you set none, which is Orientim's word: the skill's check refuses to sign without a floor of your own, and `ownMinimum` gets one from Jupiter directly. For a large order, take it from a source independent of Jupiter as well (an oracle, another aggregator, limits of your own). |
-| `acceptCostBps` | optional | Accept a protected route this many bps below the open market (see `costs-more`). |
+| `acceptCostBps` | optional | Accept a protected route this many bps below the open market (see `costs-more`): a whole number, as a number or an integer string. |
 | `slippageBps` | optional | The route's slippage tolerance, as a person chooses it on the page: how far below the quote the swap may fill, a whole number from 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun bonding curve. The route is built at it; the skill's check holds the route to the number in your own intent, never to Orientim's answer. |
 | `version` | optional | `0`, the default. Leave it unset. |
 
@@ -273,16 +276,30 @@ have sent it, so check it before preparing again (see above). `price-moved` and 
 | 400 | `transaction-changed` | The message is not the one Orientim built. Sign the transaction exactly as returned. |
 | 400 | `wallet-changed-transaction` | Your wallet's signature is missing or does not match (`violations`). |
 | 401 | `unauthorized` | Missing or unknown API key. |
+| 403 | `wrong-wallet` | The key belongs to another wallet: a self-serve key prepares swaps for its own wallet only. |
 | 404 | `not-enabled` | The agent API is not available. |
 | 409 | `price-moved` | The market cannot meet your `minOut`. `newMinOut` is what it supports now: with the user's approval, prepare again with it; or not. |
 | 409 | `costs-more` | The route that fits in one protected transaction is `gapBps` below the open market. With the user's approval, prepare again with `acceptCostBps`. |
 | 409 | `output-balance-changed` | Your balance of the output token moved since prepare, so this request signed nothing. Check `signature` as above, then prepare again. |
 | 410 | `expired` | The transaction's lifetime passed before this finalize signed it. Check `signature` as above, then prepare again. |
 | 422 | `unsupported-token`, `no-route`, `bad-quote`, `insufficient-sol`, `insufficient-balance`, `simulation-failed`, `verification-failed`, `token-data-mismatch`, `output-account-restricted`, `input-account-restricted` | This swap cannot be built safely right now; `message` says why. |
-| 429 | `rate-limited` | Too many requests for this key. Wait `Retry-After` seconds. |
+| 422 | `amount-too-small` | The amount is below the smallest swap Orientim takes, about $1. Swap a larger amount. |
+| 426 | `skill-outdated` | This copy of the skill is older than Orientim serves (`minimum`). Download the current one; a swap already signed still finalizes. |
+| 429 | `rate-limited` | Too many requests for this key (per wallet for a self-serve key). Wait `Retry-After` seconds. |
+| 500 | `internal` | Something unexpected failed; nothing was signed by Orientim or sent. Retry later. |
 | 503 | `busy`, `unavailable` | Jupiter or the network is overloaded or silent (from finalize: Orientim could not read whether the transaction was already sent). Wait `Retry-After` seconds and retry. |
+| 503 | `fee-unavailable` | Orientim cannot collect its fee on this swap right now, so it built nothing. Wait `Retry-After` (60) seconds and retry. |
 | 503 | `paused` | Orientim has paused protected swaps. Your funds are not affected. A transaction already on chain is still reported by finalize. |
 | 503 | `route-format` | Jupiter changed its swap instruction and Orientim refuses what it cannot read. Nothing builds until Orientim is updated: wait `Retry-After` (300) seconds, not less. |
+
+The key endpoints answer, besides `400 bad-request`:
+
+| HTTP | `code` | What to do |
+| --- | --- | --- |
+| 400 | `bad-signature` | The signature does not match the message, or the challenge expired, was not Orientim's, or names another site. Ask for a new challenge. |
+| 403 | `wallet-empty` | The wallet holds less than 0.01 SOL. Fund it, then ask again. |
+| 429 | `rate-limited` | Too many challenges or keys from this address. Wait `Retry-After` seconds. |
+| 503 | `unavailable` | The wallet's balance could not be read. Wait `Retry-After` seconds and retry. |
 
 ## What Orientim can and cannot do with your swap
 

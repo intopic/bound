@@ -287,7 +287,7 @@ export function createOrientimPlugin(options: OrientimPluginOptions = {}): Orien
     const configured = options.apiKey ?? other(agent, 'ORIENTIM_API_KEY');
     if (configured) return { key: configured, wallet, expiresAt: null };
     if (options.autoKey === false) {
-      throw new OrientimPluginError('no-api-key', 'Set ORIENTIM_API_KEY in the agent\'s OTHER_API_KEYS (get one on Orientim\'s docs page, under API access). Nothing was prepared.');
+      throw new OrientimPluginError('no-api-key', 'Set ORIENTIM_API_KEY in the agent\'s OTHER_API_KEYS (get one at orientim.com/developers#access). Nothing was prepared.');
     }
     const apiUrl = apiUrlOf(agent);
     const slot = `${apiUrl} ${wallet}`;

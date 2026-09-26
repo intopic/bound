@@ -18,7 +18,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-// The public pages whose scripts matter: the swap, and the page that issues API keys.
+// The public pages whose scripts matter: the swap, and the page that issues API keys (/docs, which
+// leads to /developers; the address stays valid before and after a deploy).
 const PAGES = ['/', '/docs', '/security'];
 const STATIC = '/_next/static/';
 

@@ -8,7 +8,7 @@ import type { JupiterClient } from '@orientim/jupiter';
 import { fetchAccounts, fetchMints, httpStatusOf, sendOnce } from '@orientim/solana';
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
-import { rateLimited } from '../rateLimit';
+import { rateLimited, secondsUntilReset } from '../rateLimit';
 import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openTicket, sealTicket } from './ticket';
 
@@ -89,8 +89,9 @@ async function authenticate(req: Request, deps: AgentDeps): Promise<{ id: string
     : null;
   const auth = manual ? { id: manual, wallet: null } : own;
   if (!auth) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>.');
-  if (rateLimited(`agent:${new URL(req.url).pathname}:${auth.id}`, deps.perMinute)) {
-    return fail(429, 'rate-limited', 'Too many requests for this API key. Wait a few seconds and try again.', {}, { 'retry-after': '10' });
+  const bucket = `agent:${new URL(req.url).pathname}:${auth.id}`;
+  if (rateLimited(bucket, deps.perMinute)) {
+    return fail(429, 'rate-limited', 'Too many requests for this API key. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(secondsUntilReset(bucket)) });
   }
   return auth;
 }
@@ -153,7 +154,7 @@ function explain(e: unknown): Response {
   }
   const http = httpStatusOf(e);
   if (http === 429) return fail(503, 'busy', 'The network is busy. Wait a few seconds and try again. Nothing was sent.', {}, { 'retry-after': '5' });
-  if (http !== null && http >= 500) return fail(503, 'unavailable', "The network didn't answer. Nothing was sent; try again in a moment.");
+  if (http !== null && http >= 500) return fail(503, 'unavailable', "The network didn't answer. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
   console.error(e);
   return fail(500, 'internal', 'Something went wrong. Nothing was signed by Orientim or sent.');
 }
@@ -186,9 +187,12 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (amountIn === null) return fail(400, 'bad-request', 'amountIn must be a positive integer in base units, as a string.');
   const minOut = body.minOut === undefined ? undefined : amount(body.minOut);
   if (minOut === null) return fail(400, 'bad-request', 'minOut, when given, must be a positive integer in base units, as a string.');
-  const acceptCostBps = body.acceptCostBps === undefined ? undefined
-    : typeof body.acceptCostBps === 'string' && /^\d{1,5}$/.test(body.acceptCostBps) ? BigInt(body.acceptCostBps) : null;
-  if (acceptCostBps === null) return fail(400, 'bad-request', 'acceptCostBps, when given, must be an integer string.');
+  // A whole number of bps, as a number (like slippageBps) or as an integer string (like the amounts).
+  const cost = body.acceptCostBps;
+  const acceptCostBps = cost === undefined ? undefined
+    : typeof cost === 'string' && /^\d{1,5}$/.test(cost) ? BigInt(cost)
+      : typeof cost === 'number' && Number.isInteger(cost) && cost >= 0 && cost <= 99_999 ? BigInt(cost) : null;
+  if (acceptCostBps === null) return fail(400, 'bad-request', 'acceptCostBps, when given, must be a whole number of bps, as a number or an integer string.');
   const version: TxVersion = body.version === 1 ? 1 : 0;
   if (body.version !== undefined && body.version !== 0 && body.version !== 1) return fail(400, 'bad-request', 'version must be 0 or 1.');
   // The route's slippage tolerance, as a person chooses it on the page: 0.1% to 15%. The agent's own

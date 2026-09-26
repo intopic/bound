@@ -1,7 +1,7 @@
 import { address, isAddress } from '@solana/kit';
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
-import { clientKey, rateLimited } from '../rateLimit';
+import { clientKey, rateLimited, secondsUntilReset } from '../rateLimit';
 import { acceptChallenge, issueKey, newChallenge } from './keys';
 
 /**
@@ -32,20 +32,22 @@ const fail = (status: number, code: string, message: string, headers: Record<str
 const seconds = (deps: AccessDeps) => Math.floor((deps.now?.() ?? Date.now()) / 1000);
 
 export async function keyChallenge(req: Request, deps: AccessDeps): Promise<Response> {
-  if (rateLimited(`keys-challenge:${clientKey(req)}`, 30, 3_600_000)) {
-    return fail(429, 'rate-limited', 'Too many requests. Try again later.', { 'retry-after': '60' });
+  const bucket = `keys-challenge:${clientKey(req)}`;
+  if (rateLimited(bucket, 30, 3_600_000)) {
+    return fail(429, 'rate-limited', 'Too many requests. Try again later.', { 'retry-after': String(secondsUntilReset(bucket)) });
   }
   const url = new URL(req.url);
   const wallet = url.searchParams.get('wallet') ?? '';
   if (!isAddress(wallet)) return fail(400, 'bad-request', 'wallet must be a Solana address.');
   const site = new URL(deps.origin ?? url.origin);
-  const c = await newChallenge(deps.keySecrets[0], { domain: site.host, uri: `${site.origin}/docs#access`, wallet, now: seconds(deps) });
+  const c = await newChallenge(deps.keySecrets[0], { domain: site.host, uri: `${site.origin}/developers#access`, wallet, now: seconds(deps) });
   return json(200, c);
 }
 
 export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response> {
-  if (rateLimited(`keys-issue:${clientKey(req)}`, 10, 3_600_000)) {
-    return fail(429, 'rate-limited', 'Too many keys requested from here. Try again later.', { 'retry-after': '60' });
+  const bucket = `keys-issue:${clientKey(req)}`;
+  if (rateLimited(bucket, 10, 3_600_000)) {
+    return fail(429, 'rate-limited', 'Too many keys requested from here. Try again later.', { 'retry-after': String(secondsUntilReset(bucket)) });
   }
   const text = await readBodyLimited(req, 4_096);
   let body: Record<string, unknown> | null = null;
@@ -64,7 +66,7 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   try {
     lamports = BigInt((await deps.rpc.getBalance(address(accepted.wallet), { commitment: 'confirmed' }).send()).value);
   } catch {
-    return fail(503, 'unavailable', "The wallet's balance couldn't be read. Try again in a moment.");
+    return fail(503, 'unavailable', "The wallet's balance couldn't be read. Try again in a moment.", { 'retry-after': '5' });
   }
   if (lamports < deps.minLamports) {
     const sol = (Number(deps.minLamports) / 1e9).toLocaleString('en-US', { maximumFractionDigits: 9 });

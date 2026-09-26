@@ -15,7 +15,8 @@ const SUPPORTED: [string, string][] = [
   ['SOL and standard SPL tokens', 'Supported'],
   ['Token-2022 tokens with metadata, groups, close authority or confidential transfers', 'Supported'],
   ['Token-2022 tokens with a transfer tax', 'Supported; the tax is shown before your wallet opens'],
-  ['Stablecoins whose issuer can move balances (PYUSD, USDG, AUSD, CASH)', 'Supported, with a warning'],
+  ['Stablecoins whose issuer can move balances with its own key (PYUSD, USDG, AUSD, CASH)', 'Supported, with a warning'],
+  ['Tokens whose issuer can move balances through a program', 'Refused, with the reason: Orientim cannot isolate them'],
   ['Pump.fun tokens, on the launch curve and on PumpSwap', 'Supported'],
   ['Tokens with an active transfer hook, frozen by default, pausable, non-transferable or interest-bearing', 'Refused, with the reason: Orientim cannot isolate them'],
   ['Routes through a market that would leave an account open', 'Refused: its deposit would be lost'],
@@ -50,7 +51,7 @@ export default async function Page() {
       </section>
 
       <section>
-        <h2>What is guaranteed</h2>
+        <h2>What every protected swap enforces</h2>
         <ul>
           <li>The swap can spend only the amount you approve, plus a market&apos;s one-time account deposit when one is shown first.</li>
           <li>Your other tokens, your NFTs and the rest of your SOL are never given to the swap program.</li>
@@ -69,7 +70,10 @@ export default async function Page() {
             move balances through a program.
           </li>
           <li>It cannot protect a wallet, a key or a device that is already compromised.</li>
-          <li>Open Orientim only at orientim.com. A copy elsewhere is not Orientim.</li>
+          <li>
+            The checks run in the page orientim.com serves. A page changed by an attacker could skip them: open Orientim only at
+            orientim.com, and read what your wallet shows before you sign.
+          </li>
         </ul>
       </section>
 

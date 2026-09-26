@@ -9,7 +9,7 @@ const RISKS: [string, string][] = [
   ['What a token’s issuer can do', 'Some issuers can freeze balances, mint more, or move tokens. Orientim warns before the swap; it cannot change the token.'],
   ['Third-party programs and markets', 'Jupiter and the markets it routes through are run by others. Orientim limits what they can reach to the approved amount, but cannot fix a flaw inside them.'],
   ['The network', 'A swap can be delayed, expire or be cancelled. One that does not execute moves nothing but may still cost its network fee.'],
-  ['An outcome not yet known', 'While the network has not yet confirmed a swap, it may still land. Orientim starts no new swap from the same wallet until it does.'],
+  ['An outcome not yet known', 'While the network has not yet confirmed a swap, it may still land. In this browser, Orientim starts no new swap from the same wallet until it does; another browser or device does not know about it.'],
   ['Your wallet and device', 'Orientim cannot protect a wallet whose seed phrase or device is compromised. Never share your seed phrase, and keep large amounts on a hardware wallet.'],
   ['Impostor sites', 'Open Orientim only at orientim.com. A copy elsewhere is not Orientim.'],
   ['Law and taxes', 'Rules on digital assets differ by country and change. You are responsible for following those that apply to you.'],
@@ -36,8 +36,9 @@ export default async function Page() {
       <section>
         <h2>What Orientim keeps</h2>
         <p>
-          Nothing. Orientim has no accounts and keeps no record of your swaps; your recent swaps stay in your own browser. The{' '}
-          <a href="/privacy">privacy notice</a> says what passes through Orientim&apos;s servers.
+          Orientim has no accounts and no database, and its servers keep no record of your swaps; your recent swaps stay in your
+          own browser. The <a href="/privacy">privacy notice</a> says what passes through Orientim&apos;s servers and what its
+          hosting provider logs.
         </p>
       </section>
       <section>

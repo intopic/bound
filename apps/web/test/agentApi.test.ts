@@ -129,6 +129,31 @@ describe('prepare', () => {
     expect(p.tokens.output).toEqual({ freezeAuthority: false, mintAuthority: false });
   });
 
+  it('a 429 says in Retry-After how long until the count starts again', async () => {
+    const w = await world();
+    const deps = { ...w.deps, perMinute: 1 };
+    // Its own path, so that no other test's requests count in the same window.
+    const first = await agentPrepare(post('prepare-limit', swapBody(w.W.address)), deps);
+    expect(first.status).toBe(200);
+    const second = await agentPrepare(post('prepare-limit', swapBody(w.W.address)), deps);
+    expect(second.status).toBe(429);
+    const after = Number(second.headers.get('retry-after'));
+    expect(after).toBeGreaterThan(50);
+    expect(after).toBeLessThanOrEqual(60);
+  });
+
+  it('takes acceptCostBps as a number or as an integer string, and refuses anything else', async () => {
+    const w = await world();
+    for (const bad of [-1, 2.5, 100_000, '12.5', 'abc', true]) {
+      const res = await agentPrepare(post('prepare', swapBody(w.W.address, { acceptCostBps: bad })), w.deps);
+      expect(res.status, String(bad)).toBe(400);
+    }
+    for (const good of [120, '120']) {
+      const res = await agentPrepare(post('prepare', swapBody(w.W.address, { acceptCostBps: good })), w.deps);
+      expect(res.status, String(good)).toBe(200);
+    }
+  });
+
   it("Jupiter's format changing is a 503 to retry much later, not a price (research audit F-07)", async () => {
     const w = await world({ jupiter: fakeJupiter({ unknownFormat: true }) });
     const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);

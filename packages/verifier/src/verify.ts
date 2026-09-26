@@ -363,9 +363,9 @@ const OWN_CLEANUP: Slot[] = ['minOutCheck', 'harvestEIn', 'harvestIntermediate',
  */
 export type VerifyOptions = {
   /**
-   * The tolerance the person chose on the page, in bps, for a route of any kind; at most
-   * MAX_CHOSEN_SLIPPAGE_BPS (15%). Unset, a route may carry 0.5%, or 3% on a Pump.fun bonding curve.
-   * Only the page passes it, with the person's own choice: never a server, never the agent skill.
+   * The tolerance the person chose on the page, or an agent in its own intent (`slippageBps`), in bps,
+   * for a route of any kind; at most MAX_CHOSEN_SLIPPAGE_BPS (15%). Unset, a route may carry 0.5%, or
+   * 3% on a Pump.fun bonding curve. It is always the caller's own choice, never Orientim's answer.
    */
   maxSlippageBps?: number;
 };

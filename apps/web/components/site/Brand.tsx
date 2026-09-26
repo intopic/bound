@@ -44,7 +44,7 @@ export function SiteHeader({ right }: { right: ReactNode }) {
           <a href="/#swap">Swap</a>
           <a href="/#how">How it works</a>
           <a href="/#agents">Agents</a>
-          <a href="/#security">Security</a>
+          <a href="/security">Security</a>
           <a href="/developers">Developers</a>
         </nav>
         <div className="header-right">{right}</div>

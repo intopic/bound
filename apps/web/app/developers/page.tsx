@@ -2,6 +2,7 @@ import { connection } from 'next/server';
 import { SiteFooter, SiteHeader } from '@/components/site/Brand';
 import { DevNav, type DevNavGroup } from '@/components/site/DevNav';
 import { GetApiKey } from '@/components/site/GetApiKey';
+import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 import { SKILL_ARCHIVE, SKILL_VERSION } from '@/lib/server/skillSums';
 
@@ -9,6 +10,9 @@ export const metadata = {
   title: 'Developers — Orientim',
   description: 'Protected Solana swaps for AI agents and bots: the agent skill, the command line and the API.',
 };
+
+/** The fee this build charges, as the other pages state it. */
+const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%` : 'No fee (test deployment)';
 
 /** The sidebar's contents: every entry is a section of this page. */
 const NAV: DevNavGroup[] = [
@@ -28,7 +32,7 @@ const ERRORS: [string, string, string][] = [
   ['400', 'transaction-changed', 'The message is not the one Orientim built. Sign the transaction exactly as returned.'],
   ['400', 'wallet-changed-transaction', 'Your wallet’s signature is missing or does not match.'],
   ['401', 'unauthorized', 'Missing or unknown API key.'],
-  ['403', 'wrong-wallet', 'The key belongs to another wallet; it prepares swaps for its own wallet only.'],
+  ['403', 'wrong-wallet', 'The key belongs to another wallet; a self-serve key prepares swaps for its own wallet only.'],
   ['404', 'not-enabled', 'The agent API is not available.'],
   ['409', 'price-moved', 'The market cannot meet your minOut. newMinOut is what it supports now: prepare again with it only with the user’s approval.'],
   ['409', 'costs-more', 'The protected route is gapBps below the open market. With the user’s approval, prepare again with acceptCostBps.'],
@@ -37,7 +41,8 @@ const ERRORS: [string, string, string][] = [
   ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about $1.'],
   ['422', 'unsupported-token, no-route, insufficient-sol, insufficient-balance, simulation-failed, …', 'This swap cannot be built safely right now; message says why.'],
   ['426', 'skill-outdated', 'This copy of the skill is older than Orientim serves. Download the current one; a swap already signed still finalizes.'],
-  ['429', 'rate-limited', 'Too many requests for this key. Wait Retry-After seconds.'],
+  ['429', 'rate-limited', 'Too many requests for this key (per wallet for a self-serve key). Wait Retry-After seconds.'],
+  ['500', 'internal', 'Something unexpected failed; nothing was signed by Orientim or sent. Retry later.'],
   ['503', 'busy, unavailable', 'The market data or the network is overloaded. Wait Retry-After seconds and retry.'],
   ['503', 'fee-unavailable', 'Orientim cannot collect its fee on this swap right now, so it built nothing. Wait and retry.'],
   ['503', 'paused', 'Orientim has paused protected swaps. Your funds are not affected.'],
@@ -47,10 +52,10 @@ const ERRORS: [string, string, string][] = [
 const PREPARE_FIELDS: [string, string, string][] = [
   ['owner', 'required', 'The wallet that pays and receives. It signs first.'],
   ['inputMint, outputMint', 'required', 'Mint addresses. SOL is So11111111111111111111111111111111111111112.'],
-  ['amountIn', 'required', 'Base units, as a string ("5000000" is 5 USDC). The fee comes out of it.'],
+  ['amountIn', 'required', 'Base units, as a string ("5000000" is 5 USDC). It includes the fee when the fee is taken in the input token.'],
   ['minOut', 'optional', 'Your own floor, in base units of the output: what your wallet must keep. Orientim never enforces less. The skill’s check refuses to sign without a floor of your own.'],
   ['slippageBps', 'optional', 'How far below the quote the swap may fill: 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun launch curve.'],
-  ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the open market (see costs-more).'],
+  ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the open market (see costs-more): a whole number, as a number or a string.'],
 ];
 
 const PREPARE_ANSWER: [string, string][] = [
@@ -69,8 +74,10 @@ const ENV: [string, string][] = [
   ['ORIENTIM_API_URL', 'https://orientim.com'],
   ['ORIENTIM_API_KEY', 'Your key, ori_…'],
   ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check is worth what the chain state it reads is worth.'],
-  ['ORIENTIM_WALLET_KEYPAIR', 'The path to the wallet’s key file; or pass a signing service in code.'],
   ['JUPITER_API_KEY', 'For the agent’s own price floor (free at developers.jup.ag).'],
+  ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs.'],
+  ['ORIENTIM_STATE_DIR', 'Optional: where swaps in flight are kept across restarts (.orientim-state by default).'],
+  ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
 ];
 
 /** For developers: everything an agent or a bot needs, one section per entry of the sidebar. */
@@ -82,7 +89,7 @@ export default async function Page() {
     <div className="site">
       <SiteHeader right={<a className="ghost connect" href="/#swap">Open the app</a>} />
       <main className="dev-page">
-        <div className="container dev-grid">
+        <div className="container devdocs-grid">
           <aside className="dev-aside">
             <DevNav groups={NAV} />
           </aside>
@@ -92,7 +99,7 @@ export default async function Page() {
               <h1>Protected swaps for agents and bots</h1>
               <p className="lead">
                 An API, an agent skill and a command line for Solana swaps in which your wallet never hands over its authority.
-                Your agent checks every transaction on its own RPC before it signs.
+                With the skill, your agent checks every transaction on its own RPC before it signs.
               </p>
             </header>
 
@@ -321,7 +328,11 @@ POST /api/v1/keys
                   Sign only Orientim&apos;s key message for your own wallet: a signature over bytes someone else chose could be a
                   signature for a transaction. The skill checks the message before anything is signed.
                 </li>
-                <li><code>400 bad-signature</code>: the signature does not match. <code>403 wallet-empty</code>: the wallet holds less than 0.01 SOL.</li>
+                <li>
+                  <code>400 bad-signature</code>: the signature does not match, or the challenge expired, was not Orientim&apos;s, or
+                  names another site. <code>403 wallet-empty</code>: the wallet holds less than 0.01 SOL.
+                </li>
+                <li>From one address, 30 challenges and 10 keys an hour; a <code>429</code> carries <code>Retry-After</code>.</li>
               </ul>
             </section>
 
@@ -343,7 +354,11 @@ POST /api/v1/keys
             <section id="limits">
               <h2>Rate limits</h2>
               <ul>
-                <li>60 requests per minute per key, for each endpoint. A <code>429</code> carries <code>Retry-After</code>: wait that long.</li>
+                <li>
+                  60 requests a minute for each endpoint, counted per wallet for a self-serve key. A <code>429</code> carries{' '}
+                  <code>Retry-After</code>: the seconds until the count starts again.
+                </li>
+                <li>API keys: 30 challenges and 10 keys an hour from one address.</li>
                 <li>One swap per output token at a time, and one per wallet in the skill.</li>
                 <li>A key used to overload or attack the service is revoked.</li>
               </ul>
@@ -363,10 +378,16 @@ POST /api/v1/keys
             <section id="fees">
               <h2>Fees and limits</h2>
               <ul>
-                <li>0.3%, inside the transaction you sign, in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL.</li>
+                <li>
+                  {feeText}, inside the transaction you sign, in SOL, USDC or USDT when the swap has one of them, otherwise in the
+                  input token or in SOL. A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
+                </li>
                 <li>The verifier refuses any fee above 1% and any network fee above 0.001 SOL.</li>
-                <li>A slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to 15%; 0.5% by default).</li>
-                <li>A swap is refused before anything is prepared when its price impact is above 5%.</li>
+                <li>
+                  A slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to 15%); 0.5% by default, 3% on a Pump.fun launch
+                  curve.
+                </li>
+                <li>The skill refuses a swap whose price impact is above 5% before anything is prepared (<code>maxPriceImpactBps</code>).</li>
                 <li>Swaps smaller than about $1 are not taken.</li>
               </ul>
             </section>

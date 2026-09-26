@@ -10,26 +10,26 @@ const CAPSULE_STEPS = [
 ];
 
 const AGENT_POINTS = [
-  ['Verified on its own RPC', 'The full verifier runs in the agent, on the exact bytes it signs.'],
+  ['Verified on its own RPC', 'The skill runs the full verifier in the agent, on the exact bytes it signs.'],
   ['Limits of its own', 'A maximum fee, a maximum SOL cost and a price floor from its own source.'],
   ['Safe across crashes', 'An id for every order, recovery after a restart, never the same swap twice.'],
   ['Any language, any signer', 'A skill for coding agents, an API, and a CLI for Python, Rust or Go. Works with your own key setup.'],
 ];
 
 const KEEPS_NOTHING = [
-  [NoDatabaseIcon, 'No account. No database.', 'No sign-up. Orientim keeps no record of your swaps; your history stays in your own browser.'],
+  [NoDatabaseIcon, 'No account. No database.', 'No sign-up, and Orientim’s servers keep no record of your swaps. Your history stays in your own browser.'],
   [ShieldIcon, 'Never your keys or funds.', 'You sign in your own wallet. Orientim never holds funds or asks for a seed phrase.'],
-  [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers. Price requests never carry your wallet address.'],
+  [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers. Price quotes are requested without your wallet address.'],
 ] as const;
 
 const FAQ: [string, string][] = [
   ['What does Orientim protect?', 'What a swap can reach. The swap programs work with a one-time key that holds only the amount you approve, never with your wallet’s authority, and the minimum you accepted is enforced on chain. It does not protect the value of a token or a wallet that is already compromised.'],
   ['Does Orientim hold my funds or my keys?', 'No. You sign with your own wallet. Orientim never holds funds and never asks for your seed phrase.'],
-  ['Why use Orientim instead of a regular swap?', 'Orientim uses the same routes and liquidity as a regular swap, and adds what a regular swap does not have: the route never holds your wallet’s authority. A protected route can occasionally price differently; when it does, you are asked before signing.'],
+  ['Why use Orientim instead of a regular swap?', 'Orientim routes through the same markets as a regular swap, and adds what a regular swap does not have: the route never holds your wallet’s authority. A protected route can occasionally price a little differently; when it costs more than 0.5% over the open market, you are asked before signing.'],
   ['What happens if the minimum cannot be met?', 'The whole swap cancels itself instead of completing for less. The network fee of an attempted transaction may still be paid.'],
   ['Which tokens and wallets work?', 'Any token with a route on Solana’s markets that Orientim can isolate, including Token-2022 and Pump.fun tokens. Browser wallets that sign and hand the transaction back work, such as Phantom and Trust Wallet. A token Orientim cannot isolate is refused, with the reason.'],
-  ['What does a pending or unknown result mean?', 'The network has not confirmed the outcome yet. Orientim starts no new swap from the same wallet until it knows, so the same swap never runs twice.'],
-  ['Can my AI agent use Orientim?', 'Yes, through the API, the agent skill or the command line. The agent verifies every transaction on its own RPC before signing, so even a compromised server cannot make it sign more than its limits.'],
+  ['What does a pending or unknown result mean?', 'The network has not confirmed the outcome yet. In this browser, Orientim starts no new swap from the same wallet until it knows, so the same swap is not sent twice from here.'],
+  ['Can my AI agent use Orientim?', 'Yes, through the API, the agent skill or the command line. With the skill or the command line, the agent verifies every transaction on its own RPC before signing, so even a compromised server cannot make it sign more than its limits.'],
   ['What does it cost?', `An Orientim fee of ${TREASURY ? feeText : '0%'} of the swap, and Solana’s network fee. Some markets and tokens add a charge; it is shown before you sign.`],
 ];
 
@@ -88,8 +88,9 @@ export function HomeSections() {
               <p className="eyebrow eyebrow-cyan">For AI agents and bots</p>
               <h2>Your agent trades. Your wallet stays out of reach.</h2>
               <p className="lead">
-                The same one-key protection through an API, a skill for coding agents and a command line. Your agent checks every
-                transaction on its own RPC before it signs, so even a compromised server can’t make it sign more than its limits.
+                The same one-key protection through an API, a skill for coding agents and a command line. With the skill, your agent
+                checks every transaction on its own RPC before it signs, so even a compromised server can’t make it sign more than its
+                limits.
               </p>
               <ul className="agent-points">
                 {AGENT_POINTS.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
