@@ -6,7 +6,7 @@ const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFrac
 
 const CAPSULE_STEPS = [
   ['The amount moves into a one-time key', 'Only what you approve leaves your wallet, into a key that exists for this one swap.'],
-  ['The route trades it', 'Jupiter finds the route. It works with the one-time key, never with your wallet.'],
+  ['The route trades it', 'A route across Solana’s markets is found for you. It works with the one-time key, never with your wallet.'],
   ['The minimum is checked on chain', 'If less than the minimum would arrive, the whole swap cancels itself. Then the key is gone.'],
 ];
 
@@ -39,9 +39,9 @@ const NOT_COVERED = [
 const FAQ: [string, string][] = [
   ['What does Orientim protect?', 'What a swap can reach. The swap programs work with a one-time key that holds only the amount you approve, never with your wallet’s authority, and the minimum you accepted is enforced on chain. It does not protect the value of a token or a wallet that is already compromised.'],
   ['Does Orientim hold my funds or my keys?', 'No. You sign with your own wallet. Orientim never holds funds and never asks for your seed phrase.'],
-  ['Why use Orientim if I already use Jupiter?', 'Orientim uses Jupiter’s routes and liquidity, and adds what a regular swap does not have: the route never holds your wallet’s authority. A protected route can occasionally price differently; when it does, you are asked before signing.'],
+  ['Why use Orientim instead of a regular swap?', 'Orientim uses the same routes and liquidity as a regular swap, and adds what a regular swap does not have: the route never holds your wallet’s authority. A protected route can occasionally price differently; when it does, you are asked before signing.'],
   ['What happens if the minimum cannot be met?', 'The whole swap cancels itself instead of completing for less. The network fee of an attempted transaction may still be paid.'],
-  ['Which tokens and wallets work?', 'Any token Jupiter can route and Orientim can isolate, including Token-2022 and Pump.fun tokens. Browser wallets that sign and hand the transaction back work, such as Phantom and Trust Wallet. A token Orientim cannot isolate is refused, with the reason.'],
+  ['Which tokens and wallets work?', 'Any token with a route on Solana’s markets that Orientim can isolate, including Token-2022 and Pump.fun tokens. Browser wallets that sign and hand the transaction back work, such as Phantom and Trust Wallet. A token Orientim cannot isolate is refused, with the reason.'],
   ['What does a pending or unknown result mean?', 'The network has not confirmed the outcome yet. Orientim starts no new swap from the same wallet until it knows, so the same swap never runs twice.'],
   ['Can my AI agent use Orientim?', 'Yes, through the API, the agent skill or the command line. The agent verifies every transaction on its own RPC before signing, so even a compromised server cannot make it sign more than its limits.'],
   ['What does it cost?', `An Orientim fee of ${TREASURY ? feeText : '0%'} of the swap, and Solana’s network fee. Some markets and tokens add a charge; it is shown before you sign.`],

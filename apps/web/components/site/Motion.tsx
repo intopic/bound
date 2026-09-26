@@ -39,9 +39,28 @@ function GlassDefs({ p }: { p: string }) {
 }
 const url = (p: string, name: string) => `url(#${p}-${name})`;
 
+/** A small key, drawn inside the capsule: the one-time key that carries the amount. */
+function KeyGlyph({ x, stroke }: { x: number; stroke: string }) {
+  return (
+    <g transform={`translate(${x - 6.6} -6.6) scale(.55)`} fill="none" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7.5" cy="15.5" r="4.5" />
+      <path d="M10.7 12.3 21 2M16 7l3 3M18.5 4.5l2 2" />
+    </g>
+  );
+}
+
+/** One run of the capsule, in seconds. */
+const CYCLE_S = 8;
+const DUR = `${CYCLE_S}s`;
+/** It runs this many times once it is on screen, then rests: motion that explains, then stops. */
+const CAPSULE_RUNS = 3;
+/** Where it rests, and what people who ask for less motion see: the key carrying the amount along the route. */
+const REST_AT = 0.3;
+
 /**
- * The capsule: the approved amount leaves the wallet under a one-time key, crosses the route, meets
- * the minimum on chain and comes back as the other token. The wallet's other assets never move.
+ * The capsule: a one-time key is made for this swap and carries the approved amount across the
+ * route; the minimum is checked on chain; the key brings the bought token back to the wallet and is
+ * gone. The wallet's other assets never move.
  */
 export function CapsuleFlow() {
   const svg = useRef<SVGSVGElement>(null);
@@ -49,15 +68,35 @@ export function CapsuleFlow() {
   useEffect(() => {
     const el = svg.current;
     if (!el) return;
-    if (reduce) el.pauseAnimations();
-    else el.unpauseAnimations();
+    const rest = CYCLE_S * (reduce ? REST_AT : CAPSULE_RUNS - 1 + REST_AT);
+    el.pauseAnimations();
+    el.setCurrentTime(reduce ? rest : 0);
+    if (reduce) return;
+    // It plays only while on screen, and once it reaches its rest it stays there.
+    const seen = new IntersectionObserver(([entry]) => {
+      if (el.getCurrentTime() >= rest) return;
+      if (entry.isIntersecting) el.unpauseAnimations();
+      else el.pauseAnimations();
+    }, { threshold: 0.35 });
+    seen.observe(el);
+    const done = setInterval(() => {
+      if (el.getCurrentTime() < rest) return;
+      el.pauseAnimations();
+      el.setCurrentTime(rest);
+      clearInterval(done);
+    }, 100);
+    return () => {
+      seen.disconnect();
+      clearInterval(done);
+    };
   }, [reduce]);
 
   return (
     <svg ref={svg} className="capsule" viewBox="0 0 960 300" role="img" aria-labelledby="capsule-title">
       <title id="capsule-title">
-        The approved amount leaves your wallet under a one-time key, crosses the swap route, meets the minimum on chain and
-        comes back as the token you bought. The rest of your wallet never moves.
+        A one-time key is made for this swap and carries only the approved amount across the swap route. The minimum is checked
+        on chain, the key brings the token you bought back to your wallet, and then it is gone. The rest of your wallet never
+        moves.
       </title>
       <GlassDefs p="cf" />
       <rect x="20" y="40" width="210" height="220" rx="20" fill={url('cf', 'glass')} stroke={url('cf', 'edge')} />
@@ -86,7 +125,7 @@ export function CapsuleFlow() {
         </g>
       ))}
       <text x="480" y="66" textAnchor="middle" className="svg-label">The swap route</text>
-      <text x="480" y="84" textAnchor="middle" className="svg-text">Jupiter and its markets</text>
+      <text x="480" y="84" textAnchor="middle" className="svg-text">Solana’s markets</text>
       <text x="244" y="190" className="svg-text">only the approved amount</text>
 
       <g transform="translate(710 100)">
@@ -95,25 +134,51 @@ export function CapsuleFlow() {
         <text x="80" y="36" textAnchor="middle" className="svg-label">Minimum</text>
         <text x="80" y="56" textAnchor="middle" className="svg-text">enforced on chain</text>
         <path d="M64 74 l10 10 l22 -22" fill="none" stroke="#7ce3b0" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-          <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.55;.62;.9;1" dur="7s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.55;.62;.9;1" dur={DUR} repeatCount="indefinite" />
         </path>
       </g>
 
-      <g>
-        <rect x="-38" y="-14" width="76" height="28" rx="14" fill={url('cf', 'green-strong')} stroke={url('cf', 'green-edge')} filter={url('cf', 'glow')} />
-        <rect x="-38" y="-14" width="76" height="28" rx="14" fill={url('cf', 'sheen')} />
-        <text x="0" y="4" textAnchor="middle" className="svg-capsule">1.5 SOL</text>
-        <animateMotion dur="7s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;.5;1" calcMode="linear"><mpath href="#capsule-out" /></animateMotion>
-        <animate attributeName="opacity" values="1;1;0;0" keyTimes="0;.5;.56;1" dur="7s" repeatCount="indefinite" />
+      {/* The key, made at the wallet's edge, carries the amount along the route to the minimum. */}
+      <g opacity="0">
+        <animateMotion dur={DUR} repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.06;.5;1" calcMode="linear"><mpath href="#capsule-out" /></animateMotion>
+        <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.06;.5;.56;1" dur={DUR} repeatCount="indefinite" />
+        <g>
+          <animateTransform attributeName="transform" type="scale" values=".5;1;1" keyTimes="0;.06;1" dur={DUR} repeatCount="indefinite" />
+          <rect x="-46" y="-14" width="92" height="28" rx="14" fill={url('cf', 'green-strong')} stroke={url('cf', 'green-edge')} filter={url('cf', 'glow')} />
+          <rect x="-46" y="-14" width="92" height="28" rx="14" fill={url('cf', 'sheen')} />
+          <KeyGlyph x={-30} stroke="#f0fff7" />
+          <text x="8" y="4" textAnchor="middle" className="svg-capsule">1.5 SOL</text>
+        </g>
       </g>
-      <g>
-        <circle r="15" fill={url('cf', 'cyan')} stroke="rgba(200,238,255,.6)" filter={url('cf', 'glow-cyan')} />
-        <ellipse cx="-4" cy="-8" rx="6" ry="2.5" fill="rgba(255,255,255,.22)" />
-        <text y="4" textAnchor="middle" className="svg-token">USDC</text>
-        <animateMotion dur="7s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.62;.95;1" calcMode="linear"><mpath href="#capsule-back" /></animateMotion>
-        <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.6;.63;.95;1" dur="7s" repeatCount="indefinite" />
+      {/* It comes back with what was bought, hands it to the wallet, and comes apart. */}
+      <g opacity="0">
+        <animateMotion dur={DUR} repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.62;.9;1" calcMode="linear"><mpath href="#capsule-back" /></animateMotion>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;.6;.63;.9;.96;1" dur={DUR} repeatCount="indefinite" />
+        <g>
+          <animateTransform attributeName="transform" type="scale" values="1;1;.4;.4" keyTimes="0;.9;.96;1" dur={DUR} repeatCount="indefinite" />
+          <rect x="-44" y="-14" width="88" height="28" rx="14" fill={url('cf', 'cyan')} stroke="rgba(200,238,255,.6)" filter={url('cf', 'glow-cyan')} />
+          <rect x="-44" y="-14" width="88" height="28" rx="14" fill={url('cf', 'sheen')} />
+          <KeyGlyph x={-28} stroke="#04121c" />
+          <text x="8" y="4" textAnchor="middle" className="svg-token">USDC</text>
+        </g>
       </g>
+      <g transform="translate(232 212)">
+        {[[-18, -14], [16, -16], [-20, 10], [14, 14], [0, -22]].map(([dx, dy]) => (
+          <rect key={`${dx},${dy}`} x="-2.5" y="-2.5" width="5" height="5" rx="1" fill="#7ce3b0" opacity="0">
+            <animate attributeName="opacity" values="0;0;.9;0;0" keyTimes="0;.9;.93;.98;1" dur={DUR} repeatCount="indefinite" />
+            <animateTransform attributeName="transform" type="translate" values={`0 0;0 0;${dx} ${dy};${dx} ${dy}`} keyTimes="0;.9;.98;1" dur={DUR} repeatCount="indefinite" />
+          </rect>
+        ))}
+      </g>
+      {/* The wallet's USDC takes what arrived. */}
+      <rect x="130" y="88" width="80" height="30" rx="15" fill="none" stroke="#7ce3b0" strokeWidth="1.5" opacity="0">
+        <animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;.9;.93;.99;1" dur={DUR} repeatCount="indefinite" />
+      </rect>
       <text x="600" y="294" textAnchor="middle" className="svg-text">then the one-time key is gone</text>
+      <text x="600" y="294" textAnchor="middle" className="svg-text svg-good" opacity="0">
+        then the one-time key is gone
+        <animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;.9;.94;.99;1" dur={DUR} repeatCount="indefinite" />
+      </text>
     </svg>
   );
 }
