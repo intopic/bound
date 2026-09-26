@@ -117,6 +117,18 @@ describe('prepare', () => {
     expect((p as unknown as { blocksLeft: string }).blocksLeft).toBe('999');
   });
 
+  it('takes the tolerance the agent chose, as the page does, and says what the mints allow their issuers', async () => {
+    const w = await world();
+    for (const bad of [5, 1_501, 2.5, '300']) {
+      const res = await agentPrepare(post('prepare', swapBody(w.W.address, { slippageBps: bad })), w.deps);
+      expect(res.status, String(bad)).toBe(400);
+    }
+    const p = await prepared(w, { slippageBps: 300 }) as unknown as { slippageBps: number; tokens: Record<string, { freezeAuthority: boolean; mintAuthority: boolean }> };
+    expect(p.slippageBps).toBe(300);
+    expect(p.tokens.input).toEqual({ freezeAuthority: false, mintAuthority: false });
+    expect(p.tokens.output).toEqual({ freezeAuthority: false, mintAuthority: false });
+  });
+
   it("Jupiter's format changing is a 503 to retry much later, not a price (research audit F-07)", async () => {
     const w = await world({ jupiter: fakeJupiter({ unknownFormat: true }) });
     const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);

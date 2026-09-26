@@ -474,9 +474,10 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
 `integrations/solana-agent-kit` runs the skill's `protectedSwap` inside an agent. The model is one more
 actor, and not a trusted one:
 
-- **What the model chooses:** the tokens, the amount, and how far below the market price the minimum
-  may sit. That last one only up to the owner's `maxBelowBpsCap` (500 bps unless set); the floor is
-  what stops a compromised server's bad price, so a model talked into a wider one is refused.
+- **What the model chooses:** the tokens, the amount and the slippage tolerance. The tolerance only up
+  to the owner's `maxSlippageBpsCap` (500 bps unless set), and the price impact only up to the owner's
+  `maxPriceImpactBps` (500 unless set). The agent's own floor follows the tolerance and stops a
+  compromised server's bad price, so a model talked into a wider tolerance is refused.
 - **What the plugin does not limit:** no daily budget, no list of allowed tokens, no ceiling on the
   amount. The agent's owner puts those between the model and the tool.
 - **One swap at a time, as far as its store reaches:** signed swaps are kept until settled, and no new

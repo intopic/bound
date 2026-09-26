@@ -23,8 +23,8 @@
  * `failed` or `expired`; the chain's own answer is used instead whenever your RPC still has one.
  *
  * `intent` is the example's `Intent`: owner, inputMint, outputMint, amountIn (base units, strings),
- * and optionally minOut, maxFeeBps, maxNetworkFeeLamports, maxRouteCostLamports, maxSolFeeLamports,
- * acceptCostBps, version. `prepare` answers `checked` (pass it to finalize unchanged) and `message`,
+ * and optionally slippageBps, maxPriceImpactBps, minOut, maxFeeBps, maxNetworkFeeLamports, maxRouteCostLamports,
+ * maxSolFeeLamports, acceptCostBps, version. `prepare` answers `checked` (pass it to finalize unchanged) and `message`,
  * the transaction's message in base64: sign those bytes with the wallet's ed25519 key and pass the
  * 64-byte signature to finalize in base58 as `signature`, or the whole signed transaction in base64
  * as `signedTransaction`. Finalize checks everything again before anything is sent.
@@ -37,10 +37,10 @@ import { createSolanaRpc, getBase58Encoder, getSignatureFromTransaction, getTran
 import type { Address, Rpc, SignatureBytes, SolanaRpcApi } from '@solana/kit';
 import {
   acquireLock, apiKeyChallenge, OrientimApiError, checkPrepared, createFileStore, finalizeSigned, isApiKeyMessage, pendingFor, PendingSwapError,
-  prepareChecked, recoverPending, redeemApiKey, resolvePending, resumeSigned,
+  prepareChecked, PriceImpactError, receivedFor, recoverPending, redeemApiKey, resolvePending, resumeSigned,
 } from '../examples/swap.ts';
 import type { Checked, Intent, OrderBook, OrderRecord, PendingStore, Prepared } from '../examples/swap.ts';
-import { inputTransferFee, ownMinimum, ownSolFeeLimit } from '../lib/orientim-verify.mjs';
+import { DEFAULT_MAX_PRICE_IMPACT_BPS, inputTransferFee, ownQuote, ownSolFeeLimit } from '../lib/orientim-verify.mjs';
 
 export type CliDeps = {
   rpc: Rpc<SolanaRpcApi>;
@@ -81,18 +81,27 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     }
     const intent: Intent = { ...(deps.treasury ? { treasury: deps.treasury } : {}), ...body.intent };
     try {
-      intent.minOut ??= await ownMinimum({
-        inputMint: intent.inputMint, outputMint: intent.outputMint, amountIn: intent.amountIn, taker: intent.owner,
-        maxFeeBps: intent.maxFeeBps, maxBelowBps: intent.maxBelowBps, apiKey: deps.jupiterApiKey, fetchImpl: deps.fetchImpl,
-        inputTax: await inputTransferFee(deps.rpc, intent.inputMint, deps.requestTimeoutMs),
-      });
+      let priceImpactBps: number | undefined;
+      if (intent.minOut === undefined) {
+        const own = await ownQuote({
+          inputMint: intent.inputMint, outputMint: intent.outputMint, amountIn: intent.amountIn, taker: intent.owner,
+          maxFeeBps: intent.maxFeeBps, maxBelowBps: intent.maxBelowBps, slippageBps: intent.slippageBps, apiKey: deps.jupiterApiKey, fetchImpl: deps.fetchImpl,
+          inputTax: await inputTransferFee(deps.rpc, intent.inputMint, deps.requestTimeoutMs),
+        });
+        intent.minOut = own.minOut;
+        priceImpactBps = own.priceImpactBps;
+      }
       if ((prepared.policy as { feeSide?: unknown }).feeSide === 'sol' && intent.maxSolFeeLamports === undefined) {
         intent.maxSolFeeLamports = await ownSolFeeLimit({
           inputMint: intent.inputMint, amountIn: intent.amountIn, taker: intent.owner, maxFeeBps: intent.maxFeeBps, apiKey: deps.jupiterApiKey, fetchImpl: deps.fetchImpl,
         });
       }
       const problems = await checkPrepared(prepared, intent, deps.rpc, { requestTimeoutMs: deps.requestTimeoutMs });
-      return { code: problems.length ? 1 : 0, output: { ok: problems.length === 0, problems, yourFloor: intent.minOut } };
+      const maxImpact = intent.maxPriceImpactBps ?? DEFAULT_MAX_PRICE_IMPACT_BPS;
+      if (priceImpactBps !== undefined && priceImpactBps > maxImpact) {
+        problems.push(`the price impact is ${(priceImpactBps / 100).toFixed(2)}%, above the limit of ${(maxImpact / 100).toFixed(2)}%`);
+      }
+      return { code: problems.length ? 1 : 0, output: { ok: problems.length === 0, problems, yourFloor: intent.minOut, priceImpactBps } };
     } catch (e) {
       return { code: 1, output: { ok: false, problems: [messageOf(e)] } };
     }
@@ -201,11 +210,15 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
         output: {
           ok: true, checked, message: Buffer.from(tx.messageBytes).toString('base64'),
           amounts: checked.prepared.amounts, costs: checked.prepared.costs, lastValidBlockHeight: checked.prepared.lastValidBlockHeight,
+          notices: checked.notices ?? [],
         },
       };
     } catch (e) {
       if (e instanceof OrientimApiError) {
         return { code: 4, output: { ok: false, error: { status: e.status, code: e.code, message: e.message, retryAfter: e.retryAfter, details: e.body } } };
+      }
+      if (e instanceof PriceImpactError) {
+        return { code: 1, output: { ok: false, error: { code: 'price-impact-high', message: e.message, impactBps: e.impactBps, limitBps: e.limitBps } } };
       }
       return { code: 1, output: { ok: false, problems: [messageOf(e)] } };
     }
@@ -228,11 +241,16 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       } catch (e) {
         bookkeepingError = messageOf(e);
       }
+      // What arrived, read from the chain, as the page reports it; never a reason to fail.
+      const received = result.outcome === 'confirmed'
+        ? await receivedFor(deps.rpc, result.signature, prepared, { requestTimeoutMs: deps.requestTimeoutMs, pollMs: deps.pollMs })
+        : null;
       return {
         code: result.outcome === 'confirmed' ? 0 : result.outcome === 'unknown' ? 3 : 1,
         output: {
           ok: result.outcome === 'confirmed', signature: result.signature, outcome: result.outcome,
           ...(result.refusal ? { refusal: result.refusal } : {}), amounts: prepared.amounts,
+          ...(received !== null ? { received: received.toString() } : {}),
           ...(resumed ? { resumed: true } : {}),
           ...(bookkeepingError ? { bookkeepingError } : {}),
         },

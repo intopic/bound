@@ -1704,6 +1704,51 @@ terms swap sites use, and never the mechanism.
 **Tests:** 584 pass, including the fill against the quote. In Edge, a live quote at Auto and at 3%
 showed the minimum with its tolerance, the row "Slippage tolerance" and no page errors.
 
+## 0zs. One protection in every channel: the page, the API, the skill, the command line, the plugin (26 September 2026)
+
+The owner's rule: whatever works on the page works the same for agents and bots, with nothing done in
+one and left undone in another. Before this entry the core was already the same everywhere: the
+route never gets the wallet, only the approved amount can leave, the minimum is enforced on chain,
+and the transaction is verified before signing. What the page did beyond that, agents did not.
+
+- **Slippage tolerance.**
+  - `slippageBps` is the page's setting: 10 to 1500 bps, with 0.5% by default and 3% on a Pump.fun curve.
+  - The API accepts it (`400` outside the range), builds the route at it, and echoes it back.
+  - The skill sends it, and its check holds the route to the number in the agent's own intent
+    (`verify`'s option). The server's answer never sets that number.
+  - The agent's own floor follows the tolerance: 1.5% below it, or 2% on a curve.
+  - A server that widens the route is refused. The builder tightens a widened route to the agent's
+    floor, and the result is still above the agent's tolerance.
+- **Price impact.**
+  - `ownQuote` returns the agent's own floor and the price impact from the same Jupiter call.
+  - Above `maxPriceImpactBps` (default 500) the swap is refused before anything is prepared
+    (`PriceImpactError`; `price-impact-high` from the command line and the plugin). The page asks a
+    person at the same 5%.
+  - With a floor of the agent's own and no quote of its own, Orientim's stated impact is the one checked.
+  - This covers the case the owner raised: a token whose pool is being drained.
+- **Token notes.**
+  - `tokenNotices` reads the mints on the agent's RPC and notes an issuer that can freeze balances or
+    mint more, as the page warns. SOL, USDC and USDT keep their authorities by design and get no note.
+  - The API returns the same facts in `tokens`.
+  - The command line answers with `notices`, and the plugin gives `warnings` and says them to the model.
+- **What arrived.**
+  - `receivedFor` reads the confirmed transaction: a token's balance in the wallet, or SOL with the
+    network fee and the market's net account fee added back, as the page does.
+  - `protectedSwap`, `orientim-verify finalize` and the plugin return it.
+  - The plugin tells the model how the fill compares with the quote (`fillAgainstQuote`), in the page's words.
+- **The plugin's words.**
+  - Refusals and outcomes are said as the page says them: "Orientim stopped this swap before signing",
+    "Swap cancelled on-chain: the minimum was enforced", "Best available rate", "Price impact is 8.00%".
+  - `maxBelowBpsCap` became `maxSlippageBpsCap`, and `floor-too-low` became `slippage-above-limit`.
+    The tool's `slippageBps` is now the route's tolerance, as on the page.
+
+**Tests:** 591 in the repository and 30 in the plugin. They cover:
+- the tolerance built and held, and a widened route refused;
+- a thin market refused before prepare, and allowed by the owner;
+- token notes, read and said;
+- what arrived, for a token and for SOL;
+- the command line with the same limits.
+
 ---
 
 ## 1. What Orientim is

@@ -22,8 +22,8 @@ import { VersionedTransaction } from '@solana/web3.js';
 import { z } from 'zod';
 import type { Action, Plugin, SolanaAgentKit } from 'solana-agent-kit';
 import {
-  acquireLock, createFileStore, OrientimApiError, OrientimOrderError, PendingSwapError, protectedSwap, recoverPending,
-  requestApiKey, signerFromSignTransaction,
+  acquireLock, createFileStore, fillAgainstQuote, OrientimApiError, OrientimOrderError, PendingSwapError, PriceImpactError, protectedSwap,
+  recoverPending, requestApiKey, signerFromSignTransaction,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Outcome, PendingStore, Signed, WalletSigner } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 
@@ -58,10 +58,17 @@ export type OrientimPluginOptions = {
   /** Keep them in memory on purpose (tests, one long-running process): no warning then. */
   acceptInMemoryState?: boolean;
   /**
-   * The most the floor may sit below Jupiter's price, in bps, whoever asks: the model through the
-   * tool, or your code (default 500). The floor is what protects a swap from a compromised server.
+   * The most slippage tolerance anyone may choose, in bps: the model through the tool, or your code
+   * (default 500: 5%; at most 1500, as on the page). The minimum a swap enforces sits that far below
+   * the quote at most, and the agent's own floor follows it.
    */
-  maxBelowBpsCap?: number;
+  maxSlippageBpsCap?: number;
+  /**
+   * The most one swap may move the market, in bps (default 500: 5%). Above it the swap is refused
+   * before anything is prepared: the mark of thin liquidity, as when a token's pool is drained. The
+   * page asks a person at the same point. Only you set it, never the model.
+   */
+  maxPriceImpactBps?: number;
   /** Your Jupiter key, for the price your own floor is set from; JUPITER_API_KEY in OTHER_API_KEYS otherwise. */
   jupiterApiKey?: string;
   /** How long to wait for an outcome, in ms (default 3 minutes), and how often to look, in ms. */
@@ -80,10 +87,13 @@ export type OrientimSwapInput = {
   inputAmount: number | string;
   /** The token to pay with: its mint address; SOL when absent. */
   inputMint?: string;
-  /** The least to receive, in whole output tokens, rounded up; when absent, Jupiter's price less `maxBelowBps`. */
+  /** The least to receive, in whole output tokens, rounded up; when absent, it follows the tolerance and Jupiter's price. */
   minOutput?: number | string;
-  /** How far below Jupiter's price the floor may be, in bps: 0 to `maxBelowBpsCap` (default 200; 500 on a Pump.fun curve). */
-  maxBelowBps?: number;
+  /**
+   * The slippage tolerance, as on the page: how far below the quote the swap may fill, in bps, from
+   * 10 to `maxSlippageBpsCap`. Unset: 0.5%, or 3% on a Pump.fun bonding curve.
+   */
+  slippageBps?: number;
   /** Your order's own id, the same on every retry: with a shared `store`, an order is never swapped twice. */
   id?: string;
   /** A gap to the open market the user accepted, from a `costs-more` answer (bps, as a string). */
@@ -104,6 +114,12 @@ export type OrientimSwapResult = {
   inputAmount: string;
   minimumReceived: string;
   quotedOutput: string;
+  /** What arrived, in whole tokens, read from the confirmed transaction; absent when unreadable. */
+  received?: string;
+  /** The same, in base units. */
+  receivedUnits?: bigint;
+  /** Notes about the tokens themselves: an issuer that can freeze balances, or mint more. */
+  warnings: string[];
   /** In base units, as Orientim's answer gives them. */
   amounts: { amountIn: string; minOut: string; quotedOut: string; fee: string; feeMint?: string; feeBps: string };
   explorer: string;
@@ -232,6 +248,10 @@ function shared(): Shared {
 }
 
 const bps = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 10_000;
+const MIN_SLIPPAGE_BPS = 10;
+const MAX_SLIPPAGE_BPS = 1_500;
+const slippage = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= MIN_SLIPPAGE_BPS && v <= MAX_SLIPPAGE_BPS;
+const pct = (b: number) => `${b / 100}%`;
 
 export type OrientimPlugin = Plugin & {
   methods: {
@@ -245,8 +265,10 @@ export type OrientimPlugin = Plugin & {
  * setting then comes from the agent.
  */
 export function createOrientimPlugin(options: OrientimPluginOptions = {}): OrientimPlugin {
-  const cap = options.maxBelowBpsCap ?? 500;
-  if (!bps(cap)) throw new OrientimPluginError('invalid-option', 'maxBelowBpsCap must be a whole number of bps from 0 to 10000.');
+  const cap = options.maxSlippageBpsCap ?? 500;
+  if (!slippage(cap)) throw new OrientimPluginError('invalid-option', `maxSlippageBpsCap must be a whole number of bps from ${MIN_SLIPPAGE_BPS} to ${MAX_SLIPPAGE_BPS}.`);
+  const maxImpact = options.maxPriceImpactBps ?? 500;
+  if (!bps(maxImpact)) throw new OrientimPluginError('invalid-option', 'maxPriceImpactBps must be a whole number of bps from 0 to 10000.');
   const state = shared();
   const dir = options.stateDir ? resolve(options.stateDir) : null;
   const fileStore = (d: string) => {
@@ -300,13 +322,13 @@ export function createOrientimPlugin(options: OrientimPluginOptions = {}): Orien
       }
     }
     if (inputMint === outputMint) throw new OrientimPluginError('same-token', 'The input and output are the same token. Nothing was prepared.');
-    // Zero is a floor at Jupiter's price, not "none": only a missing value takes the default (ORI-04).
-    const below = input.maxBelowBps ?? undefined;
-    if (below !== undefined && !bps(below)) {
-      throw new OrientimPluginError('invalid-input', `maxBelowBps must be a whole number of bps from 0 to 10000, not ${String(below)}. Nothing was prepared.`);
+    // Only a missing value takes Orientim's default; anything given is checked (ORI-04).
+    const tolerance = input.slippageBps ?? undefined;
+    if (tolerance !== undefined && !slippage(tolerance)) {
+      throw new OrientimPluginError('invalid-input', `slippageBps must be a whole number of bps from ${MIN_SLIPPAGE_BPS} to ${MAX_SLIPPAGE_BPS}, not ${String(tolerance)}. Nothing was prepared.`);
     }
-    if (below !== undefined && below > cap) {
-      throw new OrientimPluginError('floor-too-low', `A minimum ${below} bps below the price is more than this agent allows (${cap} bps). Nothing was prepared.`);
+    if (tolerance !== undefined && tolerance > cap) {
+      throw new OrientimPluginError('slippage-above-limit', `A ${pct(tolerance)} slippage tolerance is above this agent's limit of ${pct(cap)}. Nothing was prepared.`);
     }
     const rpc = rpcOf(agent);
     const [inDecimals, outDecimals] = await decimalsOf(rpc, [inputMint, outputMint], timeoutMs);
@@ -343,7 +365,8 @@ export function createOrientimPlugin(options: OrientimPluginOptions = {}): Orien
         intent: {
           inputMint, outputMint, amountIn: amountIn.toString(),
           ...(minOut !== undefined ? { minOut: minOut.toString() } : {}),
-          ...(below !== undefined ? { maxBelowBps: below } : {}),
+          ...(tolerance !== undefined ? { slippageBps: tolerance } : {}),
+          maxPriceImpactBps: maxImpact,
           ...(input.id ? { id: input.id } : {}),
           ...(input.acceptCostBps ? { acceptCostBps: input.acceptCostBps } : {}),
         },
@@ -366,6 +389,8 @@ export function createOrientimPlugin(options: OrientimPluginOptions = {}): Orien
         inputAmount: shown(a.amountIn, inDecimals),
         minimumReceived: shown(a.minOut, outDecimals),
         quotedOutput: shown(a.quotedOut, outDecimals),
+        ...(result.received !== undefined ? { received: shown(result.received, outDecimals), receivedUnits: BigInt(result.received) } : {}),
+        warnings: result.notices,
         amounts: { amountIn: a.amountIn, minOut: a.minOut, quotedOut: a.quotedOut, fee: a.fee, ...(a.feeMint ? { feeMint: a.feeMint } : {}), feeBps: a.feeBps },
         explorer: `https://solscan.io/tx/${result.signature}`,
         ...(result.bookkeepingError ? { bookkeepingError: result.bookkeepingError } : {}),
@@ -409,31 +434,60 @@ export const swapSchema = z.object({
   outputMint: mint().describe('Mint address of the token to receive'),
   inputAmount: z.number().positive().describe('How much of the input token to swap, in whole tokens (0.5 is half a SOL)'),
   inputMint: mint().optional().nullable().describe('Mint address of the token to pay with; SOL when empty'),
-  slippageBps: z.number().int().min(0).max(1_000).optional().nullable()
-    .describe('How far below the market price the least accepted may be, in basis points (default 200; 500 on a Pump.fun curve). '
+  slippageBps: z.number().int().min(MIN_SLIPPAGE_BPS).max(MAX_SLIPPAGE_BPS).optional().nullable()
+    .describe('Slippage tolerance in basis points: how far below the quote the swap may fill (default 50; 300 on a Pump.fun launch curve). '
       + 'Above the limit the agent\'s owner set (500 unless set), the swap is refused'),
 });
 
 /** Why a swap did not go ahead, for the model to tell the user. */
 function failure(e: unknown): { status: 'error'; code: string; message: string; retryAfter?: number } {
   if (e instanceof z.ZodError) return { status: 'error', code: 'invalid-input', message: e.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
+  if (e instanceof PriceImpactError) {
+    return {
+      status: 'error', code: 'price-impact-high',
+      message: `Price impact is ${(e.impactBps / 100).toFixed(2)}%: this amount would move the market too much, a sign of thin liquidity. `
+        + 'Nothing was sent. Try a smaller amount.',
+    };
+  }
   if (e instanceof OrientimApiError) {
-    return { status: 'error', code: e.code, message: e.message.replace(/^\d+ [\w-]+: /, ''), ...(e.retryAfter ? { retryAfter: e.retryAfter } : {}) };
+    const retry = e.retryAfter ? { retryAfter: e.retryAfter } : {};
+    if (e.code === 'price-moved') {
+      return { status: 'error', code: e.code, message: 'Price moved beyond the tolerance while the swap was prepared. Nothing was sent. Try again, or use a higher slippageBps.', ...retry };
+    }
+    if (e.code === 'costs-more') {
+      const gap = Number((e.body as { gapBps?: unknown }).gapBps);
+      const below = Number.isFinite(gap) ? `${(gap / 100).toFixed(2)}% ` : '';
+      return { status: 'error', code: e.code, message: `Best available rate for this amount is ${below}below market. Nothing was sent. Try a smaller amount, or again shortly.`, ...retry };
+    }
+    return { status: 'error', code: e.code, message: e.message.replace(/^\d+ [\w-]+: /, ''), ...retry };
   }
   if (e instanceof OrientimPluginError) return { status: 'error', code: e.code, message: e.message };
   if (e instanceof PendingSwapError) return { status: 'error', code: 'swap-unsettled', message: e.message };
   if (e instanceof OrientimOrderError) return { status: 'error', code: 'order-taken', message: e.message };
-  return { status: 'error', code: 'swap-refused', message: e instanceof Error ? e.message : String(e) };
+  const said = e instanceof Error ? e.message : String(e);
+  // The agent's own check: Orientim stopped the swap before the wallet signed.
+  if (/^Not signing: /.test(said)) {
+    return { status: 'error', code: 'swap-refused', message: `Orientim stopped this swap before signing: ${said.replace(/^Not signing: /, '')}. Nothing was sent.` };
+  }
+  return { status: 'error', code: 'swap-refused', message: said };
 }
 
-/** What the model is told. The minimum is what the transaction enforced, not the amount delivered. */
-const said = (r: OrientimSwapResult): string => ({
-  confirmed: `The swap landed: at least ${r.minimumReceived} of the output token was received (the exact amount is in the transaction).`,
-  failed: 'The transaction landed but the swap failed; nothing was swapped and only the network fee was spent.',
-  expired: 'The swap did not land and can no longer land. Nothing was swapped.',
-  unknown: 'The swap may still land: do not swap again before its signature is checked.',
-  rejected: 'The swap was not sent.',
-})[r.outcome];
+/** What the model is told, in the words the page uses: what happened to the money, and what to do next. */
+const said = (r: OrientimSwapResult, tolerance: string): string => {
+  const expected = BigInt(r.amounts.quotedOut) - (r.amounts.feeMint === r.outputMint && r.amounts.feeMint !== r.inputMint ? BigInt(r.amounts.fee) : 0n);
+  const vs = r.received !== undefined && r.receivedUnits !== undefined ? fillAgainstQuote(r.receivedUnits, expected, tolerance) : '';
+  const text = {
+    confirmed: r.received !== undefined
+      ? `Swapped ${r.inputAmount} for ${r.received} of the output token.${vs ? ` ${vs}` : ''} At least ${r.minimumReceived} was guaranteed; the swap could use only ${r.inputAmount}.`
+      : `Swapped ${r.inputAmount} for at least ${r.minimumReceived} of the output token; the swap could use only ${r.inputAmount}.`,
+    failed: 'Swap cancelled on-chain: the minimum was enforced, so nothing was swapped and only the network fee was used. '
+      + 'The usual cause is a price move beyond the tolerance: try again, or use a higher slippageBps.',
+    expired: 'The swap expired before it landed and can no longer execute. Nothing was swapped.',
+    unknown: 'The swap may still land. No new swap starts from this wallet until it settles: check the signature before trying again.',
+    rejected: 'The swap was not sent. Nothing moved.',
+  }[r.outcome];
+  return r.warnings.length ? `${text} Token notes: ${r.warnings.join('; ')}.` : text;
+};
 
 export function protectedSwapAction(swap: (agent: Agent, input: OrientimSwapInput) => Promise<OrientimSwapResult>): Action {
   return {
@@ -441,12 +495,12 @@ export function protectedSwapAction(swap: (agent: Agent, input: OrientimSwapInpu
     similes: ['protected swap', 'safe swap', 'swap tokens safely', 'buy a token with SOL', 'sell a token for SOL or USDC'],
     description: 'Swap tokens on Solana through Orientim. Only the amount given can be used by the route, never the rest of the wallet, '
       + 'and the swap is checked before the wallet signs. inputAmount is in whole tokens; inputMint defaults to SOL. '
-      + 'Fee 0.3%. Returns the signature and whether it landed.',
+      + 'Fee 0.3%. Returns the signature, what arrived, and notes about the tokens to pass on to the user.',
     examples: [[{
       input: { outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', inputAmount: 0.1 },
       output: {
-        status: 'success', outcome: 'confirmed', signature: '<transaction signature>', minimumReceived: '14.6',
-        message: 'The swap landed: at least 14.6 of the output token was received (the exact amount is in the transaction).',
+        status: 'success', outcome: 'confirmed', signature: '<transaction signature>', minimumReceived: '14.6', received: '14.68',
+        message: 'Swapped 0.1 for 14.68 of the output token. At least 14.6 was guaranteed; the swap could use only 0.1.',
       },
       explanation: 'Swap 0.1 SOL for USDC, at least 14.6 USDC: the route could use the 0.1 SOL and nothing else in the wallet',
     }]],
@@ -457,9 +511,11 @@ export function protectedSwapAction(swap: (agent: Agent, input: OrientimSwapInpu
         const i = swapSchema.parse(input);
         const r = await swap(agent, {
           outputMint: i.outputMint, inputAmount: i.inputAmount,
-          ...(i.inputMint ? { inputMint: i.inputMint } : {}), ...(i.slippageBps !== null && i.slippageBps !== undefined ? { maxBelowBps: i.slippageBps } : {}),
+          ...(i.inputMint ? { inputMint: i.inputMint } : {}), ...(i.slippageBps !== null && i.slippageBps !== undefined ? { slippageBps: i.slippageBps } : {}),
         });
-        return { status: r.outcome === 'confirmed' ? 'success' : 'error', message: r.refusal ?? said(r), ...r };
+        const { receivedUnits: _units, ...shownResult } = r;
+        const tolerance = i.slippageBps ? pct(i.slippageBps) : '';
+        return { status: r.outcome === 'confirmed' ? 'success' : 'error', message: r.refusal ?? said(r, tolerance), ...shownResult };
       } catch (e) {
         return failure(e);
       }

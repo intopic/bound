@@ -67,10 +67,17 @@ export type OrientimPluginOptions = {
   /** Keep them in memory on purpose (tests, one long-running process): no warning then. */
   acceptInMemoryState?: boolean;
   /**
-   * The most the floor may sit below Jupiter's price, in bps, whoever asks: the model through the
-   * tool, or your code (default 500). The floor is what protects a swap from a compromised server.
+   * The most slippage tolerance anyone may choose, in bps: the model through the tool, or your code
+   * (default 500: 5%; at most 1500, as on the page). The minimum a swap enforces sits that far below
+   * the quote at most, and the agent's own floor follows it.
    */
-  maxBelowBpsCap?: number;
+  maxSlippageBpsCap?: number;
+  /**
+   * The most one swap may move the market, in bps (default 500: 5%). Above it the swap is refused
+   * before anything is prepared: the mark of thin liquidity, as when a token's pool is drained. The
+   * page asks a person at the same point. Only you set it, never the model.
+   */
+  maxPriceImpactBps?: number;
   /** Your Jupiter key, for the price your own floor is set from; JUPITER_API_KEY in OTHER_API_KEYS otherwise. */
   jupiterApiKey?: string;
   /** How long to wait for an outcome, in ms (default 3 minutes), and how often to look, in ms. */
@@ -89,10 +96,13 @@ export type OrientimSwapInput = {
   inputAmount: number | string;
   /** The token to pay with: its mint address; SOL when absent. */
   inputMint?: string;
-  /** The least to receive, in whole output tokens, rounded up; when absent, Jupiter's price less `maxBelowBps`. */
+  /** The least to receive, in whole output tokens, rounded up; when absent, it follows the tolerance and Jupiter's price. */
   minOutput?: number | string;
-  /** How far below Jupiter's price the floor may be, in bps: 0 to `maxBelowBpsCap` (default 200; 500 on a Pump.fun curve). */
-  maxBelowBps?: number;
+  /**
+   * The slippage tolerance, as on the page: how far below the quote the swap may fill, in bps, from
+   * 10 to `maxSlippageBpsCap`. Unset: 0.5%, or 3% on a Pump.fun bonding curve.
+   */
+  slippageBps?: number;
   /** Your order's own id, the same on every retry: with a shared `store`, an order is never swapped twice. */
   id?: string;
   /** A gap to the open market the user accepted, from a `costs-more` answer (bps, as a string). */
@@ -113,6 +123,12 @@ export type OrientimSwapResult = {
   inputAmount: string;
   minimumReceived: string;
   quotedOutput: string;
+  /** What arrived, in whole tokens, read from the confirmed transaction; absent when unreadable. */
+  received?: string;
+  /** The same, in base units. */
+  receivedUnits?: bigint;
+  /** Notes about the tokens themselves: an issuer that can freeze balances, or mint more. */
+  warnings: string[];
   /** In base units, as Orientim's answer gives them. */
   amounts: { amountIn: string; minOut: string; quotedOut: string; fee: string; feeMint?: string; feeBps: string };
   explorer: string;

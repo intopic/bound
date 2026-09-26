@@ -61,6 +61,10 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
    two tokens neither of which can carry it pays the fee in SOL from the wallet, 0.3% of its value in
    SOL (`policy.feeSide` is `sol`); hold it to a price of your own with `maxSolFeeLamports`
    (`ownSolFeeLimit` from `lib/orientim-verify.mjs` asks Jupiter; the example does it).
+   Set `slippageBps` (10 to 1500) for the route's tolerance, as a person does on the page; without it,
+   0.5%, or 3% on a Pump.fun curve. The price impact of your own quote is held to `maxPriceImpactBps`
+   (default 500): above it the swap is refused before anything is prepared (`PriceImpactError`), and
+   only the user or the agent's owner may raise it.
 3. **Verify before signing** with `checkPrepared(prepared, intent, rpc)`. Refuse to sign if it
    returns any problem. It checks:
    - that every number in the answer is a whole number, including those only shown after the swap:

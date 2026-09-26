@@ -37,6 +37,16 @@ export { pastProof, provesNeverLanded, STATUS_CACHE_BLOCKS } from '@orientim/sol
 export const ORIENTIM_TREASURY = 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
 
 /** What the agent asked for, and the most it accepts. */
+/**
+ * The tolerance an agent may choose for its route, as a person may on the page: 0.1% to 15%. Without
+ * a choice Orientim builds at 0.5%, or 3% on a Pump.fun bonding curve.
+ */
+export const MIN_SLIPPAGE_BPS = 10;
+export const MAX_SLIPPAGE_BPS = 1_500;
+/** Above this price impact an agent refuses unless its owner allows more: the page asks a person there. */
+export const DEFAULT_MAX_PRICE_IMPACT_BPS = 500;
+export const isSlippageBps = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= MIN_SLIPPAGE_BPS && v <= MAX_SLIPPAGE_BPS;
+
 export type AgentLimits = {
   /** The agent's wallet, which signs first and pays. */
   owner: string;
@@ -58,6 +68,12 @@ export type AgentLimits = {
    * only to use another Orientim deployment.
    */
   treasury?: string;
+  /**
+   * The tolerance the agent chose for its route, in bps (`MIN_SLIPPAGE_BPS` to `MAX_SLIPPAGE_BPS`):
+   * the route may carry that much and no more. Unset: 0.5%, or 3% on a Pump.fun bonding curve. It
+   * comes from the agent's own intent, never from Orientim's answer.
+   */
+  slippageBps?: number;
   /**
    * The most rent the route may keep, in lamports: what the wallet sends for a market's account,
    * less what closing it returns in the same transaction (default 0.001 SOL). A Pump.fun bonding
@@ -187,7 +203,11 @@ export async function verifyPrepared(
     return [...problems, `the chain state could not be read from your RPC: ${(e as Error).message}`];
   }
 
-  const verdict = await verify(transaction, p, snapshot);
+  if (limits.slippageBps !== undefined && !isSlippageBps(limits.slippageBps)) {
+    return [...problems, `slippageBps must be a whole number of bps from ${MIN_SLIPPAGE_BPS} to ${MAX_SLIPPAGE_BPS}`];
+  }
+  // The route's tolerance is the agent's own choice, or the verifier's defaults: never the server's.
+  const verdict = await verify(transaction, p, snapshot, limits.slippageBps !== undefined ? { maxSlippageBps: limits.slippageBps } : {});
   for (const v of verdict.violations) problems.push(`${v.rule}: ${v.detail}`);
   if (limits.maxSolCostLamports !== undefined && verdict.networkFeeLamports !== undefined) {
     const solCost = verdict.networkFeeLamports + routeCost + (p.feeSide === 'sol' ? p.fee : 0n);
@@ -259,16 +279,35 @@ async function leftUnderKey(
  * tolerance, its narrower routes and a few seconds of movement, and far from "almost nothing".
  * Without `apiKey`, Jupiter allows a request every two seconds.
  */
-export async function ownMinimum(args: {
+export type OwnQuoteArgs = {
   inputMint: string; outputMint: string; amountIn: string; taker: string;
   maxFeeBps?: number; maxBelowBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
+  /**
+   * The tolerance the agent chose for its route (`AgentLimits.slippageBps`). Without `maxBelowBps`,
+   * the floor then sits that far below Jupiter's price, and 1.5% more (2% on a Pump.fun curve) for
+   * the quote to differ between two asks.
+   */
+  slippageBps?: number;
   /**
    * The transfer fee the input token charges now (`inputTransferFee`), if any: such a token keeps a
    * cut of the transfer into the temporary account, so the route is priced for what arrives there.
    * Without it, the floor of a taxing token would sit above what any honest route can deliver.
    */
   inputTax?: TransferFee | null;
-}): Promise<string> {
+};
+
+/** A floor of the agent's own (`ownQuote`). */
+export async function ownMinimum(args: OwnQuoteArgs): Promise<string> {
+  return (await ownQuote(args)).minOut;
+}
+
+/**
+ * Jupiter's price for the amount Orientim will route, asked for directly: the agent's own floor
+ * (`minOut`, base units), how far this amount moves the market (`priceImpactBps`), and whether the
+ * route trades on a Pump.fun bonding curve. A large price impact is the mark of thin liquidity, as
+ * when a token's pool is drained: the check refuses it (`DEFAULT_MAX_PRICE_IMPACT_BPS`).
+ */
+export async function ownQuote(args: OwnQuoteArgs): Promise<{ minOut: string; priceImpactBps: number; curve: boolean }> {
   const amount = BigInt(args.amountIn);
   const afterFee = amount - (amount * BigInt(args.maxFeeBps ?? 30)) / 10_000n;
   const routed = args.inputTax ? afterFee - transferFeeOn(afterFee, args.inputTax) : afterFee;
@@ -282,14 +321,48 @@ export async function ownMinimum(args: {
   });
   if (!res.ok) throw new Error(`Jupiter answered ${res.status} when asked for your own price`);
   const r = (await res.json()) as {
-    inputMint?: string; outputMint?: string; inAmount?: string; outAmount?: string; swapInstruction?: { accounts?: { pubkey: string }[] };
+    inputMint?: string; outputMint?: string; inAmount?: string; outAmount?: string; priceImpactPct?: string | number;
+    swapInstruction?: { accounts?: { pubkey: string }[] };
   };
   if (r.inputMint !== args.inputMint || r.outputMint !== args.outputMint || r.inAmount !== routed.toString() || !/^\d{1,20}$/.test(r.outAmount ?? '')) {
     throw new Error('Jupiter answered for another trade when asked for your own price');
   }
   const curve = r.swapInstruction?.accounts?.some(a => a.pubkey === PUMP_CURVE_PROGRAM) ?? false;
-  const below = BigInt(args.maxBelowBps ?? (curve ? 500 : 200));
-  return ((BigInt(r.outAmount!) * (10_000n - below)) / 10_000n).toString();
+  const below = BigInt(args.maxBelowBps ?? (args.slippageBps !== undefined ? args.slippageBps + (curve ? 200 : 150) : (curve ? 500 : 200)));
+  const impact = Number(r.priceImpactPct);
+  return {
+    minOut: ((BigInt(r.outAmount!) * (10_000n - below)) / 10_000n).toString(),
+    priceImpactBps: Number.isFinite(impact) && impact > 0 ? Math.round(impact * 10_000) : 0,
+    curve,
+  };
+}
+
+/** Stablecoins and SOL keep authorities by design; a note on every swap of them would teach agents to skip notes. */
+const QUIET_MINTS = new Set<string>([WSOL_MINT, USDC_MINT, 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB']);
+
+/**
+ * What the agent should know about the tokens themselves, read from the mint accounts on its own RPC:
+ * an issuer that can freeze balances, or mint more. The same notes the page shows people. Orientim
+ * protects the wallet, not the value of what is bought. Never fails: an unreadable mint gives no note.
+ */
+export async function tokenNotices(rpc: Rpc<SolanaRpcApi>, mints: readonly string[], timeoutMs = 10_000): Promise<string[]> {
+  const asked = [...new Set(mints)].filter(m => !QUIET_MINTS.has(m));
+  if (!asked.length) return [];
+  try {
+    const { accounts } = await readAccounts(rpc as never, asked as Address[], { timeoutMs });
+    const notes: string[] = [];
+    for (const m of asked) {
+      const s = accounts.get(m);
+      if (!s || s.data.length < 82 || (s.owner !== TOKEN_PROGRAM && s.owner !== TOKEN_2022_PROGRAM)) continue;
+      const view = new DataView(s.data.buffer, s.data.byteOffset, s.data.byteLength);
+      const name = `${m.slice(0, 4)}…${m.slice(-4)}`;
+      if (view.getUint32(46, true) === 1) notes.push(`${name} has a freeze authority: its issuer can freeze your balance`);
+      if (view.getUint32(0, true) === 1) notes.push(`${name} can still be minted by its issuer`);
+    }
+    return notes;
+  } catch {
+    return [];
+  }
 }
 
 /**

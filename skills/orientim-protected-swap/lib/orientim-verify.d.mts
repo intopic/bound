@@ -7,6 +7,13 @@ import type { Rpc, SolanaRpcApi } from '@solana/kit';
  */
 export declare const ORIENTIM_TREASURY: 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
 
+/** The tolerance an agent may choose for its route: 0.1% to 15%, as on the page. */
+export declare const MIN_SLIPPAGE_BPS: 10;
+export declare const MAX_SLIPPAGE_BPS: 1500;
+/** Above this price impact an agent refuses unless its owner allows more. */
+export declare const DEFAULT_MAX_PRICE_IMPACT_BPS: 500;
+export function isSlippageBps(v: unknown): v is number;
+
 /** What the agent asked for, and the most it accepts. */
 export type AgentLimits = {
   /** The agent's wallet, which signs first and pays. */
@@ -29,6 +36,11 @@ export type AgentLimits = {
    * only to use another Orientim deployment.
    */
   treasury?: string;
+  /**
+   * The tolerance the agent chose for its route, in bps (10 to 1500): the route may carry that much
+   * and no more. Unset: 0.5%, or 3% on a Pump.fun bonding curve. From the agent's own intent only.
+   */
+  slippageBps?: number;
   /**
    * The most rent the route may keep, in lamports: what the wallet sends for a market's account,
    * less what closing it returns in the same transaction (default 0.001 SOL). A Pump.fun bonding
@@ -65,16 +77,30 @@ export type PreparedSwap = {
  */
 export function verifyPrepared(prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>, opts?: { requestTimeoutMs?: number }): Promise<string[]>;
 
-/**
- * A floor of the agent's own: Jupiter's price for the amount Orientim will route, asked for directly,
- * less `maxBelowBps` (default 2%, or 5% on a Pump.fun bonding curve). In base units, as a string.
- */
-export function ownMinimum(args: {
+export type OwnQuoteArgs = {
   inputMint: string; outputMint: string; amountIn: string; taker: string;
   maxFeeBps?: number; maxBelowBps?: number; jupiterUrl?: string; apiKey?: string; fetchImpl?: typeof fetch;
+  /** The tolerance the agent chose: without `maxBelowBps`, the floor sits that far below the price, and 1.5% more (2% on a curve). */
+  slippageBps?: number;
   /** The input token's transfer fee now (`inputTransferFee`): the route is priced for what arrives. */
   inputTax?: { bps: number; maximum: bigint } | null;
-}): Promise<string>;
+};
+
+/**
+ * A floor of the agent's own: Jupiter's price for the amount Orientim will route, asked for directly,
+ * less `maxBelowBps` (default 2%, or 5% on a Pump.fun bonding curve; with `slippageBps`, that and
+ * 1.5% more). In base units, as a string.
+ */
+export function ownMinimum(args: OwnQuoteArgs): Promise<string>;
+
+/** Jupiter's price, asked for directly: the agent's own floor, the price impact in bps, and whether the route is a Pump.fun curve. */
+export function ownQuote(args: OwnQuoteArgs): Promise<{ minOut: string; priceImpactBps: number; curve: boolean }>;
+
+/**
+ * Notes about the tokens themselves, read from the mint accounts on the agent's RPC: an issuer that
+ * can freeze balances, or mint more (none for SOL, USDC and USDT). Never fails.
+ */
+export function tokenNotices(rpc: Rpc<SolanaRpcApi>, mints: readonly string[], timeoutMs?: number): Promise<string[]>;
 
 /**
  * The transfer fee a Token-2022 input token charges in the current epoch, read on your RPC; null

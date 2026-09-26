@@ -1,6 +1,7 @@
 import { getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
 import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
+import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
 import type { TxVersion } from '@orientim/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 import type { JupiterClient } from '@orientim/jupiter';
@@ -190,6 +191,12 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (acceptCostBps === null) return fail(400, 'bad-request', 'acceptCostBps, when given, must be an integer string.');
   const version: TxVersion = body.version === 1 ? 1 : 0;
   if (body.version !== undefined && body.version !== 0 && body.version !== 1) return fail(400, 'bad-request', 'version must be 0 or 1.');
+  // The route's slippage tolerance, as a person chooses it on the page: 0.1% to 15%. The agent's own
+  // check holds the route to the same number, from its own intent.
+  const slippageBps = body.slippageBps;
+  if (slippageBps !== undefined && !(typeof slippageBps === 'number' && Number.isInteger(slippageBps) && slippageBps >= 10 && slippageBps <= MAX_CHOSEN_SLIPPAGE_BPS)) {
+    return fail(400, 'bad-request', `slippageBps, when given, must be a whole number of bps from 10 to ${MAX_CHOSEN_SLIPPAGE_BPS}.`);
+  }
   if (version === 1 && !deps.v1) return fail(400, 'bad-request', 'v1 transactions are not enabled on this deployment; use version 0.');
 
   try {
@@ -213,6 +220,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
           maxNetworkFeeLamports: deps.maxNetworkFeeLamports,
           jupiterProgram: JUPITER_PROGRAM,
           ...(deps.minFee ? { minFee: deps.minFee } : {}),
+          ...(slippageBps !== undefined ? { chosenSlippageBps: slippageBps as number } : {}),
         },
       },
       {
@@ -267,6 +275,13 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       },
       // networkBusy: the priority fee is at its limit, so the swap may land late or expire (FA-15).
       notices: { ...prepared.notices, networkBusy: prepared.priorityFeeCapped },
+      // What the mint accounts say about the tokens themselves: an issuer that can freeze balances or
+      // mint more. Orientim's word; the skill reads the same on the agent's own RPC.
+      tokens: {
+        input: { freezeAuthority: mints.get(inMint)!.freezeAuthority, mintAuthority: mints.get(inMint)!.mintAuthority },
+        output: { freezeAuthority: mints.get(outMint)!.freezeAuthority, mintAuthority: mints.get(outMint)!.mintAuthority },
+      },
+      ...(slippageBps !== undefined ? { slippageBps } : {}),
       route: prepared.quote.route,
       certificate: prepared.certificate,
       policy: p,

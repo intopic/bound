@@ -122,6 +122,7 @@ Authorization: Bearer ori_...
 | `amountIn` | required | Base units, as a string (`"5000000"` is 5 USDC). The fee comes out of it. |
 | `minOut` | optional | Your own floor, in base units of the output: what your wallet must keep, after a fee taken from the output. Orientim never enforces less than this. Without it, the floor is the route's quote less 0.5% (3% on a Pump.fun bonding curve), which is Orientim's word: the skill's check refuses to sign without a floor of your own, and `ownMinimum` gets one from Jupiter directly. For a large order, take it from a source independent of Jupiter as well (an oracle, another aggregator, limits of your own). |
 | `acceptCostBps` | optional | Accept a protected route this many bps below the open market (see `costs-more`). |
+| `slippageBps` | optional | The route's slippage tolerance, as a person chooses it on the page: how far below the quote the swap may fill, a whole number from 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun bonding curve. The route is built at it; the skill's check holds the route to the number in your own intent, never to Orientim's answer. |
 | `version` | optional | `0` (default). `1` only where the deployment enables it. |
 
 `200` response:
@@ -140,7 +141,8 @@ Authorization: Bearer ori_...
                "priceImpactPct": 0.0001 },
   "costs": { "networkFeeLamports": "124480", "outputAccountRentLamports": "0", "routeRentLamports": "0", "routeRefundLamports": "0",
              "keptSolLamports": "124480", "tokenTax": null },
-  "notices": { "removesDelegate": false },
+  "notices": { "removesDelegate": false, "networkBusy": false },
+  "tokens": { "input": { "freezeAuthority": true, "mintAuthority": true }, "output": { "freezeAuthority": false, "mintAuthority": false } },
   "route": ["Kipseli", "AlphaQ"],
   "certificate": { "...": "what this exact transaction does, bound to messageSha256" },
   "policy": { "...": "the rules the transaction was verified against" }
@@ -168,7 +170,24 @@ the bytes, not from this statement. The `certificate` and `amounts` are Orientim
 evidence, and holds the amounts stated to the policy the bytes are checked against.
 
 `notices.networkBusy` means the network fee is at its limit, so the swap may land late or expire.
-`amounts.feeBps` is 0 when the swap is fee-free.
+`amounts.feeBps` is 0 when the swap is fee-free. `tokens` says what each mint allows its issuer:
+to freeze balances, or to mint more. The page warns people about both, and the skill reads the same
+from your RPC (`tokenNotices`), leaving out SOL, USDC and USDT, which keep them by design.
+
+### The same protection as the page
+
+Every channel runs the same checks: the page, the API with the skill, the command line for bots,
+and the Solana Agent Kit plugin.
+
+- **Slippage tolerance.** `slippageBps` is the page's setting, 0.1% to 15%. Without it, 0.5%, or 3%
+  on a Pump.fun curve. Your own floor follows it: 1.5% below it, or 2% on a curve.
+- **Price impact.** How far this amount moves the market, from your own quote (`ownQuote`). Above
+  `maxPriceImpactBps` (default 5%) the skill refuses before anything is prepared, with
+  `PriceImpactError`. The page asks a person at the same point. A large impact is the mark of thin
+  liquidity, as when a token's pool is being drained.
+- **Token notes.** An issuer that can freeze balances or mint more (`tokenNotices`).
+- **What arrived.** The amount received is read from the confirmed transaction (`receivedFor`).
+  `protectedSwap` returns it as `received`, and `orientim-verify finalize` as `received` too.
 
 ## 2. Sign as your wallet
 

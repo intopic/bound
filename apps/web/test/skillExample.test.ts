@@ -18,7 +18,7 @@ import {
   AuthorityType, getApproveInstruction, getSetAuthorityInstruction, getTransferCheckedInstruction,
 } from '@solana-program/token';
 import { getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
-import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
@@ -26,6 +26,7 @@ import type { AgentDeps } from '../lib/server/agent/api.ts';
 import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
+  fillAgainstQuote, PriceImpactError, receivedFor,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
@@ -33,13 +34,15 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ORIENTIM_TREASURY, inputTransferFee, ownMinimum } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
-import { routeAccountFor } from '@orientim/verifier';
+import { ORIENTIM_TREASURY, inputTransferFee, ownMinimum, tokenNotices } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
+import { jupiterRouteArgs, routeAccountFor } from '@orientim/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
 import type { Intent, Prepared } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 
 const KEY = 'ori_skill_example_test_key_0001';
+/** A v0 message, as the tests read it: its accounts and its instructions. */
+type Compiled = { staticAccounts: string[]; instructions: { programAddressIndex: number; data?: Uint8Array }[] };
 const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
 /** Jupiter as the agent reaches it itself, over HTTP: the honest market. */
@@ -787,6 +790,28 @@ describe('orientim-verify, the command for bots in other languages', () => {
     expect(readdirSync(stateDir).filter(f => f.startsWith('pending-'))).toEqual([]);
   });
 
+  it('takes the same tolerance and price-impact limit as the page and the plugin, and answers with notes and what arrived', async () => {
+    const { b, deps, intent, signMessage } = await setup();
+    const ready = await runCli('prepare', { intent: { ...intent, slippageBps: 300 } }, deps);
+    expect(ready.code).toBe(0);
+    const out = viaJson(ready.output) as { checked: { intent: Intent }; message: string; notices: string[] };
+    expect(out.checked.intent.slippageBps).toBe(300);
+    expect(out.notices).toEqual([]);
+    const done = await runCli('finalize', { checked: out.checked, signature: await signMessage(out.message) }, deps);
+    expect(done.output.outcome).toBe('confirmed');
+    const sent = getCompiledTransactionMessageDecoder().decode(getTransactionDecoder().decode(Buffer.from(b.sent[0], 'base64')).messageBytes) as unknown as Compiled;
+    const route = sent.instructions.find(i => sent.staticAccounts[i.programAddressIndex] === JUPITER_PROGRAM);
+    expect(jupiterRouteArgs(route!.data!)!.slippageBps).toBe(300);
+    // A thin market: refused before anything is prepared, with the numbers a bot can read.
+    const thin = (async (url: string, init: RequestInit) => {
+      const res = await deps.fetchImpl(url, init);
+      return url.startsWith('https://api.jup.ag/') ? Response.json({ ...(await res.json() as Record<string, unknown>), priceImpactPct: 0.2 }) : res;
+    }) as unknown as typeof fetch;
+    const refused = await runCli('prepare', { intent }, { ...deps, fetchImpl: thin });
+    expect(refused.code).toBe(1);
+    expect(refused.output.error).toMatchObject({ code: 'price-impact-high', impactBps: 2_000, limitBps: 500 });
+  });
+
   it("finalize checks again: an answer that no longer passes, or a signature that is not the wallet's, sends nothing", async () => {
     const { b, deps, intent, signMessage, finalizes } = await setup();
     const out = viaJson((await runCli('prepare', { intent }, deps)).output) as { checked: { prepared: Prepared; intent: Intent }; message: string };
@@ -1218,5 +1243,101 @@ describe("the agent's own floor for a token that taxes its transfers", () => {
     }) as unknown as Rpc<SolanaRpcApi>;
     expect(await inputTransferFee(rpcWith('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'), USDC)).toEqual({ bps: 150, maximum: 5_000n });
     expect(await inputTransferFee(rpcWith('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'), USDC)).toBeNull();
+  });
+});
+
+describe('the same as the page, for agents and bots: tolerance, price impact, token notes, what arrived', () => {
+  const swapOf = (b: Awaited<ReturnType<typeof orientim>>, fetchImpl: typeof fetch, extra: Partial<Intent> = {}) => protectedSwap({
+    apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1,
+    intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY, ...extra },
+  });
+  const routeTolerance = (wire: string) => {
+    const compiled = getCompiledTransactionMessageDecoder().decode(getTransactionDecoder().decode(Buffer.from(wire, 'base64')).messageBytes) as unknown as Compiled;
+    const ix = compiled.instructions.find(i => compiled.staticAccounts[i.programAddressIndex] === JUPITER_PROGRAM);
+    return jupiterRouteArgs(ix!.data!)!.slippageBps;
+  };
+
+  it('the tolerance the agent chose is the one its route is built at, and its check holds the route to it', async () => {
+    const b = await orientim();
+    const bodies: Record<string, unknown>[] = [];
+    const seen = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/prepare')) bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const result = await swapOf(b, seen, { slippageBps: 300 });
+    expect(result.outcome).toBe('confirmed');
+    expect(bodies[0].slippageBps).toBe(300);
+    expect(routeTolerance(b.sent[0])).toBe(300);
+    // Unset, Orientim's own: 0.5%.
+    const again = await orientim();
+    await swapOf(again, again.fetchImpl);
+    expect(routeTolerance(again.sent[0])).toBe(50);
+  });
+
+  it('a route wider than the agent chose is refused, and one it never chose is held to 0.5%: nothing is sent', async () => {
+    const b = await orientim();
+    const widened = (to: number) => (async (url: string, init: RequestInit) => {
+      if (!url.endsWith('/api/v1/prepare')) return b.fetchImpl(url, init);
+      return b.fetchImpl(url, { ...init, body: JSON.stringify({ ...JSON.parse(String(init.body)), slippageBps: to }) });
+    }) as unknown as typeof fetch;
+    // The server widens the route; the minimum the agent asked for tightens it again, yet not to the agent's tolerance.
+    await expect(swapOf(b, widened(1_000), { slippageBps: 300 })).rejects.toThrow(/tolerates \d+ bps, above 300/);
+    await expect(swapOf(b, widened(1_000))).rejects.toThrow(/tolerates \d+ bps, above 50/);
+    await expect(swapOf(b, b.fetchImpl, { slippageBps: 5 })).rejects.toThrow(/slippageBps must be/);
+    expect(b.sent).toHaveLength(0);
+  });
+
+  it('a price impact above the limit is refused before anything is prepared; the owner may allow more', async () => {
+    const b = await orientim();
+    let prepares = 0;
+    const thin = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/prepare')) prepares++;
+      const res = await b.fetchImpl(url, init);
+      if (!url.startsWith('https://api.jup.ag/')) return res;
+      return Response.json({ ...(await res.json() as Record<string, unknown>), priceImpactPct: '0.08' });
+    }) as unknown as typeof fetch;
+    const refused = swapOf(b, thin);
+    await expect(refused).rejects.toBeInstanceOf(PriceImpactError);
+    await expect(refused).rejects.toMatchObject({ impactBps: 800, limitBps: 500 });
+    expect(prepares).toBe(0);
+    expect((await swapOf(b, thin, { maxPriceImpactBps: 1_000 })).outcome).toBe('confirmed');
+  });
+
+  it('says what a mint allows its issuer, read on the agent\'s own RPC; nothing for SOL, USDC or USDT', async () => {
+    const b = await orientim();
+    const data = new Uint8Array(82);
+    data[44] = 5;
+    new DataView(data.buffer).setUint32(0, 1, true);
+    new DataView(data.buffer).setUint32(46, 1, true);
+    b.accounts.set(BONK, { owner: address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'), data });
+    const name = `${BONK.slice(0, 4)}…${BONK.slice(-4)}`;
+    expect(await tokenNotices(b.agentRpc, [BONK, USDC, WSOL_MINT])).toEqual([
+      `${name} has a freeze authority: its issuer can freeze your balance`, `${name} can still be minted by its issuer`,
+    ]);
+    const failing = { getMultipleAccounts: () => ({ send: async () => { throw new Error('down'); } }) } as unknown as Rpc<SolanaRpcApi>;
+    expect(await tokenNotices(failing, [BONK])).toEqual([]);
+    // And the swap carries them.
+    const result = await swapOf(b, b.fetchImpl);
+    expect(result.notices).toEqual([]);
+  });
+
+  it('reads what arrived from the confirmed transaction, for a token and for SOL, and says it against the quote', async () => {
+    const W = (await generateKeyPairSigner()).address;
+    const stub = (meta: unknown) => ({ getTransaction: () => ({ send: async () => ({ meta }) }) }) as unknown as Rpc<SolanaRpcApi>;
+    const swap = (mint: string) => ({
+      wallet: W, certificate: { output: { mint } } as never,
+      costs: { networkFeeLamports: '0', outputAccountRentLamports: '0', routeRentLamports: '1000', routeRefundLamports: '500' },
+    });
+    const token = stub({
+      fee: 5_000, preBalances: [], postBalances: [],
+      preTokenBalances: [{ accountIndex: 3, mint: USDC, owner: W, uiTokenAmount: { amount: '100' } }],
+      postTokenBalances: [{ accountIndex: 3, mint: USDC, owner: W, uiTokenAmount: { amount: '350' } }],
+    });
+    expect(await receivedFor(token, 'sig', swap(USDC), { pollMs: 1 })).toBe(250n);
+    const sol = stub({ fee: 5_000, preBalances: [1_000_000_000], postBalances: [1_004_000_000] });
+    expect(await receivedFor(sol, 'sig', swap(WSOL_MINT), { pollMs: 1 })).toBe(4_005_500n);
+    expect(await receivedFor({} as Rpc<SolanaRpcApi>, 'sig', swap(USDC))).toBeNull();
+    expect(fillAgainstQuote(1_004_000n, 1_000_000n, '1%')).toBe('0.40% better than quoted.');
+    expect(fillAgainstQuote(959_000n, 1_000_000n, '10%')).toBe('Filled 4.1% below the quote, within your 10% tolerance.');
   });
 });
