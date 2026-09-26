@@ -262,9 +262,6 @@ a.ghost { display: inline-flex; align-items: center; }
 .section h2 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.12; font-weight: 700; }
 .section h3 { font-size: 17px; font-weight: 700; }
 
-.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.step { position: relative; padding: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
-.step p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
 .step-n { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin-bottom: 16px; border-radius: 50%; border: 1px solid var(--ok-line); color: var(--accent); font-weight: 700; font-size: 13px; }
 
 .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -454,7 +451,7 @@ a.ghost { display: inline-flex; align-items: center; }
   .hero-copy { padding-top: 0; }
   .hero-app { max-width: 480px; width: 100%; margin: 0 auto; }
   .dev-grid, .split { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .steps, .fee-grid, .fee-grid.two, .capsule-steps { grid-template-columns: minmax(0, 1fr); }
+  .fee-grid, .fee-grid.two, .capsule-steps { grid-template-columns: minmax(0, 1fr); }
   .split-media, .faq-wrap { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .evidence { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .footer-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

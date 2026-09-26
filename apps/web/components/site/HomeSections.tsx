@@ -10,12 +10,6 @@ const CAPSULE_STEPS = [
   ['The minimum is checked on chain', 'If less than the minimum would arrive, the whole swap cancels itself. Then the key is gone.'],
 ];
 
-const STEPS = [
-  ['Choose', 'Pick the tokens and the amount. Paste any token’s address to find it.'],
-  ['Review', 'See the minimum you receive and every fee before anything is signed.'],
-  ['Approve', 'Sign in your own wallet the exact transaction Orientim checked.'],
-];
-
 const AGENT_POINTS = [
   ['Verified on its own RPC', 'The full verifier runs in the agent, on the exact bytes it signs.'],
   ['Limits of its own', 'A maximum fee, a maximum SOL cost and a price floor from its own source.'],
@@ -92,24 +86,6 @@ export function HomeSections() {
             </p>
           </div>
           <AuthorityMap />
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="container">
-          <div className="section-head">
-            <p className="eyebrow">Three steps</p>
-            <h2>Choose. Review. Approve.</h2>
-          </div>
-          <ol className="steps">
-            {STEPS.map(([title, text], i) => (
-              <li key={title} className="step">
-                <span className="step-n">{i + 1}</span>
-                <h3>{title}</h3>
-                <p>{text}</p>
-              </li>
-            ))}
-          </ol>
         </div>
       </section>
 
