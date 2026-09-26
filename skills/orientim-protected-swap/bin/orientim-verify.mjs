@@ -32,8 +32,9 @@ const USDC_MINT = address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 /**
 * The tokens the Orientim fee is taken in first, on whichever side of the swap they are, the way
 * Jupiter takes its own: SOL, then USDC, then USDT. Otherwise the fee is in the input token when the
-* treasury has an account for it, and otherwise in SOL from the wallet at the swap's value (`sol`);
-* fee-free only while the treasury wallet does not exist or the pair cannot be priced in SOL.
+* treasury has an account for it, and otherwise in SOL from the wallet at the swap's value (`sol`).
+* A swap whose fee cannot be collected is refused (`fee-unavailable`); only a test deployment,
+* without a treasury, is fee-free.
 */
 const FEE_TOKENS = [
 	WSOL_MINT,
@@ -58,9 +59,10 @@ const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1000000n;
 */
 const MAX_TAKER_RENT_LAMPORTS = 5000000n;
 /**
-* The most tolerance a person may choose on the page (its slippage setting): 15%. Only the page asks
-* the verifier for a tolerance, with that person's own choice, and never for more than this; a
-* server and the agent skill never do, so their routes keep the two ceilings above.
+* The most tolerance a person may choose (the page's slippage setting, or an agent's `slippageBps`):
+* 15%. The page asks the verifier for the person's own choice, and the agent API and the skill's
+* check for the number in the agent's own intent, never for more than this. Without a choice,
+* routes keep the two ceilings above.
 */
 const MAX_CHOSEN_SLIPPAGE_BPS = 1500;
 /** Pump.fun's bonding-curve program: a route through it is priced on the curve. */
@@ -1220,7 +1222,7 @@ var OrientimApiError = class extends Error {
 * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
 * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
 */
-const SKILL_VERSION = "1.1.1";
+const SKILL_VERSION = "1.1.2";
 /** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call(fetchImpl, url, key, body, timeoutMs = 3e4) {
 	const res = await fetchImpl(url, {
@@ -1374,6 +1376,16 @@ async function checkPrepared(p, intent, rpc, opts = {}) {
 * transaction can land in is taken on your own clock with this margin, never from the server alone.
 */
 const LAG_BLOCKS = 25n;
+/**
+* The last block a kept swap can land in. Its blockhash lives 150 blocks and is older than the height
+* the wallet signed at, so a stated block beyond that bound (a record a server overstated before this
+* check existed) cannot hold the wallet's next swap back for good.
+*/
+function lastBlockOf(s) {
+	if (s.signedHeight === void 0) return s.lastValidBlockHeight;
+	const bound = s.signedHeight + 150n + LAG_BLOCKS;
+	return s.lastValidBlockHeight < bound ? s.lastValidBlockHeight : bound;
+}
 async function signAsWallet(wallet, transaction) {
 	const tx = getTransactionDecoder().decode(Buffer.from(transaction, "base64"));
 	const [signatures] = await wallet.signTransactions([tx]);
@@ -1469,6 +1481,15 @@ async function isThisTransaction(wire, mine, temporaryAuthority) {
 	}
 }
 /**
+* Takes order `id` for a new attempt: atomically when nothing is recorded for it yet, and, after an
+* attempt that failed or expired, only while that attempt is still the one recorded. False when
+* another worker took it first, or when the book cannot retry safely.
+*/
+async function takeOrder(orders, id, prior, record) {
+	if (!prior) return orders.claimOrder(id, record);
+	return orders.reclaimOrder ? orders.reclaimOrder(id, prior, record) : false;
+}
+/**
 * This amount would move the market more than `maxPriceImpactBps`: refused before anything was
 * prepared or signed. Usually thin liquidity; a smaller amount, or a limit raised by the owner.
 */
@@ -1492,6 +1513,8 @@ var OrientimOrderError = class extends Error {
 	}
 };
 const orderIsOpen = (r) => !!r && (r.state === "confirmed" || r.state === "pending");
+/** Why a retry is refused by an order book that cannot take an order again atomically. */
+const retryRefused = (id) => `Order ${id} was tried before, and this order book has no reclaimOrder, so two workers could both retry it. Give the retry a new id, or add reclaimOrder to the book. Nothing was prepared.`;
 /** The wallet a kept record was signed by: named in it, or read from its transaction's fee payer. */
 function ownerOfRecord(s) {
 	if (s.owner) return s.owner;
@@ -1536,25 +1559,31 @@ function createFileStore(dir) {
 			closeSync(fd);
 		}
 	};
+	const readOrder = (id) => {
+		try {
+			const { signature, state } = JSON.parse(readFileSync(orderFile(id), "utf8"));
+			return {
+				signature,
+				state
+			};
+		} catch {
+			return null;
+		}
+	};
+	const writeOrder = (id, record) => {
+		const temporary = `${orderFile(id)}.tmp`;
+		writeDurably(temporary, JSON.stringify({
+			id,
+			...record
+		}), "w");
+		renameSync(temporary, orderFile(id));
+	};
 	return {
 		async order(id) {
-			try {
-				const { signature, state } = JSON.parse(readFileSync(orderFile(id), "utf8"));
-				return {
-					signature,
-					state
-				};
-			} catch {
-				return null;
-			}
+			return readOrder(id);
 		},
 		async recordOrder(id, record) {
-			const temporary = `${orderFile(id)}.tmp`;
-			writeDurably(temporary, JSON.stringify({
-				id,
-				...record
-			}), "w");
-			renameSync(temporary, orderFile(id));
+			writeOrder(id, record);
 		},
 		async claimOrder(id, record) {
 			try {
@@ -1566,6 +1595,17 @@ function createFileStore(dir) {
 			} catch {
 				return false;
 			}
+		},
+		async reclaimOrder(id, prior, record) {
+			try {
+				writeDurably(`${orderFile(id)}.retry-${prior.signature}`, "", "wx");
+			} catch {
+				return false;
+			}
+			const now = readOrder(id);
+			if (!now || now.signature !== prior.signature || now.state !== prior.state) return false;
+			writeOrder(id, record);
+			return true;
 		},
 		async put(s) {
 			const temporary = `${file(s.signature)}.tmp`;
@@ -1610,7 +1650,7 @@ async function recoverPending(store, rpc, opts = {}) {
 	const unknown = [];
 	const bookkeepingErrors = [];
 	for (const s of await store.list()) {
-		const outcome = await confirm(rpc, s.signature, s.lastValidBlockHeight, {
+		const outcome = await confirm(rpc, s.signature, lastBlockOf(s), {
 			...opts,
 			earliestHeight: s.signedHeight
 		});
@@ -1654,7 +1694,7 @@ async function resolvePending(store, rpc, signature, outcome, opts = {}) {
 	const { status, view } = await lookUp(rpc, signature, bounded);
 	const onChain = status && (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") ? status.err ? "failed" : "confirmed" : null;
 	if (!onChain && status) throw new Error(`The network has seen ${signature} but not settled it yet: wait and recover again. Nothing was changed.`);
-	if (!onChain && (view.coveredHeight === null || view.coveredHeight <= kept.lastValidBlockHeight)) throw new Error(`${signature} can still land until block ${kept.lastValidBlockHeight}: recover it instead. Nothing was changed.`);
+	if (!onChain && (view.coveredHeight === null || view.coveredHeight <= lastBlockOf(kept))) throw new Error(`${signature} can still land until block ${lastBlockOf(kept)}: recover it instead. Nothing was changed.`);
 	const settledAs = onChain ?? outcome;
 	if (kept.intentId && opts.orders) await opts.orders.recordOrder(kept.intentId, {
 		signature,
@@ -1854,10 +1894,9 @@ async function finalizeSigned(args) {
 	const height = BigInt(await args.rpc.getBlockHeight({ commitment: "confirmed" }).send({ abortSignal: AbortSignal.timeout(args.requestTimeoutMs ?? 1e4) }));
 	const stated = BigInt(prepared.lastValidBlockHeight);
 	if (stated - height < 30n) throw new Error(`Not finalizing: only ${stated - height} blocks are left before this swap expires, too few to land. This call sent nothing; prepare it again (a swap an earlier call finalized is settled with resumeSigned or recoverPending, not here).`);
-	const ownLimit = height + 150n + LAG_BLOCKS;
 	const signed = {
 		signature,
-		lastValidBlockHeight: stated > ownLimit ? stated : ownLimit,
+		lastValidBlockHeight: height + 150n + LAG_BLOCKS,
 		ticket: prepared.ticket,
 		signedTransaction,
 		messageSha256: prepared.messageSha256,
@@ -1935,6 +1974,7 @@ async function protectedSwap(args) {
 	const owner = args.wallet.address;
 	const prior = orders ? await orders.order(id) : null;
 	if (orderIsOpen(prior)) throw new OrientimOrderError(id, prior);
+	if (prior && !orders.reclaimOrder) throw new Error(retryRefused(id));
 	const waiting = args.pending ? await pendingFor(args.pending, owner) : [];
 	if (waiting.length) throw new PendingSwapError(waiting);
 	const { prepared, notices = [] } = await prepareChecked({
@@ -1966,8 +2006,7 @@ async function protectedSwap(args) {
 					signature: signed.signature,
 					state: "pending"
 				};
-				if (prior) await orders.recordOrder(id, record);
-				else if (!await orders.claimOrder(id, record)) {
+				if (!await takeOrder(orders, id, prior, record)) {
 					await args.pending?.remove(signed.signature);
 					throw new OrientimOrderError(id, await orders.order(id) ?? record);
 				}
@@ -2636,20 +2675,22 @@ async function runCli(command, input, deps) {
 					const others = await pendingFor(store, prepared.wallet, s.signature);
 					if (others.length) throw new PendingSwapError(others);
 					const orderId = intent.id;
+					await store.put({
+						...s,
+						...orderId ? { intentId: orderId } : {}
+					});
 					if (orderId) {
 						const record = {
 							signature: s.signature,
 							state: "pending"
 						};
 						const prior = await store.order(orderId);
-						if (prior && (prior.state === "confirmed" || prior.state === "pending")) throw new Error(`Order ${orderId} is already ${prior.state} (${prior.signature}).`);
-						if (prior) await store.recordOrder(orderId, record);
-						else if (!await store.claimOrder(orderId, record)) throw new Error(`Order ${orderId} was taken by another run.`);
+						const open = prior && (prior.state === "confirmed" || prior.state === "pending");
+						if (open || !await takeOrder(store, orderId, prior, record)) {
+							await store.remove(s.signature);
+							throw new Error(open ? `Order ${orderId} is already ${prior.state} (${prior.signature}).` : `Order ${orderId} was taken by another run, or this order book cannot retry it safely.`);
+						}
 					}
-					await store.put({
-						...s,
-						...orderId ? { intentId: orderId } : {}
-					});
 					signedAs = s.signature;
 				}
 			}), intent.id, false);

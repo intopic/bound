@@ -37,7 +37,7 @@ import { createSolanaRpc, getBase58Encoder, getSignatureFromTransaction, getTran
 import type { Address, Rpc, SignatureBytes, SolanaRpcApi } from '@solana/kit';
 import {
   acquireLock, apiKeyChallenge, OrientimApiError, checkPrepared, createFileStore, finalizeSigned, isApiKeyMessage, pendingFor, PendingSwapError,
-  prepareChecked, PriceImpactError, receivedFor, recoverPending, redeemApiKey, resolvePending, resumeSigned,
+  prepareChecked, PriceImpactError, receivedFor, recoverPending, redeemApiKey, resolvePending, resumeSigned, takeOrder,
 } from '../examples/swap.ts';
 import type { Checked, Intent, OrderBook, OrderRecord, PendingStore, Prepared } from '../examples/swap.ts';
 import { DEFAULT_MAX_PRICE_IMPACT_BPS, inputTransferFee, ownQuote, ownSolFeeLimit } from '../lib/orientim-verify.mjs';
@@ -321,20 +321,24 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       const result = await finalizeSigned({
         ...api, rpc: deps.rpc, prepared, signedTransaction: wire, fetchImpl: deps.fetchImpl,
         pollMs: deps.pollMs, maxWaitMs: deps.maxWaitMs, requestTimeoutMs: deps.requestTimeoutMs,
-        // Kept on disk before finalize: if this process stops, `recover` settles it first. An order
-        // is taken here too, atomically when new, so two runs cannot both send it.
+        // Kept on disk before finalize: if this process stops, `recover` settles it first. The swap is
+        // kept before the order is taken, as the example does, so a run that stops between the two
+        // leaves a kept swap `recover` settles, never an order pending with nothing kept. The order is
+        // taken atomically, new or retried, so two runs cannot both send it.
         onSigned: async s => {
           const others = await pendingFor(store, prepared.wallet, s.signature);
           if (others.length) throw new PendingSwapError(others);
           const orderId = intent.id;
+          await store.put({ ...s, ...(orderId ? { intentId: orderId } : {}) });
           if (orderId) {
             const record: OrderRecord = { signature: s.signature, state: 'pending' };
             const prior = await store.order(orderId);
-            if (prior && (prior.state === 'confirmed' || prior.state === 'pending')) throw new Error(`Order ${orderId} is already ${prior.state} (${prior.signature}).`);
-            if (prior) await store.recordOrder(orderId, record);
-            else if (!await store.claimOrder(orderId, record)) throw new Error(`Order ${orderId} was taken by another run.`);
+            const open = prior && (prior.state === 'confirmed' || prior.state === 'pending');
+            if (open || !await takeOrder(store, orderId, prior, record)) {
+              await store.remove(s.signature);
+              throw new Error(open ? `Order ${orderId} is already ${prior!.state} (${prior!.signature}).` : `Order ${orderId} was taken by another run, or this order book cannot retry it safely.`);
+            }
           }
-          await store.put({ ...s, ...(orderId ? { intentId: orderId } : {}) });
           signedAs = s.signature;
         },
       });

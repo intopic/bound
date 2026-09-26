@@ -84,17 +84,26 @@ export function HeroBlocks() {
     };
   }, []);
 
+  // The wallet as it is placed now, for a move that starts later; and whether the move has played.
+  const latest = useRef<Wallet | null>(null);
+  const played = useRef(false);
+  useEffect(() => {
+    latest.current = wallet;
+  }, [wallet]);
+
   const placed = wallet !== null;
-  // The amount leaves the wallet once, when the page opens.
+  // The amount leaves the wallet once per page, when it opens, from where the wallet is placed then.
   useEffect(() => {
     const el = root.current;
-    if (!placed || !el || !wallet) return;
+    if (!placed || !el || played.current) return;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const running: Animation[] = [];
     timers.push(setTimeout(() => {
+      const wallet = latest.current;
       const hero = el.parentElement?.querySelector('.hero')?.getBoundingClientRect();
-      if (!hero || hero.bottom <= 0 || hero.top >= innerHeight) return;
+      if (!wallet || !hero || hero.bottom <= 0 || hero.top >= innerHeight) return;
+      played.current = true;
       const moveMs = wallet.steps * STEP_MS;
       const total = LIGHT_MS + moveMs + 300;
       const frames = (peak: number, light: boolean): Keyframe[] => {
@@ -116,7 +125,7 @@ export function HeroBlocks() {
       running.forEach(a => a.cancel());
       setAway(false);
     };
-    // Once per page: a resize moves the wallet, it does not replay the swap.
+    // Once per page: a resize moves the wallet, and hiding and showing it again does not replay the swap.
   }, [placed]);
 
   // Then, now and then, one block of the hero's empty space lights softly.

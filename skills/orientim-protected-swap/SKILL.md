@@ -181,7 +181,9 @@ late or expire (an expired swap costs nothing).
   order. With an order book (`createFileStore`, or your own `OrderBook` shared by every worker), an
   order that confirmed, or whose transaction may still land, is never swapped again
   (`OrientimOrderError`; `orientim-verify` exits 5): the same transaction lands only once, and the id keeps a
-  second, different transaction from carrying out the same order.
+  second, different transaction from carrying out the same order. An order whose last attempt failed
+  or expired may be retried under the same id; a book of your own needs `reclaimOrder`, a
+  compare-and-set, for that, or two workers could both retry it (without it, a retry is refused).
 - **For a large order, bring a second price.** Your floor from `ownMinimum` comes from Jupiter, the
   same aggregator Orientim's server asks. Set `minOut` yourself from a source of your own (an oracle, a
   second aggregator, your own limits): Orientim never enforces less than it, whoever priced the route.

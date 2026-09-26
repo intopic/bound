@@ -29,8 +29,9 @@ const USDC_MINT = address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 /**
 * The tokens the Orientim fee is taken in first, on whichever side of the swap they are, the way
 * Jupiter takes its own: SOL, then USDC, then USDT. Otherwise the fee is in the input token when the
-* treasury has an account for it, and otherwise in SOL from the wallet at the swap's value (`sol`);
-* fee-free only while the treasury wallet does not exist or the pair cannot be priced in SOL.
+* treasury has an account for it, and otherwise in SOL from the wallet at the swap's value (`sol`).
+* A swap whose fee cannot be collected is refused (`fee-unavailable`); only a test deployment,
+* without a treasury, is fee-free.
 */
 const FEE_TOKENS = [
 	WSOL_MINT,
@@ -55,9 +56,10 @@ const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1000000n;
 */
 const MAX_TAKER_RENT_LAMPORTS = 5000000n;
 /**
-* The most tolerance a person may choose on the page (its slippage setting): 15%. Only the page asks
-* the verifier for a tolerance, with that person's own choice, and never for more than this; a
-* server and the agent skill never do, so their routes keep the two ceilings above.
+* The most tolerance a person may choose (the page's slippage setting, or an agent's `slippageBps`):
+* 15%. The page asks the verifier for the person's own choice, and the agent API and the skill's
+* check for the number in the agent's own intent, never for more than this. Without a choice,
+* routes keep the two ceilings above.
 */
 const MAX_CHOSEN_SLIPPAGE_BPS = 1500;
 /** Pump.fun's bonding-curve program: a route through it is priced on the curve. */

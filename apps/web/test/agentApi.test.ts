@@ -517,6 +517,12 @@ describe('API keys from the environment', () => {
       delete process.env.ORIENTIM_API_KEYS;
     }
   });
+
+  it('a malformed entry is skipped without taking its id, so it cannot shut out a valid key', async () => {
+    const { keysOf } = await import('../lib/server/agent/config.ts');
+    const keys = keysOf(`ops:typo,ops:${sha('key-one')},bad id:${sha('key-two')}`);
+    expect([...keys.entries()]).toEqual([[sha('key-one'), 'ops']]);
+  });
 });
 
 describe("the fee, taken like Jupiter's", () => {

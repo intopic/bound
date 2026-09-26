@@ -8,6 +8,7 @@ import {
   isSolanaError,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  SOLANA_ERROR__TRANSACTION_ERROR__ALREADY_PROCESSED,
   SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Rpc, SolanaRpcApi, Transaction } from '@solana/kit';
@@ -279,6 +280,17 @@ export function refusedBeforeBroadcast(e: unknown): boolean {
   return false;
 }
 
+/**
+ * A preflight refusal because the cluster has already processed this very transaction: it was sent,
+ * whatever a lagging status read says.
+ */
+export function alreadyProcessed(e: unknown): boolean {
+  if (!isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE)) return false;
+  // Kit turns the simulation's `err` into the error's cause; a context that kept it says the same.
+  return isSolanaError((e as Error).cause, SOLANA_ERROR__TRANSACTION_ERROR__ALREADY_PROCESSED)
+    || (e.context as { err?: unknown }).err === 'AlreadyProcessed';
+}
+
 /** A signature's status as the RPC reports it. */
 export type SignatureState = { confirmationStatus?: string | null; err?: unknown } | null;
 
@@ -358,6 +370,8 @@ export async function sendOnce(rpc: SolanaRpc, transaction: Transaction): Promis
     return { signature, status: 'sent', error: null };
   } catch (e) {
     if (!refusedBeforeBroadcast(e)) return { signature, status: 'unknown', error: String((e as Error)?.message ?? e) };
+    // A second send of a transaction that already landed: sent, even while the status read lags.
+    if (alreadyProcessed(e)) return { signature, status: 'sent', error: null };
     const http = httpStatusOf(e);
     if (http === null) {
       const known = await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()

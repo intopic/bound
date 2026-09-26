@@ -28,7 +28,7 @@ import {
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
-import type { OrderBook, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
+import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
@@ -676,12 +676,46 @@ describe('recovery the delivered example must survive (engineering audit, Stage 
     });
     expect(landed.outcome).toBe('confirmed');
     expect(kept!.signedTransaction).toBeTruthy();
-    await store.put({ ...kept!, signature: 'still-unknown-signature', lastValidBlockHeight: 10n ** 12n });
+    // Signed just now, far ahead of this chain, so its lifetime has not passed.
+    await store.put({ ...kept!, signature: 'still-unknown-signature', lastValidBlockHeight: 10n ** 12n, signedHeight: 10n ** 12n - 150n });
     const rpc = chainOf(b);
     const { settled, unknown } = await recoverPending(store, rpc, { pollMs: 1, maxWaitMs: 60 });
     expect(settled).toEqual([{ signature: landed.signature, outcome: 'confirmed' }]);
     expect(unknown).toEqual(['still-unknown-signature']);
     expect(readdirSync(dir).filter(f => f.startsWith('pending-'))).toEqual(['pending-still-unknown-signature.json']);
+  });
+
+  it('a server that overstates the lifetime cannot hold the wallet back: the agent keeps its own last block', async () => {
+    const b = await orientim();
+    const overstated = (async (url: string, init: RequestInit) => {
+      const res = await b.fetchImpl(url, init);
+      if (!url.endsWith('/api/v1/prepare')) return res;
+      const answer = await res.json() as Record<string, unknown>;
+      return new Response(JSON.stringify({ ...answer, lastValidBlockHeight: '9000000000000000000' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    let kept: Signed | null = null;
+    await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: overstated, pollMs: 1, intent: swapIntent,
+      onSigned: async s => { kept = s; },
+    });
+    expect(kept).not.toBeNull();
+    expect(kept!.lastValidBlockHeight).toBe(kept!.signedHeight! + 150n + 25n);
+  });
+
+  it('a swap kept with a lifetime no blockhash reaches settles once its own bound has passed', async () => {
+    const b = await orientim();
+    let kept: Signed | null = null;
+    await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: chainOf(b), wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, intent: swapIntent,
+      onSigned: async s => { kept = s; },
+    });
+    const store = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-overstated-')));
+    // Kept by an earlier version from a server that stated block 9 × 10^18, signed at block 1, never sent.
+    await store.put({ ...kept!, signature: 'never-sent', lastValidBlockHeight: 9_000_000_000_000_000_000n, signedHeight: 1n });
+    // The chain is past the agent's own bound (block 176) and still within the window where "no record" proves it.
+    const { settled, unknown } = await recoverPending(store, chainOf(b, { from: 150n }), { pollMs: 1, maxWaitMs: 200 });
+    expect(unknown).toEqual([]);
+    expect(settled).toEqual([{ signature: 'never-sent', outcome: 'expired' }]);
   });
 
   it('one worker per wallet: a second one is refused until the first releases (S1-M-01)', () => {
@@ -950,6 +984,54 @@ describe('the same order is never swapped twice (final audit, item 7)', () => {
     const again = await runCli('prepare', { intent }, deps);
     expect(again.code).toBe(5);
     expect((again.output.order as { state: string }).state).toBe('confirmed');
+  });
+
+  it('orientim-verify finalize: a swap that cannot be kept sends nothing and leaves the order free, never pending', async () => {
+    const b = await orientim();
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-cli-put-'));
+    const files = createFileStore(stateDir);
+    const full = { ...files, put: async () => { throw new Error('ENOSPC: no space left on device'); } };
+    const deps = { rpc: b.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: b.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'cli-order-full' };
+    const ready = JSON.parse(JSON.stringify((await runCli('prepare', { intent }, { ...deps, store: full })).output)) as { checked: unknown; message: string };
+    const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(ready.message, 'base64')));
+    const done = await runCli('finalize', { checked: ready.checked, signature }, { ...deps, store: full });
+    expect(done.code).toBe(1);
+    expect(b.sent).toHaveLength(0);
+    expect(await files.order('cli-order-full')).toBeNull();
+    // The disk fixed, the same order is prepared again, not stuck.
+    expect((await runCli('prepare', { intent }, deps)).code).toBe(0);
+  });
+
+  it('two workers retrying an order whose last attempt expired: only one sends it', async () => {
+    const b = await orientim();
+    const orders = createFileStore(mkdtempSync(join(tmpdir(), 'orientim-retry-')));
+    await orders.recordOrder('order-retry', { signature: 'an-earlier-attempt', state: 'expired' });
+    const run = () => protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, orders,
+      intent: { ...swapIntent, id: 'order-retry' },
+    });
+    const results = await Promise.allSettled([run(), run()]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find(r => r.status === 'rejected')?.reason).toBeInstanceOf(OrientimOrderError);
+    expect(b.sent).toHaveLength(1);
+  });
+
+  it('a book that cannot retry atomically refuses the retry before anything is prepared', async () => {
+    const b = await orientim();
+    const { calls, fetchImpl } = counting(b);
+    const book = new Map<string, OrderRecord>([['order-old', { signature: 'an-earlier-attempt', state: 'expired' }]]);
+    const orders: OrderBook = {
+      order: async id => book.get(id) ?? null,
+      recordOrder: async (id, r) => { book.set(id, r); },
+      claimOrder: async (id, r) => { if (book.has(id)) return false; book.set(id, r); return true; },
+    };
+    const refused = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, orders, intent: { ...swapIntent, id: 'order-old' },
+    }).catch((e: unknown) => e);
+    expect(String(refused)).toContain('no reclaimOrder');
+    expect(calls.prepare).toBe(0);
+    expect(b.sent).toHaveLength(0);
   });
 });
 

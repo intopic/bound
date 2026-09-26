@@ -66,15 +66,17 @@ function publicOrigin(): string | null | undefined {
   return undefined;
 }
 
-function keysOf(value: string | undefined): Map<string, string> {
+export function keysOf(value: string | undefined): Map<string, string> {
   const keys = new Map<string, string>();
   const ids = new Set<string>();
   for (const entry of (value ?? '').split(',').map(s => s.trim()).filter(Boolean)) {
     const [id, hash] = entry.split(':');
+    // A malformed entry is skipped before its id is taken, so a typo cannot shut out a valid key.
+    if (!/^[\w-]{1,40}$/.test(id ?? '') || !/^[0-9a-f]{64}$/.test(hash ?? '')) continue;
     // Two keys with one id would share tickets and limits: the first one wins (FA-16).
     if (ids.has(id)) continue;
     ids.add(id);
-    if (/^[\w-]{1,40}$/.test(id ?? '') && /^[0-9a-f]{64}$/.test(hash ?? '')) keys.set(hash, id);
+    keys.set(hash, id);
   }
   return keys;
 }

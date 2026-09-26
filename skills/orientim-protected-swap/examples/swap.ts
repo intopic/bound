@@ -168,7 +168,7 @@ type Fetch = typeof fetch;
  * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
  * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
  */
-export const SKILL_VERSION = '1.1.1';
+export const SKILL_VERSION = '1.1.2';
 
 /** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call<T>(fetchImpl: Fetch, url: string, key: string, body: unknown, timeoutMs = 30_000): Promise<T> {
@@ -326,6 +326,17 @@ export const MIN_BLOCKS_TO_FINALIZE = 30n;
  * transaction can land in is taken on your own clock with this margin, never from the server alone.
  */
 export const LAG_BLOCKS = 25n;
+
+/**
+ * The last block a kept swap can land in. Its blockhash lives 150 blocks and is older than the height
+ * the wallet signed at, so a stated block beyond that bound (a record a server overstated before this
+ * check existed) cannot hold the wallet's next swap back for good.
+ */
+export function lastBlockOf(s: { lastValidBlockHeight: bigint; signedHeight?: bigint }): bigint {
+  if (s.signedHeight === undefined) return s.lastValidBlockHeight;
+  const bound = s.signedHeight + 150n + LAG_BLOCKS;
+  return s.lastValidBlockHeight < bound ? s.lastValidBlockHeight : bound;
+}
 
 /**
  * The wallet: whatever signs a transaction for one address the way @solana/kit's signers do. A
@@ -504,16 +515,30 @@ export type Signed = {
 export type OrderRecord = { signature: string; state: 'pending' | 'confirmed' | 'failed' | 'expired' | 'rejected' };
 
 /**
- * Where each order's outcome is kept, by `Intent.id`. `claim` must be atomic across every worker
- * that may take the same order: it records the order only if nothing is recorded for it yet. The
- * file store does it with an exclusive create; workers on several machines need a shared store
- * (a database row, a key with set-if-absent) with the same three calls.
+ * Where each order's outcome is kept, by `Intent.id`. `claimOrder` must be atomic across every worker
+ * that may take the same order: it records the order only if nothing is recorded for it yet.
+ * `reclaimOrder` is the same for a retry: it records the new attempt only if `prior`, an attempt that
+ * failed or expired, is still the one recorded, so two workers retrying one order cannot both send
+ * it. The file store does both with exclusive creates; workers on several machines need a shared
+ * store (a database row, a compare-and-set key) with the same calls. A book without `reclaimOrder`
+ * cannot retry an order safely, so a retry with it is refused: give the retry a new id instead.
  */
 export type OrderBook = {
   order(id: string): Promise<OrderRecord | null>;
   recordOrder(id: string, record: OrderRecord): Promise<void>;
   claimOrder(id: string, record: OrderRecord): Promise<boolean>;
+  reclaimOrder?(id: string, prior: OrderRecord, record: OrderRecord): Promise<boolean>;
 };
+
+/**
+ * Takes order `id` for a new attempt: atomically when nothing is recorded for it yet, and, after an
+ * attempt that failed or expired, only while that attempt is still the one recorded. False when
+ * another worker took it first, or when the book cannot retry safely.
+ */
+export async function takeOrder(orders: OrderBook, id: string, prior: OrderRecord | null, record: OrderRecord): Promise<boolean> {
+  if (!prior) return orders.claimOrder(id, record);
+  return orders.reclaimOrder ? orders.reclaimOrder(id, prior, record) : false;
+}
 
 /**
  * This amount would move the market more than `maxPriceImpactBps`: refused before anything was
@@ -543,6 +568,10 @@ export class OrientimOrderError extends Error {
 }
 
 const orderIsOpen = (r: OrderRecord | null): r is OrderRecord => !!r && (r.state === 'confirmed' || r.state === 'pending');
+
+/** Why a retry is refused by an order book that cannot take an order again atomically. */
+export const retryRefused = (id: string) =>
+  `Order ${id} was tried before, and this order book has no reclaimOrder, so two workers could both retry it. Give the retry a new id, or add reclaimOrder to the book. Nothing was prepared.`;
 
 /** The wallet a kept record was signed by: named in it, or read from its transaction's fee payer. */
 function ownerOfRecord(s: Signed): string | null {
@@ -601,19 +630,25 @@ export function createFileStore(dir: string): PendingStore & OrderBook {
       closeSync(fd);
     }
   };
+  const readOrder = (id: string): OrderRecord | null => {
+    try {
+      const { signature, state } = JSON.parse(readFileSync(orderFile(id), 'utf8')) as OrderRecord;
+      return { signature, state };
+    } catch {
+      return null;
+    }
+  };
+  const writeOrder = (id: string, record: OrderRecord) => {
+    const temporary = `${orderFile(id)}.tmp`;
+    writeDurably(temporary, JSON.stringify({ id, ...record }), 'w');
+    renameSync(temporary, orderFile(id));
+  };
   return {
     async order(id) {
-      try {
-        const { signature, state } = JSON.parse(readFileSync(orderFile(id), 'utf8')) as OrderRecord;
-        return { signature, state };
-      } catch {
-        return null;
-      }
+      return readOrder(id);
     },
     async recordOrder(id, record) {
-      const temporary = `${orderFile(id)}.tmp`;
-      writeDurably(temporary, JSON.stringify({ id, ...record }), 'w');
-      renameSync(temporary, orderFile(id));
+      writeOrder(id, record);
     },
     async claimOrder(id, record) {
       try {
@@ -622,6 +657,18 @@ export function createFileStore(dir: string): PendingStore & OrderBook {
       } catch {
         return false;
       }
+    },
+    async reclaimOrder(id, prior, record) {
+      // One retry per earlier attempt: the worker that creates this marker first takes the order.
+      try {
+        writeDurably(`${orderFile(id)}.retry-${prior.signature}`, '', 'wx');
+      } catch {
+        return false;
+      }
+      const now = readOrder(id);
+      if (!now || now.signature !== prior.signature || now.state !== prior.state) return false;
+      writeOrder(id, record);
+      return true;
     },
     async put(s) {
       const temporary = `${file(s.signature)}.tmp`;
@@ -667,7 +714,7 @@ export async function recoverPending(
   const unknown: string[] = [];
   const bookkeepingErrors: { signature: string; error: string }[] = [];
   for (const s of await store.list()) {
-    const outcome = await confirm(rpc, s.signature, s.lastValidBlockHeight, { ...opts, earliestHeight: s.signedHeight });
+    const outcome = await confirm(rpc, s.signature, lastBlockOf(s), { ...opts, earliestHeight: s.signedHeight });
     if (outcome === 'unknown') {
       unknown.push(s.signature);
       continue;
@@ -701,8 +748,8 @@ export async function resolvePending(
   const onChain = status && (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized')
     ? (status.err ? 'failed' as const : 'confirmed' as const) : null;
   if (!onChain && status) throw new Error(`The network has seen ${signature} but not settled it yet: wait and recover again. Nothing was changed.`);
-  if (!onChain && (view.coveredHeight === null || view.coveredHeight <= kept.lastValidBlockHeight)) {
-    throw new Error(`${signature} can still land until block ${kept.lastValidBlockHeight}: recover it instead. Nothing was changed.`);
+  if (!onChain && (view.coveredHeight === null || view.coveredHeight <= lastBlockOf(kept))) {
+    throw new Error(`${signature} can still land until block ${lastBlockOf(kept)}: recover it instead. Nothing was changed.`);
   }
   const settledAs = onChain ?? outcome;
   if (kept.intentId && opts.orders) await opts.orders.recordOrder(kept.intentId, { signature, state: settledAs });
@@ -933,8 +980,10 @@ export async function finalizeSigned(args: {
   }
   // The last block it can land in, on your own clock: its blockhash is older than this height and
   // lives 150 blocks, so a server that states less cannot end the wait while it could still land.
-  const ownLimit = height + 150n + LAG_BLOCKS;
-  const lastValid = stated > ownLimit ? stated : ownLimit;
+  // Nor can one that states more make the wallet wait for a block no blockhash reaches, which would
+  // report the swap unknown and hold the wallet's next swap back for good: the server's figure is
+  // never kept, only this one.
+  const lastValid = height + 150n + LAG_BLOCKS;
   const signed: Signed = {
     signature, lastValidBlockHeight: lastValid, ticket: prepared.ticket, signedTransaction, messageSha256: prepared.messageSha256, signedAt: Date.now(),
     owner: prepared.wallet, signedHeight: height,
@@ -1034,6 +1083,7 @@ export async function protectedSwap(args: {
   // An order that confirmed, or whose transaction may still land, is not swapped again (item 7).
   const prior = orders ? await orders.order(id!) : null;
   if (orderIsOpen(prior)) throw new OrientimOrderError(id!, prior);
+  if (prior && !orders!.reclaimOrder) throw new Error(retryRefused(id!));
   // Nor is anything prepared while another swap from this wallet may still land (H-02).
   const waiting = args.pending ? await pendingFor(args.pending, owner) : [];
   if (waiting.length) throw new PendingSwapError(waiting);
@@ -1058,8 +1108,7 @@ export async function protectedSwap(args: {
       }
       if (orders) {
         const record: OrderRecord = { signature: signed.signature, state: 'pending' };
-        if (prior) await orders.recordOrder(id!, record);
-        else if (!await orders.claimOrder(id!, record)) {
+        if (!await takeOrder(orders, id!, prior, record)) {
           await args.pending?.remove(signed.signature);
           throw new OrientimOrderError(id!, (await orders.order(id!)) ?? record);
         }

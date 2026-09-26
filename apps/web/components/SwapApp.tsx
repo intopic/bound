@@ -164,11 +164,13 @@ const plainRefusal = (reason: string) => PLAIN_REFUSAL[reason] ?? `it uses ${rea
 function extrasOf(
   p: PreparedSwap,
   t: { inSymbol: string; outSymbol: string; inDecimals: number; shownSolFee: bigint | null },
+  feeAbovePct = 105n,
 ): string[] {
   const lines: string[] = [];
   // A fee in SOL is priced when the swap is built. Asked about when the page did not show it before
-  // the click, or showed less than it came to (engineering audit S1-M-02).
-  if (p.policy.feeSide === 'sol' && p.policy.fee > 0n && (t.shownSolFee === null || p.policy.fee * 100n > t.shownSolFee * 105n)) {
+  // the click, or showed less than it came to (engineering audit S1-M-02): 5% less before the click,
+  // and, after a rebuild, the 2% `costsMoreThan` asks about, so the question always says what grew.
+  if (p.policy.feeSide === 'sol' && p.policy.fee > 0n && (t.shownSolFee === null || p.policy.fee * 100n > t.shownSolFee * feeAbovePct)) {
     lines.push(
       `Orientim fee: ${formatExact(p.policy.fee, 9)} SOL` + (t.shownSolFee !== null ? ` (shown earlier as ~${formatExact(t.shownSolFee, 9)} SOL).` : '.'),
     );
@@ -1113,7 +1115,8 @@ export function SwapApp() {
         setPhase('checking');
         const again = await build(E, prepared.quote.minReceived);
         if (!again) return cancelled();
-        if (costsMoreThan(again, prepared) && !(await askAboutOffer({ kind: 'extras', lines: extrasOf(again, facts) }))) return cancelled();
+        const acceptedSolFee = prepared.policy.feeSide === 'sol' ? prepared.policy.fee : null;
+        if (costsMoreThan(again, prepared) && !(await askAboutOffer({ kind: 'extras', lines: extrasOf(again, { ...facts, shownSolFee: acceptedSolFee }, 102n) }))) return cancelled();
         prepared = again;
       }
       texts.minimum = `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`;

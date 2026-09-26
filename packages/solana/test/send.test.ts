@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   appendTransactionMessageInstruction, createTransactionMessage, generateKeyPairSigner, pipe,
   setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash, signTransactionMessageWithSigners,
-  SolanaError, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
+  getSolanaErrorFromJsonRpcError, SolanaError, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
@@ -236,6 +236,19 @@ describe('one send, for a caller that confirms on its own (the agent API)', () =
 
   it('a preflight refusal of a signature the cluster already has is a second send, not a rejection', async () => {
     expect((await once({ firstSend: preflight(), statuses: [confirmed] })).status).toBe('sent');
+  });
+
+  it('"already processed" is a second send of a transaction that landed: sent, however far the status read lags', async () => {
+    // As the RPC answers it, through Kit: the simulation's error becomes the cause.
+    const already = getSolanaErrorFromJsonRpcError({
+      code: -32002, message: 'Transaction simulation failed: This transaction has already been processed',
+      data: { err: 'AlreadyProcessed', logs: [], accounts: null, unitsConsumed: 0, returnData: null },
+    });
+    const r = await once({ firstSend: already as Error, statuses: [null] });
+    expect(r.status).toBe('sent');
+    expect(r.refusal).toBeUndefined();
+    const kept = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, { err: 'AlreadyProcessed', logs: [] } as never);
+    expect((await once({ firstSend: kept, statuses: [null] })).status).toBe('sent');
   });
 
   it('a preflight refusal whose status cannot be read is unknown, not rejected (engineering review H-01)', async () => {
