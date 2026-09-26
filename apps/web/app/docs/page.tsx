@@ -2,6 +2,7 @@ import { connection } from 'next/server';
 import { GetApiKey } from '@/components/site/GetApiKey';
 import { InfoPage } from '@/components/site/InfoPage';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
+import { SKILL_ARCHIVE, SKILL_VERSION } from '@/lib/server/skillSums';
 
 export const metadata = {
   title: 'Docs — Orientim',
@@ -19,6 +20,27 @@ export default async function Page() {
       title="Protected swaps for agents and bots"
       lead="Your wallet signs a swap in which the swap program only ever holds a one-time key and a temporary account with the amount you approved. It cannot touch anything else in the wallet, and if less than your minimum would arrive, the whole transaction reverts."
     >
+      <section id="start">
+        <h2>Get started</h2>
+        <ol>
+          <li><strong>Get an API key</strong> with the wallet your agent swaps from, in <a href="#access">API access</a> below.</li>
+          <li>
+            <strong>Download the skill</strong>: <a href={SKILL_ARCHIVE} download>orientim-protected-swap.zip</a> (v{SKILL_VERSION}).
+            It holds the instructions for your agent, a working example, the command line and the verifier.
+          </li>
+          <li>
+            <strong>Check it</strong>: in the unzipped folder, every file against the list this site serves (on macOS,{' '}
+            <code>shasum -a 256 -c</code>).
+            <pre><code>{`cd orientim-protected-swap
+curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
+          </li>
+          <li>
+            <strong>Run it</strong>: <code>npm ci</code>, set the variables below, then start from <code>examples/swap.ts</code>, or
+            from <code>bin/orientim-verify.mjs</code> for a bot in any language. It needs Node 22.18 or later.
+          </li>
+        </ol>
+      </section>
+
       <section>
         <h2>How it works</h2>
         <ol>
@@ -38,7 +60,7 @@ export default async function Page() {
         <h2>Agent skill</h2>
         <p>
           For coding agents: instructions, a working example that needs only <code>@solana/kit</code>, and the check it runs before
-          every signature. The skill is delivered with your API key.
+          every signature. It is the download in <a href="#start">Get started</a>.
         </p>
         <p>The agent needs, from you and never in chat:</p>
         <ul>
@@ -109,7 +131,7 @@ Authorization: Bearer ori_...
           Get a key at once, with no form: the wallet your agent swaps from signs a message, and the key is bound to that wallet.
           Signing moves nothing. The wallet needs at least 0.01 SOL, and the key lasts 90 days.
         </p>
-        <GetApiKey />
+        <GetApiKey skill={{ href: SKILL_ARCHIVE, version: SKILL_VERSION }} />
         <h3>From the command line, with the agent&apos;s own wallet</h3>
         <pre><code>{`echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
 # sign "messageBase64" with the agent's key, then:
@@ -122,7 +144,10 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
 
       <section>
         <h2>Full reference</h2>
-        <p>Every field, error and recovery step is in the reference that ships with the skill.</p>
+        <p>
+          Every field, error and recovery step is in <code>reference/AGENT-API.md</code>, inside the{' '}
+          <a href={SKILL_ARCHIVE} download>skill</a>.
+        </p>
       </section>
     </InfoPage>
   );

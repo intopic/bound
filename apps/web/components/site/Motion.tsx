@@ -236,17 +236,14 @@ export function AuthorityMap() {
 }
 
 const TERMINAL: [string, string][] = [
-  ['dim', '$ orientim-verify prepare   # 0.01 SOL → USDC'],
-  ['ok', '✓ prepared by Orientim · ticket received'],
-  ['ok', '✓ verified on the agent’s own RPC · fee 0.3% · minimum above its floor'],
-  ['ok', '✓ signed by the agent · finalized with the one-time key'],
-  ['cy', '✓ confirmed on mainnet · 1.222039 USDC · 4iTJ…YoTM'],
+  ['dim', '$ swap 0.01 SOL → USDC   # protected'],
+  ['ok', '✓ checked on the agent’s own RPC · only 0.01 SOL can move'],
+  ['ok', '✓ signed by the agent · finished with a one-time key'],
+  ['cy', '✓ confirmed on mainnet · received 1.222039 USDC'],
   ['', ''],
-  ['dim', '# the same agent, behind a compromised server'],
-  ['dim', '$ orientim-verify prepare   # the fee is sent to another wallet'],
-  ['bad', '✗ refused · unexpected SOL transfer of 30000 lamports'],
-  ['bad', '✗ refused · the fee goes to AQ49…, not Orientim’s treasury'],
-  ['ok', '  nothing was signed'],
+  ['dim', '# the same agent, behind a tampered server'],
+  ['bad', '✗ refused · the fee was sent to an unknown wallet'],
+  ['ok', '✓ nothing was signed'],
 ];
 
 /** An agent's real run on mainnet, then the same agent refusing a tampered swap (docs/AUDIT.md 0zk). */

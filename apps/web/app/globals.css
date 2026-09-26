@@ -426,6 +426,11 @@ a.ghost { display: inline-flex; align-items: center; }
 .key-wallets { display: grid; gap: 8px; }
 .key-wallets .wallet-option { margin-top: 0; }
 .key-error { margin: 10px 0 0; color: var(--bad); font-size: 14px; }
+.key-next-title { margin: 18px 0 0; font-weight: 600; }
+.key-next { display: grid; gap: 12px; margin: 10px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
+.key-next li::marker { color: var(--accent); font-weight: 600; }
+.key-next .button { margin-right: 10px; }
+.key-next .hint { display: inline; }
 
 /* ---- the wallet signing diagnostic at /diagnostic: an internal tool, not part of the swap flow */
 .page { max-width: 560px; margin: 0 auto; padding: 24px 16px 48px; }

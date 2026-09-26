@@ -14,11 +14,14 @@ function isKeyMessage(message: unknown, wallet: string): message is string {
 
 type Issued = { key: string; wallet: string; expiresAt: string };
 
+/** The skill as one download, public: its path on this site and its version. */
+export type SkillDownload = { href: string; version: string };
+
 /**
  * An API key at once: connect the wallet the agent swaps from, sign Orientim's message, and the key
- * appears, bound to that wallet (AGENT-API.md, "API access"). Signing moves nothing.
+ * appears, bound to that wallet (AGENT-API.md, "API access"), with what to do next. Signing moves nothing.
  */
-export function GetApiKey() {
+export function GetApiKey({ skill }: { skill: SkillDownload }) {
   const wallets = useWallets().filter(signsMessages);
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -66,7 +69,7 @@ export function GetApiKey() {
   if (issued) {
     return (
       <div className="key-box">
-        <p><strong>Your API key.</strong> It is shown once: store it where your agent reads its settings, as <code>ORIENTIM_API_KEY</code>.</p>
+        <p><strong>Your API key.</strong> It is shown once.</p>
         <div className="codebox">
           <pre><code>{issued.key}</code></pre>
           <button className="copy-btn" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
@@ -75,6 +78,15 @@ export function GetApiKey() {
           It works for {issued.wallet.slice(0, 4)}…{issued.wallet.slice(-4)} only, until {new Date(issued.expiresAt).toLocaleDateString()}.
           Sign again for a new one at any time.
         </p>
+        <p className="key-next-title">Next</p>
+        <ol className="key-next">
+          <li>Save it as <code>ORIENTIM_API_KEY</code> where your agent reads its settings.</li>
+          <li>
+            <a className="button primary-link" href={skill.href} download>Download the skill</a>
+            <span className="hint">v{skill.version}: instructions for your agent, a working example, the command line and the verifier</span>
+          </li>
+          <li>Unzip it, run <code>npm ci</code>, add your own RPC as <code>SOLANA_RPC_URL</code>, and follow <code>SKILL.md</code>.</li>
+        </ol>
       </div>
     );
   }
