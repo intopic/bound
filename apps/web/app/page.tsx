@@ -2,6 +2,7 @@ import { connection } from 'next/server';
 import { SwapApp } from '@/components/SwapApp';
 import { SiteFooter } from '@/components/site/Brand';
 import { HomeSections } from '@/components/site/HomeSections';
+import { HeroBlocks } from '@/components/site/HeroBlocks';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 
 export default async function Page() {
@@ -9,7 +10,9 @@ export default async function Page() {
   // Rendered per request so that every response carries a fresh CSP nonce (proxy.ts).
   await connection();
   return (
-    <div className="site">
+    <div className="site home">
+      <div className="page-grid" aria-hidden="true" />
+      <HeroBlocks />
       <SwapApp />
       <main>
         <HomeSections />
