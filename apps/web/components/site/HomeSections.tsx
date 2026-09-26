@@ -1,5 +1,4 @@
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
-import { DevTabs } from './DevTabs';
 import { AgentTerminal, AuthorityMap, CapsuleFlow } from './Motion';
 
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
@@ -14,7 +13,7 @@ const AGENT_POINTS = [
   ['Verified on its own RPC', 'The full verifier runs in the agent, on the exact bytes it signs.'],
   ['Limits of its own', 'A maximum fee, a maximum SOL cost and a price floor from its own source.'],
   ['Safe across crashes', 'An id for every order, recovery after a restart, never the same swap twice.'],
-  ['Any language, any signer', 'A skill for coding agents, an API, a CLI for Python, Rust or Go; keys in a KMS or Turnkey.'],
+  ['Any language, any signer', 'A skill for coding agents, an API, and a CLI for Python, Rust or Go. Works with your own key setup.'],
 ];
 
 const COVERED = [
@@ -96,8 +95,8 @@ export function HomeSections() {
               <p className="eyebrow eyebrow-cyan">For AI agents and bots</p>
               <h2>Your agent trades. Your wallet stays out of reach.</h2>
               <p className="lead">
-                The same protection through an API, a skill for coding agents and a command line. The agent verifies every
-                transaction on its own RPC before it signs, so even a compromised server cannot make it sign more than its limits.
+                The same one-key protection through an API, a skill for coding agents and a command line. Your agent checks every
+                transaction on its own RPC before it signs, so even a compromised server can’t make it sign more than its limits.
               </p>
               <ul className="agent-points">
                 {AGENT_POINTS.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
@@ -109,7 +108,6 @@ export function HomeSections() {
             </div>
             <div className="agent-media">
               <AgentTerminal />
-              <DevTabs />
             </div>
           </div>
         </div>

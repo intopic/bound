@@ -252,25 +252,37 @@ const TERMINAL: [string, string][] = [
 /** An agent's real run on mainnet, then the same agent refusing a tampered swap (docs/AUDIT.md 0zk). */
 export function AgentTerminal() {
   const reduce = useReducedMotion();
+  const box = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState(TERMINAL.length);
+  // Typed once, line by line, when it comes into view; then it stays whole to be read.
   useEffect(() => {
-    if (reduce) {
+    const el = box.current;
+    if (reduce || !el) {
       setShown(TERMINAL.length);
       return;
     }
-    let n = 0;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = () => {
-      setShown(n);
-      n = n >= TERMINAL.length ? 0 : n + 1;
-      timer = setTimeout(tick, n === 0 ? 4200 : 650);
+    setShown(0);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const seen = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      seen.disconnect();
+      let n = 0;
+      const tick = () => {
+        n += 1;
+        setShown(n);
+        if (n < TERMINAL.length) timer = setTimeout(tick, 650);
+      };
+      timer = setTimeout(tick, 400);
+    }, { threshold: 0.4 });
+    seen.observe(el);
+    return () => {
+      seen.disconnect();
+      if (timer) clearTimeout(timer);
     };
-    tick();
-    return () => clearTimeout(timer);
   }, [reduce]);
 
   return (
-    <div className="terminal" aria-label="An agent's protected swap, and a refused attack">
+    <div ref={box} className="terminal" aria-label="An agent's protected swap, and a refused attack">
       <div className="terminal-bar"><span /><span /><span /><em>agent · mainnet</em></div>
       <pre aria-hidden={!reduce}>
         {TERMINAL.slice(0, shown).map(([kind, line], i) => <span key={i} className={kind}>{line}{'\n'}</span>)}
