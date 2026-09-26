@@ -29,12 +29,9 @@ hands it back unsent (`signerFromSignTransaction`). Bots in other languages use 
 `bin/orientim-verify.mjs` (needs Node): it prepares, checks, finalizes and settles, and the bot only
 signs one message with its own key.
 
-For coding agents there is a skill, `skills/orientim-protected-swap/` (`SKILL.md` and a working
-example, `examples/swap.ts`, that needs only `@solana/kit` 8):
-
-```bash
-npx skills add intopic/bound --skill orientim-protected-swap
-```
+For coding agents there is a skill, `orientim-protected-swap` (`SKILL.md` and a working example,
+`examples/swap.ts`, that needs only `@solana/kit` 8). Download it, with the list of its checksums,
+from https://orientim.com/developers#start.
 
 ```
 POST /api/v1/prepare    → an unsigned transaction and a ticket
@@ -74,15 +71,12 @@ POST /api/v1/keys
 The challenge must be signed within 10 minutes. **Sign only Orientim's key message for your own
 wallet**: a signature over bytes someone else chose could be a signature for a transaction. The skill's
 `requestApiKey` (and `orientim-verify key-challenge`, then `key`) checks the message before anything is
-signed: this host, this wallet, the key statement, plain text and nothing more. Keys issued by hand
-keep working beside these.
+signed: this host, this wallet, the key statement, plain text and nothing more.
 
-The message always names Orientim's own site (`ORIENTIM_PUBLIC_ORIGIN` on the deployment), whatever
-host a request claims, and a message naming another site is refused. A signed challenge is not
-spent when it is used: within its 10 minutes it can be exchanged again, for another key of the same
-wallet, which gives nothing more. A key is revoked by its wallet: `ORIENTIM_API_REVOKED` lists
-`<wallet>` (all its keys) or `<wallet>@<unix seconds>` (its keys issued until then, so that the
-wallet's owner can sign again for a new one).
+The message always names Orientim's own site, whatever host a request claims, and a message naming
+another site is refused. A signed challenge is not spent when it is used: within its 10 minutes it
+can be exchanged again, for another key of the same wallet, which gives nothing more. Orientim can
+revoke a wallet's keys; the wallet's owner then signs again for a new one.
 
 ## Fee
 
@@ -125,7 +119,7 @@ Authorization: Bearer ori_...
 | `minOut` | optional | Your own floor, in base units of the output: what your wallet must keep, after a fee taken from the output. Orientim never enforces less than this. Without it, the floor is the route's quote less your `slippageBps`, or 0.5% (3% on a Pump.fun bonding curve) when you set none, which is Orientim's word: the skill's check refuses to sign without a floor of your own, and `ownMinimum` gets one from Jupiter directly. For a large order, take it from a source independent of Jupiter as well (an oracle, another aggregator, limits of your own). |
 | `acceptCostBps` | optional | Accept a protected route this many bps below the open market (see `costs-more`). |
 | `slippageBps` | optional | The route's slippage tolerance, as a person chooses it on the page: how far below the quote the swap may fill, a whole number from 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun bonding curve. The route is built at it; the skill's check holds the route to the number in your own intent, never to Orientim's answer. |
-| `version` | optional | `0` (default). `1` only where the deployment enables it. |
+| `version` | optional | `0`, the default. Leave it unset. |
 
 `200` response:
 
@@ -178,8 +172,7 @@ from your RPC (`tokenNotices`), leaving out SOL, USDC and USDT, which keep them 
 
 ### The same protection as the page
 
-Every channel runs the same checks: the page, the API with the skill, the command line for bots,
-and the Solana Agent Kit plugin.
+Every channel runs the same checks: the page, the API with the skill, and the command line for bots.
 
 - **Slippage tolerance.** `slippageBps` is the page's setting, 0.1% to 15%. Without it, 0.5%, or 3%
   on a Pump.fun curve. Your own floor follows it: 1.5% below it, or 2% on a curve.
@@ -282,7 +275,7 @@ have sent it, so check it before preparing again (see above). `price-moved` and 
 | 400 | `transaction-changed` | The message is not the one Orientim built. Sign the transaction exactly as returned. |
 | 400 | `wallet-changed-transaction` | Your wallet's signature is missing or does not match (`violations`). |
 | 401 | `unauthorized` | Missing or unknown API key. |
-| 404 | `not-enabled` | The deployment has no agent API. |
+| 404 | `not-enabled` | The agent API is not available. |
 | 409 | `price-moved` | The market cannot meet your `minOut`. `newMinOut` is what it supports now: with the user's approval, prepare again with it; or not. |
 | 409 | `costs-more` | The route that fits in one protected transaction is `gapBps` below the open market. With the user's approval, prepare again with `acceptCostBps`. |
 | 409 | `output-balance-changed` | Your balance of the output token moved since prepare, so this request signed nothing. Check `signature` as above, then prepare again. |
@@ -313,11 +306,3 @@ have sent it, so check it before preparing again (see above). `price-moved` and 
   worker that may take the order), not by Orientim.
 - It can refuse or delay: a signed transaction it holds back simply expires, in about 40 seconds.
 - It sees the addresses and amounts of the swaps you ask for, as any swap API does.
-
-## For operators
-
-The API is off unless the deployment sets `ORIENTIM_API_SECRET` and `ORIENTIM_API_KEYS`
-(`node tools/agent-key.ts --secret` and `node tools/agent-key.ts <id>` make them; only a hash of
-each key is stored). Optional: `ORIENTIM_API_SECRET_PREVIOUS` while rotating the secret,
-`ORIENTIM_API_FEE_BPS`, `ORIENTIM_API_PER_MINUTE`. The kill switch `ORIENTIM_DISABLED=1` stops both
-endpoints. Threat model: `SECURITY.md`; the history of every review and fix: `docs/AUDIT.md`.

@@ -17,7 +17,7 @@ npm ci               # the one dependency, @solana/kit 8.3.0, as the lockfile pi
 - **The API itself**: `reference/AGENT-API.md`.
 
 You need an API key from Orientim (`ORIENTIM_API_KEY`) and an RPC of your own (`SOLANA_RPC_URL`). The key
-comes at once: connect the agent's wallet on orientim.com/docs#access and sign one message, or run
+comes at once: connect the agent's wallet on orientim.com/developers#access and sign one message, or run
 `orientim-verify key-challenge`, then `key` (see `SKILL.md`). Never put a wallet key in a prompt, a
 message, a log or a command line.
 

@@ -97,8 +97,8 @@ npm run build             # production build of the dApp
 npm run start -w @orientim/web   # serve it on http://localhost:3000
 npm run e2e               # browser smoke test against http://localhost:3000
 node tests/e2e/busy.ts    # the page when Jupiter or the RPC refuse with 429 (same server)
-node tools/agent-key.ts <id>   # an API key for the agent API (AGENT-API.md)
-node tools/agent-key.ts --key-secret   # the secret that turns on self-serve API keys (/docs#access)
+node tools/agent-key.ts <id>   # an API key for the agent API (docs/OPERATORS.md)
+node tools/agent-key.ts --key-secret   # the secret that turns on self-serve API keys (/developers#access)
 cd integrations/solana-agent-kit && npm install && npm test   # the Solana Agent Kit plugin, on its own
 node skills/orientim-protected-swap/examples/swap.ts   # the agent skill's example (SKILL.md); prints its usage
 node tools/build-skill.ts             # rebuild the verifier bundled in the skill (CI checks it)

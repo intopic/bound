@@ -1,6 +1,6 @@
 import { permanentRedirect } from 'next/navigation';
 
-/** The reviews now have their place on a page of fewer, fuller pages. */
+/** The reviews are no longer published: the address leads to how Orientim protects you. */
 export default function Page() {
-  permanentRedirect('/proof#reviews');
+  permanentRedirect('/security');
 }

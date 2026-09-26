@@ -137,9 +137,6 @@ export default async function Page() {
           <li><strong>On a phone</strong>: open orientim.com inside your wallet&apos;s browser.</li>
           <li><strong>Wallets that can only sign and send at once, and multisig vaults</strong>: not supported, because your wallet must sign first and Orientim last.</li>
         </ul>
-        <p>
-          The swaps tested on mainnet, and every review of Orientim, are on the <a href="/proof">proof page</a>.
-        </p>
       </section>
     </InfoPage>
   );
