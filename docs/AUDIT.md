@@ -1510,8 +1510,19 @@ and for the handler's own check were first seen to fail with the feature removed
 loads the build both ways. The root tests leave `integrations/` to its own folder (vitest.config.ts);
 its dependencies (275 packages) live only there, so the site and its deploys are unchanged.
 
+On mainnet, the owner ran the test agent as a Solana Agent Kit agent: its own `KeypairWallet`, no API
+key set, and the tool called as a model would call it, against a production build on this machine.
+The plugin got its key by signing the key message, then swapped 0.01 SOL for USDC in 9 seconds
+(`gN5weUty9xi9dHtqJeFA9oqzW4vMjd26ZxrEU3xe7eYyxo3zLdHdESMbYnCXMc2PvNFPZPS5hVLoMnvXz3GuZ9p`).
+Read back from the chain:
+
+- the wallet paid 0.01 SOL and a network fee of 0.000189 SOL;
+- the treasury received 0.00003 SOL, which is 0.3%;
+- the wallet received 1.214969 USDC, above the 1.208636 floor and the 1.214709 quoted;
+- the transaction had two signers, the wallet and the one-time key.
+
 Not done: the npm release, which is the owner's step and needs the `@orientim` scope. The package is
-marked private until then. A mainnet swap through the plugin is also still to come.
+marked private until then.
 
 ---
 
