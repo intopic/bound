@@ -30,31 +30,28 @@ function lineBoxes(el: Element): DOMRect[] {
 }
 
 /**
- * Where the wallet fits: beside the paragraph (and, on a wide screen, beside the title's last line),
- * between the text and the swap card, above the points. Null when it does not fit, or on a phone.
+ * Where the wallet fits: beside the title and level with it, between the title and the swap card (or,
+ * with the card below the title, between the title and the page's edge). Null when it does not fit,
+ * or on a phone.
  */
 function placeWallet(root: HTMLElement): Wallet | null {
   const box = root.getBoundingClientRect();
   const scope = root.parentElement;
   const title = scope?.querySelector('.hero-title');
-  const sub = scope?.querySelector('.hero-sub');
   const app = scope?.querySelector('.hero-app');
-  if (!title || !sub || !app || box.width <= 640) return null;
+  if (!title || !app || box.width <= 640) return null;
   const wide = box.width > 980;
-  const subLines = lineBoxes(sub).map(r => relative(r, box));
-  const titleLines = lineBoxes(title).map(r => relative(r, box));
-  if (!subLines.length || !titleLines.length) return null;
-  const lastTitle = titleLines[titleLines.length - 1];
-  const textRight = Math.max(...subLines.map(r => r.right), wide ? lastTitle.right : 0);
+  const lines = lineBoxes(title).map(r => relative(r, box));
+  if (!lines.length) return null;
+  const textRight = Math.max(...lines.map(r => r.right));
+  const top = lines[0].top, bottom = lines[lines.length - 1].bottom;
   const endX = wide ? relative(app.getBoundingClientRect(), box).left : box.width;
   const col0 = Math.ceil((textRight + 18) / CELL);
   // Up to three columns, clear of the card by a few pixels: the block's path may be short.
   const cols = Math.min(3, Math.floor((endX - 8 - col0 * CELL) / CELL));
-  const points = scope?.querySelector('.hero-points')?.getBoundingClientRect();
-  const bandTop = wide ? lastTitle.top : lastTitle.bottom + 4;
-  const bandBottom = (points && points.height ? relative(points, box).top : subLines[subLines.length - 1].bottom) - 6;
-  const row0 = (wide ? Math.ceil : Math.floor)(bandTop / CELL);
-  const rows = Math.min(3, Math.floor(bandBottom / CELL) - row0);
+  // As many rows as the title is tall, up to three, centred on it.
+  const rows = Math.min(3, Math.round((bottom - top) / CELL));
+  const row0 = Math.round((top + bottom) / 2 / CELL - rows / 2);
   if (cols < 2 || rows < 2) return null;
   const moveCol = col0 + cols - 1;
   const steps = Math.max(2, Math.ceil((endX - (moveCol + 1) * CELL) / CELL) + 1);

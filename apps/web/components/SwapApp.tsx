@@ -1351,16 +1351,6 @@ export function SwapApp() {
           <div className="hero-copy">
             <p className="eyebrow">Protected swaps on Solana</p>
             <h1 className="hero-title">Swap without handing over your wallet.</h1>
-            <p className="hero-sub">
-              Every swap runs through a one-time key that holds only the amount you approve. See the minimum and every fee
-              before you sign.
-            </p>
-            <ul className="hero-points">
-              <li>The route never holds your wallet&apos;s authority</li>
-              <li>Minimum enforced on chain</li>
-              <li>Checked before you sign</li>
-            </ul>
-            <a className="text-link hero-agents" href="#agents">Building an agent? Explore the API and the skill →</a>
           </div>
 
           <div className="hero-app">

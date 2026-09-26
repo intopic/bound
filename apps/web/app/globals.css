@@ -85,15 +85,12 @@ a.ghost { display: inline-flex; align-items: center; }
 .hero::before { animation: drift 24s ease-in-out infinite alternate; }
 @keyframes drift { from { transform: translate3d(-2%, 0, 0) scale(1); } to { transform: translate3d(3%, 2%, 0) scale(1.06); } }
 .hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); }
-.hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 56px; align-items: start; }
-.hero-copy { padding-top: 56px; }
-.hero-title { font-size: clamp(40px, 4.3vw, 58px); line-height: 1.04; font-weight: 700; letter-spacing: -0.03em; }
-.hero-sub { margin: 22px 0 0; max-width: 34ch; color: var(--muted); font-size: 19px; line-height: 1.5; }
-.hero-points { list-style: none; display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 0; padding: 0; }
-.hero-points li { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; color: var(--text); background: rgba(20, 30, 34, .6); }
-.hero-points li::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.hero-agents { margin-top: 26px; }
-.hero-app { min-width: 0; }
+.hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 56px; align-items: center; max-width: 1120px; }
+.hero-title { font-size: clamp(38px, 5vw, 62px); line-height: 1.04; font-weight: 700; letter-spacing: -0.03em; }
+/* The card on a soft green light, inside a thin border that is green at the top and fades down. */
+.hero-app { position: relative; isolation: isolate; min-width: 0; }
+.hero-app::before { content: ''; position: absolute; inset: 6% -10% 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(76, 189, 133, .20), transparent); filter: blur(24px); }
 .card-foot { margin: 12px 4px 0; color: var(--faint); font-size: 12px; text-align: center; }
 
 /* ---- home: a grid of blocks behind the page, strongest behind the hero; the wallet and its one
@@ -120,7 +117,10 @@ a.ghost { display: inline-flex; align-items: center; }
 
 /* ---- the swap card */
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px; }
-.card.swap { box-shadow: 0 24px 64px rgba(0, 0, 0, .45), 0 0 0 1px rgba(76, 189, 133, .05); }
+.card.swap { border-color: transparent;
+  background: linear-gradient(var(--panel), var(--panel)) padding-box,
+    linear-gradient(180deg, rgba(124, 227, 176, .55), rgba(76, 189, 133, .14) 38%, rgba(35, 50, 58, .9)) border-box;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .45), 0 0 48px rgba(76, 189, 133, .08); }
 .swap-head { display: flex; justify-content: space-between; align-items: center; margin: 2px 2px 14px; }
 .swap-title { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 17px; }
 .swap-title svg { color: var(--accent); }
@@ -154,13 +154,17 @@ a.ghost { display: inline-flex; align-items: center; }
 @media (max-width: 420px) { .slippage-options { grid-template-columns: repeat(4, 1fr); } .slippage-custom { grid-column: 1 / -1; } }
 .status-badge { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; font-family: var(--mono); font-size: 12px; font-weight: 500; border: 1px solid var(--line); color: var(--muted); }
 .status-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.status-badge.verified { color: var(--accent); border-color: var(--ok-line); background: var(--ok-bg); }
+/* Protection on: the light breathes, slowly. Verified: it stays lit. */
+.status-badge.ready, .status-badge.verified { color: var(--accent); border-color: var(--ok-line); background: var(--ok-bg); }
+.status-badge.ready .dot { animation: breathe 3.6s ease-in-out infinite; }
+.status-badge.verified .dot { box-shadow: 0 0 8px 2px rgba(124, 227, 176, .6); }
+@keyframes breathe { 0%, 100% { opacity: .45; box-shadow: 0 0 0 0 rgba(124, 227, 176, 0); } 50% { opacity: 1; box-shadow: 0 0 8px 2px rgba(124, 227, 176, .6); } }
 .status-badge.checking { color: var(--warn); border-color: rgba(242, 196, 107, .3); }
 .status-badge.checking .dot { animation: pulse 1s ease-in-out infinite; }
 .status-badge.paused { color: var(--bad); border-color: rgba(242, 139, 130, .3); }
 @keyframes pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) {
-  .status-badge.checking .dot, .hero::before, .scan-line.on, .map .flow, .caret { animation: none; }
+  .status-badge.checking .dot, .status-badge.ready .dot, .hero::before, .scan-line.on, .map .flow, .caret { animation: none; }
   html { scroll-behavior: auto; }
 }
 /* The check you can see: a line that runs across the card while the transaction is checked. */
@@ -443,7 +447,6 @@ a.ghost { display: inline-flex; align-items: center; }
 @media (max-width: 980px) {
   .hero { padding: 28px 0 48px; }
   .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; }
-  .hero-copy { padding-top: 0; }
   .hero-app { max-width: 480px; width: 100%; margin: 0 auto; }
   .dev-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .fee-grid, .fee-grid.two, .capsule-steps, .keeps-nothing { grid-template-columns: minmax(0, 1fr); }
@@ -458,9 +461,6 @@ a.ghost { display: inline-flex; align-items: center; }
   .site-nav { display: none; }
   .header-row { height: 58px; }
   .hero-title { font-size: 34px; }
-  .hero-sub { font-size: 16px; margin-top: 14px; }
-  .hero-points { display: none; }
-  .hero-agents { display: none; }
   .page-grid { opacity: .7; }
   .section { padding-top: 64px; }
   .cta-band { padding: 26px 22px; }
