@@ -19,6 +19,9 @@ const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? ((import.meta as { env?: {
 // About 22 ms per case on a laptop (20,000 cases took ~440 s per property): the time limit grows
 // with the number of cases, so `npm run test:fuzz` (100,000) is not cut off (second review).
 const TIMEOUT = 60_000 + RUNS * 50;
+// A shard of the fuzz workflow runs its own cases: one seed per shard (.github/workflows/fuzz.yml).
+const SEED = process.env.ORIENTIM_FUZZ_SEED ? Number(process.env.ORIENTIM_FUZZ_SEED) : undefined;
+const PARAMS = { numRuns: RUNS, ...(SEED !== undefined ? { seed: SEED } : {}) };
 const PAIRS: [Address, Address][] = [[USDC, WSOL_MINT], [WSOL_MINT, USDC], [USDC, BONK]];
 
 // Token-2022 extension sets a protected swap can live with, and ones it must refuse (section 0f).
@@ -87,7 +90,7 @@ describe('T3: property tests', () => {
         const v = await verify(tx, sc.policy, sc.snapshot);
         expect(v.violations.some(x => x.rule === 'R7')).toBe(true);
       }),
-      { numRuns: RUNS },
+      PARAMS,
     );
   }, TIMEOUT);
 
@@ -103,7 +106,7 @@ describe('T3: property tests', () => {
         const v = await verify(tx, sc.policy, sc.snapshot);
         expect(v.violations).toEqual([]);
       }),
-      { numRuns: RUNS },
+      PARAMS,
     );
   }, TIMEOUT);
 
@@ -207,7 +210,7 @@ describe('T3: property tests', () => {
         const v = await verify(compile(sc, ixs, s.version, cu), p, sc.snapshot);
         expect(v.ok, `${a.kind} was accepted`).toBe(false);
       }),
-      { numRuns: RUNS },
+      PARAMS,
     );
   }, TIMEOUT);
 });

@@ -360,6 +360,6 @@ describe('the skill hashes the site publishes (final audit, item 10)', () => {
     const onDisk = readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/SHA256SUMS'), 'utf8').replace(/\r\n/g, '\n');
     expect(text).toBe(onDisk);
     expect(text).toMatch(/^[0-9a-f]{64} {2}lib\/orientim-verify\.mjs$/m);
-    expect(res.headers.get('x-orientim-skill-version')).toBe('1.0.0');
+    expect(res.headers.get('x-orientim-skill-version')).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/package.json'), 'utf8')).version);
   });
 });

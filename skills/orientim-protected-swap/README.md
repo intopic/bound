@@ -16,8 +16,14 @@ npm ci               # the one dependency, @solana/kit 8.3.0, as the lockfile pi
   `SKILL.md`). The bot signs one message with its own key; the command does the rest.
 - **The API itself**: `reference/AGENT-API.md`.
 
-You need an API key from Orientim (`ORIENTIM_API_KEY`) and an RPC of your own (`SOLANA_RPC_URL`). Never
-put a wallet key in a prompt, a message, a log or a command line.
+You need an API key from Orientim (`ORIENTIM_API_KEY`) and an RPC of your own (`SOLANA_RPC_URL`). The key
+comes at once: connect the agent's wallet on orientim.com/docs#access and sign one message, or run
+`orientim-verify key-challenge`, then `key` (see `SKILL.md`). Never put a wallet key in a prompt, a
+message, a log or a command line.
+
+Slippage is automatic unless you set it, as on the page: 0.5%, or 3% on a Pump.fun curve. Set
+`slippageBps` (10 to 1500) for your own. A swap that would move the market more than 5% is refused
+before anything is prepared (`maxPriceImpactBps` raises it).
 
 **Check your copy before it signs anything.** `SHA256SUMS` lists the hash of every file here, and
 Orientim's site serves the same list at `/skill/SHA256SUMS`: compare the two, then run

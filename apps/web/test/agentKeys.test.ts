@@ -8,6 +8,7 @@ import { generateKeyPairSigner, getBase58Decoder, signBytes } from '@solana/kit'
 import type { KeyPairSigner } from '@solana/kit';
 import { acceptChallenge, challengeMessage, isRevoked, issueKey, KEY_LIFETIME_S, newChallenge, openKey } from '../lib/server/agent/keys.ts';
 import { accessDeps, keySecrets } from '../lib/server/agent/config.ts';
+import { kidOf, newNonce, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { keyChallenge, keyIssue } from '../lib/server/agent/access.ts';
 import type { AccessDeps } from '../lib/server/agent/access.ts';
 import { agentPrepare } from '../lib/server/agent/api.ts';
@@ -230,5 +231,26 @@ describe('the independent audit of 26 September (ORI-12, ORI-13)', () => {
       process.env.ORIENTIM_PUBLIC_ORIGIN = 'http://orientim.com';
       expect(accessDeps()).toBeNull();
     });
+  });
+});
+
+describe('a seal has one spelling (found by fuzzing)', () => {
+  // The last of 43 base64url characters carries two unused bits: three other letters decode alike.
+  const variants = (text: string) => {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    return [...alphabet].map(c => text.slice(0, -1) + c).filter(v => v !== text);
+  };
+
+  it('a key, a challenge and a ticket open only as Orientim wrote them', async () => {
+    const W = await generateKeyPairSigner();
+    const { key } = await issueKey(secret(3), W.address, NOW);
+    for (const v of variants(key)) expect(await openKey([secret(3)], v, NOW)).toBeNull();
+    const c = await signedChallenge(W);
+    for (const v of variants(c.challenge)) expect(await acceptChallenge([secret(1)], { ...c, challenge: v, now: NOW })).toHaveProperty('error');
+    expect(await acceptChallenge([secret(1)], { ...c, now: NOW })).toEqual({ wallet: W.address });
+    const ticketSecret = secret(9);
+    const ticket = await sealTicket(ticketSecret, { v: 1, kid: await kidOf(ticketSecret), nonce: newNonce(), key: 'agent', owner: W.address, msg: '0'.repeat(64), lvbh: '100' });
+    expect(await openTicket([ticketSecret], ticket)).not.toBeNull();
+    for (const v of variants(ticket)) expect(await openTicket([ticketSecret], v)).toBeNull();
   });
 });

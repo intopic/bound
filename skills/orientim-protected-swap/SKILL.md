@@ -49,8 +49,9 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
 
 1. **Your own floor first.** The rules cannot see the price, so the agent brings a minimum of its
    own: the user's, or `ownMinimum(...)` from `lib/orientim-verify.mjs`, which asks Jupiter directly
-   and takes 2% off its price (5% on a Pump.fun bonding curve). The example does this when
-   `--min-out` is not given. The check refuses to sign without one.
+   and takes 2% off its price (5% on a Pump.fun bonding curve), or, with `slippageBps` set, that
+   tolerance and 1.5% more (2% on a curve). The example does this when `--min-out` is not given. The
+   check refuses to sign without one.
 2. **Prepare.** `POST {ORIENTIM_API_URL}/api/v1/prepare` with
    `{ owner, inputMint, outputMint, amountIn, minOut }`. All amounts are integer strings in base
    units (5 USDC is `"5000000"`; SOL is 9 decimals, mint `So11111111111111111111111111111111111111112`).
@@ -208,9 +209,12 @@ It needs Node 22.18 or later and `npm ci` in this folder, and reads `SOLANA_RPC_
 | --- | --- | --- |
 | `recover` | none | 0 all settled; 3 an earlier outcome is still unknown, or its record could not be updated (`bookkeepingErrors`): start nothing new |
 | `resolve` | `{"signature": "<a kept swap>", "outcome": "confirmed" \| "failed" \| "expired"}` | 0 settled (the chain's answer is used when your RPC has one); 1 refused: it could still land, or no swap with that signature is kept; 3 the state directory cannot be read. Only after you looked the signature up in a full history (an explorer), for a swap `recover` can no longer prove |
-| `prepare` | `{"intent": {"owner", "inputMint", "outputMint", "amountIn", "id", ...}}` | 0 sign `message`; 1 refused; 3 settle first; 4 Orientim said no (`error.code`, as below); 5 this order (`id`) already swapped or may still land |
-| `finalize` | `{"checked": <prepare's checked, unchanged>, "signature": "<base58>"}` | 0 confirmed; 1 not swapped; 3 unknown: run `recover` before anything new. Asked again for a swap it kept, it answers with that swap's signature and outcome (`resumed`) |
+| `prepare` | `{"intent": {"owner", "inputMint", "outputMint", "amountIn", "id", "slippageBps", "maxPriceImpactBps", ...}}` | 0 sign `message` (the answer also carries `notices` about the tokens); 1 refused, including `error.code` `price-impact-high`; 3 settle first; 4 Orientim said no (`error.code`, as below); 5 this order (`id`) already swapped or may still land |
+| `finalize` | `{"checked": <prepare's checked, unchanged>, "signature": "<base58>"}` | 0 confirmed, with `received`: what arrived, in base units; 1 not swapped; 3 unknown: run `recover` before anything new. Asked again for a swap it kept, it answers with that swap's signature and outcome (`resumed`) |
 | `check` | `{"prepared": <prepare answer>, "intent": {...}}` | 0 safe to sign; 1 refused (for bots that call the API themselves) |
+
+`slippageBps` and `maxPriceImpactBps` are optional, and the same as on the page: without them the
+tolerance is automatic (0.5%, or 3% on a Pump.fun curve) and a price impact above 5% is refused.
 
 `message` is the transaction's message in base64: sign those bytes with the wallet's ed25519 key and
 pass the 64-byte signature in base58 (or the whole signed transaction in base64 as

@@ -14,6 +14,9 @@ const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? ((import.meta as { env?: {
 // At full size a property takes 20 to 40 s on CI, far past vitest's default 5 s (the fuzz run of
 // 345a82d timed out on all four, without a single counterexample).
 const TIMEOUT = 60_000 + RUNS;
+// A shard of the fuzz workflow runs its own cases: one seed per shard (.github/workflows/fuzz.yml).
+const SEED = process.env.ORIENTIM_FUZZ_SEED ? Number(process.env.ORIENTIM_FUZZ_SEED) : undefined;
+const PARAMS = { numRuns: RUNS, ...(SEED !== undefined ? { seed: SEED } : {}) };
 
 const encoder = getAddressEncoder();
 const onCurve: Uint8Array[] = await Promise.all(Array.from({ length: 6 }, async () => Uint8Array.from(encoder.encode((await generateKeyPairSigner()).address))));
@@ -73,7 +76,7 @@ describe('Token-2022: any combination of extensions (final audit, item 4)', () =
           expect(bad !== null).toBe(verdictFor(entries, allowTransferFee));
         },
       ),
-      { numRuns: RUNS },
+      PARAMS,
     );
   }, TIMEOUT);
 
@@ -82,7 +85,7 @@ describe('Token-2022: any combination of extensions (final audit, item 4)', () =
       fc.property(fc.array(fc.oneof(...allowed), { minLength: 1, maxLength: 10 }), entries => {
         expect(unsupportedExtension(mint(cat(...entries.map(tlv))), { allowTransferFee: true })).toBeNull();
       }),
-      { numRuns: RUNS },
+      PARAMS,
     );
   }, TIMEOUT);
 
@@ -95,7 +98,7 @@ describe('Token-2022: any combination of extensions (final audit, item 4)', () =
           expect(unsupportedExtension(data, { allowTransferFee: true })).not.toBeNull();
         },
       ),
-      { numRuns: RUNS },
+      PARAMS,
     );
   }, TIMEOUT);
 
@@ -111,7 +114,7 @@ describe('Token-2022: any combination of extensions (final audit, item 4)', () =
         // Cut after a zero type byte pair of an entry of type 0 would read as padding; no entry here has type 0.
         expect(tail.length === 0 || unsupportedExtension(data, { allowTransferFee: true }) !== null).toBe(true);
       }),
-      { numRuns: RUNS },
+      PARAMS,
     );
   }, TIMEOUT);
 

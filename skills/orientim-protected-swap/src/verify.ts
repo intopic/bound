@@ -276,7 +276,8 @@ async function leftUnderKey(
  * A floor of the agent's own, from a price it asks Jupiter for itself (research audit F-02): the
  * output for the amount Orientim will route (after its fee), less `maxBelowBps`. By default 2%, or 5%
  * when the route trades on a Pump.fun bonding curve, which Orientim quotes at 3%: enough for Orientim's
- * tolerance, its narrower routes and a few seconds of movement, and far from "almost nothing".
+ * tolerance, its narrower routes and a few seconds of movement, and far from "almost nothing". With
+ * `slippageBps`, the tolerance the agent chose and 1.5% more (2% on a curve).
  * Without `apiKey`, Jupiter allows a request every two seconds.
  */
 export type OwnQuoteArgs = {

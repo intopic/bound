@@ -1797,6 +1797,52 @@ The owner's decisions:
 
 591 tests pass.
 
+## 0zu. Before launch: the guides agree, the repository debugged, and fuzzing by the million (26 September 2026)
+
+The owner's last obligation before the launch: every guide says the same thing in plain words, the
+whole repository is checked for anything left behind, and fuzzing runs across millions of swaps,
+agents and bots at every tolerance.
+
+**The guides.** All of them now say the same, in the same words: the tolerance is automatic unless
+the client sets it (0.5%, or 3% on a Pump.fun curve; `slippageBps` from 10 to 1500), and a price
+impact above 5% is refused.
+- Updated: SKILL.md (the floor that follows the tolerance, the command line's fields and answers),
+  the skill's README (how to get a key at once, the tolerance), AGENT-API.md (`minOut` without a
+  floor of one's own), the example's usage and the verifier's comments.
+- The skill is now version 1.1.0: its answers carry more, and agents can tell which copy they run.
+
+**The repository, checked end to end.**
+- 602 tests in the repository and 33 in the plugin; typecheck; the build; the skill's bundle check.
+- The browser smoke test: 24 of 25. The one not passed is the test-mode banner, which a build with a
+  treasury does not show.
+- On mainnet, reading only: 24 of 24 routes built, verified and simulated, over 12 pairs in v0 and
+  v1. The six refused as busy on the first run passed alone. All 8 attacks were refused, and the
+  minimum was enforced 3 times in 3.
+- The canary: 7 of 7, with every fee path, v1, the Pump.fun curve and PumpSwap.
+
+**A finding, by the fuzzer.**
+- The seal of an API key, a key challenge and a ticket is 32 bytes in base64url. That is 43
+  characters, and the last one carries two unused bits, so three other spellings decoded to the
+  same seal and were accepted. No seal could be forged and nothing opened to anyone else; still,
+  one seal had four texts.
+- Now a seal counts only in its one spelling (`macOf`, in ticket.ts, used by keys.ts). There is a
+  regression test for the key, the challenge and the ticket, each with every other last character.
+
+**Fuzzing.**
+- New properties, each also run at normal size in CI:
+  - the tolerance rule of the verifier, for any chosen tolerance (valid or not), route and quote;
+  - the page's swap through the real pipeline, at any tolerance, pair, amount and version, on a
+    curve or not;
+  - agents (`protectedSwap`) and bots (`orientim-verify`) end to end, against an honest server or
+    one lying in five ways, with any tolerance, price impact and limit;
+  - the small functions: slippage input and storage, the key's message and seal, what arrived;
+  - the plugin: whole-token amounts, and the tool with any input a model may send.
+- The existing verifier properties take a seed.
+- `.github/workflows/fuzz.yml` now runs 45 shards in parallel, each with its own seed printed for
+  replay, about 30 million cases a run. It runs by hand, and weekly while the repository is public;
+  on a private one it would use more than the free plan's minutes.
+- Its first run is recorded below when it ends.
+
 ---
 
 ## 1. What Orientim is

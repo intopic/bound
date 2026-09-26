@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { address, getBase58Encoder, getPublicKeyFromAddress, isAddress, verifySignature } from '@solana/kit';
+import { macOf } from './ticket';
 import type { SignatureBytes } from '@solana/kit';
 
 /**
@@ -88,9 +89,9 @@ export async function acceptChallenge(
   if (typeof o.message !== 'string' || typeof o.challenge !== 'string' || typeof o.signature !== 'string' || o.message.length > 2_000) {
     return { error: 'Send the message, the challenge and the signature, as strings.' };
   }
-  const mac = Buffer.from(o.challenge, 'base64url');
+  const mac = macOf(o.challenge);
   let issued = false;
-  for (const secret of secrets) if (sameBytes(await hmac(secret, `orientim/agent/challenge/${o.message}`), mac)) issued = true;
+  if (mac) for (const secret of secrets) if (sameBytes(await hmac(secret, `orientim/agent/challenge/${o.message}`), mac)) issued = true;
   if (!issued) return { error: 'This message was not issued by Orientim. Ask for a new challenge.' };
   if (o.domain !== undefined && o.message.split('\n')[0] !== `${o.domain} wants you to sign in with your Solana account:`) {
     return { error: 'This message names another site. Ask for a new challenge.' };
@@ -140,8 +141,9 @@ export async function openKey(
   if (!key.startsWith(KEY_PREFIX) || key.length > 400) return null;
   const [payload, mac, extra] = key.slice(KEY_PREFIX.length).split('.');
   if (!payload || !mac || extra !== undefined) return null;
+  const given = macOf(mac);
   let sealed = false;
-  for (const secret of secrets) if (sameBytes(await hmac(secret, `orientim/agent/apikey/${payload}`), Buffer.from(mac, 'base64url'))) sealed = true;
+  if (given) for (const secret of secrets) if (sameBytes(await hmac(secret, `orientim/agent/apikey/${payload}`), given)) sealed = true;
   if (!sealed) return null;
   let c: Claims;
   try {

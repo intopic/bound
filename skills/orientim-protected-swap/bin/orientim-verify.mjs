@@ -1192,8 +1192,9 @@ async function ownSolFeeLimit(args) {
 *                                                Orientim's own treasury is pinned in the skill)
 *   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
 *
-*   node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
-*                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
+*   node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--slippage-bps N] [--max-price-impact-bps N]
+*                [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
+*   (without --slippage-bps the tolerance is automatic: 0.5%, or 3% on a Pump.fun curve; above 5% price impact, refused)
 *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
 *
 * Unattended, the command line keeps every signed swap in a state directory (ORIENTIM_STATE_DIR or
@@ -1219,7 +1220,7 @@ var OrientimApiError = class extends Error {
 * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
 * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
 */
-const SKILL_VERSION = "1.0.0";
+const SKILL_VERSION = "1.1.0";
 /** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call(fetchImpl, url, key, body, timeoutMs = 3e4) {
 	const res = await fetchImpl(url, {

@@ -1,16 +1,17 @@
 name: Fuzz
 
-# The verifier's property tests at full size (tens of thousands of cases per property), 20 to 40
-# minutes a run. They ran on every push to main; on a private repository that alone would use up the
-# free plan's 2,000 Actions minutes a month (final audit, H3). Now: whenever the verifier or the
-# policy it checks changes, once a week, and by hand. The ordinary CI still runs the same properties
-# at their normal size on every push.
+# Millions of generated cases, in parallel shards, each with a seed of its own. They cover:
+# - the verifier (honest transactions, attacks, Token-2022, the tolerance rule);
+# - the page's swap at any tolerance;
+# - agents and bots end to end, against honest and lying servers, with any tolerance and price impact;
+# - the small functions every channel leans on;
+# - the Solana Agent Kit plugin.
+# About 30,220,000 cases a run.
+#
+# By hand (Actions, Fuzz, Run workflow), and weekly while the repository is public. On a private
+# repository a run would use more than a month of the free plan's minutes (final audit, H3). CI runs
+# the same properties at their normal size on every push.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'packages/verifier/**'
-      - 'packages/core/**'
   schedule:
     - cron: '41 3 * * 1'
   workflow_dispatch:
@@ -20,13 +21,390 @@ permissions:
 
 jobs:
   fuzz:
+    if: github.event_name != 'schedule' || !github.event.repository.private
+    name: ${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.of }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: verifier-honest
+            shard: 1
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every honest shape'
+            proves: "every honest transaction the compiler builds passes"
+          - suite: verifier-honest
+            shard: 2
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every honest shape'
+            proves: "every honest transaction the compiler builds passes"
+          - suite: verifier-honest
+            shard: 3
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every honest shape'
+            proves: "every honest transaction the compiler builds passes"
+          - suite: verifier-honest
+            shard: 4
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every honest shape'
+            proves: "every honest transaction the compiler builds passes"
+          - suite: verifier-honest
+            shard: 5
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every honest shape'
+            proves: "every honest transaction the compiler builds passes"
+          - suite: verifier-honest
+            shard: 6
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every honest shape'
+            proves: "every honest transaction the compiler builds passes"
+          - suite: verifier-honest
+            shard: 7
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every honest shape'
+            proves: "every honest transaction the compiler builds passes"
+          - suite: verifier-honest
+            shard: 8
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every honest shape'
+            proves: "every honest transaction the compiler builds passes"
+          - suite: verifier-attacks
+            shard: 1
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every attack'
+            proves: "every attack on the transaction is refused"
+          - suite: verifier-attacks
+            shard: 2
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every attack'
+            proves: "every attack on the transaction is refused"
+          - suite: verifier-attacks
+            shard: 3
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every attack'
+            proves: "every attack on the transaction is refused"
+          - suite: verifier-attacks
+            shard: 4
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every attack'
+            proves: "every attack on the transaction is refused"
+          - suite: verifier-attacks
+            shard: 5
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every attack'
+            proves: "every attack on the transaction is refused"
+          - suite: verifier-attacks
+            shard: 6
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every attack'
+            proves: "every attack on the transaction is refused"
+          - suite: verifier-attacks
+            shard: 7
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every attack'
+            proves: "every attack on the transaction is refused"
+          - suite: verifier-attacks
+            shard: 8
+            of: 8
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'every attack'
+            proves: "every attack on the transaction is refused"
+          - suite: verifier-token2022
+            shard: 1
+            of: 4
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'extension we refuse'
+            proves: "a Token-2022 mint with a refused extension never passes"
+          - suite: verifier-token2022
+            shard: 2
+            of: 4
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'extension we refuse'
+            proves: "a Token-2022 mint with a refused extension never passes"
+          - suite: verifier-token2022
+            shard: 3
+            of: 4
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'extension we refuse'
+            proves: "a Token-2022 mint with a refused extension never passes"
+          - suite: verifier-token2022
+            shard: 4
+            of: 4
+            where: root
+            file: packages/verifier/test/property.test.ts
+            runs: 100000
+            filter: 'extension we refuse'
+            proves: "a Token-2022 mint with a refused extension never passes"
+          - suite: token2022-matrix
+            shard: 1
+            of: 1
+            where: root
+            file: packages/verifier/test/extensions.test.ts
+            runs: 2000000
+            proves: "the Token-2022 extension matrix"
+          - suite: tolerance-rule
+            shard: 1
+            of: 8
+            where: root
+            file: packages/verifier/test/slippage.property.test.ts
+            runs: 150000
+            proves: "a route is refused exactly when above the tolerance or below the minimum"
+          - suite: tolerance-rule
+            shard: 2
+            of: 8
+            where: root
+            file: packages/verifier/test/slippage.property.test.ts
+            runs: 150000
+            proves: "a route is refused exactly when above the tolerance or below the minimum"
+          - suite: tolerance-rule
+            shard: 3
+            of: 8
+            where: root
+            file: packages/verifier/test/slippage.property.test.ts
+            runs: 150000
+            proves: "a route is refused exactly when above the tolerance or below the minimum"
+          - suite: tolerance-rule
+            shard: 4
+            of: 8
+            where: root
+            file: packages/verifier/test/slippage.property.test.ts
+            runs: 150000
+            proves: "a route is refused exactly when above the tolerance or below the minimum"
+          - suite: tolerance-rule
+            shard: 5
+            of: 8
+            where: root
+            file: packages/verifier/test/slippage.property.test.ts
+            runs: 150000
+            proves: "a route is refused exactly when above the tolerance or below the minimum"
+          - suite: tolerance-rule
+            shard: 6
+            of: 8
+            where: root
+            file: packages/verifier/test/slippage.property.test.ts
+            runs: 150000
+            proves: "a route is refused exactly when above the tolerance or below the minimum"
+          - suite: tolerance-rule
+            shard: 7
+            of: 8
+            where: root
+            file: packages/verifier/test/slippage.property.test.ts
+            runs: 150000
+            proves: "a route is refused exactly when above the tolerance or below the minimum"
+          - suite: tolerance-rule
+            shard: 8
+            of: 8
+            where: root
+            file: packages/verifier/test/slippage.property.test.ts
+            runs: 150000
+            proves: "a route is refused exactly when above the tolerance or below the minimum"
+          - suite: page-swap
+            shard: 1
+            of: 4
+            where: root
+            file: packages/jupiter/test/slippage.property.test.ts
+            runs: 25000
+            proves: "the page's swap certifies at the tolerance in force"
+          - suite: page-swap
+            shard: 2
+            of: 4
+            where: root
+            file: packages/jupiter/test/slippage.property.test.ts
+            runs: 25000
+            proves: "the page's swap certifies at the tolerance in force"
+          - suite: page-swap
+            shard: 3
+            of: 4
+            where: root
+            file: packages/jupiter/test/slippage.property.test.ts
+            runs: 25000
+            proves: "the page's swap certifies at the tolerance in force"
+          - suite: page-swap
+            shard: 4
+            of: 4
+            where: root
+            file: packages/jupiter/test/slippage.property.test.ts
+            runs: 25000
+            proves: "the page's swap certifies at the tolerance in force"
+          - suite: agents-and-bots
+            shard: 1
+            of: 8
+            where: root
+            file: apps/web/test/agents.property.test.ts
+            runs: 12500
+            proves: "agents and bots swap exactly when honest, valid and within limits"
+          - suite: agents-and-bots
+            shard: 2
+            of: 8
+            where: root
+            file: apps/web/test/agents.property.test.ts
+            runs: 12500
+            proves: "agents and bots swap exactly when honest, valid and within limits"
+          - suite: agents-and-bots
+            shard: 3
+            of: 8
+            where: root
+            file: apps/web/test/agents.property.test.ts
+            runs: 12500
+            proves: "agents and bots swap exactly when honest, valid and within limits"
+          - suite: agents-and-bots
+            shard: 4
+            of: 8
+            where: root
+            file: apps/web/test/agents.property.test.ts
+            runs: 12500
+            proves: "agents and bots swap exactly when honest, valid and within limits"
+          - suite: agents-and-bots
+            shard: 5
+            of: 8
+            where: root
+            file: apps/web/test/agents.property.test.ts
+            runs: 12500
+            proves: "agents and bots swap exactly when honest, valid and within limits"
+          - suite: agents-and-bots
+            shard: 6
+            of: 8
+            where: root
+            file: apps/web/test/agents.property.test.ts
+            runs: 12500
+            proves: "agents and bots swap exactly when honest, valid and within limits"
+          - suite: agents-and-bots
+            shard: 7
+            of: 8
+            where: root
+            file: apps/web/test/agents.property.test.ts
+            runs: 12500
+            proves: "agents and bots swap exactly when honest, valid and within limits"
+          - suite: agents-and-bots
+            shard: 8
+            of: 8
+            where: root
+            file: apps/web/test/agents.property.test.ts
+            runs: 12500
+            proves: "agents and bots swap exactly when honest, valid and within limits"
+          - suite: small-functions
+            shard: 1
+            of: 2
+            where: root
+            file: apps/web/test/pure.property.test.ts
+            runs: 1000000
+            proves: "slippage input and storage, key message and seal, what arrived"
+          - suite: small-functions
+            shard: 2
+            of: 2
+            where: root
+            file: apps/web/test/pure.property.test.ts
+            runs: 1000000
+            proves: "slippage input and storage, key message and seal, what arrived"
+          - suite: plugin
+            shard: 1
+            of: 2
+            where: plugin
+            file: test/fuzz.property.test.ts
+            runs: 2000000
+            toolRuns: 10000
+            proves: "plugin amounts, and the tool a model calls"
+          - suite: plugin
+            shard: 2
+            of: 2
+            where: plugin
+            file: test/fuzz.property.test.ts
+            runs: 2000000
+            toolRuns: 10000
+            proves: "plugin amounts, and the tool a model calls"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            integrations/solana-agent-kit/package-lock.json
       - run: npm ci
-      - run: npm run test:fuzz
+      - if: matrix.where == 'plugin'
+        run: npm ci --ignore-scripts
+        working-directory: integrations/solana-agent-kit
+      - name: Fuzz
+        env:
+          ORIENTIM_FUZZ_RUNS: ${{ matrix.runs }}
+          ORIENTIM_FUZZ_TOOL_RUNS: ${{ matrix.toolRuns }}
+          SHARD: ${{ matrix.shard }}
+          FILE: ${{ matrix.file }}
+          FILTER: ${{ matrix.filter }}
+          WHERE: ${{ matrix.where }}
+        run: |
+          # One seed per run and shard, printed so that any failure can be replayed exactly.
+          export ORIENTIM_FUZZ_SEED=$(( GITHUB_RUN_NUMBER * 1000 + SHARD ))
+          echo "seed $ORIENTIM_FUZZ_SEED, $ORIENTIM_FUZZ_RUNS cases, $FILE ${FILTER:+(\"$FILTER\")}"
+          started=$(date +%s)
+          if [ "$WHERE" = plugin ]; then cd integrations/solana-agent-kit; fi
+          vitest="$GITHUB_WORKSPACE/node_modules/vitest/vitest.mjs"
+          set +e
+          if [ -n "$FILTER" ]; then node "$vitest" run "$FILE" --mode fuzz -t "$FILTER"; else node "$vitest" run "$FILE" --mode fuzz; fi
+          status=$?
+          set -e
+          took=$(( $(date +%s) - started ))
+          result=$([ $status -eq 0 ] && echo "passed" || echo "FAILED")
+          {
+            echo "### ${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.of }}: $result"
+            echo ""
+            echo "- proves: ${{ matrix.proves }}"
+            echo "- cases: $ORIENTIM_FUZZ_RUNS${ORIENTIM_FUZZ_TOOL_RUNS:+ (and $ORIENTIM_FUZZ_TOOL_RUNS tool calls)} per property, seed $ORIENTIM_FUZZ_SEED"
+            echo "- time: $(( took / 60 )) min $(( took % 60 )) s"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status

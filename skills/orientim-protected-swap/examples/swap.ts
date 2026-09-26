@@ -23,8 +23,9 @@
  *                                                Orientim's own treasury is pinned in the skill)
  *   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
  *
- *   node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30]
- *                [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
+ *   node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--slippage-bps N] [--max-price-impact-bps N]
+ *                [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
+ *   (without --slippage-bps the tolerance is automatic: 0.5%, or 3% on a Pump.fun curve; above 5% price impact, refused)
  *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
  *
  * Unattended, the command line keeps every signed swap in a state directory (ORIENTIM_STATE_DIR or
@@ -56,7 +57,10 @@ export type Intent = {
    * `protectedSwap` asks Jupiter for one when it is missing (see `ownMinimum`).
    */
   minOut?: string;
-  /** For the floor asked of Jupiter: how far below its price, in bps (default 2%, 5% on a Pump.fun curve). */
+  /**
+   * For the floor asked of Jupiter: how far below its price, in bps (default 2%, 5% on a Pump.fun curve;
+   * with `slippageBps`, that tolerance and 1.5% more, 2% on a curve).
+   */
   maxBelowBps?: number;
   /** The highest Orientim fee you accept, in bps (Orientim's is 30: anything above is refused by default). */
   maxFeeBps?: number;
@@ -164,7 +168,7 @@ type Fetch = typeof fetch;
  * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
  * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
  */
-export const SKILL_VERSION = '1.0.0';
+export const SKILL_VERSION = '1.1.0';
 
 /** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call<T>(fetchImpl: Fetch, url: string, key: string, body: unknown, timeoutMs = 30_000): Promise<T> {

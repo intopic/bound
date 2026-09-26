@@ -46,6 +46,15 @@ async function hmac(key: Uint8Array, data: string): Promise<Uint8Array> {
 }
 
 const toB64url = (b: Uint8Array) => Buffer.from(b).toString('base64url');
+/**
+ * A MAC as Orientim writes it, and only so: 32 bytes in their one base64url spelling. The last of 43
+ * characters carries two unused bits, so three other spellings decode to the same bytes; each would
+ * be a second text for one seal (found by fuzzing, 26 September 2026).
+ */
+export function macOf(text: string): Uint8Array | null {
+  const bytes = Buffer.from(text, 'base64url');
+  return bytes.length === 32 && bytes.toString('base64url') === text ? new Uint8Array(bytes) : null;
+}
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
 
 /** Identifies a secret without revealing it (a MAC of a fixed label, not a hash of the secret). */
@@ -89,7 +98,8 @@ export async function openTicket(secrets: readonly Uint8Array[], token: string):
   for (const secret of secrets) {
     if ((await kidOf(secret)) !== t.kid) continue;
     const expected = await hmac(secret, `orientim/agent/ticket/${payload}`);
-    if (!sameBytes(expected, Buffer.from(mac, 'base64url'))) return null;
+    const given = macOf(mac);
+    if (!given || !sameBytes(expected, given)) return null;
     const fields = [t.nonce, t.key, t.owner, t.msg, t.lvbh];
     if (fields.some(f => typeof f !== 'string') || !/^[0-9a-f]{64}$/.test(t.msg) || !/^\d{1,20}$/.test(t.lvbh)) return null;
     if ((t.wOut === undefined) !== (t.b0 === undefined)) return null;
