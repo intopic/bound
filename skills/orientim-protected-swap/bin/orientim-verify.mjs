@@ -1273,6 +1273,26 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 * your own RPC (review FA-01). Returns the problems found; sign only when there are none.
 */
 async function checkPrepared(p, intent, rpc, opts = {}) {
+	const digits = (v) => typeof v === "string" && /^\d{1,20}$/.test(v);
+	const malformed = [
+		...[
+			"amountIn",
+			"fee",
+			"feeBps",
+			"swapAmount",
+			"quotedOut",
+			"minOut"
+		].filter((k) => !digits(p.amounts?.[k])).map((k) => `amounts.${k}`),
+		...[
+			"networkFeeLamports",
+			"outputAccountRentLamports",
+			"routeRentLamports",
+			"routeRefundLamports"
+		].filter((k) => !digits(p.costs?.[k])).map((k) => `costs.${k}`),
+		...p.costs?.keptSolLamports !== void 0 && !digits(p.costs.keptSolLamports) ? ["costs.keptSolLamports"] : [],
+		...p.amounts?.feeMint !== void 0 && typeof p.amounts.feeMint !== "string" ? ["amounts.feeMint"] : []
+	];
+	if (malformed.length) return [`the answer's numbers are malformed: ${malformed.join(", ")}`];
 	const problems = [];
 	const tx = getTransactionDecoder().decode(Buffer.from(p.transaction, "base64"));
 	const digest = hex(await crypto.subtle.digest("SHA-256", new Uint8Array(tx.messageBytes)));

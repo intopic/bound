@@ -373,9 +373,11 @@ function outcomeNotice(
   const link = solscan(signature);
   switch (status) {
     case 'confirmed':
+      // What the route could use, and nothing more is claimed: the network fee, and Orientim's fee
+      // when it is paid in SOL, also leave the wallet, as the card showed (independent audit, ORI-15).
       return {
         kind: 'success', title: t.received ? `Swapped ${t.paid} for ${t.received}` : `Swapped ${t.paid} for at least ${t.minimum}`,
-        body: `${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could spend only ${t.exposed} from your wallet.`,
+        body: `${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could use only ${t.exposed}.`,
         link,
       };
     case 'failed':

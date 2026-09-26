@@ -252,6 +252,32 @@ describe("a server that lies is refused before the wallet signs (review FA-01)",
       expect((await checkPrepared(prepared, { ...intent, ...change }, b.agentRpc)).length, name).toBeGreaterThan(0);
     }
   });
+
+  it('a number that is not one is refused before signing, even one only shown after the swap (independent audit, ORI-01)', async () => {
+    const b = await orientim();
+    const honest = await honestAnswer(b);
+    const intent = intentFor(b.wallet);
+    for (const [where, bad] of [
+      ['amounts.quotedOut', { ...honest, amounts: { ...honest.amounts, quotedOut: 'not-a-number' } }],
+      ['amounts.feeBps', { ...honest, amounts: { ...honest.amounts, feeBps: '-30' } }],
+      ['costs.routeRefundLamports', { ...honest, costs: { ...honest.costs, routeRefundLamports: '1e9' } }],
+      ['costs.keptSolLamports', { ...honest, costs: { ...honest.costs, keptSolLamports: 5 as unknown as string } }],
+    ] as [string, Prepared][]) {
+      expect(await checkPrepared(bad, intent, b.agentRpc), where).toEqual([`the answer's numbers are malformed: ${where}`]);
+    }
+    // And through the whole flow: nothing is signed or sent.
+    const lying = (async (url: string, init: RequestInit) => {
+      const res = await b.fetchImpl(url, init);
+      if (!url.endsWith('/api/v1/prepare')) return res;
+      const body = await res.json() as Prepared;
+      return Response.json({ ...body, amounts: { ...body.amounts, quotedOut: 'not-a-number' } });
+    }) as unknown as typeof fetch;
+    await expect(protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: lying, pollMs: 1,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    })).rejects.toThrow(/malformed: amounts\.quotedOut/);
+    expect(b.sent).toHaveLength(0);
+  });
 });
 
 describe('what the rules cannot see, the agent checks itself (research audit)', () => {

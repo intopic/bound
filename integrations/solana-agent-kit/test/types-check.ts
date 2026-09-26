@@ -5,7 +5,8 @@
 import type * as Src from '../src/index.ts';
 import type * as Dts from '../types/index.d.ts';
 
-type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+// Exact equality: mutual assignability would miss an optional field present on one side only.
+type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 
 export const sameTypes: [
   Same<Src.OrientimPluginOptions, Dts.OrientimPluginOptions>,
@@ -21,4 +22,8 @@ export const sameTypes: [
   Same<typeof Src.SOL_MINT, typeof Dts.SOL_MINT>,
   Same<typeof Src.default, typeof Dts.default>,
   Same<Src.OrientimPluginError, Dts.OrientimPluginError>,
-] = [true, true, true, true, true, true, true, true, true, true, true, true, true];
+  Same<Src.PendingStore, Dts.PendingStore>,
+  Same<Src.OrderBook, Dts.OrderBook>,
+  Same<Src.Signed, Dts.Signed>,
+  Same<Src.OrderRecord, Dts.OrderRecord>,
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];

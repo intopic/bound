@@ -55,42 +55,82 @@ const plugin = createOrientimPlugin({ onApiKey: ({ key }) => saveSecret('ORIENTI
 | `autoKey` | `true` | Get a key by signing Orientim's key message when there is none. |
 | `onApiKey` | | Called with a key obtained that way. |
 | `rpcUrl` or `rpc` | the agent's connection | The RPC every check reads the chain from. Use your own. |
-| `stateDir` | in memory | Keep signed swaps and order ids on disk, with a lock per wallet across processes. |
+| `stateDir` or `store` | in memory | Where signed swaps and order ids are kept until settled. See below. |
+| `maxBelowBpsCap` | 500 | The most the minimum may sit below Jupiter's price, whoever asks. |
 | `jupiterApiKey` | `JUPITER_API_KEY` in `OTHER_API_KEYS` | For the price your own minimum is set from. |
 | `maxWaitMs` | 3 minutes | How long to wait for the outcome. |
+| `requestTimeoutMs` | 30 s for Orientim, 10 s for the RPC | How long one call may take. |
 
 `orientimSwap(agent, input)` takes:
 
 | Field | Use |
 | --- | --- |
 | `outputMint` | The token to receive. |
-| `inputAmount` | How much to pay, in whole tokens. Only this amount can be used. |
+| `inputAmount` | How much to pay, in whole tokens, rounded down. Only this amount can be used. |
 | `inputMint` | The token to pay with. SOL when absent. |
-| `minOutput` | The least to receive, in whole tokens. When absent, Jupiter's price less `maxBelowBps`. |
-| `maxBelowBps` | How far below Jupiter's price the minimum may be (200 by default, 500 on a Pump.fun curve). |
-| `id` | Your order's id, the same on every retry: an order is never swapped twice. |
+| `minOutput` | The least to receive, in whole tokens, rounded up. When absent, Jupiter's price less `maxBelowBps`. |
+| `maxBelowBps` | How far below Jupiter's price the minimum may be: 0 up to `maxBelowBpsCap` (200 by default, 500 on a Pump.fun curve). |
+| `id` | Your order's id, the same on every retry. With a shared store, an order is never swapped twice. |
+
+The tool the model sees, `ORIENTIM_PROTECTED_SWAP`, takes only `outputMint`, `inputAmount`, `inputMint`
+and `slippageBps` (the same as `maxBelowBps`). An order id and a minimum of your own are for your
+code, through the method.
+
+## Who decides what
+
+- **The model** chooses the tokens, the amount and how far below the price the minimum may sit. That
+  last one is always held under your `maxBelowBpsCap`.
+- **Orientim** holds each swap to its limits: the amount, the minimum, the fee of 0.3%, and a route
+  that never gets the wallet.
+- **You, the agent's owner,** decide everything else. The plugin sets no daily budget, no list of
+  allowed tokens and no ceiling on the amount. Put those between the model and the tool if your
+  agent needs them.
+
+## Keeping swaps: stateDir or store
+
+A swap that is signed but not yet settled is kept until its outcome is known. While it may still
+land, no new swap starts from the same wallet, and an order id already used is not swapped again.
+
+| Where the agent runs | Set |
+| --- | --- |
+| One long-running process | Nothing (memory). Set `acceptInMemoryState: true` to silence the warning. |
+| Several processes on one machine, or one that restarts | `stateDir`: a directory on disk, with a lock per wallet. |
+| Several servers, or serverless | `store`: your own, shared by all of them (a database). `claimOrder` must be atomic. |
+
+Kept in memory, a swap is forgotten on restart and by a second process or server. Either of them
+could then send a second swap while the first may still land. The plugin warns once when it has
+neither `stateDir` nor `store`.
+
+Within one process, one swap per wallet runs at a time, even when the plugin is loaded twice. A
+second call waits for the first.
 
 ## Outcomes
 
-- `confirmed`: the swap landed.
+- `confirmed`: the swap landed. `minimumReceived` is the least it could deliver, enforced by the
+  transaction. The amount delivered is in the transaction itself (`explorer`).
 - `failed`: the transaction landed without swapping; only the network fee was spent.
 - `expired`: the swap never landed and can no longer land.
-- `unknown`: the swap may still land. No new swap starts from this wallet until it settles.
+- `unknown`: the swap may still land. No new swap starts from this wallet until it settles. Do not
+  retry before its signature is checked.
 
-A refusal throws an error with a `code` (the tool answers `{ status: 'error', code, message }`).
-The codes are:
+A refusal before anything is signed throws an error with a `code`. The tool answers
+`{ status: 'error', code, message }`. The codes are:
 
 - Orientim's own: `costs-more`, `wrong-wallet`, `rate-limited`, and so on.
-- `invalid-amount`, `invalid-mint`, `not-a-token` and `same-token`.
-- `swap-unsettled`, `sign-only` and `no-api-key`.
+- `invalid-amount`, `invalid-mint`, `invalid-input`, `not-a-token` and `same-token`.
+- `floor-too-low`: the minimum asked is further below the price than `maxBelowBpsCap`.
+- `swap-unsettled`, `record-not-updated`, `rpc-unavailable`, `sign-only` and `no-api-key`.
 
-One swap per wallet runs at a time: a second call waits for the first. `signOnly` agents are not
-supported, because Orientim sends the swap once the wallet has signed it.
+Every number in Orientim's answer is checked before the wallet signs. Once a swap is sent, its
+signature and outcome always come back.
+
+`signOnly` agents are not supported, because Orientim sends the swap once the wallet has signed it.
 
 The fee is 0.3% of each swap.
 
 ## Requirements
 
 - Node 22 or later.
-- `solana-agent-kit` 2.
-- The project's own `@solana/web3.js` 1.98 or later, and `zod` 3: the ones the Agent Kit uses.
+- `solana-agent-kit` 2.0.10 or later (2.x).
+- The project's own `@solana/web3.js` 1.98.2 or later, and `zod` 3.25 or later (3.x): the ones the
+  Agent Kit uses. zod 4 is refused at install.

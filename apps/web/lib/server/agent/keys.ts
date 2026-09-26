@@ -13,8 +13,8 @@ import type { SignatureBytes } from '@solana/kit';
  * happens in minutes, must not end keys meant to last months.
  */
 export const KEY_PREFIX = 'ori_w1.';
-/** A key lives this long; the wallet signs again for a new one. */
-export const KEY_LIFETIME_S = 180 * 24 * 3600;
+/** A key lives this long; the wallet signs again for a new one (90 days: independent audit, ORI-12). */
+export const KEY_LIFETIME_S = 90 * 24 * 3600;
 /** A challenge must be signed within this long. */
 export const CHALLENGE_LIFETIME_S = 10 * 60;
 
@@ -75,11 +75,15 @@ function signatureBytes(text: string): Uint8Array | null {
 /**
  * The wallet that signed a challenge Orientim issued, or why it is refused. The MAC proves Orientim
  * wrote the message (so its wallet, domain and times are Orientim's); the signature proves the
- * wallet holder signed it; the expiry keeps a signed message from being kept for later.
+ * wallet holder signed it; the expiry keeps a signed message from being kept for later. With
+ * `domain`, the deployment's own (ORIENTIM_PUBLIC_ORIGIN), a message naming any other site is refused.
+ *
+ * A signed challenge is not spent: within its ten minutes it can be exchanged again, for another key
+ * of the same wallet. Nothing is stored, and a second key of one's own wallet gives nothing more.
  */
 export async function acceptChallenge(
   secrets: readonly Uint8Array[],
-  o: { message: unknown; challenge: unknown; signature: unknown; now: number },
+  o: { message: unknown; challenge: unknown; signature: unknown; now: number; domain?: string },
 ): Promise<{ wallet: string } | { error: string }> {
   if (typeof o.message !== 'string' || typeof o.challenge !== 'string' || typeof o.signature !== 'string' || o.message.length > 2_000) {
     return { error: 'Send the message, the challenge and the signature, as strings.' };
@@ -88,6 +92,9 @@ export async function acceptChallenge(
   let issued = false;
   for (const secret of secrets) if (sameBytes(await hmac(secret, `orientim/agent/challenge/${o.message}`), mac)) issued = true;
   if (!issued) return { error: 'This message was not issued by Orientim. Ask for a new challenge.' };
+  if (o.domain !== undefined && o.message.split('\n')[0] !== `${o.domain} wants you to sign in with your Solana account:`) {
+    return { error: 'This message names another site. Ask for a new challenge.' };
+  }
   const expires = Date.parse(line(o.message, 'Expiration Time') ?? '');
   if (!Number.isFinite(expires) || o.now * 1000 > expires) return { error: 'This challenge has expired. Ask for a new one.' };
   const wallet = o.message.split('\n')[1] ?? '';
@@ -109,9 +116,23 @@ export async function issueKey(secret: Uint8Array, wallet: string, now: number):
 }
 
 /**
+ * Is a key of `wallet` issued at `iat` revoked? ORIENTIM_API_REVOKED lists `wallet` (all its keys) or
+ * `wallet@seconds` (its keys issued at or before that time, so that its owner can sign again for a
+ * new one: independent audit, ORI-12).
+ */
+export function isRevoked(revoked: ReadonlySet<string>, wallet: string, iat: number): boolean {
+  if (revoked.has(wallet)) return true;
+  for (const entry of revoked) {
+    const [w, before] = entry.split('@');
+    if (w === wallet && before !== undefined && /^\d{1,12}$/.test(before) && iat <= Number(before)) return true;
+  }
+  return false;
+}
+
+/**
  * The wallet a self-serve key belongs to, or null when it is not one Orientim sealed, has expired or
- * was revoked (ORIENTIM_API_REVOKED lists wallets). Its id is the wallet's, so every key of one wallet
- * shares one rate limit and one set of tickets.
+ * was revoked (`isRevoked`). Its id is the wallet's, so every key of one wallet shares one rate
+ * limit and one set of tickets.
  */
 export async function openKey(
   secrets: readonly Uint8Array[], key: string, now: number, revoked: ReadonlySet<string> = new Set(),
@@ -128,7 +149,7 @@ export async function openKey(
   } catch {
     return null;
   }
-  if (c?.v !== 1 || typeof c.w !== 'string' || !isAddress(c.w) || !Number.isInteger(c.exp) || c.exp <= now) return null;
-  if (revoked.has(c.w)) return null;
+  if (c?.v !== 1 || typeof c.w !== 'string' || !isAddress(c.w) || !Number.isInteger(c.exp) || c.exp <= now || !Number.isInteger(c.iat)) return null;
+  if (isRevoked(revoked, c.w, c.iat)) return null;
   return { id: `w:${c.w}`, wallet: c.w };
 }

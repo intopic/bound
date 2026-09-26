@@ -407,11 +407,25 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
   2. To pause: promote that deployment (dashboard, "Promote to Production", or `vercel promote <url>`),
      which takes seconds. To resume: promote the normal deployment back ("Instant Rollback").
   3. Revoking an API key or rotating `ORIENTIM_API_SECRET` is a redeploy; for an urgent revocation,
-     pause first (step 2), then redeploy with the key removed.
+     pause first (step 2), then redeploy with the key removed. A self-serve key is revoked by its
+     wallet in `ORIENTIM_API_REVOKED`: `<wallet>@<unix seconds>` ends the keys issued until then and
+     lets the owner sign again. Rotating `ORIENTIM_KEY_SECRET` ends every self-serve key at once: every
+     agent must sign again (the plugin does it by itself, a key stored by hand stops working). Moving
+     the old secret to `ORIENTIM_KEY_SECRET_PREVIOUS` keeps them working while agents move over.
   4. Rehearse it once on a preview: promote, check `/api/status` says paused and a
      `sendTransaction` is refused, promote back, and write down how long each step took.
 - The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
-  or a multisig (e.g. Squads).
+  or a multisig (e.g. Squads). It is a hot wallet today (docs/AUDIT.md 0zh).
+- If the treasury is compromised (it happened once, 0zh): its key can take the fees it holds and
+  nothing else, since it never signs a swap. Then:
+  1. Stop sending fees there: pause (runbook above, step 2).
+  2. Move what is left to a safe wallet, if the key is still yours.
+  3. Make a new treasury, with its USDC and USDT accounts. Put it in `NEXT_PUBLIC_ORIENTIM_TREASURY`
+     and in the skill (`ORIENTIM_TREASURY` in `skills/orientim-protected-swap/src/verify.ts`), then
+     rebuild the skill. Agents refuse a fee to any treasury but the one pinned in their copy of the skill.
+  4. Release, redeploy and promote. Agents on an older copy of the skill refuse every swap until they
+     update, so raise `ORIENTIM_MIN_SKILL_VERSION` with the new skill's version and tell them.
+  5. Record it in docs/AUDIT.md, with the old and the new address.
 - Relays: `/api/rpc` sends and simulates only transactions shaped like a Orientim swap (two signers,
   one Jupiter route the verifier can read, otherwise only its trusted instruction shapes; review
   FA-06). That narrows what Orientim's RPC account can be used for, but a shape says nothing about
@@ -428,9 +442,9 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
   each with its fee where it belongs (SOL on either side, USDC from the output), one as a v1
   transaction, and Pump.fun buys on the curve and on PumpSwap; it fails on such a change, on a fee
   that is no longer taken where it should be, and exits 2 when nothing could be checked at all
-  (engineering review M-09). `.github/workflows/canary.yml` runs it every 30 minutes once the repository
-  variable `ORIENTIM_CANARY` is `1` (off by default: on a private repository it would use more than the
-  free Actions minutes). The page and the API also log Jupiter refusing Orientim's key (401, 403) or
+  (engineering review M-09). `.github/workflows/canary.yml` runs it every three hours once the repository
+  variable `ORIENTIM_CANARY` is `1` (off by default). Until it is set, and until `ORIENTIM_SITE_URL`
+  is set for the live check, nothing watches production: both are the owner's to switch on. The page and the API also log Jupiter refusing Orientim's key (401, 403) or
   an endpoint that is gone (404, 410) (research audit F-07, F-08).
 - Releases: deploy only tagged commits, and only after CI is green. The release workflow runs the
   typecheck, the tests and the skill bundle's check itself before it publishes a digest. Actions are pinned by commit, and
@@ -450,6 +464,24 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
 - Rate limits are keyed on the one header the ingress overwrites (`ORIENTIM_CLIENT_IP_HEADER`, default
   `x-vercel-forwarded-for`); no other header is read. They are per instance: set a rate-limit rule in
   the hosting firewall for a limit across instances.
+
+## The Solana Agent Kit plugin
+
+`integrations/solana-agent-kit` runs the skill's `protectedSwap` inside an agent. The model is one more
+actor, and not a trusted one:
+
+- **What the model chooses:** the tokens, the amount, and how far below the market price the minimum
+  may sit. That last one only up to the owner's `maxBelowBpsCap` (500 bps unless set); the floor is
+  what stops a compromised server's bad price, so a model talked into a wider one is refused.
+- **What the plugin does not limit:** no daily budget, no list of allowed tokens, no ceiling on the
+  amount. The agent's owner puts those between the model and the tool.
+- **One swap at a time, as far as its store reaches:** signed swaps are kept until settled, and no new
+  swap starts from a wallet while one may still land. In memory (the default, with a warning) that
+  holds within one process, even when the plugin is loaded twice. `stateDir` makes it hold across
+  processes and restarts on one machine, and `store` (a shared database) across servers.
+- **After a swap is sent,** its signature and outcome always reach the caller. Every number in
+  Orientim's answer is checked before the wallet signs, so nothing in the answer can turn a sent swap
+  into a report of refusal, which would invite a second swap (independent audit, ORI-01).
 
 ## Reporting
 

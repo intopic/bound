@@ -239,6 +239,18 @@ const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
  * your own RPC (review FA-01). Returns the problems found; sign only when there are none.
  */
 export async function checkPrepared(p: Prepared, intent: Intent, rpc: Rpc<SolanaRpcApi>, opts: { requestTimeoutMs?: number } = {}): Promise<string[]> {
+  // Every number in the answer is checked here, before the wallet signs, including those only shown
+  // once the swap is sent: nothing Orientim sends can make the report of a sent swap fail, and a
+  // report that fails invites a second swap (independent audit, ORI-01).
+  const digits = (v: unknown) => typeof v === 'string' && /^\d{1,20}$/.test(v);
+  const malformed = [
+    ...(['amountIn', 'fee', 'feeBps', 'swapAmount', 'quotedOut', 'minOut'] as const).filter(k => !digits(p.amounts?.[k])).map(k => `amounts.${k}`),
+    ...(['networkFeeLamports', 'outputAccountRentLamports', 'routeRentLamports', 'routeRefundLamports'] as const)
+      .filter(k => !digits(p.costs?.[k])).map(k => `costs.${k}`),
+    ...(p.costs?.keptSolLamports !== undefined && !digits(p.costs.keptSolLamports) ? ['costs.keptSolLamports'] : []),
+    ...(p.amounts?.feeMint !== undefined && typeof p.amounts.feeMint !== 'string' ? ['amounts.feeMint'] : []),
+  ];
+  if (malformed.length) return [`the answer's numbers are malformed: ${malformed.join(', ')}`];
   const problems: string[] = [];
   const tx = getTransactionDecoder().decode(Buffer.from(p.transaction, 'base64'));
   const digest = hex(await crypto.subtle.digest('SHA-256', new Uint8Array(tx.messageBytes)));

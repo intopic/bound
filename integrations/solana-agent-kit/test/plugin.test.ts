@@ -5,6 +5,9 @@
  * anything is sent.
  */
 import { createHash } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { address, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, verifySignature } from '@solana/kit';
 import type { Rpc, SolanaRpcApi } from '@solana/kit';
@@ -23,28 +26,30 @@ import { keyChallenge, keyIssue } from '../../../apps/web/lib/server/agent/acces
 import type { AccessDeps } from '../../../apps/web/lib/server/agent/access.ts';
 import { ORIENTIM_TREASURY } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
 import OrientimPlugin, { createOrientimPlugin, fromBaseUnits, SOL_MINT, swapSchema, toBaseUnits } from '../src/index.ts';
-import type { OrientimPluginOptions } from '../src/index.ts';
+import type { OrderBook, OrderRecord, OrientimPluginOptions, PendingStore, Signed } from '../src/index.ts';
+
+const SHARED = Symbol.for('@orientim/plugin-solana-agent-kit/shared');
 
 const API = 'http://orientim.test';
 const KEY = 'ori_plugin_test_key_000000000001';
 const KEY_SECRET = new Uint8Array(32).fill(21);
 const TREASURY = address(ORIENTIM_TREASURY);
 
-/** Jupiter as the agent reaches it itself, over HTTP. */
-const jupiterAnswer = async (url: string) => {
+/** Jupiter as the agent reaches it itself, over HTTP; `better` bps above what Orientim's server was quoted. */
+const jupiterAnswer = async (url: string, better = 0) => {
   const q = new URL(url).searchParams;
   const r = await fakeJupiter().build({
     inputMint: address(q.get('inputMint')!), outputMint: address(q.get('outputMint')!), amount: BigInt(q.get('amount')!),
     taker: address(q.get('taker')!), slippageBps: Number(q.get('slippageBps')), maxAccounts: Number(q.get('maxAccounts')),
   });
-  return Response.json(r);
+  return Response.json(better ? { ...r, outAmount: String((BigInt((r as { outAmount: string }).outAmount) * BigInt(10_000 + better)) / 10_000n) } : r);
 };
 
 /**
  * Orientim and the chain, for a wallet holding USDC; the agent's RPC sees each swap confirm, after
  * `slowLooks` looks that find nothing yet.
  */
-async function orientimFor(owner: string, slowLooks = 0) {
+async function orientimFor(owner: string, slowLooks = 0, edit?: (prepared: Record<string, unknown>) => Record<string, unknown>, better = 0) {
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
     [DEX, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }],
@@ -64,32 +69,46 @@ async function orientimFor(owner: string, slowLooks = 0) {
     keySecrets: [KEY_SECRET], minLamports: 10_000_000n,
   };
   const calls: string[] = [];
+  const prepared: Record<string, unknown>[] = [];
   const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push(url);
-    if (url.startsWith('https://api.jup.ag/')) return jupiterAnswer(url);
+    if (url.endsWith('/api/v1/prepare')) prepared.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    if (url.startsWith('https://api.jup.ag/')) return jupiterAnswer(url, better);
     const req = new Request(url, init);
     if (url.includes('/api/v1/keys/challenge')) return keyChallenge(req, access);
     if (url.endsWith('/api/v1/keys')) return keyIssue(req, access);
-    return url.endsWith('/api/v1/prepare') ? agentPrepare(req, deps) : agentFinalize(req, deps);
+    if (!url.endsWith('/api/v1/prepare')) return agentFinalize(req, deps);
+    const res = await agentPrepare(req, deps);
+    // A server that lies: its answer changed on the way.
+    return edit && res.ok ? Response.json(edit(await res.json() as Record<string, unknown>)) : res;
   }) as typeof fetch;
   let looks = 0;
   const agentRpc = {
     ...rpc,
     getSignatureStatuses: () => ({ send: async () => ({ value: [++looks <= slowLooks ? null : { confirmationStatus: 'confirmed', err: null }] }) }),
   } as unknown as Rpc<SolanaRpcApi>;
-  return { sent, calls, fetchImpl, agentRpc };
+  return { sent, calls, prepared, fetchImpl, agentRpc };
 }
 
 /** A real Agent Kit with its own keypair wallet (or `wrap` around it), and the plugin. */
-async function agentWith(opts: { config?: Config; plugin?: OrientimPluginOptions; wrap?: (w: BaseWallet, kp: Keypair) => BaseWallet; slowLooks?: number } = {}) {
+type AgentOptions = {
+  config?: Config; plugin?: OrientimPluginOptions; wrap?: (w: BaseWallet, kp: Keypair) => BaseWallet; slowLooks?: number;
+  edit?: (prepared: Record<string, unknown>) => Record<string, unknown>;
+  /** The market the agent sees is this many bps better than what Orientim's server quotes. */
+  better?: number;
+};
+async function agentWith(opts: AgentOptions = {}) {
   const kp = Keypair.generate();
-  const b = await orientimFor(kp.publicKey.toBase58(), opts.slowLooks);
-  const keypairWallet = new KeypairWallet(kp, 'http://127.0.0.1:1');
-  const wallet = opts.wrap ? opts.wrap(keypairWallet, kp) : keypairWallet;
-  const plugin = createOrientimPlugin({ apiUrl: API, rpc: b.agentRpc, fetchImpl: b.fetchImpl, pollMs: 1, ...opts.plugin });
-  const agent = new SolanaAgentKit(wallet, 'http://127.0.0.1:1', opts.config ?? { OTHER_API_KEYS: { ORIENTIM_API_KEY: KEY } }).use(plugin);
-  return { agent, kp, ...b };
+  const b = await orientimFor(kp.publicKey.toBase58(), opts.slowLooks, opts.edit, opts.better);
+  const again = (plugin: OrientimPluginOptions = {}) => {
+    const keypairWallet = new KeypairWallet(kp, 'http://127.0.0.1:1');
+    const wallet = opts.wrap ? opts.wrap(keypairWallet, kp) : keypairWallet;
+    const p = createOrientimPlugin({ apiUrl: API, rpc: b.agentRpc, fetchImpl: b.fetchImpl, pollMs: 1, acceptInMemoryState: true, ...plugin });
+    return new SolanaAgentKit(wallet, 'http://127.0.0.1:1', opts.config ?? { OTHER_API_KEYS: { ORIENTIM_API_KEY: KEY } }).use(p);
+  };
+  /** `again`: the same wallet in another copy of the plugin, as a second process or server would have it. */
+  return { agent: again(opts.plugin), again, kp, ...b };
 }
 
 const USDC_FOR_SOL = { inputMint: USDC, outputMint: SOL_MINT, inputAmount: 1 };
@@ -102,6 +121,14 @@ describe('whole tokens and base units', () => {
     expect(toBaseUnits(1.23456789, 6)).toBe(1_234_567n);
     expect(toBaseUnits(12, 0)).toBe(12n);
     expect(toBaseUnits(0.30000000000000004, 1)).toBe(3n);
+  });
+
+  it('rounds a minimum up, never down (independent audit, ORI-05)', () => {
+    expect(toBaseUnits(0.9, 0, 'up')).toBe(1n);
+    expect(toBaseUnits('995000000.9', 0, 'up')).toBe(995_000_001n);
+    expect(toBaseUnits('1.0000001', 6, 'up')).toBe(1_000_001n);
+    expect(toBaseUnits('1.0000000', 6, 'up')).toBe(1_000_000n);
+    expect(toBaseUnits(2.5, 6, 'up')).toBe(2_500_000n);
   });
 
   it('refuses what is not an amount, or is below the smallest unit', () => {
@@ -258,5 +285,158 @@ describe('the action in the AI frameworks', () => {
     expect(swapSchema.safeParse({ outputMint: USDC, inputAmount: 1 }).success).toBe(true);
     expect(swapSchema.safeParse({ outputMint: USDC, inputAmount: 1, inputMint: null, slippageBps: null }).success).toBe(true);
     expect(swapSchema.safeParse({ outputMint: USDC, inputAmount: 0 }).success).toBe(false);
+  });
+});
+
+describe('the independent audit of 26 September (ORI)', () => {
+  const unsettled = { slowLooks: 1e9, plugin: { maxWaitMs: 40 } };
+
+  it('ORI-01: a number that is not one is refused before the wallet signs; nothing is sent', async () => {
+    const { agent, sent } = await agentWith({
+      edit: p => ({ ...p, amounts: { ...(p.amounts as Record<string, unknown>), quotedOut: 'not-a-number' } }),
+    });
+    await expect(agent.methods.orientimSwap(agent, USDC_FOR_SOL)).rejects.toThrow(/malformed: amounts\.quotedOut/);
+    const tool = await agent.actions[0].handler(agent, { outputMint: SOL_MINT, inputMint: USDC, inputAmount: 1 });
+    expect(tool).toMatchObject({ status: 'error' });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('ORI-02: a swap that may still land stops every copy of the plugin in the process, not only its own', async () => {
+    const { agent, again, sent } = await agentWith(unsettled);
+    expect((await agent.methods.orientimSwap(agent, USDC_FOR_SOL)).outcome).toBe('unknown');
+    const sends = sent.length;
+    const second = again({ maxWaitMs: 40 });
+    await expect(second.methods.orientimSwap(second, USDC_FOR_SOL)).rejects.toMatchObject({ code: 'swap-unsettled' });
+    expect(sent).toHaveLength(sends);
+  });
+
+  it('ORI-02: with stateDir, a restarted process finds the swap that may still land and sends nothing new', async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-plugin-'));
+    const { agent, again, sent } = await agentWith({ ...unsettled, plugin: { maxWaitMs: 40, stateDir } });
+    expect((await agent.methods.orientimSwap(agent, USDC_FOR_SOL)).outcome).toBe('unknown');
+    const sends = sent.length;
+    const g = globalThis as unknown as Record<symbol, unknown>;
+    const before = g[SHARED];
+    delete g[SHARED]; // a new process: nothing in memory
+    try {
+      const restarted = again({ maxWaitMs: 40, stateDir });
+      await expect(restarted.methods.orientimSwap(restarted, USDC_FOR_SOL)).rejects.toMatchObject({ code: 'swap-unsettled' });
+      expect(sent).toHaveLength(sends);
+    } finally {
+      g[SHARED] = before;
+    }
+  });
+
+  it('ORI-02: a store of your own is the one used, so servers that share it share the guard', async () => {
+    const inner = new Map<string, Signed>();
+    const orders = new Map<string, OrderRecord>();
+    const store: PendingStore & OrderBook = {
+      put: async s => void inner.set(s.signature, s), remove: async sig => void inner.delete(sig), list: async () => [...inner.values()],
+      order: async id => orders.get(id) ?? null, recordOrder: async (id, r) => void orders.set(id, r),
+      claimOrder: async (id, r) => (orders.has(id) ? false : (orders.set(id, r), true)),
+    };
+    const { agent, again, sent } = await agentWith({ ...unsettled, plugin: { maxWaitMs: 40, store } });
+    expect((await agent.methods.orientimSwap(agent, { ...USDC_FOR_SOL, id: 'order-1' })).outcome).toBe('unknown');
+    expect(inner.size).toBe(1);
+    expect(orders.get('order-1')?.state).toBe('pending');
+    const g = globalThis as unknown as Record<symbol, unknown>;
+    const before = g[SHARED];
+    delete g[SHARED]; // another server: only the store is shared
+    try {
+      const elsewhere = again({ maxWaitMs: 40, store });
+      await expect(elsewhere.methods.orientimSwap(elsewhere, USDC_FOR_SOL)).rejects.toMatchObject({ code: 'swap-unsettled' });
+    } finally {
+      g[SHARED] = before;
+    }
+    expect(sent.filter((w, i) => sent.indexOf(w) === i)).toHaveLength(1);
+  });
+
+  it('ORI-02: without stateDir or store, the plugin says once that swaps are kept only in memory', async () => {
+    const g = globalThis as unknown as Record<symbol, unknown>;
+    const before = g[SHARED];
+    delete g[SHARED];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { again } = await agentWith();
+      again({ acceptInMemoryState: false });
+      again({ acceptInMemoryState: false });
+      again({ acceptInMemoryState: false, stateDir: mkdtempSync(join(tmpdir(), 'orientim-plugin-')) });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toMatch(/stateDir.*store/);
+    } finally {
+      warn.mockRestore();
+      g[SHARED] = before;
+    }
+  });
+
+  it('ORI-03: how far below the price the floor may go is capped by the owner, not the model', async () => {
+    const { agent, sent } = await agentWith();
+    const tool = (slippageBps: number) => agent.actions[0].handler(agent, { outputMint: SOL_MINT, inputMint: USDC, inputAmount: 1, slippageBps });
+    expect(await tool(800)).toMatchObject({ status: 'error', code: 'floor-too-low' });
+    expect(await tool(5_000)).toMatchObject({ status: 'error', code: 'invalid-input' });
+    await expect(agent.methods.orientimSwap(agent, { ...USDC_FOR_SOL, maxBelowBps: 9_999 })).rejects.toMatchObject({ code: 'floor-too-low' });
+    const strict = (await agentWith({ plugin: { maxBelowBpsCap: 100 } })).agent;
+    await expect(strict.methods.orientimSwap(strict, { ...USDC_FOR_SOL, maxBelowBps: 200 })).rejects.toMatchObject({ code: 'floor-too-low' });
+    expect(() => createOrientimPlugin({ maxBelowBpsCap: 20_000 })).toThrow(/maxBelowBpsCap/);
+    expect(sent).toHaveLength(0);
+    // Within the cap, the swap goes ahead.
+    expect(await tool(300)).toMatchObject({ status: 'success', outcome: 'confirmed' });
+  });
+
+  it('ORI-04: zero is a floor at the price, not "none"; what is not a number is refused', async () => {
+    // Orientim's server quotes 1% under the market the agent sees: within the default 2%, not within 0.
+    const { agent, sent } = await agentWith({ better: 100 });
+    // Refused by the server, which cannot meet a floor at the price, or by the check: either way not sent.
+    await expect(agent.methods.orientimSwap(agent, { ...USDC_FOR_SOL, maxBelowBps: 0 })).rejects.toThrow(/below yours|price-moved/);
+    await expect(agent.methods.orientimSwap(agent, { ...USDC_FOR_SOL, maxBelowBps: Number.NaN })).rejects.toMatchObject({ code: 'invalid-input' });
+    await expect(agent.methods.orientimSwap(agent, { ...USDC_FOR_SOL, maxBelowBps: 2.5 })).rejects.toMatchObject({ code: 'invalid-input' });
+    expect(sent).toHaveLength(0);
+    expect((await agent.methods.orientimSwap(agent, USDC_FOR_SOL)).outcome).toBe('confirmed');
+  });
+
+  it('ORI-05: a minimum in whole tokens is rounded up to the next base unit, never down', async () => {
+    const { agent, prepared } = await agentWith();
+    // A tenth of a lamport: rounded down it would be no minimum at all.
+    expect((await agent.methods.orientimSwap(agent, { ...USDC_FOR_SOL, minOutput: '0.0000000001' })).outcome).toBe('confirmed');
+    expect(prepared.at(-1)?.minOut).toBe('1');
+  });
+
+  it('ORI-06: an RPC that does not answer stops the swap in time, and frees the wallet for the next one', async () => {
+    const { agent, again, agentRpc } = await agentWith();
+    const hanging = {
+      ...agentRpc,
+      getMultipleAccounts: () => ({
+        send: ({ abortSignal }: { abortSignal: AbortSignal }) => new Promise((_, reject) => abortSignal.addEventListener('abort', () => reject(abortSignal.reason))),
+      }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    const stuck = again({ rpc: hanging, requestTimeoutMs: 50 });
+    const started = Date.now();
+    await expect(stuck.methods.orientimSwap(stuck, USDC_FOR_SOL)).rejects.toMatchObject({ code: 'rpc-unavailable' });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect((await agent.methods.orientimSwap(agent, USDC_FOR_SOL)).outcome).toBe('confirmed');
+  });
+
+  it('ORI-07: a settled swap whose record could not be removed is said as such, and nothing new is sent', async () => {
+    const inner = new Map<string, Signed>();
+    const store: PendingStore & OrderBook = {
+      put: async s => void inner.set(s.signature, s), remove: async () => { throw new Error('disk is read-only'); }, list: async () => [...inner.values()],
+      order: async () => null, recordOrder: async () => {}, claimOrder: async () => true,
+    };
+    const { agent, sent } = await agentWith({ plugin: { store } });
+    const first = await agent.methods.orientimSwap(agent, USDC_FOR_SOL);
+    expect(first.outcome).toBe('confirmed');
+    expect(first.bookkeepingError).toMatch(/read-only/);
+    const sends = sent.length;
+    await expect(agent.methods.orientimSwap(agent, USDC_FOR_SOL)).rejects.toMatchObject({ code: 'record-not-updated' });
+    await expect(agent.methods.orientimSwap(agent, USDC_FOR_SOL)).rejects.toThrow(new RegExp(`${first.signature}\\) ended confirmed`));
+    expect(sent).toHaveLength(sends);
+  });
+
+  it('ORI-08: a token account is not a mint; the model is told the minimum, not an amount received', async () => {
+    const { agent, kp } = await agentWith();
+    const account = await ataOf(address(kp.publicKey.toBase58()), USDC);
+    await expect(agent.methods.orientimSwap(agent, { ...USDC_FOR_SOL, outputMint: account })).rejects.toMatchObject({ code: 'not-a-token' });
+    const r = await agent.actions[0].handler(agent, { outputMint: SOL_MINT, inputMint: USDC, inputAmount: 1 });
+    expect(r.message).toMatch(/^The swap landed: at least [\d.]+ of the output token was received/);
   });
 });

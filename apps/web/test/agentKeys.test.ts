@@ -3,10 +3,11 @@
  * it. Every way around it must fail: a message Orientim did not write, a stale one, another wallet's
  * signature, a changed or expired or revoked key, an empty wallet, and a key used for another wallet.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSigner, getBase58Decoder, signBytes } from '@solana/kit';
 import type { KeyPairSigner } from '@solana/kit';
-import { acceptChallenge, challengeMessage, issueKey, KEY_LIFETIME_S, newChallenge, openKey } from '../lib/server/agent/keys.ts';
+import { acceptChallenge, challengeMessage, isRevoked, issueKey, KEY_LIFETIME_S, newChallenge, openKey } from '../lib/server/agent/keys.ts';
+import { accessDeps, keySecrets } from '../lib/server/agent/config.ts';
 import { keyChallenge, keyIssue } from '../lib/server/agent/access.ts';
 import type { AccessDeps } from '../lib/server/agent/access.ts';
 import { agentPrepare } from '../lib/server/agent/api.ts';
@@ -156,5 +157,78 @@ describe('a self-serve key in the agent API', () => {
     const { key } = await issueKey(secret(6), W.address, Math.floor(Date.now() / 1000));
     expect((await agentPrepare(prepare(key, W.address), api([secret(6)], [W.address]))).status).toBe(401);
     expect((await agentPrepare(prepare(key, W.address), api([]))).status).toBe(401);
+  });
+});
+
+describe('the independent audit of 26 September (ORI-12, ORI-13)', () => {
+  const balance = { getBalance: () => ({ send: async () => ({ value: 20_000_000n }) }) } as unknown as AccessDeps['rpc'];
+  const site = (origin: string | null): AccessDeps => ({ rpc: balance, keySecrets: [secret(8)], minLamports: 10_000_000n, origin, now: () => NOW * 1000 });
+  let ip = 0;
+  const from = () => ({ 'x-vercel-forwarded-for': `10.2.0.${++ip}` });
+
+  it("the message names the deployment's own site, whatever host the request claims", async () => {
+    const W = await generateKeyPairSigner();
+    const res = await keyChallenge(new Request(`https://phishing.example/api/v1/keys/challenge?wallet=${W.address}`, { headers: from() }), site('https://orientim.com'));
+    const { message } = await res.json() as { message: string };
+    expect(message.split('\n')[0]).toBe('orientim.com wants you to sign in with your Solana account:');
+    expect(message).toContain('URI: https://orientim.com/docs#access');
+  });
+
+  it('a message Orientim wrote for another host is refused where the site is set', async () => {
+    const W = await generateKeyPairSigner();
+    const got = await keyChallenge(new Request(`https://phishing.example/api/v1/keys/challenge?wallet=${W.address}`, { headers: from() }), site(null));
+    const c = await got.json() as { message: string; challenge: string };
+    expect(c.message.startsWith('phishing.example wants you')).toBe(true);
+    const res = await keyIssue(new Request('https://orientim.com/api/v1/keys', {
+      method: 'POST', headers: from(), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
+    }), site('https://orientim.com'));
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: { message: string } }).error.message).toMatch(/another site/);
+  });
+
+  it('wallet@time revokes the keys issued until then, and its owner signs again for a new one', async () => {
+    const W = await generateKeyPairSigner();
+    const { key: leaked } = await issueKey(secret(9), W.address, NOW);
+    const { key: fresh } = await issueKey(secret(9), W.address, NOW + 60);
+    const revoked = new Set([`${W.address}@${NOW}`]);
+    expect(await openKey([secret(9)], leaked, NOW + 120, revoked)).toBeNull();
+    expect(await openKey([secret(9)], fresh, NOW + 120, revoked)).toEqual({ id: `w:${W.address}`, wallet: W.address });
+    expect(isRevoked(new Set([W.address]), W.address, NOW + 60)).toBe(true);
+    expect(isRevoked(new Set([`${W.address}@soon`]), W.address, NOW)).toBe(false);
+    expect(KEY_LIFETIME_S).toBe(90 * 24 * 3600);
+  });
+
+  describe('settings', () => {
+    const saved = { ...process.env };
+    afterEach(() => {
+      process.env = { ...saved };
+      vi.restoreAllMocks();
+    });
+    const good = Buffer.alloc(32, 7).toString('base64');
+
+    it('a secret that is not 32 random bytes in base64 leaves self-serve keys off', () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      for (const weak of ['correct horse battery staple and more words to fill', Buffer.alloc(32, 5).toString('base64url'), `${good.slice(0, -2)}!=`, Buffer.alloc(16, 1).toString('base64')]) {
+        process.env.ORIENTIM_KEY_SECRET = weak;
+        expect(keySecrets(), weak).toEqual([]);
+      }
+      process.env.ORIENTIM_KEY_SECRET = good;
+      expect(keySecrets()).toHaveLength(1);
+    });
+
+    it('the minimum balance is never below 0.001 SOL, and a site that is not https keeps keys off', () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      Object.assign(process.env, {
+        ORIENTIM_API_SECRET: good, ORIENTIM_KEY_SECRET: Buffer.alloc(32, 8).toString('base64'), ORIENTIM_KEY_MIN_LAMPORTS: '0',
+        ORIENTIM_PUBLIC_ORIGIN: 'https://orientim.com/', RPC_URL: 'http://127.0.0.1:1',
+      });
+      delete process.env.NEXT_PUBLIC_ORIENTIM_TREASURY;
+      const deps = accessDeps();
+      expect(deps?.minLamports).toBe(1_000_000n);
+      expect(deps?.origin).toBe('https://orientim.com');
+      process.env.ORIENTIM_PUBLIC_ORIGIN = 'http://orientim.com';
+      expect(accessDeps()).toBeNull();
+    });
   });
 });

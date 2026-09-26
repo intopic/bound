@@ -1524,6 +1524,111 @@ Read back from the chain:
 Not done: the npm release, which is the owner's step and needs the `@orientim` scope. The package is
 marked private until then.
 
+## 0zp. The independent audit of 26 September: ORI-01 to ORI-18 (26 September 2026)
+
+An independent audit of `main` at `ff84321` was run in an isolated container, with no network. It
+found nothing Critical or High in the web app or the API. The verdicts were:
+
+- **GO** for the transaction guarantee, within what was verified: 300,000 verifier fuzz cases, the
+  800,000-case Token-2022 matrix, an independent decoder of the bytes, and Orientim's instructions
+  run in a local Solana VM.
+- **CONDITIONAL** for the web app and the API.
+- **NO-GO** for the Solana Agent Kit plugin until ORI-01, 02, 03 and 09 were fixed. All three
+  Medium findings were in the plugin, written the same day.
+
+Every finding was checked against the code before it was fixed. Each fix below has a test that fails
+without it. For the plugin, each fix was taken out once and its test was seen to fail.
+
+**Plugin (Medium)**
+
+- **ORI-01.** A sent swap could come back as "refused". A number in the answer that is not one
+  (`quotedOut`) passed the check, the swap was sent and confirmed, and only then did the plugin fail
+  to convert it. It answered `swap-refused` with no signature, and a model would try again.
+  - `checkPrepared` now refuses, before the wallet signs, any answer whose amounts or costs are not
+    whole numbers.
+  - The plugin's report of a sent swap cannot fail. Its signature and outcome always come back.
+  - Tests: skillExample (four fields, and the whole flow: nothing sent) and plugin ORI-01.
+- **ORI-02.** Two copies of the plugin, the `import` and the `require` build, each had their own
+  memory. So did a restart, or a second server. Each could send a second swap while one might still
+  land.
+  - The queue, the memory store and the keys are now shared by every copy in a process.
+  - A `store` option takes a shared database, for several servers.
+  - `stateDir` survives restarts.
+  - The plugin warns once when it keeps swaps only in memory.
+  - The README says which to use where. The tool never takes an order id: that is for the owner's code.
+- **ORI-03.** The model could set the minimum up to 50% below the price. That floor is what stops a
+  compromised server's bad price, so a prompt injection could have switched it off.
+  - `maxBelowBpsCap`, the owner's setting (500 bps unless set), now bounds the tool and the method alike.
+  - Above it, the swap is refused with `floor-too-low`.
+  - The tool's schema allows at most 1,000.
+
+**Plugin (Low, Info)**
+
+- **ORI-04.** `maxBelowBps: 0` now means a floor at the price, not the default; `NaN` or a fraction is
+  refused.
+- **ORI-05.** `minOutput` is rounded up, never down.
+- **ORI-06.** Reading the mints has a timeout (`requestTimeoutMs`), and a hung RPC no longer holds the
+  wallet's queue.
+- **ORI-07.** A settled swap whose record could not be removed is reported as such
+  (`record-not-updated`), not as "may still land".
+- **ORI-08.** A token account is no longer taken for a mint. The model is told that the minimum is
+  what the transaction enforced, not the amount received.
+- **ORI-09.** The package is now built and checked properly.
+  - rolldown, which the build and the skill's build use, is declared at the root.
+  - A CI job, `plugin`, installs the plugin's own dependencies, runs its typecheck and tests, packs it,
+    installs the tarball in an empty project with the Agent Kit, and loads it with `import` and with
+    `require`.
+  - The peer ranges are narrowed to what was tested: solana-agent-kit ^2.0.10, zod ^3.25.0 (2.0.7
+    with zod 3.24 failed to load) and @solana/web3.js ^1.98.2.
+  - The declared types are now held to the source by exact equality. Mutual assignability had missed
+    an added optional field.
+  - `RELEASE.md` lists the owner's steps before the first release.
+
+**Keys and settings (Low)**
+
+- **ORI-12.** The key message named whatever host a request claimed. It now names the site in
+  `ORIENTIM_PUBLIC_ORIGIN`, and a message naming another site is refused.
+  - A key is revoked by `<wallet>@<unix seconds>`: the keys issued until then stop working, and the
+    owner signs again for a new one.
+  - Keys last 90 days instead of 180.
+  - A signed challenge may be exchanged again within its ten minutes, for another key of the same
+    wallet. This stays so, and is documented: nothing is stored, and the second key gives nothing more.
+- **ORI-13.** Secrets must be canonical base64 of at least 32 bytes, or their feature stays off, and
+  this is said once in the logs.
+  - `ORIENTIM_KEY_MIN_LAMPORTS` is never below 0.001 SOL.
+  - An API fee above the page's is logged as a warning.
+
+**Web and operations**
+
+- **ORI-15.** After a swap, the page said "The swap could spend only X from your wallet". It now says
+  "The swap could use only X", which claims no more than is exact. The network fee and a fee paid in
+  SOL also leave the wallet.
+  - The account deposit stays off the card, by the owner's decision (0zm): it is the same on every DEX,
+    and it stays the wallet's.
+- **ORI-17.** SECURITY.md said the canary ran every 30 minutes; it runs every three hours. It now also
+  says that nothing watches production until the owner sets `ORIENTIM_CANARY` and `ORIENTIM_SITE_URL`.
+  - The runbook adds what to do if the treasury is compromised, and what rotating `ORIENTIM_KEY_SECRET`
+    does to agents.
+- **ORI-16, ORI-18.** These were documented already. Moving the treasury to a multisig remains the
+  owner's step.
+- **The report's evidence gaps.** The README no longer says the real-wallet test is still to be done:
+  - Phantom (ten swaps, 0zg) and Trust Wallet (one, 0zh) were tested on mainnet;
+  - Solflare and Backpack remain;
+  - the plugin's mainnet swap was read back from the chain (0zo).
+
+**Tests.** 574 in the repository (6 new) and 28 in the plugin (12 new). Live, on a production build
+on this machine: a key for the test wallet (90 days), prepare for its own wallet (200) and for another
+(403), a changed key (401). A challenge asked for with `Host: phishing.example` still named the
+configured site.
+
+**Left to the owner:**
+
+- `ORIENTIM_PUBLIC_ORIGIN` and `ORIENTIM_KEY_SECRET` on Vercel;
+- the monitoring variables;
+- Solflare and Backpack;
+- a multisig treasury;
+- the npm release.
+
 ---
 
 ## 1. What Orientim is

@@ -17,6 +17,11 @@ export type AccessDeps = {
   keySecrets: readonly Uint8Array[];
   /** What the wallet must hold to get a key, so that wallets made by the thousand cost something. */
   minLamports: bigint;
+  /**
+   * The site the message names (ORIENTIM_PUBLIC_ORIGIN, e.g. https://orientim.com), whatever host a
+   * request claims; the request's own when unset, as on a machine of one's own (ORI-12).
+   */
+  origin?: string | null;
   now?: () => number;
 };
 
@@ -33,7 +38,8 @@ export async function keyChallenge(req: Request, deps: AccessDeps): Promise<Resp
   const url = new URL(req.url);
   const wallet = url.searchParams.get('wallet') ?? '';
   if (!isAddress(wallet)) return fail(400, 'bad-request', 'wallet must be a Solana address.');
-  const c = await newChallenge(deps.keySecrets[0], { domain: url.host, uri: `${url.origin}/docs#access`, wallet, now: seconds(deps) });
+  const site = new URL(deps.origin ?? url.origin);
+  const c = await newChallenge(deps.keySecrets[0], { domain: site.host, uri: `${site.origin}/docs#access`, wallet, now: seconds(deps) });
   return json(200, c);
 }
 
@@ -49,7 +55,10 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
     body = null;
   }
   if (!body || typeof body !== 'object') return fail(400, 'bad-request', 'Send { "message", "challenge", "signature" }.');
-  const accepted = await acceptChallenge(deps.keySecrets, { message: body.message, challenge: body.challenge, signature: body.signature, now: seconds(deps) });
+  const accepted = await acceptChallenge(deps.keySecrets, {
+    message: body.message, challenge: body.challenge, signature: body.signature, now: seconds(deps),
+    ...(deps.origin ? { domain: new URL(deps.origin).host } : {}),
+  });
   if ('error' in accepted) return fail(400, 'bad-signature', accepted.error);
   let lamports: bigint;
   try {

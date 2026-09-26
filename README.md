@@ -30,7 +30,9 @@ Wallets: any wallet that signs a transaction and hands it back unsent (Wallet St
 enabled, only a route too big for v0 is built as v1, because not every signer reads v1 yet (Ledger's
 Solana app does not). Phantom's embedded wallets (sign-and-send
 only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first, so they cannot use Orientim
-(review FA-14). The real-wallet test with Phantom, Solflare and Backpack is still to be done.
+(review FA-14). Tested with real wallets on mainnet: Phantom (ten swaps, Token-2022 and Pump.fun
+among them, docs/AUDIT.md 0zg) and Trust Wallet (one swap, 0zh). Solflare and Backpack are still to be
+tested.
 
 | Rule | Guarantee |
 | --- | --- |

@@ -20,6 +20,37 @@ jobs:
       - run: node tools/build-skill.ts --check
       - run: npm run build
 
+  plugin:
+    # The Solana Agent Kit plugin (integrations/solana-agent-kit): its own dependencies, the
+    # repository's tools. Built, tested, packed, then installed and loaded the way a project that uses
+    # it would, with import and with require (independent audit, ORI-09).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            integrations/solana-agent-kit/package-lock.json
+      - run: npm ci
+      - run: npm ci --ignore-scripts
+        working-directory: integrations/solana-agent-kit
+      - run: npm run typecheck
+        working-directory: integrations/solana-agent-kit
+      - run: npm test
+        working-directory: integrations/solana-agent-kit
+      - name: Pack, install as a project would, load both ways
+        working-directory: integrations/solana-agent-kit
+        run: |
+          tgz="$RUNNER_TEMP/$(npm pack --pack-destination "$RUNNER_TEMP" | tail -1)"
+          mkdir "$RUNNER_TEMP/consumer" && cd "$RUNNER_TEMP/consumer"
+          npm init -y > /dev/null
+          npm install --ignore-scripts --no-audit --no-fund "$tgz" solana-agent-kit@2.0.10 @solana/web3.js@1.99.0 zod@3.25.76
+          node --input-type=module -e "import P, { createOrientimPlugin } from '@orientim/plugin-solana-agent-kit'; if (P.actions[0].name !== 'ORIENTIM_PROTECTED_SWAP' || typeof createOrientimPlugin !== 'function') process.exit(1);"
+          node -e "const m = require('@orientim/plugin-solana-agent-kit'); if (m.default.name !== 'orientim' || m.toBaseUnits(0.5, 9) !== 500000000n) process.exit(1);"
+
   reproducible:
     # The digest of the built client assets is what a user can check against the audited source,
     # and it is worth nothing unless the same source always produces the same bytes.

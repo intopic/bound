@@ -55,7 +55,7 @@ Requests are limited per key (60 per minute per endpoint by default). A `429` me
 A key comes from the wallet itself, with no form: the wallet signs Orientim's message, a Sign In With
 Solana text that names it, and gets a key bound to it. Signing moves nothing. The key prepares swaps
 for that wallet only (another `owner` is refused with `403 wrong-wallet`), so a leaked key is worth
-nothing for any other wallet; its limits count per wallet. It lasts 180 days; sign again for a new
+nothing for any other wallet; its limits count per wallet. It lasts 90 days; sign again for a new
 one. The wallet must hold at least 0.01 SOL.
 
 ```http
@@ -74,6 +74,13 @@ wallet**: a signature over bytes someone else chose could be a signature for a t
 `requestApiKey` (and `orientim-verify key-challenge`, then `key`) checks the message before anything is
 signed: this host, this wallet, the key statement, plain text and nothing more. Keys issued by hand
 keep working beside these.
+
+The message always names Orientim's own site (`ORIENTIM_PUBLIC_ORIGIN` on the deployment), whatever
+host a request claims, and a message naming another site is refused. A signed challenge is not
+spent when it is used: within its 10 minutes it can be exchanged again, for another key of the same
+wallet, which gives nothing more. A key is revoked by its wallet: `ORIENTIM_API_REVOKED` lists
+`<wallet>` (all its keys) or `<wallet>@<unix seconds>` (its keys issued until then, so that the
+wallet's owner can sign again for a new one).
 
 ## Fee
 

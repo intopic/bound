@@ -10,7 +10,8 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "typeRoots": ["../../node_modules/@types"]
+    "typeRoots": ["../../node_modules/@types"],
+    "paths": { "@solana/kit": ["../../node_modules/@solana/kit"] }
   },
   "include": ["src", "test", "types", "build.ts"]
 }

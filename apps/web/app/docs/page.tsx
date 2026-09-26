@@ -101,7 +101,7 @@ Authorization: Bearer ori_...
         <h2>API access</h2>
         <p>
           Get a key at once, with no form: the wallet your agent swaps from signs a message, and the key is bound to that wallet.
-          Signing moves nothing. The wallet needs at least 0.01 SOL, and the key lasts 180 days.
+          Signing moves nothing. The wallet needs at least 0.01 SOL, and the key lasts 90 days.
         </p>
         <GetApiKey />
         <h3>From the command line, with the agent&apos;s own wallet</h3>

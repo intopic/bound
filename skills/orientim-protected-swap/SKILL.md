@@ -63,6 +63,8 @@ Run or adapt `examples/swap.ts`. Do not write the flow from scratch, and never d
    (`ownSolFeeLimit` from `lib/orientim-verify.mjs` asks Jupiter; the example does it).
 3. **Verify before signing** with `checkPrepared(prepared, intent, rpc)`. Refuse to sign if it
    returns any problem. It checks:
+   - that every number in the answer is a whole number, including those only shown after the swap:
+     whatever you read from the answer once it is sent must not fail then, or a sent swap looks refused;
    - that the answer agrees with itself and with what you asked: tokens, amount, wallet, fee at most
      your limit, minimum at least yours, network fee within your limit;
    - that the policy is held to your intent: owner, mints, amount, Jupiter's program, the one-time
