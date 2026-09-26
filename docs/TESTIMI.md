@@ -111,7 +111,7 @@ npm run start -w @orientim/web
 ```
 
 3. Hap http://localhost:3000 dhe kliko **Connect wallet** → Phantom.
-4. Shkruaj **2** USDC → SOL. Nën shumën që merr shfaqet vlera në dollarë, dhe poshtë, te rreshtat, **Rate**, **Price impact**, **Max slippage**, **Minimum received … SOL** (kalo miun sipër për shënimin se swap-i anulohet nëse arrin më pak), **Spend limit 2 USDC** dhe **Wallet access: This swap only**. Për tokenin kliko mbi të (p.sh. **USDC ▾**): hapet dritarja **Select a token** me kërkimin lart, si te DEX-et.
+4. Shkruaj **2** USDC → SOL. Nën shumën që merr shfaqet vlera në dollarë, dhe poshtë, te rreshtat, **Rate**, **Price impact**, **Max slippage**, **Minimum received … SOL** (kalo miun sipër për shënimin se swap-i anulohet nëse arrin më pak), **Spend limit 2 USDC** dhe **Wallet authority: Stays with you**. Për tokenin kliko mbi të (p.sh. **USDC ▾**): hapet dritarja **Select a token** me kërkimin lart, si te DEX-et.
 5. Kliko **Protected swap**. Ndërsa hapet Phantom, rreshti **Minimum received** tregon minimumin e saktë që do të kontrollohet, dhe te **Fees ▾** del fee-ja e saktë e rrjetit. Nëse çmimi ka lëvizur më shumë se toleranca (0.5%, ose 3% në bonding curve) që kur e pe, faqja të pyet para se të hapet Phantom-i: **Continue with the new minimum** ose **Cancel**.
 6. Në dritaren e Phantom-it kontrollo:
    - −2 USDC dhe +SOL;

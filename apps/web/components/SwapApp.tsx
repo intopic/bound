@@ -1470,9 +1470,9 @@ export function SwapApp() {
               <span>Spend limit</span>
               <span>{`${formatUnits(amountIn, inDecimals, 6)} ${tokenIn.symbol}${solFeeOnTop ? ` + ${solFeeOnTop} fee` : ''}`}</span>
             </div>
-            <div className="detail-row" title="No access to the rest of your wallet, and no permission that outlasts the swap.">
-              <span>Wallet access</span>
-              <span>This swap only</span>
+            <div className="detail-row" title="The route never gets your wallet's authority, and nothing stays approved after the swap.">
+              <span>Wallet authority</span>
+              <span>Stays with you</span>
             </div>
           </div>
         )}

@@ -125,7 +125,7 @@ try {
   await page.locator('.detail-row', { hasText: /Minimum received.*SOL/ }).waitFor({ timeout: 20_000 });
   check('live quote appears', true, await page.locator('.box').nth(1).locator('.amount').innerText());
   check('with a quote, the limits of this swap are shown', await page.getByText('Spend limit').isVisible()
-    && await page.getByText('This swap only').isVisible());
+    && await page.getByText('Stays with you').isVisible());
   await page.screenshot({ path: `${OUT}/2-quote.png` });
 
   const clickedAt = await page.evaluate(() => Date.now());
