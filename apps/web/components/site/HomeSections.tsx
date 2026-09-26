@@ -156,8 +156,8 @@ export function HomeSections() {
           <div className="evidence">
             <a href="/security"><b>How protection works</b><span>The model, its assumptions and its limits</span></a>
             <a href="/proof"><b>Real swaps</b><span>Every test on mainnet, with its transaction</span></a>
-            <a href="/audits"><b>Reviews</b><span>What each review found, and its type</span></a>
-            <a href="/supported"><b>Supported tokens</b><span>What can be swapped, and why some can&apos;t</span></a>
+            <a href="/proof#reviews"><b>Reviews</b><span>What each review found, and its type</span></a>
+            <a href="/security#supported"><b>Supported tokens</b><span>What can be swapped, and why some can&apos;t</span></a>
           </div>
         </div>
       </section>
@@ -185,7 +185,7 @@ export function HomeSections() {
               <p>Some markets and tokens add a charge. It is shown and asked about first.</p>
             </div>
           </div>
-          <a className="text-link" href="/fees">How fees work →</a>
+          <a className="text-link" href="/security#fees">How fees work →</a>
         </div>
       </section>
 

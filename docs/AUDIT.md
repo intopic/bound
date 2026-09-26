@@ -1749,6 +1749,54 @@ and the transaction is verified before signing. What the page did beyond that, a
 - what arrived, for a token and for SOL;
 - the command line with the same limits.
 
+## 0zt. A protection layer, not an exchange: the terms, the privacy notice and fewer pages (26 September 2026)
+
+The owner's decisions:
+- Orientim is a protector, not a DEX, and its terms say so.
+- It keeps nothing, and the documents say that too.
+- The site keeps only the pages it needs.
+
+**Terms**
+- **What Orientim is.** "A protection layer for Solana swaps. It is not an exchange, a broker or a
+  market: it does not set prices, match orders or hold funds."
+- **What Orientim keeps.** "Nothing": no accounts, no database, and no record of swaps, wallets or
+  keys on its servers. Recent swaps stay in the person's own browser.
+- **Developers, agents and bots.** New section:
+  - a key is bound to its wallet, lasts 90 days and can be revoked;
+  - the owner is responsible for the agent's decisions and limits, its keys and records, and running
+    the checks on their own RPC;
+  - an integration that skips the checks relies on Orientim's answer alone;
+  - rate limits apply, and abuse ends a key.
+- **Risks.** The risks page is now a section of the terms, `/terms#risks`.
+
+**Privacy**
+- The server keeps no record of the requests it answers.
+- New section for developers, agents and bots:
+  - the key message and the balance read are not kept, and there is no list of keys;
+  - an agent's requests are used to build its swap and are not kept;
+  - an agent keeps its own records.
+
+**Pages: from ten to six**
+- The six are Security, Docs, Proof, Status, Terms and Privacy.
+- Fees and supported tokens are sections of Security (`#fees`, `#supported`).
+- The reviews and how Orientim is tested are sections of Proof (`#reviews`, `#testing`), with the
+  26 September audit added.
+- `/fees`, `/supported`, `/audits` and `/risks` redirect (308) to their new places, as `/how` already did.
+- The footer and the home page link there.
+- The wallet diagnostic is a testing tool: it answers 404 unless `ORIENTIM_DIAGNOSTIC=1`.
+  `tools/check-live.ts` now checks `/`, `/docs` and `/security` instead.
+- The docs page says that every integration has the page's protection (0zs), and its example
+  request carries `slippageBps`.
+
+**Checked in Edge** at 1280 and 390 pixels:
+- every redirect and its target;
+- the new sections on each page;
+- `/diagnostic` answering 404;
+- the footer links;
+- no page errors and no sideways scroll.
+
+591 tests pass.
+
 ---
 
 ## 1. What Orientim is

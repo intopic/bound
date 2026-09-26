@@ -28,7 +28,25 @@ export default async function Page() {
           <li>Token icons, fetched by the server so that your browser never contacts the hosts token creators choose.</li>
           <li>Your IP address, used in memory to limit how often requests can be made, and in the hosting provider&apos;s logs.</li>
         </ul>
-        <p>Orientim does not use cookies, analytics or advertising trackers.</p>
+        <p>
+          None of it is kept: Orientim&apos;s servers answer each request and keep no record of it. Orientim does not use cookies,
+          analytics or advertising trackers.
+        </p>
+      </section>
+      <section id="developers">
+        <h2>Developers, agents and bots</h2>
+        <ul>
+          <li>
+            To issue an API key, Orientim checks the message your wallet signed and reads the wallet&apos;s SOL balance. It keeps
+            neither. The key itself carries its wallet address and its expiry, sealed so that only Orientim can verify it:
+            Orientim keeps no list of keys.
+          </li>
+          <li>
+            An agent&apos;s requests carry its wallet address, the tokens and the amount, as any swap does. They are used to build
+            the swap and are not kept.
+          </li>
+          <li>Your agent or bot keeps its own records, on its own machine.</li>
+        </ul>
       </section>
       <section>
         <h2>What is public by nature</h2>

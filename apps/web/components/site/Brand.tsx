@@ -50,9 +50,9 @@ export function SiteHeader({ right }: { right: ReactNode }) {
 }
 
 const FOOTER: [string, [string, string][]][] = [
-  ['Product', [['Swap', '/#swap'], ['Supported tokens', '/supported'], ['Fees', '/fees'], ['Status', '/status']]],
-  ['Developers', [['Docs', '/docs'], ['Agent skill', '/docs#skill'], ['API', '/docs#api'], ['API access', '/docs#access'], ['Reviews', '/audits']]],
-  ['Trust', [['Security', '/security'], ['Real swaps', '/proof'], ['Risks', '/risks'], ['Terms', '/terms'], ['Privacy', '/privacy']]],
+  ['Product', [['Swap', '/#swap'], ['Supported tokens', '/security#supported'], ['Fees', '/security#fees'], ['Status', '/status']]],
+  ['Developers', [['Docs', '/docs'], ['Agent skill', '/docs#skill'], ['API', '/docs#api'], ['API access', '/docs#access']]],
+  ['Trust', [['Security', '/security'], ['Proof and reviews', '/proof'], ['Terms and risks', '/terms'], ['Privacy', '/privacy']]],
 ];
 
 export function SiteFooter() {

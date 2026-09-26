@@ -8,8 +8,19 @@ const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFrac
 
 export const metadata = {
   title: 'Security — Orientim',
-  description: 'What a protected swap guarantees, what it does not, and what it costs.',
+  description: 'What a protected swap guarantees, what it does not, what it costs, and what it supports.',
 };
+
+const SUPPORTED: [string, string][] = [
+  ['SOL and standard SPL tokens', 'Supported'],
+  ['Token-2022 tokens with metadata, groups, close authority or confidential transfers', 'Supported'],
+  ['Token-2022 tokens with a transfer tax', 'Supported; the tax is stated before your wallet opens'],
+  ['Stablecoins whose issuer holds a permanent delegate (PYUSD, USDG, AUSD, CASH)', 'Supported, with a warning'],
+  ['Pump.fun tokens, on the launch curve and on PumpSwap', 'Supported'],
+  ['Tokens with an active transfer hook, frozen by default, pausable, non-transferable or interest-bearing', 'Refused, with the reason: Orientim cannot isolate them'],
+  ['Markets that open an account and leave it open', 'Refused: the deposit would be lost'],
+  ['Routes too large for one transaction', 'Refused: Orientim never splits a swap'],
+];
 
 /**
  * What the product promises, in the words a person swapping needs, and no more than the code
@@ -88,18 +99,46 @@ export default async function Page() {
         </ul>
       </section>
 
-      <section>
-        <h2>What it costs</h2>
+      <section id="fees">
+        <h2>Fees</h2>
+        <p>Every cost is shown before your wallet opens, and the exact amounts while it is open.</p>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Cost</th><th>Amount</th><th>Who receives it</th></tr></thead>
+            <tbody>
+              <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText} of the swap` : 'None on this deployment'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
+              <tr><td>Network fee</td><td>Usually ~0.00002 SOL, never more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is shown before you sign.</td></tr>
+              <tr><td>Market account fee</td><td>Only on some markets, such as a Pump.fun launch curve</td><td>The market. Shown and asked about before your wallet opens.</td></tr>
+              <tr><td>Token transfer tax</td><td>Only on tokens that tax transfers</td><td>The token&apos;s issuer. Stated before your wallet opens.</td></tr>
+            </tbody>
+          </table>
+        </div>
         <ul>
-          {TREASURY ? (
-            <li>Orientim&apos;s fee is {feeText} of the swap, shown before your wallet opens. It is taken in one of the swap&apos;s own tokens when possible (SOL, USDC or USDT first), otherwise in SOL from your wallet.</li>
-          ) : (
-            <li>This deployment takes no Orientim fee.</li>
-          )}
-          <li>The network fee, usually a fraction of a cent and never more than 0.001 SOL, is shown exactly before you sign.</li>
+          <li>No fee to connect, to get a price or to cancel.</li>
+          <li>A swap that does not run, because less than the minimum would arrive or its time ran out, costs at most the network fee.</li>
+          <li>Swaps smaller than $1 are not offered: the costs would be larger than the swap.</li>
+        </ul>
+      </section>
+
+      <section id="supported">
+        <h2>Supported tokens and wallets</h2>
+        <p>
+          Orientim works with any token pair Jupiter can route and Orientim can safely isolate. Paste any token&apos;s address in
+          the token window to check it: a token Orientim cannot swap safely is marked, and the page says why.
+        </p>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Kind</th><th>Answer</th></tr></thead>
+            <tbody>{SUPPORTED.map(([kind, answer]) => <tr key={kind}><td>{kind}</td><td>{answer}</td></tr>)}</tbody>
+          </table>
+        </div>
+        <ul>
+          <li><strong>Browser wallets that sign and hand the transaction back</strong>, such as Phantom, Solflare, Backpack and Trust Wallet&apos;s extension: supported. Tested on mainnet with Phantom and Trust Wallet.</li>
+          <li><strong>On a phone</strong>: open orientim.com inside your wallet&apos;s browser.</li>
+          <li><strong>Wallets that can only sign and send at once, and multisig vaults</strong>: not supported, because your wallet must sign first and Orientim last.</li>
         </ul>
         <p>
-          The reviews and their fixes are listed on the <a href="/audits">audits page</a>.
+          The swaps tested on mainnet, and every review of Orientim, are on the <a href="/proof">proof page</a>.
         </p>
       </section>
     </InfoPage>

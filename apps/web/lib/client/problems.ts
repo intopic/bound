@@ -7,7 +7,7 @@
  * is not a developer looks. A message can also be replaced by the next click before anyone reads
  * it. So every message the page shows, other than a success, is kept here with the raw error behind
  * it: the last 20, in this browser only. Nothing is ever sent anywhere. The person copies them
- * (the red message's "Copy details", or the list on /diagnostic) when they want help.
+ * (the red message's "Copy details", or the list on the testing page, /diagnostic) when they want help.
  */
 export type Problem = {
   at: number;

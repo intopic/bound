@@ -61,7 +61,8 @@ Authorization: Bearer ori_...
   "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   "outputMint": "So11111111111111111111111111111111111111112",
   "amountIn": "5000000",
-  "minOut": "42400000"
+  "minOut": "42400000",
+  "slippageBps": 100
 }`}</code></pre>
         <p>
           The answer is the unsigned <code>transaction</code>, a <code>ticket</code>, the amounts and costs, and the policy it was
@@ -94,6 +95,11 @@ Authorization: Bearer ori_...
           <li>0.3%, inside the transaction you sign, in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL.</li>
           <li>The verifier refuses any fee above 1% and any network fee above 0.001 SOL.</li>
           <li>Wallets must be able to sign first and hand the transaction back: local keys and signing services work; sign-and-send-only wallets and multisig vaults do not.</li>
+          <li>
+            The same protection as the page, in every integration: a slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to
+            15%; 0.5% by default), a swap refused before anything is prepared when its price impact is above 5%, notes about a
+            token&apos;s issuer, and what arrived, read from the transaction.
+          </li>
         </ul>
       </section>
 
