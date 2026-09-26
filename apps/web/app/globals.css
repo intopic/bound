@@ -58,7 +58,10 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.02em; margin: 
 /* ---- header */
 .site-header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; background: rgba(12, 17, 23, .78); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-soft); }
 .header-row { display: flex; align-items: center; gap: 28px; height: 64px; }
-.logo { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: -0.01em; }
+.logo { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-family: var(--font-display); font-weight: 800; font-size: 21px; line-height: 1; letter-spacing: -0.035em; }
+.logo-mark { flex: none; }
+.logo-i { position: relative; display: inline-block; }
+.logo-i::after { content: ''; position: absolute; left: 50%; top: .045em; width: .19em; height: .19em; transform: translateX(-50%); border-radius: .035em; background: var(--accent); box-shadow: 0 0 .35em rgba(124, 227, 176, .45); }
 .logo:hover { color: var(--text); }
 .site-nav { display: flex; gap: 24px; }
 .site-nav a { color: var(--muted); font-size: 14px; font-weight: 500; }

@@ -1,22 +1,26 @@
 import type { ReactNode } from 'react';
 
-/** Orientim's mark: a compass needle, the half that points the way in green. */
+/** Orientim's mark: the wallet as four blocks; the green one, the amount, has stepped out of it. */
 export function LogoMark({ size = 26 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className="logo-mark">
       <rect x="1" y="1" width="30" height="30" rx="9" fill="var(--mark-bg)" stroke="var(--mark-line)" />
-      <path d="M24 8 17.8 17.8 14.2 14.2Z" fill="var(--accent)" />
-      <path d="M8 24 14.2 14.2 17.8 17.8Z" fill="var(--mark-dim)" />
-      <circle cx="16" cy="16" r="1.4" fill="var(--bg)" />
+      <g fill="var(--mark-dim)" fillOpacity=".5">
+        <rect x="7" y="9.5" width="8" height="8" rx="2.2" />
+        <rect x="7" y="19.5" width="8" height="8" rx="2.2" />
+        <rect x="17" y="19.5" width="8" height="8" rx="2.2" />
+      </g>
+      <rect x="19.2" y="5.3" width="8" height="8" rx="2.2" fill="var(--accent)" />
     </svg>
   );
 }
 
+/** The name, with the last i's dot drawn as the same green block. */
 export function Logo() {
   return (
     <a className="logo" href="/" aria-label="Orientim, home">
       <LogoMark />
-      <span>Orientim</span>
+      <span className="logo-name">Orient<span className="logo-i">ı</span>m</span>
     </a>
   );
 }
