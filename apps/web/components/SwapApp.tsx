@@ -32,11 +32,11 @@ import {
 import type { HistoryEntry, HistoryStatus, SignatureState } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
 import { costsMoreThan, keptByMarket } from '@/lib/client/rebuild';
-import { receivedFromMeta } from '@/lib/client/received';
+import { fillAgainstQuote, receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
 import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
 import type { Problem } from '@/lib/client/problems';
-import { loadSlippage, saveSlippage, withSlippage } from '@/lib/client/slippage';
+import { loadSlippage, percentText, saveSlippage, withSlippage } from '@/lib/client/slippage';
 import type { SlippageChoice } from '@/lib/client/slippage';
 import { Modal } from './Modal';
 import { SlippageSettings } from './SlippageSettings';
@@ -62,7 +62,7 @@ type Pending = {
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
 /** A question the page puts to the user mid-swap, with nothing signed yet. */
 type Offer =
-  | { kind: 'price'; was: string; now: string }
+  | { kind: 'price'; was: string; now: string; tolerance: string }
   | { kind: 'cost'; gap: string; severe: boolean }
   | { kind: 'impact'; pct: string }
   | { kind: 'extras'; lines: string[] };
@@ -86,15 +86,15 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
   switch (o.kind) {
     case 'price':
       return {
-        title: 'The price changed',
-        body: <p>Minimum received is now <strong>{o.now}</strong> (was {o.was}). Nothing has been signed.</p>,
+        title: 'Price updated',
+        body: <p>At your {o.tolerance} slippage tolerance, you now receive at least <strong>{o.now}</strong> (was {o.was}). Nothing has been signed.</p>,
         go: 'Continue with the new minimum',
       };
     case 'cost':
       return {
-        title: `This swap gets ${o.gap} less than the market price`,
-        body: <p>{o.severe ? 'A smaller amount often gets a better price. ' : ''}Nothing has been signed.</p>,
-        go: 'Continue',
+        title: `Best available rate for this amount: ${o.gap} below market`,
+        body: <p>A smaller amount often gets a better rate. Nothing has been signed.</p>,
+        go: 'Swap at this rate',
       };
     case 'impact':
       return {
@@ -265,9 +265,17 @@ const NO_STORAGE: Notice = {
     + 'Allow site data (storage) for this site, or free some space, and try again. Nothing was sent and no funds moved.',
 };
 
+/**
+ * What a message about the price may say about this swap: the tolerance it was built at ("1%"), and
+ * whether a hint about Pump.fun's launch curve helps (a curve token, a chosen tolerance under 3%).
+ */
+type PriceContext = { tolerance?: string; curveHint?: boolean };
+const CURVE_HINT = 'This token is still on its launch curve and moves fast. Auto uses 3% for it.';
+const RAISE_TOLERANCE = 'Try again, or raise your slippage tolerance (⚙️).';
+
 /** The words for a failure, with the raw error kept beside them (lib/client/problems). */
-function explainError(e: unknown): Notice {
-  return { ...wordsFor(e), detail: errorDetail(e) };
+function explainError(e: unknown, price: PriceContext = {}): Notice {
+  return { ...wordsFor(e, price), detail: errorDetail(e) };
 }
 
 /** Said at the end of every refusal: the person's question is whether anything happened. */
@@ -278,7 +286,7 @@ const NOTHING_SENT = 'Nothing was sent and no funds moved.';
  * Orientim works inside (keys, signatures, simulations, rules) stays out of them; the raw error is
  * kept for "Copy details" and the console. The pipeline's own messages are for the agent API.
  */
-function orientimWords(e: OrientimError): Notice {
+function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
   const m = e.message;
   switch (e.code) {
     case 'unsupported-token':
@@ -298,21 +306,24 @@ function orientimWords(e: OrientimError): Notice {
     case 'bad-quote':
       return { kind: 'error', title: 'Prices are unavailable right now', body: `Try again in a moment. ${NOTHING_SENT}` };
     case 'price-moved':
-      return { kind: 'info', title: 'The price changed', body: `Check the new price and try again. ${NOTHING_SENT}` };
+      return { kind: 'info', title: 'Price updated', body: `Review the new price and swap again. ${NOTHING_SENT}` };
     case 'insufficient-sol':
       return { kind: 'error', title: 'Not enough SOL', body: `${m} ${NOTHING_SENT}` };
     case 'insufficient-balance':
       return { kind: 'error', title: 'Not enough of this token', body: `${m} ${NOTHING_SENT}` };
     case 'costs-more':
-      return { kind: 'error', title: 'This swap would get a lower price', body: `The route available right now pays less than the market price. Try a smaller amount, or try again shortly. ${NOTHING_SENT}` };
+      return { kind: 'info', title: 'Best available rate is below market right now', body: `Try a smaller amount, or try again shortly. ${NOTHING_SENT}` };
     case 'simulation-failed':
       return /price moved|slippage/i.test(m)
-        ? { kind: 'info', title: 'The price moved', body: `It changed too much while your swap was being prepared. Try again. ${NOTHING_SENT}` }
+        ? {
+          kind: 'info', title: price.tolerance ? `Price moved beyond your ${price.tolerance} tolerance` : 'Price moved beyond your tolerance',
+          body: `${NOTHING_SENT} ${RAISE_TOLERANCE}${price.curveHint ? ` ${CURVE_HINT}` : ''}`,
+        }
         : { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` };
     case 'verification-failed':
       return /network fee/i.test(m)
         ? { kind: 'info', title: 'Network fees are too high right now', body: `Try again in a moment. ${NOTHING_SENT}` }
-        : { kind: 'error', title: "This swap can't be completed safely", body: `It didn't pass Orientim's checks. Try again, or try a different amount or token. ${NOTHING_SENT}` };
+        : { kind: 'error', title: 'Orientim stopped this swap before signing', body: `It didn't meet our safety checks. Try again, or try a different amount or token. ${NOTHING_SENT}` };
     case 'wallet-changed-transaction': {
       const details = e.violations.map(v => v.detail);
       const title = details.includes('the wallet did not sign')
@@ -339,12 +350,12 @@ function orientimWords(e: OrientimError): Notice {
   }
 }
 
-function wordsFor(e: unknown): Notice {
+function wordsFor(e: unknown, price: PriceContext = {}): Notice {
   if (e instanceof HistoryNotSaved) return NO_STORAGE;
   if (e instanceof OrientimError) {
     // What exactly was refused is for whoever investigates, not for the person swapping (final audit).
     if (e.violations.length) console.warn('Orientim refused this swap:', e.violations);
-    return orientimWords(e);
+    return orientimWords(e, price);
   }
   const message = String((e as Error)?.message ?? e);
   // An RPC failure is read from its HTTP status: a production build of kit replaces the message
@@ -371,7 +382,8 @@ function wordsFor(e: unknown): Notice {
  * appears only when the transaction was refused before broadcast or can no longer execute.
  */
 function outcomeNotice(
-  status: SendOutcome, signature: string, t: SwapTexts, why: { refusal?: SendRefusal; onPrice?: boolean } = {},
+  status: SendOutcome, signature: string, t: SwapTexts,
+  why: { refusal?: SendRefusal; onPrice?: boolean; vsQuote?: string } & PriceContext = {},
 ): Notice {
   const link = solscan(signature);
   switch (status) {
@@ -380,15 +392,16 @@ function outcomeNotice(
       // when it is paid in SOL, also leave the wallet, as the card showed (independent audit, ORI-15).
       return {
         kind: 'success', title: t.received ? `Swapped ${t.paid} for ${t.received}` : `Swapped ${t.paid} for at least ${t.minimum}`,
-        body: `${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could use only ${t.exposed}.`,
+        body: `${why.vsQuote ? `${why.vsQuote} ` : ''}${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could use only ${t.exposed}.`,
         link,
       };
     case 'failed':
-      // The usual reason, and the one that needs no support: the market moved past the minimum.
+      // The usual reason, and the one that needs no support: the market moved past the minimum. The
+      // minimum held, which is the protection working, and said as such.
       return why.onPrice
         ? {
-          kind: 'error', title: 'The price moved before the swap completed',
-          body: `Less than your minimum of ${t.minimum} would have arrived, so nothing was swapped. Only the network fee was paid; you can try again.`,
+          kind: 'info', title: why.tolerance ? `Swap cancelled: price moved beyond your ${why.tolerance} tolerance` : 'Swap cancelled: price moved beyond your tolerance',
+          body: `Your minimum of ${t.minimum} was enforced on-chain, so nothing was swapped. Only the network fee was used. ${RAISE_TOLERANCE}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
           link,
         }
         : { kind: 'error', title: "The swap didn't complete", body: 'It was reverted on the network. Only the network fee was paid.', link };
@@ -931,6 +944,7 @@ export function SwapApp() {
             kind: 'price',
             was: `${formatExact(accepted, args.outDecimals)} ${symbol}`,
             now: `${formatExact(e.priceMoved.newMinReceived, args.outDecimals)} ${symbol}`,
+            tolerance: percentText(pageSettings.chosenSlippageBps ?? (args.expectCurve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)),
           });
           if (!accept) return null;
           accepted = e.priceMoved.newMinReceived;
@@ -1044,6 +1058,12 @@ export function SwapApp() {
     const sent: { signature: string | null } = { signature: null };
     let settled = true;
     const texts: SwapTexts = { paid: `${formatUnits(amountIn, inDecimals)} ${inToken.symbol}`, received: '', exposed: '', minimum: '' };
+    // The tolerance this swap is built at, for the words about its price.
+    const priceContext: PriceContext = {
+      tolerance: percentText(pageSettings.chosenSlippageBps ?? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)),
+      curveHint: quote.curve && pageSettings.chosenSlippageBps !== undefined && pageSettings.chosenSlippageBps < DEFAULT_SETTINGS.curveSlippageBps,
+    };
+    let vsQuote = '';
     const cancelled = () => setNotice({ kind: 'info', title: 'Swap cancelled', body: 'Nothing was signed and no funds moved.' });
     // A build made ahead of the click is used at most once.
     const early = ahead.current;
@@ -1161,12 +1181,17 @@ export function SwapApp() {
       });
       if (result.status === 'confirmed') {
         const got = await actualReceived(result.signature, toSend);
-        if (got !== null) texts.received = `${formatExact(got, outDecimals)} ${outToken.symbol}`;
+        if (got !== null) {
+          texts.received = `${formatExact(got, outDecimals)} ${outToken.symbol}`;
+          // Against the quote, net of a fee taken from the output.
+          const expected = toSend.quote.outAmount - (toSend.policy.feeSide === 'output' ? toSend.policy.fee : 0n);
+          vsQuote = fillAgainstQuote(got, expected, priceContext.tolerance ?? '');
+        }
       }
       setHistory(updateHistory(result.signature, result.status, texts.received || undefined));
       settled = result.status !== 'unknown';
       const onPrice = result.status === 'failed' && revertedOnPrice(toSend.transaction, result.error, JUPITER_PROGRAM);
-      setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice }));
+      setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice, vsQuote, ...priceContext }));
       if (result.status === 'confirmed') setAmountText('');
     } catch (e) {
       if (sent.signature) {
@@ -1176,7 +1201,7 @@ export function SwapApp() {
         setNotice(outcomeNotice('unknown', sent.signature, texts));
       } else {
         if (busyError(e) || jupiterBusy(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
-        setNotice(explainError(e));
+        setNotice(explainError(e, priceContext));
       }
     } finally {
       lock.release(settled);
@@ -1193,7 +1218,7 @@ export function SwapApp() {
   const busy = phase !== 'idle';
   const buttonLabel = (() => {
     if (phase === 'checking') return 'Checking protection…';
-    if (phase === 'confirm') return 'The price moved';
+    if (phase === 'confirm') return 'Review the update';
     if (phase === 'wallet') return `Approve in ${wallet?.name ?? 'your wallet'}`;
     if (phase === 'sending') return 'Sending…';
     if (!W) return 'Connect wallet';
@@ -1435,7 +1460,7 @@ export function SwapApp() {
           <div className="protection">
             <p className="protection-title">Your order. Your limits.</p>
             <div className="detail-row">
-              <span>Minimum received</span>
+              <span>Minimum received{tolerance !== null && <small className="detail-sub"> · {tolerance}% slippage</small>}</span>
               <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
             </div>
             <ul className="protection-facts">
@@ -1443,7 +1468,7 @@ export function SwapApp() {
               <li>No access to the rest of your wallet</li>
               <li>No lasting permissions</li>
             </ul>
-            <p className="protection-note">If less than the minimum would arrive, the whole swap cancels itself.</p>
+            <p className="protection-note">If less than the minimum would arrive, the whole swap cancels itself on-chain.</p>
           </div>
         )}
 
@@ -1470,8 +1495,8 @@ export function SwapApp() {
           )}
           {quote && tolerance !== null && (
             <div className="detail-row" title={quote.curve ? 'This token is still on its Pump.fun launch curve, where prices move fast.' : undefined}>
-              <span>Max slippage</span>
-              <span>{`${tolerance}%`}</span>
+              <span>Slippage tolerance</span>
+              <span>{`${tolerance}%${slippage === 'auto' ? ' · Auto' : ''}`}</span>
             </div>
           )}
           {tokenIn && swapAmount !== null && swapAmount > 0n && inDecimals !== null && (

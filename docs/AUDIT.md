@@ -1663,6 +1663,47 @@ parsing, storage (above 5% for the visit only) and settings.
 **In Edge:** the gear, the window, the warning at 10%, the refusal of 20%, and the choice kept
 after a reload, at 1280, 390 and 360 pixels. There were no page errors and no sideways scroll.
 
+## 0zr. Messages that speak with authority, and a minimum that names its tolerance (26 September 2026)
+
+The owner's rule: the page speaks as the system that did its job, never as one that failed or that
+excuses itself. Every message says what happened to the money and what to do next. It uses the
+terms swap sites use, and never the mechanism.
+
+**The card**
+- The minimum is shown with the tolerance that makes it: "Minimum received · 1% slippage". The
+  minimum stays in view, as on every swap site. With a tolerance of one's own it is the number that
+  says what that tolerance means.
+- The details row is now "Slippage tolerance" (with "· Auto" for the default), the name the gear's
+  window uses.
+- The note ends "cancels itself on-chain".
+
+**Price moved beyond the tolerance**
+- The question before signing: "Price updated. At your 1% slippage tolerance, you now receive at
+  least X (was Y)."
+- In preparation: "Price moved beyond your 1% tolerance. Nothing was sent and no funds moved. Try
+  again, or raise your slippage tolerance (⚙️)."
+- On chain, shown as information, not an error: "Swap cancelled: price moved beyond your 1%
+  tolerance. Your minimum of X was enforced on-chain, so nothing was swapped. Only the network fee
+  was used."
+- For a token on Pump.fun's launch curve, with a chosen tolerance under 3%: "Auto uses 3% for it."
+
+**After a swap**
+- The success message compares what arrived with the quote, net of a fee from the output: "0.40%
+  better than quoted", or "Filled 4.1% below the quote, within your 10% tolerance". A fill near a
+  high minimum then reads as the tolerance at work (`fillAgainstQuote`).
+
+**Words that made Orientim look smaller**
+- "This swap gets 0.62% less than the market price" became "Best available rate for this amount:
+  0.62% below market", with the button "Swap at this rate".
+- "This swap would get a lower price" became "Best available rate is below market right now".
+- "This swap can't be completed safely. It didn't pass Orientim's checks" became "Orientim stopped
+  this swap before signing. It didn't meet our safety checks".
+- While a question is open, the button says "Review the update", not "The price moved", since not
+  every question is about the price.
+
+**Tests:** 584 pass, including the fill against the quote. In Edge, a live quote at Auto and at 3%
+showed the minimum with its tolerance, the row "Slippage tolerance" and no page errors.
+
 ---
 
 ## 1. What Orientim is

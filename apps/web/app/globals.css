@@ -128,6 +128,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .slippage-custom:focus-within { border-color: var(--accent); }
 .slippage-warning { padding: 9px 12px; }
 .slippage-done { height: 44px; margin-top: 14px; }
+.detail-sub { color: var(--muted); font-size: inherit; font-weight: 400; }
 @media (max-width: 420px) { .slippage-options { grid-template-columns: repeat(4, 1fr); } .slippage-custom { grid-column: 1 / -1; } }
 .status-badge { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); color: var(--muted); }
 .status-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }

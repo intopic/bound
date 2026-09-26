@@ -38,3 +38,17 @@ export function receivedFromMeta(
   const before = new Map(mine(meta.preTokenBalances).map(b => [b.accountIndex, BigInt(b.uiTokenAmount.amount)]));
   return after.reduce((sum, b) => sum + BigInt(b.uiTokenAmount.amount) - (before.get(b.accountIndex) ?? 0n), 0n);
 }
+
+/**
+ * How what arrived compares with what the quote expected (`expected`, net of a fee taken from the
+ * output). Said when it is better, or when it is well below the quote but within the tolerance the
+ * person set, so that a fill near the minimum reads as the tolerance at work. Empty otherwise.
+ */
+export function fillAgainstQuote(received: bigint, expected: bigint, tolerance: string): string {
+  if (expected <= 0n) return '';
+  const bps = Number(((received - expected) * 10_000n) / expected);
+  const pct = (b: number) => `${(Math.abs(b) / 100).toFixed(Math.abs(b) < 100 ? 2 : 1)}%`;
+  if (bps >= 5) return `${pct(bps)} better than quoted.`;
+  if (bps <= -100 && tolerance) return `Filled ${pct(bps)} below the quote, within your ${tolerance} tolerance.`;
+  return '';
+}
