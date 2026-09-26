@@ -308,9 +308,9 @@ a.ghost { display: inline-flex; align-items: center; }
 /* ---- proof, motion, agents, evidence, questions */
 .proof-strip { border-bottom: 1px solid var(--line-soft); background: var(--bg-2); }
 .proof-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding-block: 16px; }
-.proof-title { font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
-.proof-row ul { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }
-.proof-row li { font-size: 13px; color: var(--text); padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; }
+.one-key { display: flex; align-items: flex-start; gap: 12px; margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.one-key svg { flex: none; margin-top: 2px; color: var(--accent); }
+.one-key strong { margin-right: 4px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
 .proof-row .text-link { margin-left: auto; }
 
 /* The two diagrams sit on glass: a panel that blurs a soft light behind it, so it reads as depth

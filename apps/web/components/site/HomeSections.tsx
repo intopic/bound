@@ -4,9 +4,6 @@ import { AgentTerminal, AuthorityMap, CapsuleFlow } from './Motion';
 
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
-/** What has been proven on mainnet, each one on the proof page with its transaction. */
-const PROOF = ['Phantom', 'Trust Wallet', 'AI agents', 'Token-2022', 'Pump.fun launch curve'];
-
 const CAPSULE_STEPS = [
   ['The amount moves into a one-time key', 'Only what you approve leaves your wallet, into a key that exists for this one swap.'],
   ['The route trades it', 'Jupiter finds the route. It works with the one-time key, never with your wallet.'],
@@ -53,10 +50,13 @@ const FAQ: [string, string][] = [
 export function HomeSections() {
   return (
     <>
-      <section className="proof-strip" aria-label="Tested live on mainnet">
+      {/* The one line under the hero: how every swap is protected, and where to see it done on mainnet. */}
+      <section className="proof-strip" aria-label="How every swap is protected">
         <div className="container proof-row">
-          <span className="proof-title">Tested live on mainnet</span>
-          <ul>{PROOF.map(p => <li key={p}>{p}</li>)}</ul>
+          <p className="one-key">
+            <KeyIcon />
+            <span><strong>One swap, one key.</strong> It holds only your amount, and it’s gone when the swap ends.</span>
+          </p>
           <a className="text-link" href="/proof">See the transactions →</a>
         </div>
       </section>
@@ -224,5 +224,14 @@ export function HomeSections() {
         </div>
       </section>
     </>
+  );
+}
+
+function KeyIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="7.5" cy="15.5" r="4.5" />
+      <path d="M10.7 12.3 21 2M16 7l3 3M18.5 4.5l2 2" />
+    </svg>
   );
 }
