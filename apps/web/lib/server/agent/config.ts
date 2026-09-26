@@ -5,6 +5,7 @@ import { createRetryingRpc } from '@orientim/solana';
 import type { SolanaRpc } from '@orientim/solana';
 import { serverConfig } from '../config';
 import { treasurySetting } from '../../settings';
+import type { AccessDeps } from './access';
 import type { AgentDeps } from './api';
 
 /**
@@ -18,6 +19,10 @@ import type { AgentDeps } from './api';
  *   ORIENTIM_API_FEE_BPS          optional, the fee for API swaps; the page's fee otherwise
  *   ORIENTIM_API_PER_MINUTE       optional, requests per minute per key and endpoint (60)
  *   ORIENTIM_MIN_SKILL_VERSION    optional, the oldest skill prepare serves; older copies are asked to update
+ *   ORIENTIM_KEY_SECRET           optional, 32 random bytes, base64: turns on self-serve keys (agent/keys.ts)
+ *   ORIENTIM_KEY_SECRET_PREVIOUS  optional, the one before it, whose keys still open while it rotates out
+ *   ORIENTIM_API_REVOKED          optional, wallets whose self-serve keys are refused, comma-separated
+ *   ORIENTIM_KEY_MIN_LAMPORTS     optional, what a wallet must hold to get a key (10,000,000: 0.01 SOL)
  */
 function secretOf(value: string | undefined): Uint8Array | null {
   if (!value) return null;
@@ -42,10 +47,19 @@ function keysOf(value: string | undefined): Map<string, string> {
 // environment per deployment (Vercel does): see the runbook for pausing and revoking (FA-02).
 let clients: { rpc: SolanaRpc; jupiter: JupiterClient; for: string } | null = null;
 
+/** The self-serve key secrets, the current one first; none when self-serve keys are off. */
+export function keySecrets(): Uint8Array[] {
+  const current = secretOf(process.env.ORIENTIM_KEY_SECRET);
+  const previous = secretOf(process.env.ORIENTIM_KEY_SECRET_PREVIOUS);
+  return current ? (previous ? [current, previous] : [current]) : [];
+}
+
 export function agentDeps(): AgentDeps | null {
   const current = secretOf(process.env.ORIENTIM_API_SECRET);
   const keys = keysOf(process.env.ORIENTIM_API_KEYS);
-  if (!current || keys.size === 0) return null;
+  const ownKeys = keySecrets();
+  // On with the ticket secret and a way in: keys issued by hand, self-serve keys, or both.
+  if (!current || (keys.size === 0 && ownKeys.length === 0)) return null;
   const previous = secretOf(process.env.ORIENTIM_API_SECRET_PREVIOUS);
   const server = serverConfig();
   // The API may run on keys of its own, so that agents cannot use up the page's quota (FA-06).
@@ -90,6 +104,8 @@ export function agentDeps(): AgentDeps | null {
     jupiter: clients.jupiter,
     secrets: previous ? [current, previous] : [current],
     keys,
+    keySecrets: ownKeys,
+    revokedWallets: new Set((process.env.ORIENTIM_API_REVOKED ?? '').split(',').map(s => s.trim()).filter(Boolean)),
     // The verifier refuses anything above 1% whatever is configured here.
     feeBps,
     treasury: treasury ? address(treasury) : null,
@@ -102,6 +118,15 @@ export function agentDeps(): AgentDeps | null {
     // The smallest swap, about $1, so that no swap costs more to build than it brings.
     minFee: MIN_FEE,
   };
+}
+
+/** Self-serve access, when the agent API is on and ORIENTIM_KEY_SECRET is set. */
+export function accessDeps(): AccessDeps | null {
+  const deps = agentDeps();
+  const secrets = keySecrets();
+  if (!deps || secrets.length === 0) return null;
+  const min = process.env.ORIENTIM_KEY_MIN_LAMPORTS?.trim() ?? '';
+  return { rpc: deps.rpc, keySecrets: secrets, minLamports: /^\d{1,12}$/.test(min) ? BigInt(min) : 10_000_000n };
 }
 
 export const notEnabled = () =>

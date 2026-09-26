@@ -1204,6 +1204,66 @@ async function call(fetchImpl, url, key, body, timeoutMs = 3e4) {
 	}
 	return json;
 }
+/**
+* Is `message` Orientim's API-key message for `address`, from the host of `apiUrl`, and nothing else?
+* A wallet's signature over bytes a server chose could, for bytes shaped like a transaction, be a
+* signature for that transaction: so only this exact text, for this wallet and this host, is ever
+* signed (AGENT-API.md, "API access").
+*/
+function isApiKeyMessage(message, apiUrl, address) {
+	if (typeof message !== "string" || message.length > 1e3 || !/^[\x20-\x7e\n]+$/.test(message)) return false;
+	const lines = message.split("\n");
+	return lines[0] === `${new URL(apiUrl).host} wants you to sign in with your Solana account:` && lines[1] === address && lines[2] === "" && lines[3] === "Get an Orientim API key for this wallet. Signing costs nothing and gives no access to your funds." && lines.slice(4).every((l) => l === "" || /^(URI|Version|Chain ID|Nonce|Issued At|Expiration Time): \S+$/.test(l));
+}
+/** The message to sign for an API key, checked first (`isApiKeyMessage`). */
+async function apiKeyChallenge(args) {
+	const base = args.apiUrl.replace(/\/+$/, "");
+	const res = await (args.fetchImpl ?? fetch)(`${base}/api/v1/keys/challenge?wallet=${encodeURIComponent(args.address)}`, {
+		headers: { "x-orientim-skill": SKILL_VERSION },
+		signal: AbortSignal.timeout(args.requestTimeoutMs ?? 3e4)
+	});
+	const json = await res.json();
+	if (!res.ok) throw new OrientimApiError({
+		status: res.status,
+		code: json.error?.code ?? "http",
+		message: json.error?.message ?? res.statusText,
+		body: json.error ?? {}
+	});
+	if (!isApiKeyMessage(json.message, base, args.address) || typeof json.challenge !== "string") throw new Error("Orientim answered with a message that is not its API-key message for this wallet. Nothing was signed.");
+	return {
+		message: json.message,
+		challenge: json.challenge
+	};
+}
+/** Sends the signed challenge; the key comes back, bound to the wallet that signed it. */
+async function redeemApiKey(args) {
+	const signature = typeof args.signature === "string" ? args.signature : Buffer.from(args.signature).toString("base64");
+	const res = await (args.fetchImpl ?? fetch)(`${args.apiUrl.replace(/\/+$/, "")}/api/v1/keys`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			"x-orientim-skill": SKILL_VERSION
+		},
+		body: JSON.stringify({
+			message: args.message,
+			challenge: args.challenge,
+			signature
+		}),
+		signal: AbortSignal.timeout(args.requestTimeoutMs ?? 3e4)
+	});
+	const json = await res.json();
+	if (!res.ok || typeof json.key !== "string") throw new OrientimApiError({
+		status: res.status,
+		code: json.error?.code ?? "http",
+		message: json.error?.message ?? res.statusText,
+		body: json.error ?? {}
+	});
+	return {
+		key: json.key,
+		wallet: json.wallet ?? "",
+		expiresAt: json.expiresAt ?? ""
+	};
+}
 const hex = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
 const sameBytes = (a, b) => a.length === b.length && Array.from(a).every((x, i) => x === b[i]);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1934,6 +1994,8 @@ if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import
 *   orientim-verify resolve    {"signature": "...", "outcome": "..."}  0 settled   1 refused (it could still land, or is not kept)
 *   3 also when the state directory cannot be read: nothing is prepared or changed until it can.
 *   orientim-verify check      {"prepared": ..., "intent": {...}}      0 safe to sign   1 refused   (for bots that call the API themselves)
+*   orientim-verify key-challenge  {"wallet": "<address>"}             0 sign `message` (checked: Orientim's key message for this wallet, nothing else)
+*   orientim-verify key        {"message", "challenge", "signature"}   0 `key`, bound to that wallet   4 Orientim said no
 *   2 on any usage or configuration error; 5 when `intent.id` names an order that already swapped or
 *   whose transaction may still land (the same order is never swapped twice).
 *
@@ -1959,8 +2021,12 @@ const COMMANDS = [
 	"finalize",
 	"recover",
 	"resolve",
-	"check"
+	"check",
+	"key-challenge",
+	"key"
 ];
+/** The commands that get an API key: they need Orientim's URL, not a key or an RPC. */
+const KEY_COMMANDS = ["key-challenge", "key"];
 const usage = (message) => ({
 	code: 2,
 	output: {
@@ -2109,6 +2175,63 @@ async function runCli(command, input, deps) {
 			};
 		} finally {
 			release();
+		}
+	}
+	if (command === "key-challenge" || command === "key") {
+		if (!deps.apiUrl) return usage("Set ORIENTIM_API_URL.");
+		try {
+			if (command === "key-challenge") {
+				if (typeof body.wallet !== "string") return usage("key-challenge reads {\"wallet\": \"<address>\"}.");
+				const c = await apiKeyChallenge({
+					apiUrl: deps.apiUrl,
+					address: body.wallet,
+					fetchImpl: deps.fetchImpl,
+					requestTimeoutMs: deps.requestTimeoutMs
+				});
+				return {
+					code: 0,
+					output: {
+						ok: true,
+						...c,
+						messageBase64: Buffer.from(c.message).toString("base64")
+					}
+				};
+			}
+			const { message, challenge, signature } = body;
+			if (typeof message !== "string" || typeof challenge !== "string" || typeof signature !== "string") return usage("key reads {\"message\", \"challenge\", \"signature\"} (the signature of message, base58 or base64).");
+			const wallet = message.split("\n")[1] ?? "";
+			if (!isApiKeyMessage(message, deps.apiUrl, wallet)) return usage("That is not Orientim's API-key message; get one with key-challenge.");
+			return {
+				code: 0,
+				output: {
+					ok: true,
+					...await redeemApiKey({
+						apiUrl: deps.apiUrl,
+						message,
+						challenge,
+						signature,
+						fetchImpl: deps.fetchImpl,
+						requestTimeoutMs: deps.requestTimeoutMs
+					})
+				}
+			};
+		} catch (e) {
+			if (e instanceof OrientimApiError) return {
+				code: 4,
+				output: {
+					ok: false,
+					error: e.message,
+					status: e.status,
+					code: e.code
+				}
+			};
+			return {
+				code: 1,
+				output: {
+					ok: false,
+					error: messageOf(e)
+				}
+			};
 		}
 	}
 	if (!deps.apiUrl || !deps.apiKey) return usage("Set ORIENTIM_API_URL and ORIENTIM_API_KEY.");
@@ -2405,8 +2528,8 @@ async function main() {
 	};
 	if (!COMMANDS.includes(command)) return print(usage(`usage: orientim-verify <${COMMANDS.join("|")}> < input.json`));
 	const rpcUrl = process.env.SOLANA_RPC_URL;
-	if (!rpcUrl) return print(usage("Set SOLANA_RPC_URL to your own RPC."));
-	if (!process.env.JUPITER_API_KEY && command !== "recover") process.stderr.write("JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.\n");
+	if (!rpcUrl && !KEY_COMMANDS.includes(command)) return print(usage("Set SOLANA_RPC_URL to your own RPC."));
+	if (!process.env.JUPITER_API_KEY && command !== "recover" && !KEY_COMMANDS.includes(command)) process.stderr.write("JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.\n");
 	let input = {};
 	if (command !== "recover") try {
 		input = JSON.parse(await readStdin());
@@ -2414,7 +2537,7 @@ async function main() {
 		return print(usage("The input on stdin is not JSON."));
 	}
 	print(await runCli(command, input, {
-		rpc: createSolanaRpc(rpcUrl),
+		rpc: createSolanaRpc(rpcUrl ?? "http://127.0.0.1:1"),
 		apiUrl: process.env.ORIENTIM_API_URL,
 		apiKey: process.env.ORIENTIM_API_KEY,
 		jupiterApiKey: process.env.JUPITER_API_KEY || void 0,

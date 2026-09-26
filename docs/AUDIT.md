@@ -1447,6 +1447,34 @@ reaches the person swapping.
   and three facts (only this amount can be used, no access to the rest of the wallet, no lasting
   permissions); the approved amount no longer repeats "You pay". The line under the card is gone.
 
+## 0zn. API keys at once: the wallet signs, the key is bound to it (26 September 2026)
+
+The owner's decision: access to the agent API without a form or a wait. A developer connects the
+wallet the agent swaps from on /docs#access (or runs `orientim-verify key-challenge` and `key`),
+signs one text message, and gets a key. Nothing is stored: the key and the challenge are sealed with
+`ORIENTIM_KEY_SECRET`, a secret of their own, apart from the ticket secret (agent/keys.ts).
+
+- **The message** is Sign In With Solana text naming the host and the wallet, saying that signing
+  costs nothing and gives no access to funds, with a nonce and a ten-minute expiry. The page and the
+  skill sign nothing but that exact text for their own wallet and host, printable characters only
+  (`isApiKeyMessage`): a server that sends another wallet, another site, an added line or bytes shaped
+  like a transaction gets no signature at all (test/skillKeys.test.ts).
+- **The key** names its wallet and expires after 180 days. prepare refuses any other owner with
+  `wrong-wallet` before building anything, so a leaked key cannot swap for anyone else, and each
+  wallet has its own rate limit (`w:<wallet>`). A wallet is cut off with `ORIENTIM_API_REVOKED`;
+  rotating `ORIENTIM_KEY_SECRET` ends every key at once, or keeps them while the old one sits in
+  `ORIENTIM_KEY_SECRET_PREVIOUS`.
+- **The cost of many wallets**: a key is issued only to a wallet holding 0.01 SOL
+  (`ORIENTIM_KEY_MIN_LAMPORTS`), and each address may ask for 30 challenges and 10 keys an hour.
+- **Manual keys** (`ORIENTIM_API_KEYS`) work as before and are not tied to a wallet.
+
+Tested: 17 new tests (agentKeys, skillKeys) and a self-serve case in agentApi; 568 in total. Live,
+against a production build on this machine and mainnet RPC: the test agent's wallet got a key with
+one signed message, prepare built its swap (nothing signed or sent), another wallet was refused with
+`wrong-wallet`, a changed key with 401, and an empty wallet got `wallet-empty`. On Vercel the
+feature stays off until the owner sets `ORIENTIM_KEY_SECRET` (`node tools/agent-key.ts --key-secret`);
+until then the page says API access opens with the public launch.
+
 ---
 
 ## 1. What Orientim is

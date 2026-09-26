@@ -8,6 +8,7 @@ import { fetchAccounts, fetchMints, httpStatusOf, sendOnce } from '@orientim/sol
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
 import { rateLimited } from '../rateLimit';
+import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openTicket, sealTicket } from './ticket';
 
 /**
@@ -25,6 +26,12 @@ export type AgentDeps = {
   secrets: readonly Uint8Array[];
   /** SHA-256 of each API key (hex) → the key's id. The keys themselves are never stored. */
   keys: ReadonlyMap<string, string>;
+  /**
+   * The secrets that seal self-serve keys (ORIENTIM_KEY_SECRET, then its predecessor), none when
+   * self-serve keys are off; and the wallets whose keys are revoked (ORIENTIM_API_REVOKED).
+   */
+  keySecrets?: readonly Uint8Array[];
+  revokedWallets?: ReadonlySet<string>;
   feeBps: bigint;
   treasury: Address | null;
   excludeDexes: readonly string[];
@@ -68,16 +75,23 @@ const fail = (status: number, code: string, message: string, extra: Record<strin
 const sha256Hex = async (bytes: ArrayLike<number>) =>
   Buffer.from(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(bytes))).toString('hex');
 
-/** The key's id, or the response that refuses the request. */
-async function authenticate(req: Request, deps: AgentDeps): Promise<string | Response> {
+/**
+ * The key's id, and the wallet it is bound to (a self-serve key) or none (a key issued by hand), or
+ * the response that refuses the request.
+ */
+async function authenticate(req: Request, deps: AgentDeps): Promise<{ id: string; wallet: string | null } | Response> {
   const header = req.headers.get('authorization') ?? '';
-  const key = /^Bearer\s+(\S{16,200})$/i.exec(header)?.[1];
-  const id = key ? deps.keys.get(await sha256Hex(new TextEncoder().encode(key))) : undefined;
-  if (!id) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>.');
-  if (rateLimited(`agent:${new URL(req.url).pathname}:${id}`, deps.perMinute)) {
+  const key = /^Bearer\s+(\S{16,400})$/i.exec(header)?.[1];
+  const manual = key ? deps.keys.get(await sha256Hex(new TextEncoder().encode(key))) : undefined;
+  const own = !manual && key && deps.keySecrets?.length
+    ? await openKey(deps.keySecrets, key, Math.floor(Date.now() / 1000), deps.revokedWallets)
+    : null;
+  const auth = manual ? { id: manual, wallet: null } : own;
+  if (!auth) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>.');
+  if (rateLimited(`agent:${new URL(req.url).pathname}:${auth.id}`, deps.perMinute)) {
     return fail(429, 'rate-limited', 'Too many requests for this API key. Wait a few seconds and try again.', {}, { 'retry-after': '10' });
   }
-  return id;
+  return auth;
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown> | null> {
@@ -145,8 +159,9 @@ function explain(e: unknown): Response {
 
 export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Response> {
   if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was built.');
-  const key = await authenticate(req, deps);
-  if (key instanceof Response) return key;
+  const auth = await authenticate(req, deps);
+  if (auth instanceof Response) return auth;
+  const key = auth.id;
   // A copy of the skill older than this deployment serves: say so, rather than fail some other way.
   const skill = req.headers.get('x-orientim-skill') ?? '';
   if (deps.minSkillVersion && skill && olderThan(skill, deps.minSkillVersion)) {
@@ -162,6 +177,10 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     if (typeof v !== 'string' || !isAddress(v)) return fail(400, 'bad-request', `${name} must be a Solana address.`);
   }
   if (inputMint === outputMint) return fail(400, 'bad-request', 'inputMint and outputMint must differ.');
+  // A self-serve key prepares swaps for the wallet that got it, and for no other.
+  if (auth.wallet && owner !== auth.wallet) {
+    return fail(403, 'wrong-wallet', `This API key belongs to ${auth.wallet}; it prepares swaps for that wallet only. Nothing was built.`);
+  }
   const amountIn = amount(body.amountIn);
   if (amountIn === null) return fail(400, 'bad-request', 'amountIn must be a positive integer in base units, as a string.');
   const minOut = body.minOut === undefined ? undefined : amount(body.minOut);
@@ -266,8 +285,9 @@ const EARLIER =
   'If an earlier finalize of this ticket went out, that transaction can still land until lastValidBlockHeight: check its signature on your own RPC before preparing again.';
 
 export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Response> {
-  const key = await authenticate(req, deps);
-  if (key instanceof Response) return key;
+  const auth = await authenticate(req, deps);
+  if (auth instanceof Response) return auth;
+  const key = auth.id;
   const body = await readJson(req);
   if (!body || typeof body.ticket !== 'string' || typeof body.signedTransaction !== 'string') {
     return fail(400, 'bad-request', 'Send { "ticket": "...", "signedTransaction": "<base64>" }.');

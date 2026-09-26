@@ -360,6 +360,13 @@ a.ghost { display: inline-flex; align-items: center; }
 .status-ok { color: var(--accent); font-weight: 600; }
 .status-bad { color: var(--bad); font-weight: 600; }
 
+.key-box { margin-top: 16px; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.key-box .codebox pre { white-space: pre-wrap; word-break: break-all; }
+.key-button { border: none; cursor: pointer; }
+.key-wallets { display: grid; gap: 8px; }
+.key-wallets .wallet-option { margin-top: 0; }
+.key-error { margin: 10px 0 0; color: var(--bad); font-size: 14px; }
+
 /* ---- the wallet signing diagnostic at /diagnostic: an internal tool, not part of the swap flow */
 .page { max-width: 560px; margin: 0 auto; padding: 24px 16px 48px; }
 .page .card { margin-bottom: 14px; }

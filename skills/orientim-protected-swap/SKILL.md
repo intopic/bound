@@ -22,7 +22,7 @@ yourself. **Without it, you are trusting Orientim's server with the whole wallet
 The user provides these; never ask for them in chat, and never print or log them:
 
 - `ORIENTIM_API_URL`: the Orientim deployment, e.g. `https://orientim.com`
-- `ORIENTIM_API_KEY`: `ori_...`, sent as `Authorization: Bearer <key>`
+- `ORIENTIM_API_KEY`: `ori_...`, sent as `Authorization: Bearer <key>`. The wallet gets one itself, at once: `requestApiKey({ apiUrl, address, signMessage })` from `examples/swap.ts`, or `orientim-verify key-challenge` then `key`; both sign only Orientim's key message for that wallet. The key works for that wallet only
 - `SOLANA_RPC_URL`: the agent's **own** RPC. Never Orientim's: the verification is worth what the
   chain state it reads is worth.
 - `ORIENTIM_WALLET_KEYPAIR`: path to the wallet's keypair file. Load the key from the file in code; it

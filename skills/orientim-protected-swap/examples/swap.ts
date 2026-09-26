@@ -170,6 +170,65 @@ async function call<T>(fetchImpl: Fetch, url: string, key: string, body: unknown
   return json;
 }
 
+/**
+ * Is `message` Orientim's API-key message for `address`, from the host of `apiUrl`, and nothing else?
+ * A wallet's signature over bytes a server chose could, for bytes shaped like a transaction, be a
+ * signature for that transaction: so only this exact text, for this wallet and this host, is ever
+ * signed (AGENT-API.md, "API access").
+ */
+export function isApiKeyMessage(message: unknown, apiUrl: string, address: string): message is string {
+  if (typeof message !== 'string' || message.length > 1_000 || !/^[\x20-\x7e\n]+$/.test(message)) return false;
+  const lines = message.split('\n');
+  return lines[0] === `${new URL(apiUrl).host} wants you to sign in with your Solana account:`
+    && lines[1] === address && lines[2] === ''
+    && lines[3] === 'Get an Orientim API key for this wallet. Signing costs nothing and gives no access to your funds.'
+    && lines.slice(4).every(l => l === '' || /^(URI|Version|Chain ID|Nonce|Issued At|Expiration Time): \S+$/.test(l));
+}
+
+/** The message to sign for an API key, checked first (`isApiKeyMessage`). */
+export async function apiKeyChallenge(args: { apiUrl: string; address: string; fetchImpl?: Fetch; requestTimeoutMs?: number }): Promise<{ message: string; challenge: string }> {
+  const base = args.apiUrl.replace(/\/+$/, '');
+  const res = await (args.fetchImpl ?? fetch)(`${base}/api/v1/keys/challenge?wallet=${encodeURIComponent(args.address)}`, {
+    headers: { 'x-orientim-skill': SKILL_VERSION }, signal: AbortSignal.timeout(args.requestTimeoutMs ?? 30_000),
+  });
+  const json = (await res.json()) as { message?: unknown; challenge?: unknown; error?: { code: string; message: string } };
+  if (!res.ok) throw new OrientimApiError({ status: res.status, code: json.error?.code ?? 'http', message: json.error?.message ?? res.statusText, body: json.error ?? {} });
+  if (!isApiKeyMessage(json.message, base, args.address) || typeof json.challenge !== 'string') {
+    throw new Error('Orientim answered with a message that is not its API-key message for this wallet. Nothing was signed.');
+  }
+  return { message: json.message, challenge: json.challenge };
+}
+
+/** Sends the signed challenge; the key comes back, bound to the wallet that signed it. */
+export async function redeemApiKey(args: {
+  apiUrl: string; message: string; challenge: string; signature: Uint8Array | string; fetchImpl?: Fetch; requestTimeoutMs?: number;
+}): Promise<{ key: string; wallet: string; expiresAt: string }> {
+  const signature = typeof args.signature === 'string' ? args.signature : Buffer.from(args.signature).toString('base64');
+  const res = await (args.fetchImpl ?? fetch)(`${args.apiUrl.replace(/\/+$/, '')}/api/v1/keys`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-orientim-skill': SKILL_VERSION },
+    body: JSON.stringify({ message: args.message, challenge: args.challenge, signature }),
+    signal: AbortSignal.timeout(args.requestTimeoutMs ?? 30_000),
+  });
+  const json = (await res.json()) as { key?: string; wallet?: string; expiresAt?: string; error?: { code: string; message: string } };
+  if (!res.ok || typeof json.key !== 'string') {
+    throw new OrientimApiError({ status: res.status, code: json.error?.code ?? 'http', message: json.error?.message ?? res.statusText, body: json.error ?? {} });
+  }
+  return { key: json.key, wallet: json.wallet ?? '', expiresAt: json.expiresAt ?? '' };
+}
+
+/**
+ * An API key for this wallet, at once (AGENT-API.md, "API access"): the wallet signs Orientim's
+ * message, checked first, and nothing else. The key prepares swaps for this wallet only.
+ */
+export async function requestApiKey(args: {
+  apiUrl: string; address: string; signMessage: (message: Uint8Array) => Promise<Uint8Array>; fetchImpl?: Fetch; requestTimeoutMs?: number;
+}): Promise<{ key: string; wallet: string; expiresAt: string }> {
+  const { message, challenge } = await apiKeyChallenge(args);
+  const signature = await args.signMessage(new TextEncoder().encode(message));
+  return redeemApiKey({ ...args, message, challenge, signature });
+}
+
 const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
 const sameBytes = (a: ArrayLike<number>, b: ArrayLike<number>) => a.length === b.length && Array.from(a).every((x, i) => x === b[i]);
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));

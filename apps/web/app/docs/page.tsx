@@ -1,4 +1,5 @@
 import { connection } from 'next/server';
+import { GetApiKey } from '@/components/site/GetApiKey';
 import { InfoPage } from '@/components/site/InfoPage';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 
@@ -99,8 +100,17 @@ Authorization: Bearer ori_...
       <section id="access">
         <h2>API access</h2>
         <p>
-          The agent API is in early access. Keys are issued by Orientim; the request form opens with the public launch. The
-          skill, the command line and this documentation are open now, so your integration can be ready before your key is.
+          Get a key at once, with no form: the wallet your agent swaps from signs a message, and the key is bound to that wallet.
+          Signing moves nothing. The wallet needs at least 0.01 SOL, and the key lasts 180 days.
+        </p>
+        <GetApiKey />
+        <h3>From the command line, with the agent&apos;s own wallet</h3>
+        <pre><code>{`echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
+# sign "messageBase64" with the agent's key, then:
+echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bin/orientim-verify.mjs key`}</code></pre>
+        <p>
+          In code, <code>requestApiKey</code> from the skill does both steps. It signs only Orientim&apos;s key message for that
+          wallet, and refuses anything else.
         </p>
       </section>
 

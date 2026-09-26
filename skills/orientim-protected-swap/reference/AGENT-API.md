@@ -52,6 +52,31 @@ Authorization: Bearer ori_...
 
 Requests are limited per key (60 per minute per endpoint by default). A `429` means wait and retry.
 
+### API access: a key for your wallet, at once
+
+A key comes from the wallet itself, with no form: the wallet signs Orientim's message, a Sign In With
+Solana text that names it, and gets a key bound to it. Signing moves nothing. The key prepares swaps
+for that wallet only (another `owner` is refused with `403 wrong-wallet`), so a leaked key is worth
+nothing for any other wallet; its limits count per wallet. It lasts 180 days; sign again for a new
+one. The wallet must hold at least 0.01 SOL.
+
+```http
+GET /api/v1/keys/challenge?wallet=<address>
+→ { "message": "orientim.com wants you to sign in with your Solana account:
+<address>
+...", "challenge": "...", "expiresAt": "..." }
+
+POST /api/v1/keys
+{ "message": "<the message, unchanged>", "challenge": "...", "signature": "<the wallet's ed25519 signature of message, base58 or base64>" }
+→ { "key": "ori_w1....", "wallet": "<address>", "expiresAt": "..." }
+```
+
+The challenge must be signed within 10 minutes. **Sign only Orientim's key message for your own
+wallet**: a signature over bytes someone else chose could be a signature for a transaction. The skill's
+`requestApiKey` (and `orientim-verify key-challenge`, then `key`) checks the message before anything is
+signed: this host, this wallet, the key statement, plain text and nothing more. Keys issued by hand
+keep working beside these.
+
 ## Fee
 
 0.3%, inside the transaction, taken the way Jupiter takes its own: in SOL first, then USDC, then

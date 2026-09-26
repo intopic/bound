@@ -18,6 +18,7 @@ import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare, olderThan } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
+import { issueKey } from '../lib/server/agent/keys.ts';
 
 const KEY = 'ori_test_key_for_the_agent_api_0001';
 const OTHER_KEY = 'ori_test_key_for_another_agent_0002';
@@ -548,5 +549,23 @@ describe("a swap whose fee cannot be collected is refused, never built free (fin
     const body = await res.json();
     expect(body.error.code).toBe('fee-unavailable');
     expect(w.sent).toHaveLength(0);
+  });
+});
+
+describe('a self-serve key, end to end (API access)', () => {
+  it('prepares and finalizes for its own wallet, like a key issued by hand; another key cannot finalize it', async () => {
+    const w = await world();
+    w.deps.keySecrets = [secret(9)];
+    const { key } = await issueKey(secret(9), w.W.address, Math.floor(Date.now() / 1000));
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address), key), w.deps);
+    expect(res.status).toBe(200);
+    const p = await res.json() as Prepared;
+    expect((await openTicket(w.deps.secrets, p.ticket))?.ticket.key).toBe(`w:${w.W.address}`);
+    const signed = await signAsWallet(w.W, p.transaction);
+    expect((await finalize(w, p.ticket, signed, KEY)).status).toBe(400);
+    const fin = await finalize(w, p.ticket, signed, key);
+    expect(fin.status).toBe(200);
+    expect(((await fin.json()) as { status: string }).status).toBe('sent');
+    expect(w.sent).toHaveLength(1);
   });
 });

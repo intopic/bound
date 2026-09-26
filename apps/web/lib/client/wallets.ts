@@ -92,3 +92,20 @@ export async function walletSign(
   const [out] = await f.signTransaction({ account, transaction, chain: CHAIN, options });
   return out.signedTransaction;
 }
+
+type SignMessageFeature = {
+  signMessage(...inputs: { account: WalletAccount; message: Uint8Array }[]): Promise<readonly { signedMessage: Uint8Array; signature: Uint8Array }[]>;
+};
+
+/** Whether the wallet can sign a plain message (Wallet Standard `solana:signMessage`), which an API key needs. */
+export const signsMessages = (wallet: Wallet) => 'solana:signMessage' in wallet.features;
+
+/**
+ * The wallet's signature of a plain message. Only for Orientim's API-key message, checked by the
+ * caller first: a signature over bytes someone else chose could be a signature for a transaction.
+ */
+export async function walletSignMessage(wallet: Wallet, account: WalletAccount, message: Uint8Array): Promise<Uint8Array> {
+  const f = wallet.features['solana:signMessage'] as SignMessageFeature;
+  const [out] = await f.signMessage({ account, message });
+  return out.signature;
+}

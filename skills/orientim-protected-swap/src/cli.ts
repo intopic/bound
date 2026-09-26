@@ -11,6 +11,8 @@
  *   orientim-verify resolve    {"signature": "...", "outcome": "..."}  0 settled   1 refused (it could still land, or is not kept)
  *   3 also when the state directory cannot be read: nothing is prepared or changed until it can.
  *   orientim-verify check      {"prepared": ..., "intent": {...}}      0 safe to sign   1 refused   (for bots that call the API themselves)
+ *   orientim-verify key-challenge  {"wallet": "<address>"}             0 sign `message` (checked: Orientim's key message for this wallet, nothing else)
+ *   orientim-verify key        {"message", "challenge", "signature"}   0 `key`, bound to that wallet   4 Orientim said no
  *   2 on any usage or configuration error; 5 when `intent.id` names an order that already swapped or
  *   whose transaction may still land (the same order is never swapped twice).
  *
@@ -34,8 +36,8 @@
 import { createSolanaRpc, getBase58Encoder, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder } from '@solana/kit';
 import type { Address, Rpc, SignatureBytes, SolanaRpcApi } from '@solana/kit';
 import {
-  acquireLock, OrientimApiError, checkPrepared, createFileStore, finalizeSigned, pendingFor, PendingSwapError, prepareChecked, recoverPending,
-  resolvePending, resumeSigned,
+  acquireLock, apiKeyChallenge, OrientimApiError, checkPrepared, createFileStore, finalizeSigned, isApiKeyMessage, pendingFor, PendingSwapError,
+  prepareChecked, recoverPending, redeemApiKey, resolvePending, resumeSigned,
 } from '../examples/swap.ts';
 import type { Checked, Intent, OrderBook, OrderRecord, PendingStore, Prepared } from '../examples/swap.ts';
 import { inputTransferFee, ownMinimum, ownSolFeeLimit } from '../lib/orientim-verify.mjs';
@@ -57,7 +59,9 @@ export type CliDeps = {
 
 export type CliResult = { code: number; output: Record<string, unknown> };
 
-const COMMANDS = ['prepare', 'finalize', 'recover', 'resolve', 'check'] as const;
+const COMMANDS = ['prepare', 'finalize', 'recover', 'resolve', 'check', 'key-challenge', 'key'] as const;
+/** The commands that get an API key: they need Orientim's URL, not a key or an RPC. */
+const KEY_COMMANDS: readonly string[] = ['key-challenge', 'key'];
 const usage = (message: string): CliResult => ({ code: 2, output: { ok: false, error: message } });
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const isIntent = (v: unknown): v is Intent => {
@@ -136,6 +140,29 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       return { code: 1, output: { ok: false, error: messageOf(e) } };
     } finally {
       release();
+    }
+  }
+
+  // An API key for the bot's wallet: the bot signs the checked message itself (AGENT-API.md, "API access").
+  if (command === 'key-challenge' || command === 'key') {
+    if (!deps.apiUrl) return usage('Set ORIENTIM_API_URL.');
+    try {
+      if (command === 'key-challenge') {
+        if (typeof body.wallet !== 'string') return usage('key-challenge reads {"wallet": "<address>"}.');
+        const c = await apiKeyChallenge({ apiUrl: deps.apiUrl, address: body.wallet, fetchImpl: deps.fetchImpl, requestTimeoutMs: deps.requestTimeoutMs });
+        return { code: 0, output: { ok: true, ...c, messageBase64: Buffer.from(c.message).toString('base64') } };
+      }
+      const { message, challenge, signature } = body;
+      if (typeof message !== 'string' || typeof challenge !== 'string' || typeof signature !== 'string') {
+        return usage('key reads {"message", "challenge", "signature"} (the signature of message, base58 or base64).');
+      }
+      const wallet = message.split('\n')[1] ?? '';
+      if (!isApiKeyMessage(message, deps.apiUrl, wallet)) return usage("That is not Orientim's API-key message; get one with key-challenge.");
+      const issued = await redeemApiKey({ apiUrl: deps.apiUrl, message, challenge, signature, fetchImpl: deps.fetchImpl, requestTimeoutMs: deps.requestTimeoutMs });
+      return { code: 0, output: { ok: true, ...issued } };
+    } catch (e) {
+      if (e instanceof OrientimApiError) return { code: 4, output: { ok: false, error: e.message, status: e.status, code: e.code } };
+      return { code: 1, output: { ok: false, error: messageOf(e) } };
     }
   }
 
@@ -322,8 +349,8 @@ export async function main(): Promise<void> {
   };
   if (!(COMMANDS as readonly string[]).includes(command)) return print(usage(`usage: orientim-verify <${COMMANDS.join('|')}> < input.json`));
   const rpcUrl = process.env.SOLANA_RPC_URL;
-  if (!rpcUrl) return print(usage('Set SOLANA_RPC_URL to your own RPC.'));
-  if (!process.env.JUPITER_API_KEY && command !== 'recover') {
+  if (!rpcUrl && !KEY_COMMANDS.includes(command)) return print(usage('Set SOLANA_RPC_URL to your own RPC.'));
+  if (!process.env.JUPITER_API_KEY && command !== 'recover' && !KEY_COMMANDS.includes(command)) {
     process.stderr.write('JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.\n');
   }
   let input: unknown = {};
@@ -335,7 +362,8 @@ export async function main(): Promise<void> {
     }
   }
   print(await runCli(command, input, {
-    rpc: createSolanaRpc(rpcUrl),
+    // The key commands read nothing from a chain.
+    rpc: createSolanaRpc(rpcUrl ?? 'http://127.0.0.1:1'),
     apiUrl: process.env.ORIENTIM_API_URL,
     apiKey: process.env.ORIENTIM_API_KEY,
     jupiterApiKey: process.env.JUPITER_API_KEY || undefined,
