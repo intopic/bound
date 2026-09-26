@@ -1841,7 +1841,23 @@ impact above 5% is refused.
 - `.github/workflows/fuzz.yml` now runs 45 shards in parallel, each with its own seed printed for
   replay, about 30 million cases a run. It runs by hand, and weekly while the repository is public;
   on a private one it would use more than the free plan's minutes.
-- Its first run is recorded below when it ends.
+- **First run: all 45 shards passed**, with no counterexample
+  (https://github.com/intopic/bound/actions/runs/36252418342, seeds 8001 onward).
+
+  | Suite | Shards | Cases |
+  | --- | --- | --- |
+  | Verifier: honest transactions | 8 | 800,000 |
+  | Verifier: attacks | 8 | 800,000 |
+  | Verifier: refused Token-2022 extensions | 4 | 400,000 |
+  | Token-2022 extension matrix | 1 | about 8,000,000 |
+  | Tolerance rule | 8 | 1,200,000 |
+  | The page's swap at any tolerance | 4 | 100,000 |
+  | Agents and bots end to end, honest and lying servers | 8 | 100,000 |
+  | Small functions | 2 | about 10,800,000 |
+  | Plugin: amounts and tool calls | 2 | about 8,020,000 |
+
+  About 30.2 million cases in all. The slowest shard took 14 minutes (100,000 verifier cases); the
+  logs confirm each shard's count and seed. CI passed on the same commit.
 
 ---
 
