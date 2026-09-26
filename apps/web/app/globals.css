@@ -294,7 +294,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .proof-row { display: flex; justify-content: center; padding-block: 16px; }
 .one-key { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); text-align: center; text-wrap: balance; }
 .one-key svg { margin-right: 10px; vertical-align: -3px; color: var(--accent); }
-.one-key strong { margin-right: 4px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
+.one-key strong { font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
 
 /* The two diagrams sit on glass: a panel that blurs a soft light behind it, so it reads as depth
    rather than a flat card. Without backdrop-filter the panel is simply solid. */
