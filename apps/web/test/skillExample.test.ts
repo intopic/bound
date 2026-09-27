@@ -31,7 +31,7 @@ import {
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ORIENTIM_TREASURY, inputTransferFee, ownMinimum, tokenNotices } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
@@ -894,6 +894,49 @@ describe('orientim-verify, the command for bots in other languages', () => {
     const run = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs'], { encoding: 'utf8', cwd: join(import.meta.dirname, '../../..') });
     expect(run.status).toBe(2);
     expect(JSON.parse(run.stdout).error).toContain('usage: orientim-verify');
+  });
+
+  it('finalize asked again while a stopped run still holds the lock: unknown and busy, never "not sent"', async () => {
+    const { b, deps, stateDir, intent, signMessage } = await setup();
+    // The chain never answers in time: the first finalize sends the swap and ends unknown.
+    const silent = { ...b.agentRpc, getSignatureStatuses: () => ({ send: async () => ({ context: { slot: 1n }, value: [null] }) }) } as unknown as Rpc<SolanaRpcApi>;
+    const out = viaJson((await runCli('prepare', { intent: { ...intent, id: 'order-busy' } }, deps)).output) as { checked: unknown; message: string };
+    const signature = await signMessage(out.message);
+    const first = await runCli('finalize', { checked: out.checked, signature }, { ...deps, rpc: silent });
+    expect(first).toMatchObject({ code: 3, output: { outcome: 'unknown', signature } });
+    expect(b.sent.length).toBeGreaterThan(0);
+    // As a bot's timeout leaves it: the killed run's lock, still fresh.
+    writeFileSync(join(stateDir, `lock-${b.wallet.address}`), JSON.stringify({ pid: 1, at: Date.now(), token: 'killed-run' }));
+    const again = await runCli('finalize', { checked: out.checked, signature }, { ...deps, rpc: silent });
+    expect(again.code).toBe(3);
+    expect(again.output).toMatchObject({ ok: false, busy: true, signature, outcome: 'unknown' });
+    expect(again.output.sent).toBeUndefined();
+    expect(String(again.output.error)).toContain('recover');
+  });
+
+  it('a state directory that cannot be made: exit 3 in JSON, nothing prepared or sent, from the bundled command too', async () => {
+    const { b, deps, intent } = await setup();
+    const notADir = join(mkdtempSync(join(tmpdir(), 'orientim-cli-file-')), 'a-file');
+    writeFileSync(notADir, '');
+    let calls = 0;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.startsWith('http://orientim.test/')) calls++;
+      return deps.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const broken = { ...deps, stateDir: notADir, fetchImpl };
+    for (const [command, input] of [['prepare', { intent }], ['recover', {}], ['resolve', { signature: 'any', outcome: 'expired' }], ['finalize', { checked: { prepared: {}, intent }, signature: 'x' }]] as const) {
+      const r = await runCli(command, input, broken);
+      expect(r.code, command).toBe(3);
+      expect(String(r.output.error), command).toContain('cannot be used');
+    }
+    expect(calls).toBe(0);
+    expect(b.sent).toHaveLength(0);
+    const run = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs', 'recover'], {
+      encoding: 'utf8', cwd: join(import.meta.dirname, '../../..'), input: '',
+      env: { ...process.env, SOLANA_RPC_URL: 'http://127.0.0.1:1', ORIENTIM_STATE_DIR: notADir },
+    });
+    expect(run.status).toBe(3);
+    expect(JSON.parse(run.stdout).ok).toBe(false);
   });
 });
 

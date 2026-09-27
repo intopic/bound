@@ -2175,7 +2175,8 @@ if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import
 *   orientim-verify finalize   {"checked": ..., "signature": "..."}    0 confirmed   1 not swapped   3 unknown: recover before anything new
 *   orientim-verify recover                                            0 all settled   3 something is still unknown
 *   orientim-verify resolve    {"signature": "...", "outcome": "..."}  0 settled   1 refused (it could still land, or is not kept)
-*   3 also when the state directory cannot be read: nothing is prepared or changed until it can.
+*   3 also when the state directory cannot be made or read: nothing is prepared or changed until it can,
+*   and from finalize when another run from the wallet holds its lock (that run may have sent the swap).
 *   orientim-verify check      {"prepared": ..., "intent": {...}}      0 safe to sign   1 refused   (for bots that call the API themselves)
 *   orientim-verify key-challenge  {"wallet": "<address>"}             0 sign `message` (checked: Orientim's key message for this wallet, nothing else)
 *   orientim-verify key        {"message", "challenge", "signature"}   0 `key`, bound to that wallet   4 Orientim said no
@@ -2196,8 +2197,10 @@ if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import
 * as `signedTransaction`. Finalize checks everything again before anything is sent.
 *
 * Environment: SOLANA_RPC_URL (your own RPC; always), ORIENTIM_API_URL and ORIENTIM_API_KEY (prepare,
-* finalize), JUPITER_API_KEY (Jupiter throttles keyless calls), ORIENTIM_STATE_DIR (default ./.orientim-state), ORIENTIM_TREASURY
-* (only for another Orientim deployment).
+* finalize), JUPITER_API_KEY (Jupiter throttles keyless calls), ORIENTIM_STATE_DIR (default ./.orientim-state; an
+* absolute path on a disk that outlives the process), ORIENTIM_TREASURY (only for another Orientim deployment).
+* Finalize can take minutes (it reads the outcome on the chain): a run that is stopped anyway is settled
+* by `recover` before anything new.
 */
 const COMMANDS = [
 	"prepare",
@@ -2228,9 +2231,36 @@ const isIntent = (v) => {
 	].every((x) => typeof x === "string" && x.length > 0);
 };
 const INTENT_SHAPE = "{\"owner\", \"inputMint\", \"outputMint\", \"amountIn\"} (strings)";
+/** A store for the commands that keep nothing: any use of it is the error that made it. */
+const unavailableStore = (e) => {
+	const fail = async () => {
+		throw e;
+	};
+	return {
+		put: fail,
+		remove: fail,
+		list: fail,
+		order: fail,
+		recordOrder: fail,
+		claimOrder: fail
+	};
+};
 async function runCli(command, input, deps) {
 	const body = input ?? {};
-	const store = deps.store ?? createFileStore(deps.stateDir);
+	let store;
+	try {
+		store = deps.store ?? createFileStore(deps.stateDir);
+	} catch (e) {
+		if (command === "check" || KEY_COMMANDS.includes(command) || !COMMANDS.includes(command)) store = unavailableStore(e);
+		else return {
+			code: 3,
+			output: {
+				ok: false,
+				sent: false,
+				error: `The state directory ${deps.stateDir} cannot be used: ${messageOf(e)}. Nothing was prepared, sent or changed; fix it first.`
+			}
+		};
+	}
 	if (command === "check") {
 		const prepared = body.prepared;
 		if (!prepared || typeof prepared.transaction !== "string" || !isIntent(body.intent)) return usage(`check reads {"prepared": <Orientim's prepare answer>, "intent": ${INTENT_SHAPE}}.`);
@@ -2564,29 +2594,31 @@ async function runCli(command, input, deps) {
 				}
 			};
 		};
+		const incoming = (() => {
+			if (typeof signature === "string") return signature;
+			try {
+				return getSignatureFromTransaction(getTransactionDecoder().decode(Buffer.from(signedTransaction, "base64")));
+			} catch {
+				return;
+			}
+		})();
 		let release;
 		try {
 			release = acquireLock(deps.stateDir, prepared.wallet);
 		} catch (e) {
 			return {
-				code: 1,
+				code: 3,
 				output: {
 					ok: false,
-					sent: false,
-					error: messageOf(e)
+					busy: true,
+					...incoming ? { signature: incoming } : {},
+					outcome: "unknown",
+					error: `${messageOf(e)} That run may have sent this swap: run \`orientim-verify recover\` before anything new.`
 				}
 			};
 		}
 		let signedAs = null;
 		try {
-			const incoming = (() => {
-				if (typeof signature === "string") return signature;
-				try {
-					return getSignatureFromTransaction(getTransactionDecoder().decode(Buffer.from(signedTransaction, "base64")));
-				} catch {
-					return;
-				}
-			})();
 			const kept = incoming ? (await store.list()).find((s) => s.signature === incoming) : void 0;
 			if (kept) {
 				signedAs = kept.signature;

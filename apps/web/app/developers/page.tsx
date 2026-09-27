@@ -77,7 +77,7 @@ const EXIT_CODES: [string, string][] = [
   ['0', 'Done. prepare: sign message. finalize: confirmed, with received. recover: all settled. check: safe to sign.'],
   ['1', 'Refused, or not swapped (failed, expired or rejected). Nothing is left to settle.'],
   ['2', 'A usage or configuration error: the answer says what is missing.'],
-  ['3', 'Settle first: an earlier swap may still land, or the state directory cannot be read. Run recover; start nothing new.'],
+  ['3', 'Settle first: an earlier swap may still land, another finalize from this wallet is still running (busy), or the state directory cannot be made or read. Run recover; start nothing new.'],
   ['4', 'Orientim said no: error.code is one of the Errors below.'],
   ['5', 'This order id already swapped, or its transaction may still land. It is never swapped twice.'],
 ];
@@ -88,7 +88,7 @@ const ENV: [string, string][] = [
   ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check is worth what the chain state it reads is worth.'],
   ['JUPITER_API_KEY', 'For the agent’s own price floor (free at developers.jup.ag).'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs.'],
-  ['ORIENTIM_STATE_DIR', 'Optional: where swaps in flight are kept across restarts (.orientim-state by default).'],
+  ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system.'],
   ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
 ];
 
@@ -259,6 +259,7 @@ const result = await protectedSwap({
               <pre><code>{`import base64, json, subprocess
 
 def orientim(command, payload=None):
+    # No short timeout: finalize waits for the chain. If it is stopped anyway, run recover first.
     run = subprocess.run(["node", "bin/orientim-verify.mjs", command],
                          input=json.dumps(payload or {}), capture_output=True, text=True)
     return run.returncode, json.loads(run.stdout)

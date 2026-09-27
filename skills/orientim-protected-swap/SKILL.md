@@ -207,12 +207,21 @@ It needs Node 22.18 or later and `npm ci` in this folder, and reads `SOLANA_RPC_
 `ORIENTIM_API_URL`, `ORIENTIM_API_KEY`, `JUPITER_API_KEY` (see Setup) and `ORIENTIM_STATE_DIR` (default
 `./.orientim-state`) from the environment.
 
+- **`ORIENTIM_STATE_DIR` must outlive the bot**: an absolute path on a disk that stays across restarts
+  (a volume, not a container's own file system), shared by every process of the same wallet. It holds
+  the swaps that may still land and the order book; lose it, and nothing stops a second swap after a crash.
+- **Give every order an `id`**, the same on every retry of that order: a retry of an order that
+  swapped, or may still land, exits 5 instead of swapping twice.
+- **Finalize can take minutes**: it waits for the outcome on the chain (up to 3 minutes, and more with
+  slow calls). Do not stop it with a short timeout. If it is stopped anyway, run `recover` before
+  anything new: a finalize asked again while the stopped run's lock is still held exits 3 (`busy`).
+
 | Command | Input (stdin) | Exit code |
 | --- | --- | --- |
 | `recover` | none | 0 all settled; 3 an earlier outcome is still unknown, or its record could not be updated (`bookkeepingErrors`): start nothing new |
-| `resolve` | `{"signature": "<a kept swap>", "outcome": "confirmed" \| "failed" \| "expired"}` | 0 settled (the chain's answer is used when your RPC has one); 1 refused: it could still land, or no swap with that signature is kept; 3 the state directory cannot be read. Only after you looked the signature up in a full history (an explorer), for a swap `recover` can no longer prove |
+| `resolve` | `{"signature": "<a kept swap>", "outcome": "confirmed" \| "failed" \| "expired"}` | 0 settled (the chain's answer is used when your RPC has one); 1 refused: it could still land, or no swap with that signature is kept; 3 the state directory cannot be made or read. Only after you looked the signature up in a full history (an explorer), for a swap `recover` can no longer prove |
 | `prepare` | `{"intent": {"owner", "inputMint", "outputMint", "amountIn", "id", "slippageBps", "maxPriceImpactBps", ...}}` | 0 sign `message` (the answer also carries `notices` about the tokens); 1 refused, including `error.code` `price-impact-high`; 3 settle first; 4 Orientim said no (`error.code`, as below); 5 this order (`id`) already swapped or may still land |
-| `finalize` | `{"checked": <prepare's checked, unchanged>, "signature": "<base58>"}` | 0 confirmed, with `received`: what arrived, in base units; 1 not swapped; 3 unknown: run `recover` before anything new. Asked again for a swap it kept, it answers with that swap's signature and outcome (`resumed`) |
+| `finalize` | `{"checked": <prepare's checked, unchanged>, "signature": "<base58>"}` | 0 confirmed, with `received`: what arrived, in base units; 1 not swapped; 3 unknown: run `recover` before anything new (also `busy`: another run from this wallet holds its lock, and may have sent it). Asked again for a swap it kept, it answers with that swap's signature and outcome (`resumed`) |
 | `check` | `{"prepared": <prepare answer>, "intent": {...}}` | 0 safe to sign; 1 refused (for bots that call the API themselves) |
 
 `slippageBps` and `maxPriceImpactBps` are optional, and the same as on the page: without them the
@@ -227,13 +236,16 @@ key in `solders`:
 import base64, json, subprocess
 
 def orientim(command, payload=None):
+    # No short timeout: finalize waits for the chain. ORIENTIM_STATE_DIR is set in the bot's
+    # environment, to an absolute path on a disk that outlives it.
     run = subprocess.run(["node", "bin/orientim-verify.mjs", command], input=json.dumps(payload or {}),
                          capture_output=True, text=True)
     return run.returncode, json.loads(run.stdout)
 
 code, settled = orientim("recover")                     # 3: an earlier swap may still land; stop
-code, ready = orientim("prepare", {"intent": {"owner": str(keypair.pubkey()), "inputMint": USDC,
-                                           "outputMint": SOL, "amountIn": "5000000"}})
+if code == 0:
+    code, ready = orientim("prepare", {"intent": {"id": "order-42", "owner": str(keypair.pubkey()),
+                                               "inputMint": USDC, "outputMint": SOL, "amountIn": "5000000"}})
 if code == 0:
     signature = keypair.sign_message(base64.b64decode(ready["message"]))
     code, result = orientim("finalize", {"checked": ready["checked"], "signature": str(signature)})
