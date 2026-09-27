@@ -13,10 +13,9 @@ export default async function Page() {
     <div className="site home">
       <div className="page-grid" aria-hidden="true" />
       <HeroBlocks />
-      <SwapApp />
-      <main>
+      <SwapApp>
         <HomeSections />
-      </main>
+      </SwapApp>
       <SiteFooter />
     </div>
   );

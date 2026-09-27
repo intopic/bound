@@ -464,7 +464,8 @@ async function settleHistory(): Promise<HistoryEntry[] | null> {
   return list;
 }
 
-export function SwapApp() {
+/** The header, the swap (the page's H1) and, under it, the rest of the home page, all but the header in <main>. */
+export function SwapApp({ children }: { children?: ReactNode }) {
   const wallets = useWallets();
   const [status, setStatus] = useState<PublicStatus | null>(null);
   const [popular, setPopular] = useState<TokenInfo[]>([]);
@@ -1372,6 +1373,7 @@ export function SwapApp() {
         </Modal>
       )}
 
+      <main>
       <section className="hero" id="swap">
         <div className="container hero-grid">
           <div className="hero-copy">
@@ -1628,7 +1630,7 @@ export function SwapApp() {
         )}
       </section>
 
-      {status?.maxUsdPerSwap != null && <p className="card-foot">Swaps are limited to {formatUsd(status.maxUsdPerSwap)} while we run in alpha.</p>}
+      {status?.maxUsdPerSwap != null && <p className="card-foot">Swaps are limited to {formatUsd(status.maxUsdPerSwap)} while we run in beta.</p>}
 
       {history.length > 0 && (
         <section className="card history">
@@ -1652,6 +1654,8 @@ export function SwapApp() {
           </div>
         </div>
       </section>
+      {children}
+      </main>
 
       {picking && (
         <TokenPicker

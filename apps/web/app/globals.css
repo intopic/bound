@@ -9,7 +9,7 @@
   --line-soft: rgba(255, 255, 255, 0.06);
   --text: #f4faf6;
   --muted: #98a8a2;
-  --faint: #6c7b76;
+  --faint: #7e8e88;  /* 4.5:1 or more on every panel colour (WCAG AA) */
   --accent: #4cbd85;
   --accent-hover: #62d098;
   --accent-soft: rgba(76, 189, 133, 0.12);
@@ -252,6 +252,7 @@ a.ghost { display: inline-flex; align-items: center; }
 /* ---- windows: centred on a computer, a sheet from the bottom on a phone */
 .modal-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; background: rgba(4, 8, 10, .66); backdrop-filter: blur(3px); }
 .modal { display: flex; flex-direction: column; width: 100%; max-width: 440px; max-height: 80vh; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: 0 24px 64px rgba(0, 0, 0, .55); }
+.modal:focus { outline: none; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .modal-title { margin: 0; font-family: var(--font-display); font-size: 17px; font-weight: 700; }
 .modal .wallet-option:first-of-type { margin-top: 0; }

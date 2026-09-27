@@ -27,7 +27,7 @@ export function HomeSections() {
         <div className="container proof-row">
           <p className="one-key">
             <LockIcon />
-            <strong>Zero exposure beyond the amount you approve.</strong>
+            <strong>The swap program reaches only the amount you approve.</strong>
           </p>
         </div>
       </section>

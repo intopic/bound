@@ -512,7 +512,10 @@ POST /api/v1/keys
                   {feeText}, inside the transaction you sign, in SOL, USDC or USDT when the swap has one of them, otherwise in the
                   input token or in SOL. A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
                 </li>
-                <li>The verifier refuses any fee above 1% and any network fee above 0.001 SOL.</li>
+                <li>
+                  The verifier refuses any fee above 1% and any network fee above 0.001 SOL. The skill is stricter: it refuses Orientim&apos;s
+                  fee above 0.3%.
+                </li>
                 <li>
                   A slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to 15%); 0.5% by default, 3% on a Pump.fun launch
                   curve.
