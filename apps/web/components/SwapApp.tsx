@@ -32,7 +32,7 @@ import {
 import type { HistoryEntry, HistoryStatus, SignatureState } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
 import { costsMoreThan, keptByMarket } from '@/lib/client/rebuild';
-import { fillAgainstQuote, receivedFromMeta } from '@/lib/client/received';
+import { receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
 import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
 import type { Problem } from '@/lib/client/problems';
@@ -68,8 +68,8 @@ type Offer =
   | { kind: 'cost'; gap: string; severe: boolean }
   | { kind: 'impact'; pct: string }
   | { kind: 'extras'; lines: string[] };
-/** `received`: what the chain recorded, once confirmed; empty until then. */
-type SwapTexts = { paid: string; received: string; exposed: string; minimum: string };
+/** `received`: what the chain recorded, once confirmed, every digit; empty until then. `shown`: the same, rounded for the success message. */
+type SwapTexts = { paid: string; received: string; exposed: string; minimum: string; shown?: string };
 
 // Quotes are asked for a neutral taker, so Jupiter never sees the user's address before a swap.
 const QUOTE_TAKER = '11111111111111111111111111111111';
@@ -261,6 +261,8 @@ const solscan = (signature: string) => `https://solscan.io/tx/${signature}`;
 /** How often a swap the wallet waits on is looked up again. */
 const SETTLE_EVERY_MS = 10_000;
 const SETTLE_BY_HAND_MS = 30_000;
+/** How long a success message stays before it goes away on its own. */
+const SUCCESS_SHOWN_MS = 6_000;
 
 /** Said when this browser will not keep a swap's record: without it, a swap whose answer is lost could be forgotten. */
 const NO_STORAGE: Notice = {
@@ -390,16 +392,15 @@ function wordsFor(e: unknown, price: PriceContext = {}): Notice {
  */
 function outcomeNotice(
   status: SendOutcome, signature: string, t: SwapTexts,
-  why: { refusal?: SendRefusal; onPrice?: boolean; vsQuote?: string } & PriceContext = {},
+  why: { refusal?: SendRefusal; onPrice?: boolean } & PriceContext = {},
 ): Notice {
   const link = solscan(signature);
   switch (status) {
     case 'confirmed':
-      // What the route could use, and nothing more is claimed: the network fee, and Orientim's fee
-      // when it is paid in SOL, also leave the wallet, as the card showed.
+      // One line and the link, as a trading page says it: the card already showed the minimum and
+      // what the route could use, and the history keeps the exact amount received.
       return {
-        kind: 'success', title: t.received ? `Swapped ${t.paid} for ${t.received}` : `Swapped ${t.paid} for at least ${t.minimum}`,
-        body: `${why.vsQuote ? `${why.vsQuote} ` : ''}${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could use only ${t.exposed}.`,
+        kind: 'success', title: t.received ? `Swapped ${t.paid} for ${t.shown ?? t.received}` : `Swapped ${t.paid} for at least ${t.minimum}`,
         link,
       };
     case 'failed':
@@ -546,6 +547,14 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     }
     // Recorded once per message; the pair and wallet are read as they are when it appears.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notice]);
+
+  // A success goes away on its own, as on a trading page; the swap stays in the history.
+  useEffect(() => {
+    if (notice?.kind !== 'success') return;
+    const shownNotice = notice;
+    const timer = setTimeout(() => setNotice(n => (n === shownNotice ? null : n)), SUCCESS_SHOWN_MS);
+    return () => clearTimeout(timer);
   }, [notice]);
 
   function copyDetails() {
@@ -1087,7 +1096,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       tolerance: percentText(pageSettings.chosenSlippageBps ?? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)),
       curveHint: quote.curve && pageSettings.chosenSlippageBps !== undefined && pageSettings.chosenSlippageBps < DEFAULT_SETTINGS.curveSlippageBps,
     };
-    let vsQuote = '';
     const cancelled = () => setNotice({ kind: 'info', title: 'Swap cancelled', body: 'Nothing was signed and no funds moved.' });
     // A build made ahead of the click is used at most once.
     const early = ahead.current;
@@ -1209,6 +1217,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       lock.refresh();
       const result = await finalizeProtectedSwap({
         rpc: getRpc(), prepared: toSend, walletSignedBytes: signed, ephemeral: E,
+        // Phantom may add Lighthouse assertions before it signs; nothing else it changes is accepted.
+        acceptAssertions: true,
         onStatus: (s, signature) => {
           if (s !== 'sending') return;
           // Recorded before anything is sent, and never sent unless recorded, so it is never lost:
@@ -1226,15 +1236,13 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         const got = await actualReceived(result.signature, toSend);
         if (got !== null) {
           texts.received = `${formatExact(got, outDecimals)} ${outToken.symbol}`;
-          // Against the quote, net of a fee taken from the output.
-          const expected = toSend.quote.outAmount - (toSend.policy.feeSide === 'output' ? toSend.policy.fee : 0n);
-          vsQuote = fillAgainstQuote(got, expected, priceContext.tolerance ?? '');
+          texts.shown = `${formatUnits(got, outDecimals)} ${outToken.symbol}`;
         }
       }
       setHistory(updateHistory(result.signature, result.status, texts.received || undefined));
       settled = result.status !== 'unknown';
       const onPrice = result.status === 'failed' && revertedOnPrice(toSend.transaction, result.error, JUPITER_PROGRAM);
-      setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice, vsQuote, ...priceContext }));
+      setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice, ...priceContext }));
       if (result.status === 'confirmed') setAmountText('');
     } catch (e) {
       if (sent.signature) {
