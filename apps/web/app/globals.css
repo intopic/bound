@@ -167,7 +167,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .status-badge.paused { color: var(--bad); border-color: rgba(242, 139, 130, .3); }
 @keyframes pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) {
-  .status-badge.checking .dot, .status-badge.ready .dot, .hero::before, .scan-line.on, .map .flow, .caret { animation: none; }
+  .status-badge.checking .dot, .status-badge.ready .dot, .hero::before, .scan-line.on, .caret { animation: none; }
   html { scroll-behavior: auto; }
 }
 /* The check you can see: a line that runs across the card while the transaction is checked. */
@@ -282,12 +282,6 @@ a.ghost { display: inline-flex; align-items: center; }
 .copy-btn { position: absolute; top: 10px; right: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .copy-btn:hover { color: var(--accent); }
 
-.fee-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
-.fee-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.fee { padding: 22px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
-.fee p { margin: 0; color: var(--muted); font-size: 14px; }
-.fee .fee-name { color: var(--muted); font-size: 13px; font-weight: 600; }
-.fee .fee-value { margin: 6px 0 8px; color: var(--text); font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
 
 .cta-band { display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap; padding: 36px 40px; border: 1px solid var(--ok-line); border-radius: 22px; background: radial-gradient(80% 140% at 100% 0%, rgba(76, 189, 133, .18), transparent 60%), var(--panel); }
 .cta-band p { margin: 8px 0 0; color: var(--muted); }
@@ -299,6 +293,9 @@ a.ghost { display: inline-flex; align-items: center; }
 .ghost-link:hover { color: var(--text); border-color: #33454e; }
 
 /* ---- proof, motion, agents, evidence, questions */
+.fee-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 28px; margin: 0; padding: 18px 24px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); color: var(--muted); font-size: 14px; }
+.fee-line b { margin-right: 6px; color: var(--text); font-family: var(--mono); font-weight: 600; }
+.fee-line .text-link { margin-left: auto; }
 .proof-strip { border-bottom: 1px solid var(--line-soft); background: var(--bg-2); }
 .proof-row { display: flex; justify-content: center; padding-block: 16px; }
 .one-key { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); text-align: center; text-wrap: balance; }
@@ -310,20 +307,19 @@ a.ghost { display: inline-flex; align-items: center; }
 .glass-stage { position: relative; }
 .ambient { position: absolute; inset: -12% 0; pointer-events: none;
   background: radial-gradient(38% 55% at 28% 45%, rgba(76, 189, 133, .22), transparent 70%), radial-gradient(32% 50% at 80% 55%, rgba(92, 200, 255, .08), transparent 70%); }
-.capsule-card, .map, .keeps-nothing li { position: relative;
+.capsule-card, .keeps-nothing li { position: relative;
   background: linear-gradient(180deg, rgba(28, 40, 46, .52), rgba(12, 17, 23, .44));
   -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%);
   border: 1px solid rgba(255, 255, 255, .09);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 30px 80px rgba(0, 0, 0, .35); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .capsule-card, .map, .keeps-nothing li { background: #111a20; }
+  .capsule-card, .keeps-nothing li { background: #111a20; }
 }
 .capsule-card { padding: 24px; border-radius: 22px; }
 .capsule { display: block; width: 100%; max-width: 100%; height: auto; }
 .svg-label { font-family: var(--font-display); font-size: 13px; font-weight: 700; fill: var(--text); }
 .svg-text { font-family: var(--font-body); font-size: 12px; fill: var(--muted); }
 .svg-good { fill: var(--mint); }
-.svg-warn { fill: var(--warn); }
 .svg-chip rect { fill: rgba(255, 255, 255, .045); stroke: rgba(255, 255, 255, .1); }
 .svg-chip text { font-family: var(--font-body); font-size: 12px; fill: var(--text); text-anchor: middle; }
 .svg-capsule { font-family: var(--font-body); font-size: 11px; font-weight: 700; fill: #f0fff7; }
@@ -336,17 +332,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .capsule-steps h3 { font-size: 15px; }
 .capsule-steps p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
 
-.split-media { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
-.map { padding: 20px; border-radius: 22px; }
-.map svg { display: block; width: 100%; height: auto; margin-top: 8px; }
-.map .flow { animation: dash 1s linear infinite; }
 @keyframes dash { to { stroke-dashoffset: -24; } }
-.map-caption { margin: 8px 0 0; color: var(--muted); font-size: 13px; min-height: 2.6em; }
-.toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--panel); }
-.map .toggle { background: rgba(255, 255, 255, .04); border-color: rgba(255, 255, 255, .1); }
-.toggle button { font-size: 13px; font-weight: 600; color: var(--muted); background: none; border: 0; padding: 6px 12px; border-radius: 999px; }
-.toggle button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
-.map .toggle button[aria-pressed="true"] { background: linear-gradient(180deg, rgba(124, 227, 176, .24), rgba(76, 189, 133, .08)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); color: #f0fff7; }
 
 /* Stateless by design: three cards of the same glass, tinted green, over the same soft light. */
 .keeps-nothing { position: relative; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0 0 18px; padding: 0; }
@@ -474,10 +460,10 @@ a.ghost { display: inline-flex; align-items: center; }
   .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .hero-app { max-width: 480px; width: 100%; margin: 0 auto; }
   .dev-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .fee-grid, .fee-grid.two, .capsule-steps, .keeps-nothing { grid-template-columns: minmax(0, 1fr); }
+  .capsule-steps, .keeps-nothing { grid-template-columns: minmax(0, 1fr); }
   .keeps-nothing li { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 16px; align-items: start; }
   .keeps-nothing .trust-icon { grid-row: span 2; margin: 0; }
-  .split-media, .faq-wrap { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .faq-wrap { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .dev-page { padding-top: 0; }
   .devdocs-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .dev-aside { top: 64px; z-index: 20; max-height: none; overflow: visible; margin: 0 -24px 24px; padding: 0 24px; background: rgba(12, 17, 23, .94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-soft); }

@@ -183,58 +183,6 @@ export function CapsuleFlow() {
   );
 }
 
-/** Whose signature the route acts with: in a typical swap the wallet's, in Orientim a one-time key's. */
-export function AuthorityMap() {
-  const [ours, setOurs] = useState(true);
-  return (
-    <div className="glass-stage">
-      <div className="ambient" aria-hidden="true" />
-      <div className="map">
-        <div className="toggle" role="group" aria-label="Compare">
-          <button type="button" aria-pressed={!ours} onClick={() => setOurs(false)}>Typical swap</button>
-          <button type="button" aria-pressed={ours} onClick={() => setOurs(true)}>Orientim</button>
-        </div>
-        <svg viewBox="0 0 440 240" role="img" aria-label={ours ? 'In Orientim, the route acts only with a one-time key.' : 'In a typical swap, the route acts with your wallet’s signature.'}>
-          <GlassDefs p="am" />
-          <rect x="16" y="70" width="130" height="100" rx="16" fill={url('am', 'glass')} stroke={url('am', 'edge')} />
-          <rect x="16" y="70" width="130" height="100" rx="16" fill={url('am', 'sheen')} />
-          <text x="81" y="112" textAnchor="middle" className="svg-label">Your wallet</text>
-          <text x="81" y="132" textAnchor="middle" className="svg-text">its signature</text>
-          <rect x="294" y="70" width="130" height="100" rx="16" fill={url('am', 'glass')} stroke={url('am', 'edge')} />
-          <rect x="294" y="70" width="130" height="100" rx="16" fill={url('am', 'sheen')} />
-          <text x="359" y="112" textAnchor="middle" className="svg-label">The route</text>
-          <text x="359" y="132" textAnchor="middle" className="svg-text">the swap programs</text>
-          {ours ? (
-            <g>
-              <path d="M146 150 C 170 200, 176 201, 182 201" stroke="#7ce3b0" strokeWidth="2" fill="none" filter={url('am', 'line-glow')} />
-              <path className="flow" d="M258 201 C 264 201, 272 200, 294 150" stroke="#7ce3b0" strokeWidth="2.5" fill="none" strokeDasharray="6 6" filter={url('am', 'line-glow')} />
-              <rect x="182" y="186" width="76" height="30" rx="15" fill={url('am', 'green-strong')} stroke={url('am', 'green-edge')} filter={url('am', 'glow')} />
-              <rect x="182" y="186" width="76" height="30" rx="15" fill={url('am', 'sheen')} />
-              <text x="220" y="205" textAnchor="middle" className="svg-capsule">one-time key</text>
-              <path d="M146 120 L294 120" stroke="#23323a" strokeWidth="2" />
-              <g transform="translate(206 104)">
-                <circle cx="14" cy="16" r="13" fill="#0f161d" stroke="#f28b82" />
-                <path d="M8 10 l12 12 M20 10 l-12 12" stroke="#f28b82" strokeWidth="2.5" strokeLinecap="round" />
-              </g>
-              <text x="220" y="56" textAnchor="middle" className="svg-text svg-good">the route never acts with your wallet’s signature</text>
-            </g>
-          ) : (
-            <g>
-              <path className="flow" d="M146 120 L294 120" stroke="#f2c46b" strokeWidth="2.5" strokeDasharray="6 6" />
-              <text x="220" y="104" textAnchor="middle" className="svg-text svg-warn">acts with your wallet’s signature</text>
-            </g>
-          )}
-        </svg>
-        <p className="map-caption">
-          {ours
-            ? 'Orientim: the route only ever holds a one-time key with the amount of this swap.'
-            : 'A typical swap: your wallet signs as the authority of the swap’s instructions, and the route acts with that signature.'}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 const TERMINAL: [string, string][] = [
   ['dim', '$ swap 0.01 SOL → USDC   # protected'],
   ['ok', '✓ checked on the agent’s own RPC · only 0.01 SOL can move'],

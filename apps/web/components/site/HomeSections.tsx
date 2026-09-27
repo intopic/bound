@@ -1,5 +1,5 @@
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
-import { AgentTerminal, AuthorityMap, CapsuleFlow, CheckedTwice } from './Motion';
+import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
 
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
@@ -25,12 +25,9 @@ const KEEPS_NOTHING = [
 const FAQ: [string, string][] = [
   ['What does Orientim protect?', 'What a swap can reach. The swap programs work with a one-time key that holds only the amount you approve, never with your wallet’s authority, and the minimum you accepted is enforced on chain. It does not protect the value of a token or a wallet that is already compromised.'],
   ['Does Orientim hold my funds or my keys?', 'No. You sign with your own wallet. Orientim never holds funds and never asks for your seed phrase.'],
-  ['Why use Orientim instead of a regular swap?', 'Orientim routes through the same markets as a regular swap, and adds what a regular swap does not have: the route never holds your wallet’s authority. A protected route can occasionally price a little differently; when it costs more than 0.5% over the open market, you are asked before signing.'],
   ['What happens if the minimum cannot be met?', 'The whole swap cancels itself instead of completing for less. The network fee of an attempted transaction may still be paid.'],
   ['Which tokens and wallets work?', 'Any token with a route on Solana’s markets that Orientim can isolate, including Token-2022 and Pump.fun tokens. Browser wallets that sign and hand the transaction back work, such as Phantom and Trust Wallet. A token Orientim cannot isolate is refused, with the reason.'],
-  ['What does a pending or unknown result mean?', 'The network has not confirmed the outcome yet. In this browser, Orientim starts no new swap from the same wallet until it knows, so the same swap is not sent twice from here.'],
   ['Can my AI agent use Orientim?', 'Yes, through the API, the agent skill or the command line. With the skill or the command line, the agent verifies every transaction on its own RPC before signing, so even a compromised server cannot make it sign more than its limits.'],
-  ['What does it cost?', `An Orientim fee of ${TREASURY ? feeText : '0%'} of the swap, and Solana’s network fee. Some markets and tokens add a charge; it is shown before you sign.`],
 ];
 
 export function HomeSections() {
@@ -63,21 +60,6 @@ export function HomeSections() {
               </ol>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="container split-media">
-          <div>
-            <p className="eyebrow">The difference</p>
-            <h2>A budget, not your signature.</h2>
-            <p className="lead">
-              In a typical swap, your wallet signs as the authority of the swap&apos;s instructions, and the programs on the route act
-              with that signature. In Orientim, the route only ever holds a one-time key with the amount you approved. That holds even
-              if a program on the route misbehaves.
-            </p>
-          </div>
-          <AuthorityMap />
         </div>
       </section>
 
@@ -129,30 +111,14 @@ export function HomeSections() {
         </div>
       </section>
 
-      <section className="section" id="fees">
+      <section className="section" id="fees" aria-label="Fees">
         <div className="container">
-          <div className="section-head">
-            <p className="eyebrow">Fees</p>
-            <h2>Every cost, before you sign.</h2>
-          </div>
-          <div className="fee-grid">
-            <div className="fee">
-              <p className="fee-name">Orientim fee</p>
-              <p className="fee-value">{TREASURY ? feeText : '0'}</p>
-              <p>Of the swap, inside the transaction you sign.</p>
-            </div>
-            <div className="fee">
-              <p className="fee-name">Network fee</p>
-              <p className="fee-value">Usually &lt; $0.01</p>
-              <p>Paid to Solana, never more than 0.001 SOL. The exact amount is shown before you sign.</p>
-            </div>
-            <div className="fee">
-              <p className="fee-name">Market charges</p>
-              <p className="fee-value">Only if any</p>
-              <p>Some markets and tokens add a charge. It is shown and asked about first.</p>
-            </div>
-          </div>
-          <a className="text-link" href="/security#fees">How fees work →</a>
+          <p className="fee-line">
+            <span><b>{TREASURY ? feeText : 'No'}</b> Orientim fee</span>
+            <span><b>Usually &lt; $0.01</b> network fee</span>
+            <span>Every cost shown before you sign</span>
+            <a className="text-link" href="/security#fees">All costs →</a>
+          </p>
         </div>
       </section>
 
