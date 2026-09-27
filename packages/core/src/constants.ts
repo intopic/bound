@@ -26,7 +26,7 @@ export const V1_MAX_ACCOUNTS = 64;
 export const MAX_COMPUTE_UNITS = 1_400_000;
 /**
  * Base fee per signature. A cluster parameter, not a constant of nature: if it ever changes, R4
- * would understate the fee. The pipeline also cross-checks with the RPC's getFeeForMessage (B-12).
+ * would understate the fee. The pipeline also cross-checks with the RPC's getFeeForMessage.
  */
 export const LAMPORTS_PER_SIGNATURE = 5000n;
 export const TOKEN_ACCOUNT_SIZE = 165;
@@ -36,11 +36,11 @@ export const TOKEN_ACCOUNT_SIZE = 165;
  */
 export const TOKEN_2022_ACCOUNT_SIZE = 170;
 export const MINT_SIZE = 82;
-/** Intermediate ATA(E, m) accounts a route may use (D14). Real routes use 0 to 2 (audit B-10). */
+/** Intermediate ATA(E, m) accounts a route may use. Real routes use 0 to 2. */
 export const MAX_INTERMEDIATE_ACCOUNTS = 4;
 export const BPS_DENOMINATOR = 10_000n;
 
-// Ceilings the verifier enforces whatever the configuration says (audit B-01, B-02). The fee and
+// Ceilings the verifier enforces whatever the configuration says. The fee and
 // F_max reach the browser from the deployment; these limits do not, so a compromised backend or a
 // config bug cannot push past them.
 export const MAX_FEE_BPS = 100n; // 1% ceiling; the current product fee is 0.3%
@@ -53,7 +53,7 @@ export const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1_000_000n; // 0.001 SOL
  */
 export const MAX_TAKER_RENT_LAMPORTS = 5_000_000n; // 0.005 SOL
 /**
- * The most tolerance a Jupiter route may carry on chain (review FA-03). Jupiter's program stops the
+ * The most tolerance a Jupiter route may carry on chain. Jupiter's program stops the
  * swap when this instruction delivers less than its quoted amount less this tolerance, whatever the
  * destination held before, so it is a floor independent of the RPC. The verifier reads it from the
  * instruction: 0.5%, or 3% when the route trades on a Pump.fun bonding curve.
@@ -74,7 +74,7 @@ export const PUMP_AMM_PROGRAM = address('pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FM
 /**
  * close_user_volume_accumulator, the same Anchor discriminator in both Pump programs' IDLs: closes
  * the account a Pump market opens for every buyer and returns its lamports to the buyer, who in a
- * Orientim swap is E (review FA-05). Accounts: [user (signer), account, event authority, program].
+ * Orientim swap is E. Accounts: [user (signer), account, event authority, program].
  */
 export const CLOSE_USER_VOLUME_ACCUMULATOR = [249, 69, 164, 218, 150, 103, 84, 138] as const;
 export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
@@ -82,6 +82,6 @@ export const MAX_LOADED_ACCOUNTS_DATA_SIZE = 64 * 1024 * 1024;
 /**
  * Rent-exempt minimum of a 165-byte token account before the 2026 rent reduction (now 1,488,440).
  * Only an upper bound for display when the RPC cannot answer: the live value comes from
- * getMinimumBalanceForRentExemption (audit C-09).
+ * getMinimumBalanceForRentExemption.
  */
 export const TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS = 2_039_280n;

@@ -87,7 +87,7 @@ export function minimumReceived(policy: Pick<Policy, 'minOut' | 'fee' | 'feeSide
 /**
  * The least minimum a swap must enforce so that the wallet keeps `received` after a fee of `feeBps`
  * on the output. ceil(received × 10,000 / (10,000 − feeBps)) always suffices, but the fee rounds
- * down, so a unit less sometimes does too; the least is taken (engineering review L-10).
+ * down, so a unit less sometimes does too; the least is taken.
  */
 export function minimumForReceived(received: bigint, feeBps: bigint): bigint {
   const keep = BPS_DENOMINATOR - feeBps;
@@ -99,7 +99,7 @@ export function minimumForReceived(received: bigint, feeBps: bigint): bigint {
 
 export class PolicyError extends Error {}
 
-/** The policy with the minimum output of the chosen route (audit B-04); a fee on the output follows it. */
+/** The policy with the minimum output of the chosen route; a fee on the output follows it. */
 export function withMinOut(policy: Policy, minOut: bigint): Policy {
   if (minOut <= 0n) throw new PolicyError('The route guarantees no minimum output');
   const fee = policy.feeSide === 'output' ? outputFeeFor(minOut, policy.feeBps) : policy.fee;
@@ -127,8 +127,8 @@ export async function eventAuthorityOf(program: Address): Promise<Address> {
 export type RouteRefund = { program: Address; account: Address; eventAuthority: Address; lamports: bigint };
 
 /**
- * The policy with the route's account under E closed after the swap and `lamports` sent on to W
- * (review FA-05), or with none. Only Pump's two programs open such an account.
+ * The policy with the route's account under E closed after the swap and `lamports` sent on to W,
+ * or with none. Only Pump's two programs open such an account.
  */
 export function withRouteRefund(policy: Policy, refund: RouteRefund | null): Policy {
   if (!refund) {
@@ -157,15 +157,15 @@ export async function buildPolicy(args: {
   /**
    * Whether ATA(treasury, inputMint) already exists on chain (and is not frozen). When the treasury
    * can receive the fee in neither token, the swap is fee-free: Orientim never makes the user pay rent
-   * for Orientim's own account (audit B-09). Not read for SOL, which the treasury wallet receives.
+   * for Orientim's own account. Not read for SOL, which the treasury wallet receives.
    */
   feeAccountExists: boolean;
   /** The same for ATA(treasury, outputMint); only USDC and USDT are charged on the output as tokens. */
   outputFeeAccountExists?: boolean;
   /**
    * Whether the treasury wallet exists and can receive SOL. A transfer that would open it below the
-   * rent minimum is refused by the runtime, so the fee is then taken in another token or not at all
-   * (review BR-06). True by default.
+   * rent minimum is refused by the runtime, so the fee is then taken in another token or not at all.
+   * True by default.
    */
   treasuryWalletReady?: boolean;
   /** Minimum output Orientim enforces; usually set later from the chosen route (see `withMinOut`). */

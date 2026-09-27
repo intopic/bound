@@ -185,9 +185,11 @@ export default async function Page() {
       <section id="software">
         <h2>10. The Software</h2>
         <p>
-          We grant you a limited, non-exclusive, non-transferable, revocable licence to download, install, use and modify the
-          Software only to use the Services, for yourself or your own agents and bots. You may not use it to build a service that
-          competes with or impersonates Orientim. The licence is also in the <code>LICENSE</code> file of the download.{' '}
+          The Software is open source, under the Apache License, Version 2.0. The licence is in the <code>LICENSE</code> file of
+          the download and of its source repository, and it governs your use of the Software itself: you may use, copy, modify
+          and share it under its terms. The licence gives no right to the name &ldquo;Orientim&rdquo; or its logo (see the{' '}
+          <code>NOTICE</code> file of the repository), and a changed copy must not be presented as Orientim&rsquo;s. Using the Software with the
+          Services is governed by these Terms.{' '}
           <strong>The Software is provided as is (section 14);</strong> you are responsible for reviewing and testing it before
           you rely on it.
         </p>
@@ -197,7 +199,7 @@ export default async function Page() {
         <h2>11. Intellectual property</h2>
         <p>
           The Services, the Software, the name &ldquo;Orientim&rdquo;, the logo and the content of orientim.com belong to Orientim
-          or its licensors. Apart from the licence in section 10, these Terms give you no right in them. If you send us feedback,
+          or its licensors. Apart from the Software&rsquo;s licence (section 10), these Terms give you no right in them. If you send us feedback,
           we may use it freely.
         </p>
       </section>

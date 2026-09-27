@@ -27,14 +27,14 @@ import type { Account, Parsed, RawInstruction } from './parse.ts';
 
 // NOTE: this module must not import the compiler or the policy builder (plan, section 10):
 // it re-derives every expectation itself so that a compiler bug cannot hide from it. Economic
-// limits (fee, F_max) are checked against constants.ts, never only against the policy (audit B-01/B-02).
+// limits (fee, F_max) are checked against constants.ts, never only against the policy.
 //
-// WHY THE GUARANTEE HOLDS (audit, answer to 9.1): the load-bearing rule is R6, not R1. R6 pins the
+// WHY THE GUARANTEE HOLDS: the load-bearing rule is R6, not R1. R6 pins the
 // signer set to exactly {W, E}, and R1 keeps W out of the external instruction, so W never signs
 // there: every asset whose movement needs W's signature (SPL transfers, SOL, stake, closes,
 // authorities) is out of reach even if its account were passed. R1's address filter only has to
 // cover what moves WITHOUT W's signature: token accounts with a pre-existing delegate, and W_out,
-// which is made safe by a trusted Revoke (B-03). Relaxing R1 or R6 requires re-reading this note.
+// which is made safe by a trusted Revoke. Relaxing R1 or R6 requires re-reading this note.
 
 const ata = async (owner: Address, mint: Address, tokenProgram: Address = TOKEN_PROGRAM) =>
   (await findAssociatedTokenPda({ owner, mint, tokenProgram }))[0];
@@ -90,7 +90,7 @@ const ALLOWED_MINT_EXTENSIONS = new Set([
 /**
  * The byte length each extension we interpret must declare. A length that disagrees with the
  * program's own layout means we are not reading what we think we are reading, so the mint is
- * refused rather than parsed further (audit follow-up). Extensions of variable size - metadata and
+ * refused rather than parsed further. Extensions of variable size - metadata and
  * the group ones - are not listed here.
  */
 const EXTENSION_LENGTH: Record<number, number> = {
@@ -109,7 +109,7 @@ const EXTENSION_NAMES: Record<number, string> = {
   1: 'transfer fee', 6: 'accounts frozen by default', 8: 'memo required on transfer',
   9: 'non-transferable', 10: 'interest-bearing', 12: 'permanent delegate', 25: 'scaled UI amount',
   26: 'pausable',
-  // Added to Token-2022 in 2025–2026 (review FA-13). Refused like any extension not reviewed yet;
+  // Added to Token-2022 in 2025–2026. Refused like any extension not reviewed yet;
   // 24 and 28 do not act on public transfers and may be allowed after a review of their code.
   24: 'confidential mint and burn', 27: 'pausable accounts', 28: 'permissioned burn',
 };
@@ -202,7 +202,7 @@ export function unsupportedExtension(data: Uint8Array, options: { allowTransferF
     // Zeros to the end are padding, which the token program finds nothing in. Anything else after an
     // empty type is refused: the token program does not stop there, it steps over it two bytes at a
     // time and keeps reading, so an entry written after a gap would act on every transfer while this
-    // loop never saw it (final audit, the Token-2022 matrix).
+    // loop never saw it.
     const padding = () => !nonZero(at, data.length);
     if (at + 4 > data.length) return padding() ? null : 'malformed extension area'; // a header cut in half
     const type = view.getUint16(at, true);
@@ -268,8 +268,7 @@ export function memoRequired(data: Uint8Array): boolean {
 }
 
 /**
- * The arguments of Jupiter's route instruction that decide what Jupiter enforces on chain (review
- * FA-03). Its program stops the swap when this instruction's output is below `quotedOutAmount` less
+ * The arguments of Jupiter's route instruction that decide what Jupiter enforces on chain. Its program stops the swap when this instruction's output is below `quotedOutAmount` less
  * `slippageBps`, whatever the destination held before: a second floor that does not depend on the
  * balance Orientim read from the RPC. Read here so that a forged answer cannot switch it off.
  *
@@ -313,15 +312,14 @@ export function jupiterRouteArgs(data: ArrayLike<number>): JupiterRouteArgs | nu
 /**
  * The least a Jupiter route lets through: its quote less its tolerance, rounded down. Jupiter's
  * program checks what its instruction delivered to the destination against this, so it holds
- * whatever else arrives in that account (engineering review H-03).
+ * whatever else arrives in that account.
  */
 export function jupiterFloor(args: Pick<JupiterRouteArgs, 'quotedOutAmount' | 'slippageBps'>): bigint {
   return (args.quotedOutAmount * BigInt(10_000 - args.slippageBps)) / 10_000n;
 }
 
 /**
- * The account Jupiter's route delivers to, which is the account its floor is measured on (research
- * audit, section I). From the program's IDL on chain:
+ * The account Jupiter's route delivers to, which is the account its floor is measured on. From the program's IDL on chain:
  *
  *   route_v2:                 [0] authority, [1] source, [2] user destination, ..., [7] destination (optional)
  *   shared_accounts_route_v2: [0] program authority, [1] authority, [2] source, ..., [5] destination
@@ -358,7 +356,7 @@ const AFTER_SWAP: Slot[] = [
 const OWN_CLEANUP: Slot[] = ['minOutCheck', 'harvestEIn', 'harvestIntermediate', 'closeEIn', 'closeEOut', 'closeIntermediate'];
 
 /**
- * The 7 rules of the plan (section 6), checked on the exact bytes the wallet will sign.
+ * The 7 rules (R1–R7), checked on the exact bytes the wallet will sign.
  * Pure: every chain fact comes from `snapshot`, fetched beforehand.
  */
 export type VerifyOptions = {
@@ -376,7 +374,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   const p = policy;
   const W = p.owner;
   const E = p.ephemeral;
-  // The variant follows from the mints; the policy's label is checked, never trusted (audit C-05).
+  // The variant follows from the mints; the policy's label is checked, never trusted.
   const variant = p.outputMint === WSOL_MINT ? 'A' : p.inputMint === WSOL_MINT ? 'B' : 'C';
   if (p.variant !== variant) fail('R2', `policy variant ${p.variant} does not match the mints (${variant})`);
   const A = variant === 'A';
@@ -425,7 +423,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     fail('R4', `configured network fee limit ${p.maxNetworkFeeLamports} is above the absolute maximum`);
   }
   if (p.minOut <= 0n) fail('R2', 'the policy has no minimum output');
-  // Decimals come from the mints in the snapshot, not from token metadata (audit C-01).
+  // Decimals come from the mints in the snapshot, not from token metadata.
   for (const [mint, decimals, side] of [[p.inputMint, p.inputDecimals, 'input'], [p.outputMint, p.outputDecimals, 'output']] as const) {
     const state = snapshot.accounts.get(mint);
     if (state && state.data.length >= MINT_SIZE && state.data[44] !== decimals) {
@@ -433,7 +431,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     }
   }
   // The account a Pump market opened in E's name, closed after the swap with its lamports sent on to
-  // W (review FA-05). Only Pump's two programs, only in the amount the policy states, never above the
+  // W. Only Pump's two programs, only in the amount the policy states, never above the
   // rent ceiling. Handing E's signature to Pump's program is safe only because, when it runs, E owns
   // no token account any more (checked below): it can reach the lamports it returns, nothing of W's.
   const refundProgram = p.routeRefundProgram;
@@ -466,7 +464,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     fail('R2', 'policy accounts do not match their derivation');
   }
   const { eIn, eOut, wIn, wOut, feeDestination } = expected;
-  // Minimum-output check (B-04): a self-transfer on the account that receives the output.
+  // Minimum-output check: a self-transfer on the account that receives the output.
   const minOut = A
     ? { account: eOut, authority: E, mint: WSOL_MINT, decimals: 9, amount: p.minOut, program: TOKEN_PROGRAM } // E_out is fresh (R3)
     : {
@@ -497,7 +495,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
 
   // R5: every account the message loads appears once. The runtime refuses a message that loads the
   // same address twice (statically and through a lookup table, say), but the rules compare resolved
-  // addresses, so the verifier refuses it itself rather than leaning on the runtime (review BR-14).
+  // addresses, so the verifier refuses it itself rather than leaning on the runtime.
   const loaded: string[] = [...compiled.staticAccounts];
   const lookups = (compiled as { addressTableLookups?: readonly { lookupTableAddress: string; writableIndexes: readonly number[]; readonlyIndexes: readonly number[] }[] }).addressTableLookups ?? [];
   for (const l of lookups) {
@@ -532,8 +530,8 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   }
   const swapIndex = externals.length ? externals[0].i : -1;
 
-  // Jupiter's own floor, read from its instruction rather than trusted (review FA-03). Applied to
-  // Jupiter's program only: tests that stand a hostile program in its place (T6) have no such format.
+  // Jupiter's own floor, read from its instruction rather than trusted. Applied to
+  // Jupiter's program only: tests that stand a hostile program in its place have no such format.
   for (const { x } of externals) {
     if (x.kind !== 'external' || x.program !== JUPITER_PROGRAM) continue;
     const args = jupiterRouteArgs(x.data);
@@ -552,7 +550,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     if (args.slippageBps > maxSlippage) fail('R2', `the Jupiter route tolerates ${args.slippageBps} bps, above ${maxSlippage}`);
     // Jupiter's own floor covers the whole minimum, not only its quote: Orientim's check counts the
     // account's balance, which a deposit or another swap arriving at the same time also raises,
-    // while Jupiter's counts only what this route delivered (engineering review H-03).
+    // while Jupiter's counts only what this route delivered.
     const floor = jupiterFloor(args);
     if (floor < p.minOut) {
       fail('R2', `the Jupiter route's own floor is ${floor} (${args.quotedOutAmount} less ${args.slippageBps} bps), below the minimum output ${p.minOut}`);
@@ -562,7 +560,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     }
     // Jupiter's floor protects the user only if it is measured on the account the output must reach:
     // the wallet's own output account, or E's temporary one for SOL. Then the floor holds whatever
-    // the RPC said that account held before (review BR-01).
+    // the RPC said that account held before.
     const destination = jupiterDestination(x.data, x.accounts.map(a => a.address));
     const expected = A ? eOut : wOut;
     if (destination !== expected) {
@@ -570,7 +568,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     }
   }
 
-  // Intermediate ATA(E, m) accounts: allowed only as matched create + close pairs (D14).
+  // Intermediate ATA(E, m) accounts: allowed only as matched create + close pairs.
   const intermediates = new Map<string, { tokenProgram: Address; mint: Address; created: number; closed: number; fee: boolean; harvested?: number }>();
   for (const x of parsed) {
     if (x.kind !== 'createAta' || x.owner !== E || x.ata === eIn || x.ata === eOut) continue;
@@ -759,14 +757,13 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   }
 
   // W_out is handed to the external program. A delegate is removed by the trusted Revoke; a close
-  // authority cannot be, so such an account is refused (B-03).
+  // authority cannot be, so such an account is refused.
   if (wOut) {
     if (!snapshot.accounts.has(wOut)) fail('R1', 'W_out missing from the snapshot');
     else if (hasCloseAuthority(snapshot.accounts.get(wOut))) fail('R1', 'W_out has a close authority set');
   }
 
-  // Orientim's own accounts are named in the message itself, never loaded from a lookup table (review
-  // FA-16): a table is read from the RPC, and an address that resolves differently on chain than in
+  // Orientim's own accounts are named in the message itself, never loaded from a lookup table: a table is read from the RPC, and an address that resolves differently on chain than in
   // the snapshot would redirect a trusted transfer. Jupiter's tables hold pools, never these.
   const fromTables = new Set(loaded.slice(compiled.staticAccounts.length));
   const own: [string, Address | null][] = [
@@ -796,7 +793,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
       priorityFee = (BigInt(limit.units) * price.microLamports + 999_999n) / 1_000_000n;
     }
   } else if (version === 1) {
-    // The v1 config is an allowlist, like v0's instructions (B-07).
+    // The v1 config is an allowlist, like v0's instructions.
     const mask = (compiled as unknown as { configMask?: number }).configMask ?? 0;
     if (mask & ~V1_ALLOWED_CONFIG) fail('R4', `unexpected fields in the v1 message config (mask ${mask})`);
     const units = getTransactionMessageComputeUnitLimit(msg as never) ?? 0;
@@ -818,7 +815,7 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   if (size > limit) fail('R5', `transaction is ${size} bytes, limit ${limit}`);
   if (version === 1 && compiled.staticAccounts.length > V1_MAX_ACCOUNTS) fail('R5', `${compiled.staticAccounts.length} accounts, limit ${V1_MAX_ACCOUNTS}`);
 
-  // R7 for hops (audit B-10): a Token-2022 intermediate mint must be in the snapshot and carry
+  // R7 for hops: a Token-2022 intermediate mint must be in the snapshot and carry
   // only extensions a protected swap can live with. Classic SPL hops need no check.
   for (const m of intermediates.values()) {
     if (m.tokenProgram !== TOKEN_2022_PROGRAM) continue;

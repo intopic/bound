@@ -23,7 +23,7 @@ describe('verifier independence (plan, section 10)', () => {
     }
   });
 
-  it('economic limits come from constants.ts, not only from the policy (audit B-01, B-02)', () => {
+  it('economic limits come from constants.ts, not only from the policy', () => {
     const verify = readFileSync(join(src, 'verify.ts'), 'utf8');
     for (const limit of ['MAX_FEE_BPS', 'ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS', 'MAX_LOADED_ACCOUNTS_DATA_SIZE']) {
       // imported once and used at least once

@@ -189,7 +189,7 @@ describe('T2: mutation catalogue (plan, section 9)', () => {
     expect(rules(await verify(await compileHonest(s, 0), s.policy, s.snapshot))).toContain('R2');
   });
 
-  it('M17: an account loaded twice, statically and through an ALT → R5 (review BR-14)', async () => {
+  it('M17: an account loaded twice, statically and through an ALT → R5', async () => {
     const s = await scenario();
     const honestTx = await compileHonest(s, 0);
     const compiled = getCompiledTransactionMessageDecoder().decode(honestTx.messageBytes) as unknown as {
@@ -516,7 +516,7 @@ describe('rent a route needs the temporary key to pay (PumpSwap)', () => {
 
 const details = (v: { violations: { detail: string }[] }) => v.violations.map(x => x.detail);
 
-describe('each load-bearing check has a test of its own (review FA-09)', () => {
+describe('each load-bearing check has a test of its own', () => {
   it('W in the swap is refused by its own check, also when W is in the snapshot as it is in production', async () => {
     const s = await scenario();
     (s.snapshot.accounts as Map<string, AccountState | null>).set(s.W, { owner: SYSTEM_PROGRAM, lamports: 5_000_000_000n, data: new Uint8Array() });
@@ -542,7 +542,7 @@ describe('each load-bearing check has a test of its own (review FA-09)', () => {
   });
 });
 
-describe("Jupiter's own floor is read from its instruction (review FA-03)", () => {
+describe("Jupiter's own floor is read from its instruction", () => {
   const withData = (s: Scenario, data: Uint8Array, extra: { address: Address; role: AccountRole }[] = []) => {
     const ixs = withSwapAccounts(s, extra);
     const i = swapIndex(ixs);
@@ -654,7 +654,7 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
     expect(details(v).join()).toContain('below the minimum output');
   });
 
-  it("a minimum above Jupiter's own floor is refused, though its quote covers it (engineering review H-03)", async () => {
+  it("a minimum above Jupiter's own floor is refused, though its quote covers it", async () => {
     // Quoted one unit above the minimum at 0.5%: Jupiter would let through 0.5% less than Orientim
     // promised, and a deposit arriving with the swap could make up the rest in the balance check.
     expect(details(await check(s => routeV2Data(s.policy.swapAmount, s.policy.minOut + 1n, 50))).join()).toContain("own floor");
@@ -673,7 +673,7 @@ describe("Jupiter's own floor is read from its instruction (review FA-03)", () =
   });
 });
 
-describe("Orientim's own accounts are never loaded from a lookup table (review FA-16)", () => {
+describe("Orientim's own accounts are never loaded from a lookup table", () => {
   for (const [name, pick] of [
     ['W_out', (s: Scenario) => s.policy.accounts.wOut!],
     ['E_in', (s: Scenario) => s.policy.accounts.eIn],
@@ -695,7 +695,7 @@ describe("Orientim's own accounts are never loaded from a lookup table (review F
   });
 });
 
-describe("the account a Pump market opens for E: closed last, its rent sent on to W (review FA-05)", () => {
+describe("the account a Pump market opens for E: closed last, its rent sent on to W", () => {
   const RENT = 1_346_200n;
   const refunded = (program: Address = PUMP_CURVE_PROGRAM, input: Address = WSOL_MINT, output: Address = BONK) =>
     scenario({ input, output, routeRefund: { program, lamports: RENT } });

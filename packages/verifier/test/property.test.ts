@@ -17,7 +17,7 @@ import type { Scenario } from './fixtures.ts';
 // `npm run test:fuzz` (vitest --mode fuzz) runs 100,000 cases per property; ORIENTIM_FUZZ_RUNS overrides.
 const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 100_000 : 150));
 // About 22 ms per case on a laptop (20,000 cases took ~440 s per property): the time limit grows
-// with the number of cases, so `npm run test:fuzz` (100,000) is not cut off (second review).
+// with the number of cases, so `npm run test:fuzz` (100,000) is not cut off.
 const TIMEOUT = 60_000 + RUNS * 50;
 // A shard of the fuzz workflow runs its own cases: one seed per shard (.github/workflows/fuzz.yml).
 const SEED = process.env.ORIENTIM_FUZZ_SEED ? Number(process.env.ORIENTIM_FUZZ_SEED) : undefined;

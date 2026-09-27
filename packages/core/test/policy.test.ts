@@ -5,7 +5,7 @@ import type { Address } from '@solana/kit';
 /** What the wallet keeps of a minimum, after a fee from the output. */
 const keeps = (gross: bigint, feeBps: bigint) => gross - outputFeeFor(gross, feeBps);
 
-describe('the minimum that keeps what the user accepted (engineering review L-10)', () => {
+describe('the minimum that keeps what the user accepted', () => {
   it('one unit kept at 0.2% needs a minimum of one: its fee rounds down to nothing', () => {
     expect(minimumForReceived(1n, 20n)).toBe(1n);
   });

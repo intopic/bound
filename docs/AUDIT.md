@@ -1859,6 +1859,25 @@ Whatever the verifier accepts is signed and sent, and the promise is checked on 
 an honest plan must go through. CPI runs 1,000 cases on each change it covers; the Fuzz workflow
 400,000 (about 100 cases a second).
 
+## 0zy. The skill open source: Apache-2.0, and the same bytes as its public repository (27 September 2026)
+
+The skill (`skills/orientim-protected-swap`) and the code bundled into it (`packages/verifier`, `core`,
+`solana`) are prepared as a public repository of their own, so that anyone can read and rebuild what
+their agent runs. Skill 1.3.2:
+
+- `LICENSE` is the Apache License 2.0 instead of a limited licence; Terms section 10 says so, and that
+  the licence gives no right to the Orientim name.
+- Comments no longer cite this document's review ids (FA-01, M-05, "final audit" and the like), since
+  the public repository does not carry it. No code changed: the bundles differ from 1.3.1 only in
+  `SKILL_VERSION`, and every test name that changed only lost such an id.
+- `reference/AGENT-API.md` is copied from `AGENT-API.md` without the added header line.
+
+The public repository builds the same `SHA256SUMS` and the same zip, byte for byte, as
+`tools/build-skill.ts` here: a change to the skill or to those packages must be made in both, or the
+hashes Orientim serves stop matching the public source. The end-to-end tests of the skill against the
+agent API (`apps/web/test/skill*.test.ts`) stay here.
+
+
 ## 1. What Orientim is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority

@@ -55,7 +55,7 @@ export type Certificate = {
   networkFeeLimitLamports: bigint;
   /** Rent W sends the temporary key for an account the route opens in its name; usually 0. */
   routeRentLamports: bigint;
-  /** What closing that account returns to the wallet in the same transaction (review FA-05); usually 0. */
+  /** What closing that account returns to the wallet in the same transaction; usually 0. */
   routeRefundLamports: bigint;
   /**
    * No token other than the input leaves the wallet. The network fee and the rent of a new account
@@ -65,7 +65,7 @@ export type Certificate = {
   /**
    * No permission over the wallet's accounts outlives the transaction: no delegate, no authority. A
    * market's account the route opens under E and cannot close keeps its rent: that is stated above,
-   * as `routeRentLamports` less `routeRefundLamports` (engineering review M-05).
+   * as `routeRentLamports` less `routeRefundLamports`.
    */
   persistentPermissions: 0;
   signers: readonly [Address, Address];

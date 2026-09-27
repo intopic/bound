@@ -42,7 +42,7 @@ const LEGACY_SIZE_LIMIT = 1232;
 const V1_SIZE_LIMIT = 4096;
 /**
 * Base fee per signature. A cluster parameter, not a constant of nature: if it ever changes, R4
-* would understate the fee. The pipeline also cross-checks with the RPC's getFeeForMessage (B-12).
+* would understate the fee. The pipeline also cross-checks with the RPC's getFeeForMessage.
 */
 const LAMPORTS_PER_SIGNATURE = 5000n;
 const BPS_DENOMINATOR = 10000n;
@@ -69,7 +69,7 @@ const PUMP_AMM_PROGRAM = address("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
 /**
 * close_user_volume_accumulator, the same Anchor discriminator in both Pump programs' IDLs: closes
 * the account a Pump market opens for every buyer and returns its lamports to the buyer, who in a
-* Orientim swap is E (review FA-05). Accounts: [user (signer), account, event authority, program].
+* Orientim swap is E. Accounts: [user (signer), account, event authority, program].
 */
 const CLOSE_USER_VOLUME_ACCUMULATOR = [
 	249,
@@ -99,8 +99,7 @@ async function notOlderThan(read, minContextSlot) {
 }
 /**
 * The same read, keeping the slot the chain answered at. With `minContextSlot`, every batch is at
-* least that recent, so reads made in separate calls cannot mix state older than an earlier one
-* (final audit, item 6).
+* least that recent, so reads made in separate calls cannot mix state older than an earlier one.
 */
 async function readAccounts(rpc, addresses, opts = {}) {
 	const unique = [...new Set(addresses)];
@@ -133,7 +132,7 @@ async function readAccounts(rpc, addresses, opts = {}) {
 * 300 rooted blocks (Agave's MAX_RECENT_BLOCKHASHES), and only then in its ledger history or an
 * archive. That history can be pruned or missing, and an archive that fails answers "no record" as
 * well (Agave maps a BigTable error to none). So "no record" proves that a transaction never landed
-* only while the node's cache still holds every block it could have landed in (third audit, F1).
+* only while the node's cache still holds every block it could have landed in.
 */
 const STATUS_CACHE_BLOCKS = 300n;
 /**
@@ -337,7 +336,7 @@ const ALLOWED_MINT_EXTENSIONS = /* @__PURE__ */ new Set([
 /**
 * The byte length each extension we interpret must declare. A length that disagrees with the
 * program's own layout means we are not reading what we think we are reading, so the mint is
-* refused rather than parsed further (audit follow-up). Extensions of variable size - metadata and
+* refused rather than parsed further. Extensions of variable size - metadata and
 * the group ones - are not listed here.
 */
 const EXTENSION_LENGTH = {
@@ -481,14 +480,13 @@ function jupiterRouteArgs(data) {
 /**
 * The least a Jupiter route lets through: its quote less its tolerance, rounded down. Jupiter's
 * program checks what its instruction delivered to the destination against this, so it holds
-* whatever else arrives in that account (engineering review H-03).
+* whatever else arrives in that account.
 */
 function jupiterFloor(args) {
 	return args.quotedOutAmount * BigInt(1e4 - args.slippageBps) / 10000n;
 }
 /**
-* The account Jupiter's route delivers to, which is the account its floor is measured on (research
-* audit, section I). From the program's IDL on chain:
+* The account Jupiter's route delivers to, which is the account its floor is measured on. From the program's IDL on chain:
 *
 *   route_v2:                 [0] authority, [1] source, [2] user destination, ..., [7] destination (optional)
 *   shared_accounts_route_v2: [0] program authority, [1] authority, [2] source, ..., [5] destination
@@ -935,7 +933,7 @@ async function verify(transaction, policy, snapshot, opts = {}) {
 //#endregion
 //#region skills/orientim-protected-swap/src/verify.ts
 /**
-* The agent's own check of a prepared swap, before its wallet signs (review FA-01).
+* The agent's own check of a prepared swap, before its wallet signs.
 *
 * Orientim's server built the transaction; the agent must not take its word for what it does. This
 * runs Orientim's full verifier (`@orientim/verifier`, the same rules the page applies, R1–R7) on the exact
@@ -943,12 +941,12 @@ async function verify(transaction, policy, snapshot, opts = {}) {
 * to its own intent and limits. A compromised server, relay, DNS or impostor URL can then refuse or
 * delay a swap, never make the agent sign one that moves anything but the approved amount.
 *
-* Two things the rules alone cannot settle are settled here too (research audit). The price: the
+* Two things the rules alone cannot settle are settled here too. The price: the
 * agent must bring a floor of its own (`minOut`, from `ownMinimum` or its own source), or a server
-* could sell the amount for almost nothing through a pool it controls (F-02). And the one-time key:
+* could sell the amount for almost nothing through a pool it controls. And the one-time key:
 * the swap is simulated on the agent's RPC and must leave nothing under it, in its own account or
 * in an account a Pump.fun market opens in its name, so no lamports stay where a server that
-* derives the key could collect them (F-06, engineering review M-05). Rent a route keeps is a cost
+* derives the key could collect them. Rent a route keeps is a cost
 * that does not come back, accepted only up to the agent's own limit (0.001 SOL by default).
 *
 * Bundled into ../lib/orientim-verify.mjs by tools/build-skill.ts (only @solana/kit stays external), so
@@ -969,7 +967,7 @@ const MAX_SLIPPAGE_BPS = 1500;
 /** Above this price impact an agent refuses unless its owner allows more: the page asks a person there. */
 const DEFAULT_MAX_PRICE_IMPACT_BPS = 500;
 /**
-* Hard limits no intent, flag or JSON field can raise (agent review G1). An agent sets its own
+* Hard limits no intent, flag or JSON field can raise. An agent sets its own
 * limits, and an agent can be misled: a page, an issue or a token name that tells it to "set the
 * minimum to 1" must not be able to sell the amount for nothing. Its floor never sits more than
 * `MAX_BELOW_BPS` below Jupiter's own price, the price impact it accepts never exceeds
@@ -1007,7 +1005,7 @@ function policyOf(json) {
 		return null;
 	}
 }
-/** A value from the server, shown in a problem only as an address; anything else is not repeated (agent review G7). */
+/** A value from the server, shown in a problem only as an address; anything else is not repeated. */
 const shown = (v) => typeof v === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v) ? v : "(not an address)";
 const hex = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
 /**
@@ -1091,9 +1089,8 @@ async function verifyPrepared(prepared, limits, rpc, opts = {}) {
 * account each Pump.fun market opens in its name, and in any other account the route opens. Every
 * lamport the wallet sends E (a market's account rent) must be spent by the route or come back in the
 * same transaction; a server that stated more than the route needs, a smaller refund, or a market
-* account left open would otherwise leave lamports under a key it can derive (research audit F-06,
-* engineering review M-05). An account the route opens and leaves open may hold a claim tied to E
-* whatever market it belongs to, so none may stay (third audit, F5). An account that does not exist
+* account left open would otherwise leave lamports under a key it can derive. An account the route opens and leaves open may hold a claim tied to E
+* whatever market it belongs to, so none may stay. An account that does not exist
 * afterwards holds nothing; an answer that does not report the accounts proves nothing, and is refused.
 */
 async function leftUnderKey(transaction, key, rpc, minContextSlot = 0n, timeoutMs = 1e4, fresh = []) {

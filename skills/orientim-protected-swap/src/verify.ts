@@ -1,5 +1,5 @@
 /**
- * The agent's own check of a prepared swap, before its wallet signs (review FA-01).
+ * The agent's own check of a prepared swap, before its wallet signs.
  *
  * Orientim's server built the transaction; the agent must not take its word for what it does. This
  * runs Orientim's full verifier (`@orientim/verifier`, the same rules the page applies, R1–R7) on the exact
@@ -7,12 +7,12 @@
  * to its own intent and limits. A compromised server, relay, DNS or impostor URL can then refuse or
  * delay a swap, never make the agent sign one that moves anything but the approved amount.
  *
- * Two things the rules alone cannot settle are settled here too (research audit). The price: the
+ * Two things the rules alone cannot settle are settled here too. The price: the
  * agent must bring a floor of its own (`minOut`, from `ownMinimum` or its own source), or a server
- * could sell the amount for almost nothing through a pool it controls (F-02). And the one-time key:
+ * could sell the amount for almost nothing through a pool it controls. And the one-time key:
  * the swap is simulated on the agent's RPC and must leave nothing under it, in its own account or
  * in an account a Pump.fun market opens in its name, so no lamports stay where a server that
- * derives the key could collect them (F-06, engineering review M-05). Rent a route keeps is a cost
+ * derives the key could collect them. Rent a route keeps is a cost
  * that does not come back, accepted only up to the agent's own limit (0.001 SOL by default).
  *
  * Bundled into ../lib/orientim-verify.mjs by tools/build-skill.ts (only @solana/kit stays external), so
@@ -27,7 +27,7 @@ import { readAccounts } from '@orientim/solana';
 import { hasTransferFee, routeAccountFor, transferFeeOf, transferFeeOn, verify } from '@orientim/verifier';
 import type { TransferFee } from '@orientim/verifier';
 
-/** When "no record" proves a transaction never landed (third audit, F1); `confirm` in the example uses them. */
+/** When "no record" proves a transaction never landed; `confirm` in the example uses them. */
 export { pastProof, provesNeverLanded, STATUS_CACHE_BLOCKS } from '@orientim/solana';
 
 /**
@@ -46,7 +46,7 @@ export const MAX_SLIPPAGE_BPS = 1_500;
 /** Above this price impact an agent refuses unless its owner allows more: the page asks a person there. */
 export const DEFAULT_MAX_PRICE_IMPACT_BPS = 500;
 /**
- * Hard limits no intent, flag or JSON field can raise (agent review G1). An agent sets its own
+ * Hard limits no intent, flag or JSON field can raise. An agent sets its own
  * limits, and an agent can be misled: a page, an issue or a token name that tells it to "set the
  * minimum to 1" must not be able to sell the amount for nothing. Its floor never sits more than
  * `MAX_BELOW_BPS` below Jupiter's own price, the price impact it accepts never exceeds
@@ -101,8 +101,7 @@ export type AgentLimits = {
    */
   maxSolFeeLamports?: number;
   /**
-   * One ceiling for all the SOL the swap may cost and not return, in lamports (optional; third
-   * audit, priority 4): the network fee the transaction can pay (its compute budget, as the verifier
+   * One ceiling for all the SOL the swap may cost and not return, in lamports: the network fee the transaction can pay (its compute budget, as the verifier
    * reads it), rent the route keeps, and Orientim's fee when paid in SOL. A new output account's rent
    * is not in it: that account stays the wallet's own.
    */
@@ -132,7 +131,7 @@ function policyOf(json: Record<string, unknown>): Policy | null {
   }
 }
 
-/** A value from the server, shown in a problem only as an address; anything else is not repeated (agent review G7). */
+/** A value from the server, shown in a problem only as an address; anything else is not repeated. */
 const shown = (v: unknown) => (typeof v === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v) ? v : '(not an address)');
 const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
 
@@ -143,7 +142,7 @@ const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16
 export async function verifyPrepared(
   prepared: PreparedSwap, limits: AgentLimits, rpc: Rpc<SolanaRpcApi>, opts: { requestTimeoutMs?: number } = {},
 ): Promise<string[]> {
-  // Every read on your RPC ends in time: one that never answers is a problem, not a wait (final audit, M-02).
+  // Every read on your RPC ends in time: one that never answers is a problem, not a wait.
   const timeoutMs = opts.requestTimeoutMs ?? 10_000;
   const problems: string[] = [];
   let transaction;
@@ -177,7 +176,7 @@ export async function verifyPrepared(
       problems.push(`the Orientim fee in SOL is ${p.fee} lamports, above your limit of ${limits.maxSolFeeLamports}`);
     }
   }
-  // Rent that does not come back is a cost of its own, apart from the network fee (M-05).
+  // Rent that does not come back is a cost of its own, apart from the network fee.
   const routeCost = p.takerRent - p.routeRefund;
   const maxRouteCost = BigInt(limits.maxRouteCostLamports ?? 1_000_000);
   if (routeCost > maxRouteCost) {
@@ -236,7 +235,7 @@ export async function verifyPrepared(
   const exists = (a: Address) => { const s = snapshot.accounts.get(a); return !!s && (s.lamports > 0n || s.data.length > 0); };
   const keep = new Set<string>([p.accounts.wOut, p.treasury].filter((a): a is Address => !!a));
   const fresh = [...new Set(snapshotAddresses)].filter(a => !exists(a) && !keep.has(a));
-  // Simulated on state not older than the snapshot just read (final audit, item 6).
+  // Simulated on state not older than the snapshot just read.
   problems.push(...await leftUnderKey(prepared.transaction, p.ephemeral, rpc, snapshot.slot, timeoutMs, fresh));
   return problems;
 }
@@ -246,16 +245,15 @@ export async function verifyPrepared(
  * account each Pump.fun market opens in its name, and in any other account the route opens. Every
  * lamport the wallet sends E (a market's account rent) must be spent by the route or come back in the
  * same transaction; a server that stated more than the route needs, a smaller refund, or a market
- * account left open would otherwise leave lamports under a key it can derive (research audit F-06,
- * engineering review M-05). An account the route opens and leaves open may hold a claim tied to E
- * whatever market it belongs to, so none may stay (third audit, F5). An account that does not exist
+ * account left open would otherwise leave lamports under a key it can derive. An account the route opens and leaves open may hold a claim tied to E
+ * whatever market it belongs to, so none may stay. An account that does not exist
  * afterwards holds nothing; an answer that does not report the accounts proves nothing, and is refused.
  */
 async function leftUnderKey(
   transaction: string, key: Address, rpc: Rpc<SolanaRpcApi>, minContextSlot = 0n, timeoutMs = 10_000, fresh: readonly Address[] = [],
 ): Promise<string[]> {
   // E, each Pump market's account in E's name, and the token accounts those hold cashback in (WSOL,
-  // or USDC on a USDC-quoted market): a claim E could make later is value under E too (Stage 1, U1).
+  // or USDC on a USDC-quoted market): a claim E could make later is value under E too.
   const markets = await Promise.all([PUMP_CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountFor(program, key)));
   const cashback = await Promise.all(markets.flatMap(owner => [WSOL_MINT, USDC_MINT].map(async mint =>
     (await findAssociatedTokenPda({ owner, mint, tokenProgram: TOKEN_PROGRAM }))[0])));
@@ -289,7 +287,7 @@ async function leftUnderKey(
 }
 
 /**
- * A floor of the agent's own, from a price it asks Jupiter for itself (research audit F-02): the
+ * A floor of the agent's own, from a price it asks Jupiter for itself: the
  * output for the amount Orientim will route (after its fee), less `maxBelowBps`. By default 2%, or 5%
  * when the route trades on a Pump.fun bonding curve, which Orientim quotes at 3%: enough for Orientim's
  * tolerance, its narrower routes and a few seconds of movement, and far from "almost nothing". With
@@ -424,7 +422,7 @@ export async function ownSolFeeLimit(args: {
   }
   const fee = (BigInt(r.outAmount!) * BigInt(feeLimitBps(args.maxFeeBps))) / 10_000n;
   const limit = fee + fee / 50n;
-  // A limit beyond what a Number holds exactly is refused rather than rounded (Stage 1, U5).
+  // A limit beyond what a Number holds exactly is refused rather than rounded.
   if (limit > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('the fee in SOL for this amount is beyond an exact limit; set maxSolFeeLamports yourself');
   return Number(limit);
 }

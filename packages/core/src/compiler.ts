@@ -99,7 +99,7 @@ export function protectedInstructions(
         payer: W, ata: a.wOut!, owner: p.owner, mint: p.outputMint, tokenProgram: p.outputTokenProgram,
       }),
       // W_out is the only account of W the swap sees. Revoking any delegate makes "no one else can
-      // move it" an on-chain fact instead of a snapshot read (audit B-03).
+      // move it" an on-chain fact instead of a snapshot read.
       getRevokeInstruction({ source: a.wOut!, owner: W }, { programAddress: p.outputTokenProgram }),
     );
   }
@@ -134,7 +134,7 @@ export function protectedInstructions(
   // measured in simulation, so E spends all of it and does not survive the transaction.
   if (p.takerRent > 0n) pre.push(getTransferSolInstruction({ source: W, destination: p.ephemeral, amount: p.takerRent }));
 
-  // Minimum-output check (audit B-04): a self-transfer of the expected floor. The Token program
+  // Minimum-output check: a self-transfer of the expected floor. The Token program
   // checks the balance before short-circuiting a self-transfer, so this is a no-op when the swap
   // delivered at least minOut and reverts the whole transaction when it did not.
   if (p.variant === 'A') {
@@ -155,7 +155,7 @@ export function protectedInstructions(
     if (x.transferFee) post.push(harvestWithheld(x.mint, x.ata));
     post.push(getCloseAccountInstruction({ account: x.ata, destination: p.owner, owner: E }, { programAddress: x.tokenProgram }));
   }
-  // The account a Pump market opened in E's name, closed last (review FA-05): by now E owns no token
+  // The account a Pump market opened in E's name, closed last: by now E owns no token
   // account, so the market's program, given E's signature, reaches nothing but the lamports it
   // returns, and those go straight on to W.
   if (p.routeRefund > 0n) {
@@ -214,7 +214,7 @@ export function compileProtectedSwap(input: CompileInput): CompiledSwap {
         m,
       ),
     );
-    // Orientim's own accounts stay in the message itself (review FA-16): each is replaced by the
+    // Orientim's own accounts stay in the message itself: each is replaced by the
     // table's own address, which never appears in the message, so its index is kept but unused.
     const own = new Set<string>([
       ...Object.values(input.policy.accounts).filter((a): a is Address => !!a),

@@ -119,7 +119,7 @@ export async function scenario(opts: {
   /** What Jupiter's instruction quotes, and the tolerance it carries: twice the minimum at 0.5% unless set. */
   quotedOut?: bigint;
   routeBps?: number;
-  /** A Pump market's account opened in E's name, closed after the swap and its rent sent on to W (FA-05). */
+  /** A Pump market's account opened in E's name, closed after the swap and its rent sent on to W. */
   routeRefund?: { program: Address; lamports: bigint };
   /** Token program of each mint; classic SPL unless a test asks for Token-2022. */
   inputProgram?: Address;
@@ -216,7 +216,7 @@ export async function scenario(opts: {
       ? 166 + extensions.reduce((n, [, length]) => n + 4 + length, 0)
       : 82;
     const data = new Uint8Array(size);
-    data[44] = decimals; // the verifier reads decimals from the mint (audit C-01)
+    data[44] = decimals; // the verifier reads decimals from the mint
     if (program === TOKEN_2022_PROGRAM) {
       data[165] = 1; // AccountType::Mint
       const view = new DataView(data.buffer);
@@ -303,7 +303,7 @@ export const honest = (s: Scenario) =>
     policy: s.policy, swapInstruction: s.swapIx, intermediates: s.intermediates, outputBalanceBefore: s.wOutBalance,
   });
 
-/** A v1 transaction whose config also carries a heap size, which Orientim never sets (B-07). */
+/** A v1 transaction whose config also carries a heap size, which Orientim never sets. */
 export function compileRawV1WithHeap(feePayer: Address, ixs: Instruction[]): Transaction {
   return compileTransaction(pipe(
     createTransactionMessage({ version: 1 }),

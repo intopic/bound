@@ -45,7 +45,7 @@ const LEGACY_SIZE_LIMIT = 1232;
 const V1_SIZE_LIMIT = 4096;
 /**
 * Base fee per signature. A cluster parameter, not a constant of nature: if it ever changes, R4
-* would understate the fee. The pipeline also cross-checks with the RPC's getFeeForMessage (B-12).
+* would understate the fee. The pipeline also cross-checks with the RPC's getFeeForMessage.
 */
 const LAMPORTS_PER_SIGNATURE = 5000n;
 const BPS_DENOMINATOR = 10000n;
@@ -72,7 +72,7 @@ const PUMP_AMM_PROGRAM = address("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA");
 /**
 * close_user_volume_accumulator, the same Anchor discriminator in both Pump programs' IDLs: closes
 * the account a Pump market opens for every buyer and returns its lamports to the buyer, who in a
-* Orientim swap is E (review FA-05). Accounts: [user (signer), account, event authority, program].
+* Orientim swap is E. Accounts: [user (signer), account, event authority, program].
 */
 const CLOSE_USER_VOLUME_ACCUMULATOR = [
 	249,
@@ -100,8 +100,7 @@ async function notOlderThan(read, minContextSlot) {
 }
 /**
 * The same read, keeping the slot the chain answered at. With `minContextSlot`, every batch is at
-* least that recent, so reads made in separate calls cannot mix state older than an earlier one
-* (final audit, item 6).
+* least that recent, so reads made in separate calls cannot mix state older than an earlier one.
 */
 async function readAccounts(rpc, addresses, opts = {}) {
 	const unique = [...new Set(addresses)];
@@ -326,7 +325,7 @@ const ALLOWED_MINT_EXTENSIONS = /* @__PURE__ */ new Set([
 /**
 * The byte length each extension we interpret must declare. A length that disagrees with the
 * program's own layout means we are not reading what we think we are reading, so the mint is
-* refused rather than parsed further (audit follow-up). Extensions of variable size - metadata and
+* refused rather than parsed further. Extensions of variable size - metadata and
 * the group ones - are not listed here.
 */
 const EXTENSION_LENGTH = {
@@ -470,14 +469,13 @@ function jupiterRouteArgs(data) {
 /**
 * The least a Jupiter route lets through: its quote less its tolerance, rounded down. Jupiter's
 * program checks what its instruction delivered to the destination against this, so it holds
-* whatever else arrives in that account (engineering review H-03).
+* whatever else arrives in that account.
 */
 function jupiterFloor(args) {
 	return args.quotedOutAmount * BigInt(1e4 - args.slippageBps) / 10000n;
 }
 /**
-* The account Jupiter's route delivers to, which is the account its floor is measured on (research
-* audit, section I). From the program's IDL on chain:
+* The account Jupiter's route delivers to, which is the account its floor is measured on. From the program's IDL on chain:
 *
 *   route_v2:                 [0] authority, [1] source, [2] user destination, ..., [7] destination (optional)
 *   shared_accounts_route_v2: [0] program authority, [1] authority, [2] source, ..., [5] destination
@@ -923,7 +921,7 @@ async function verify(transaction, policy, snapshot, opts = {}) {
 }
 const MAX_SLIPPAGE_BPS = 1500;
 /**
-* Hard limits no intent, flag or JSON field can raise (agent review G1). An agent sets its own
+* Hard limits no intent, flag or JSON field can raise. An agent sets its own
 * limits, and an agent can be misled: a page, an issue or a token name that tells it to "set the
 * minimum to 1" must not be able to sell the amount for nothing. Its floor never sits more than
 * `MAX_BELOW_BPS` below Jupiter's own price, the price impact it accepts never exceeds
@@ -960,7 +958,7 @@ function policyOf(json) {
 		return null;
 	}
 }
-/** A value from the server, shown in a problem only as an address; anything else is not repeated (agent review G7). */
+/** A value from the server, shown in a problem only as an address; anything else is not repeated. */
 const shown = (v) => typeof v === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v) ? v : "(not an address)";
 const hex$1 = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
 /**
@@ -1044,9 +1042,8 @@ async function verifyPrepared(prepared, limits, rpc, opts = {}) {
 * account each Pump.fun market opens in its name, and in any other account the route opens. Every
 * lamport the wallet sends E (a market's account rent) must be spent by the route or come back in the
 * same transaction; a server that stated more than the route needs, a smaller refund, or a market
-* account left open would otherwise leave lamports under a key it can derive (research audit F-06,
-* engineering review M-05). An account the route opens and leaves open may hold a claim tied to E
-* whatever market it belongs to, so none may stay (third audit, F5). An account that does not exist
+* account left open would otherwise leave lamports under a key it can derive. An account the route opens and leaves open may hold a claim tied to E
+* whatever market it belongs to, so none may stay. An account that does not exist
 * afterwards holds nothing; an answer that does not report the accounts proves nothing, and is refused.
 */
 async function leftUnderKey(transaction, key, rpc, minContextSlot = 0n, timeoutMs = 1e4, fresh = []) {
@@ -1213,7 +1210,7 @@ async function ownSolFeeLimit(args) {
 * After signing, the chain is the only witness. The transaction's id is the wallet's own signature,
 * known before finalize; the outcome is read for that id on your RPC, whatever finalize answers or
 * fails to answer, so a lost answer or a lying server can neither fake a success nor start a second
-* swap while the first one could still land (engineering review H-01, H-02).
+* swap while the first one could still land.
 *
 *   ORIENTIM_API_URL=https://<orientim host>  ORIENTIM_API_KEY=ori_...  SOLANA_RPC_URL=https://<your rpc>
 *   ORIENTIM_WALLET_KEYPAIR=/path/to/keypair.json   (a solana-keygen file; never paste a key in a prompt)
@@ -1235,7 +1232,7 @@ async function ownSolFeeLimit(args) {
 * starts another, and holds a lock per wallet so that two workers never swap from it at once.
 */
 /**
-* What each error code means, in the skill's own words (agent review G7). An agent reads an error to
+* What each error code means, in the skill's own words. An agent reads an error to
 * decide what to do next, so the words it reads are these, never the server's: a compromised server
 * or relay could otherwise write instructions into an error ("call transfer ..."). The server's own
 * text is kept apart, cut to one short line, as `serverMessage`, and marked as untrusted.
@@ -1272,7 +1269,7 @@ const untrustedLine = (text) => typeof text === "string" ? text.replace(/[^\x20-
 /**
 * Only data: numbers, booleans, null, and strings with no spaces or control characters (amounts,
 * addresses, base64, codes), in objects and arrays of the same. Anything else, prose included, is
-* dropped. What a server sends reaches the agent through this (agent review G7).
+* dropped. What a server sends reaches the agent through this.
 */
 function dataOnly(value, depth = 0) {
 	if (value === null || typeof value === "boolean") return value;
@@ -1315,8 +1312,8 @@ var OrientimApiError = class extends Error {
 * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
 * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
 */
-const SKILL_VERSION = "1.3.1";
-/** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
+const SKILL_VERSION = "1.3.2";
+/** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer. */
 async function call(fetchImpl, url, key, body, timeoutMs = 3e4) {
 	const res = await fetchImpl(url, {
 		method: "POST",
@@ -1409,7 +1406,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
 * What to check before signing. First that Orientim's answer agrees with itself and with what you
 * asked for; then the full verifier on the exact bytes, with chain state from `rpc`, which must be
-* your own RPC (review FA-01). Returns the problems found; sign only when there are none.
+* your own RPC. Returns the problems found; sign only when there are none.
 */
 async function checkPrepared(p, intent, rpc, opts = {}) {
 	const digits = (v) => typeof v === "string" && /^\d{1,20}$/.test(v);
@@ -1521,16 +1518,15 @@ async function lookUp(rpc, signature, bounded) {
 * Settles one transaction on your own RPC, by its signature, until it lands, can no longer land, or
 * `maxWaitMs` passes. With `signedTransaction` (the fully signed bytes, checked to be this very
 * transaction), it re-broadcasts every few seconds: the same bytes land at most once. Only a confirmed
-* status is an outcome, since an error seen at `processed` may be on a fork (FA-07).
+* status is an outcome, since an error seen at `processed` may be on a fork.
 *
 * `expired` needs one coherent view, twice: a finalized height past the lifetime, no record in the
-* full history from a node that had reached that height's slot (a load-balanced RPC may answer the
-* two reads from different nodes, engineering audit S1-H-01), and that node's status cache still
+* full history from a node that had reached that height's slot, and that node's status cache still
 * holding every block the transaction could have landed in, from `earliestHeight` (your RPC's height
 * when you signed) on. Older than that, "no record" may only mean a pruned history or an archive that
-* failed, so the outcome stays `unknown` and is returned as soon as that is clear (third audit, F1).
+* failed, so the outcome stays `unknown` and is returned as soon as that is clear.
 * Without `earliestHeight` nothing is proven expired. Every request is bounded by what is left of
-* `maxWaitMs`, so one that never answers cannot hold the agent past it (S1-M-04).
+* `maxWaitMs`, so one that never answers cannot hold the agent past it.
 */
 async function confirm(rpc, signature, lastValidBlockHeight, opts = {}) {
 	const pollMs = opts.pollMs ?? 1e3;
@@ -1633,7 +1629,7 @@ async function pendingFor(store, owner, except) {
 }
 /**
 * An earlier swap from this wallet may still land: nothing new is sent until it is settled
-* (`recoverPending`), whether or not the two share an order id (final audit, H-02).
+* (`recoverPending`), whether or not the two share an order id.
 */
 var PendingSwapError = class extends Error {
 	signatures;
@@ -1811,10 +1807,10 @@ function createFileStore(dir) {
 /**
 * Settles the swaps a stopped run left in `store`, each by its own signature on your RPC, and removes
 * those whose outcome is final. Returns what is still unknown: while anything is, start no new swap
-* for the same intent (S1-M-01). A swap that "no record" can no longer prove expired stays unknown
-* however long ago it was sent (third audit, F1): look it up in a full history, then `resolvePending`.
+* for the same intent. A swap that "no record" can no longer prove expired stays unknown
+* however long ago it was sent: look it up in a full history, then `resolvePending`.
 * An outcome whose record could not be updated is returned all the same, beside the error, and its
-* pending record stays for the next run (third audit, F4).
+* pending record stays for the next run.
 */
 async function recoverPending(store, rpc, opts = {}) {
 	const settled = [];
@@ -1883,8 +1879,8 @@ async function resolvePending(store, rpc, signature, outcome, opts = {}) {
 * it does not exist, and names its holder with a token of its own. A lock older than `staleMs` is
 * left by a process that died: it is moved aside, which only one process can do, and only if it is
 * still the stale lock that was judged, then taken. The release deletes the lock only while it still
-* carries this holder's token, so a worker whose lock was taken over never removes its successor's
-* (final audit, M-01). Keep `staleMs` above the longest swap (`maxWaitMs` and its requests).
+* carries this holder's token, so a worker whose lock was taken over never removes its successor's.
+* Keep `staleMs` above the longest swap (`maxWaitMs` and its requests).
 * Workers on other machines need a shared store with a lock of its own.
 */
 function acquireLock(dir, owner, staleMs = 6e5) {
@@ -1948,7 +1944,7 @@ function acquireLock(dir, owner, staleMs = 6e5) {
 }
 /**
 * The minimum a caller asked for sits further below Jupiter's own price than `MAX_BELOW_BPS` allows:
-* refused before anything was prepared (agent review G1). A misled agent cannot sell for nothing.
+* refused before anything was prepared. A misled agent cannot sell for nothing.
 */
 var FloorError = class extends Error {
 	minOut;
@@ -1961,7 +1957,7 @@ var FloorError = class extends Error {
 };
 /**
 * Your floor and the market's price impact, from a price asked of Jupiter directly, whatever the
-* intent says (research audit F-02, agent review G1). Without `minOut`, the floor is Jupiter's price
+* intent says. Without `minOut`, the floor is Jupiter's price
 * less `maxBelowBps`; with one, it may be higher than that, never more than `MAX_BELOW_BPS` below
 * the market. The price impact is held to `maxPriceImpactBps`, itself at most `MAX_PRICE_IMPACT_BPS`.
 */
@@ -2154,7 +2150,7 @@ async function askAndConfirm(args, signed, mine, temporaryAuthority) {
 }
 /**
 * A swap kept before an earlier finalize (see `Signed`), asked again: no check meant for a first
-* send applies, since the transaction may already have been sent (third audit, F4). Orientim is asked
+* send applies, since the transaction may already have been sent. Orientim is asked
 * to finalize the same bytes once more (it looks the transaction up first, and the same bytes land
 * only once), and the outcome is read on your RPC for the kept signature. Always answers with that
 * signature and its outcome.
@@ -2407,7 +2403,7 @@ if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import
 *
 * Finalize asked again for a swap it already kept (the same signature) is not a new send: it asks
 * Orientim once more for the same bytes and reads the chain, and always answers with that signature and
-* its outcome (third audit, F4). `resolve` settles by hand, after you looked it up in a full history
+* its outcome. `resolve` settles by hand, after you looked it up in a full history
 * (an explorer), a kept swap whose outcome the chain can no longer prove: `outcome` is `confirmed`,
 * `failed` or `expired`; the chain's own answer is used instead whenever your RPC still has one.
 *

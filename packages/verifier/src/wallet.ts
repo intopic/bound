@@ -10,7 +10,7 @@ const sameBytes = (a: ArrayLike<number>, b: ArrayLike<number>) => {
 
 /**
  * R6, second half: what the wallet returns must be the verified message, byte for byte, carrying
- * a valid signature from W and no signature from E. Only then does E sign last (D4).
+ * a valid signature from W and no signature from E. Only then does E sign last.
  */
 export async function verifyWalletReturn(
   original: Transaction,

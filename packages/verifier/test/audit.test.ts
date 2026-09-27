@@ -1,7 +1,7 @@
 /**
- * Regression tests for the external review (bound-v0.1-audit.md). They replace the reviewer's
- * proof-of-concept scripts: every attack that the review showed was ACCEPTED must now be rejected,
- * and every control the review ran must keep holding.
+ * Regression tests for attacks found by earlier security reviews. They replace the reviewers'
+ * proof-of-concept scripts: every attack those reviews showed was ACCEPTED must now be rejected,
+ * and every control they ran must keep holding.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -325,7 +325,7 @@ describe('B-11: Orientim fee accounts are kept away from the external program', 
   });
 });
 
-describe('controls the review ran', () => {
+describe('controls the reviews ran', () => {
   it('an unrelated W token account in the swap is rejected with R1', async () => {
     const s = await scenario();
     const tx = compileRaw(s.W, [...cuIxs(), ...withSwapAccount(s, s.wOther)], 0, s.lookupTables);
@@ -348,7 +348,7 @@ describe('controls the review ran', () => {
   });
 });
 
-describe('second review, C-05: the verifier derives what the policy claims', () => {
+describe('the verifier derives what the policy claims', () => {
   it('a policy whose variant does not match its mints is rejected', async () => {
     const s = await scenario({ input: USDC, output: BONK });
     const v = await verify(compileHonest(s), { ...s.policy, variant: 'A' }, s.snapshot);

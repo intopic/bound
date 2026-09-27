@@ -13,7 +13,7 @@ export type Intent = {
   owner: Address;
   inputMint: Address;
   outputMint: Address;
-  /** q, in base units of the input token. The Orientim fee is taken inside it (D10). */
+  /** q, in base units of the input token. The Orientim fee is taken inside it. */
   amountIn: bigint;
 };
 
@@ -43,7 +43,7 @@ export type PolicyAccounts = {
   feeDestination: Address | null;
   /**
    * The account a Pump.fun market opens in E's name (PDA["user_volume_accumulator", E]) and that
-   * program's event authority, when Orientim closes it after the swap (review FA-05); null otherwise.
+   * program's event authority, when Orientim closes it after the swap; null otherwise.
    */
   routeAccount: Address | null;
   routeEventAuthority: Address | null;
@@ -69,7 +69,7 @@ export type Policy = {
   inputDecimals: number;
   outputDecimals: number;
   /**
-   * The minimum output Orientim itself enforces after the swap (audit B-04), in base units of the
+   * The minimum output Orientim itself enforces after the swap, in base units of the
    * output token. Set from the chosen route's quoted floor; 0 until a route is chosen, and the
    * verifier rejects 0.
    */
@@ -82,7 +82,7 @@ export type Policy = {
   takerRent: bigint;
   /**
    * Lamports the route's account under E returns when Orientim closes it after the swap, sent on to W
-   * in the same transaction (review FA-05): most of `takerRent` comes back. 0 when there is none.
+   * in the same transaction: most of `takerRent` comes back. 0 when there is none.
    */
   routeRefund: bigint;
   /** The Pump program that owns that account; null when there is none. */
@@ -112,7 +112,7 @@ export type Policy = {
   fee: bigint;
   /** What the route is given: `amountIn` less a fee on the input. */
   swapAmount: bigint;
-  /** Null in test mode, and when the treasury can receive the fee in neither token (audit B-09). */
+  /** Null in test mode, and when the treasury can receive the fee in neither token. */
   treasury: Address | null;
   maxNetworkFeeLamports: bigint;
   jupiterProgram: Address;
@@ -121,7 +121,7 @@ export type Policy = {
 };
 
 /**
- * A token account owned by E that the route uses as an intermediate hop (D14). `transferFee` says
+ * A token account owned by E that the route uses as an intermediate hop. `transferFee` says
  * whether its mint taxes transfers, in which case the withheld amount is harvested before the
  * account is closed, exactly as for E_in.
  */

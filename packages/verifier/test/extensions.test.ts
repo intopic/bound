@@ -1,5 +1,5 @@
 /**
- * The Token-2022 matrix (final audit, item 4): not each extension on its own, but any set of them,
+ * The Token-2022 matrix: not each extension on its own, but any set of them,
  * in any order, with the layouts a hostile mint could use. R7 must refuse a mint exactly when one of
  * its entries is refused, or when its extension area cannot be read the way the token program reads
  * it; and it must accept every combination of the entries a protected swap can live with.
@@ -65,7 +65,7 @@ const mint = (area: Uint8Array) => cat(new Uint8Array(165), Uint8Array.of(1), ar
 const verdictFor = (entries: Entry[], allowTransferFee: boolean) =>
   entries.some(e => e.refused === true || (e.refused === 'unless-transfer-fee' && !allowTransferFee));
 
-describe('Token-2022: any combination of extensions (final audit, item 4)', () => {
+describe('Token-2022: any combination of extensions', () => {
   it('a set of entries is accepted exactly when none of them is refused, in any order, with any trailing padding', () => {
     fc.assert(
       fc.property(

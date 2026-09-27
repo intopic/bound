@@ -33,8 +33,7 @@ type Transport = ReturnType<typeof createDefaultRpcTransport>;
  * pages that were refused together do not all come back at the same moment and be refused again.
  *
  * Never a send: a 429 may come back after the request was forwarded, and a later attempt refused
- * outright would hide that earlier one behind a definitive "never broadcast" (engineering audit
- * S1-H-02). The sender sees the first answer and decides; re-broadcasting is its job.
+ * outright would hide that earlier one behind a definitive "never broadcast". The sender sees the first answer and decides; re-broadcasting is its job.
  */
 export function retryingTransport(transport: Transport, maxRetries = 5, baseMs = 500, timeoutMs = 20_000): Transport {
   return (async (config: Parameters<Transport>[0]) => {
@@ -42,7 +41,7 @@ export function retryingTransport(transport: Transport, maxRetries = 5, baseMs =
     for (let attempt = 0; ; attempt++) {
       try {
         // Every request ends within `timeoutMs`, besides any signal of the caller's own: one that never
-        // answers is an error, not a wait without end (final audit, M-02).
+        // answers is an error, not a wait without end.
         const own = (config as { signal?: AbortSignal }).signal;
         const limit = AbortSignal.timeout(timeoutMs);
         const signal = own && typeof AbortSignal.any === 'function' ? AbortSignal.any([own, limit]) : own ?? limit;
@@ -57,7 +56,7 @@ export function retryingTransport(transport: Transport, maxRetries = 5, baseMs =
 
 /**
  * An RPC client that retries rate-limited requests: reads and simulations, which are safe to repeat.
- * A send is answered as it was; the sender re-broadcasts the same bytes itself (S1-H-02).
+ * A send is answered as it was; the sender re-broadcasts the same bytes itself.
  */
 export function createRetryingRpc(url: string, maxRetries = 5): SolanaRpc {
   const transport = createDefaultRpcTransport({ url: url as `https://${string}` });
@@ -90,8 +89,7 @@ async function notOlderThan<T>(read: () => Promise<T>, minContextSlot: bigint | 
 
 /**
  * The same read, keeping the slot the chain answered at. With `minContextSlot`, every batch is at
- * least that recent, so reads made in separate calls cannot mix state older than an earlier one
- * (final audit, item 6).
+ * least that recent, so reads made in separate calls cannot mix state older than an earlier one.
  */
 export async function readAccounts(
   rpc: SolanaRpc,
@@ -227,7 +225,7 @@ export async function simulate(
   const logs = [...(value.logs ?? [])];
   const after = (value as { accounts?: readonly ({ lamports: bigint | number; data?: readonly string[] } | null)[] | null }).accounts;
   // Accounts asked to be watched and not reported are not accounts at zero: what they hold after
-  // the swap is unknown, so the simulation says nothing (engineering audit, Stage 1).
+  // the swap is unknown, so the simulation says nothing.
   if (value.err === null && watch.length && (!Array.isArray(after) || after.length !== watch.length)) {
     return {
       ok: false, error: 'the RPC did not report the accounts it was asked to watch', units: Number(value.unitsConsumed ?? 0n),
@@ -248,7 +246,7 @@ export async function simulate(
 }
 
 /**
- * What happened to a sent transaction (audit C-03). Only three outcomes allow saying that no funds
+ * What happened to a sent transaction. Only three outcomes allow saying that no funds
  * moved: `rejected` (refused before it was broadcast), `expired` (its blockhash expired and the
  * cluster has no record of it, so it can never execute) and `failed` (it executed and reverted;
  * only the network fee was paid). `unknown` means exactly that: look it up before trying again.
@@ -313,8 +311,7 @@ export type SignatureState = { confirmationStatus?: string | null; err?: unknown
 export type StatusView = { statuses: SignatureState[]; coveredHeight: bigint | null; reachHeight: bigint | null };
 
 /**
- * The statuses of `signatures` from full history, with the heights that answer covers (engineering
- * audit S1-H-01). The finalized slot and height come from one answer; the statuses must come from a
+ * The statuses of `signatures` from full history, with the heights that answer covers. The finalized slot and height come from one answer; the statuses must come from a
  * node that had reached at least that slot, since a load-balanced provider may answer the two reads
  * from different nodes and a lagging node's silence proves nothing. Whether "no record" proves that
  * a transaction never landed is `provesNeverLanded`'s to say.
@@ -337,7 +334,7 @@ export async function statusesCovering(rpc: SolanaRpc, signatures: readonly stri
  * 300 rooted blocks (Agave's MAX_RECENT_BLOCKHASHES), and only then in its ledger history or an
  * archive. That history can be pruned or missing, and an archive that fails answers "no record" as
  * well (Agave maps a BigTable error to none). So "no record" proves that a transaction never landed
- * only while the node's cache still holds every block it could have landed in (third audit, F1).
+ * only while the node's cache still holds every block it could have landed in.
  */
 export const STATUS_CACHE_BLOCKS = 300n;
 /** Kept in hand below the edge of that cache. */
@@ -388,7 +385,7 @@ export async function sendOnce(rpc: SolanaRpc, transaction: Transaction): Promis
         .then(r => !!r.value[0], () => null);
       if (known) return { signature, status: 'sent', error: null };
       // The refusal may be of a second send of a transaction already on its way; a status that
-      // cannot be read does not say it is not, so the outcome is unknown (engineering review H-01).
+      // cannot be read does not say it is not, so the outcome is unknown.
       if (known === null) return { signature, status: 'unknown', error: String((e as Error)?.message ?? e) };
     }
     return {
@@ -425,7 +422,7 @@ export async function sendAndConfirm(args: {
 
   args.onStatus?.('sending', signature);
   // The deadline starts before the first send: a send that never answers counts against it, and is
-  // an outcome to watch for, never "not sent" (final audit, M-02).
+  // an outcome to watch for, never "not sent".
   const started = Date.now();
   try {
     await rpc.sendTransaction(wire, { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0n }).send(bounded());
@@ -461,7 +458,7 @@ export async function sendAndConfirm(args: {
   // and read the full status history: seen but only `processed` is not an outcome yet. "Expired" is
   // said only from one coherent view, twice: a finalized height past the lifetime, and no record
   // from a node that had reached that height's slot and whose status cache still holds every block
-  // the transaction could have landed in (FA-07, engineering audit S1-H-01, third audit F1).
+  // the transaction could have landed in.
   async function settleAfterExpiry(): Promise<SendResult> {
     const earliest = lastValidBlockHeight - BLOCKHASH_LIFE_BLOCKS + 1n;
     let notFound = 0;
@@ -485,7 +482,7 @@ export async function sendAndConfirm(args: {
 
 /**
  * The temporary authority E: an Ed25519 key generated with WebCrypto as non-extractable, so not
- * even a bug can export it (D7). One per transaction; the caller drops it after signing.
+ * even a bug can export it. One per transaction; the caller drops it after signing.
  */
 export async function createEphemeral(): Promise<KeyPairSigner> {
   const signer = await generateKeyPairSigner();

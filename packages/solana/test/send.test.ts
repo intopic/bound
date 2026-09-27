@@ -1,5 +1,5 @@
 /**
- * Second review, C-03: after a transaction may have been broadcast, "nothing moved" is only said
+ * After a transaction may have been broadcast, "nothing moved" is only said
  * when the network proves it. Every other case is `unknown`, with the signature kept.
  */
 import { describe, expect, it } from 'vitest';
@@ -196,7 +196,7 @@ describe('a rate-limited RPC in the production build', () => {
     expect(calls).toBe(3);
   });
 
-  it('a send is never retried by the transport: a 429 may follow a forwarded request (engineering audit S1-H-02)', async () => {
+  it('a send is never retried by the transport: a 429 may follow a forwarded request', async () => {
     let calls = 0;
     const transport = (async () => {
       calls++;
@@ -251,7 +251,7 @@ describe('one send, for a caller that confirms on its own (the agent API)', () =
     expect((await once({ firstSend: kept, statuses: [null] })).status).toBe('sent');
   });
 
-  it('a preflight refusal whose status cannot be read is unknown, not rejected (engineering review H-01)', async () => {
+  it('a preflight refusal whose status cannot be read is unknown, not rejected', async () => {
     const r = await once({ firstSend: preflight(), statuses: ['throw'] });
     expect(r.status).toBe('unknown');
     expect(r.refusal).toBeUndefined();
@@ -262,13 +262,13 @@ describe('one send, for a caller that confirms on its own (the agent API)', () =
   });
 });
 
-describe('outcomes are said only once the chain proves them (review FA-07)', () => {
+describe('outcomes are said only once the chain proves them', () => {
   it('an error seen only at processed (a fork, perhaps) is not a failure: the swap lands confirmed later', async () => {
     const processedError: Status = { confirmationStatus: 'processed', err: { InstructionError: [3, { Custom: 1 }] } };
     expect((await run({ statuses: [processedError, confirmed] })).result.status).toBe('confirmed');
   });
 
-  it('a status node behind the finalized slot cannot make a swap expired, whatever the height (engineering audit S1-H-01)', async () => {
+  it('a status node behind the finalized slot cannot make a swap expired, whatever the height', async () => {
     // Another node reports a finalized height well past the lifetime; the node that says "no record"
     // had not reached that slot, so its silence proves nothing.
     const { result } = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 50n], statusSlots: [1n] });
@@ -277,7 +277,7 @@ describe('outcomes are said only once the chain proves them (review FA-07)', () 
     expect(covered.result.status).toBe('expired');
   });
 
-  it('long after the lifetime, "no record" proves nothing: the node may have forgotten it (third audit, F1)', async () => {
+  it('long after the lifetime, "no record" proves nothing: the node may have forgotten it', async () => {
     // The status cache holds the last 300 blocks; this transaction could land from block -49 on.
     const late = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 500n] });
     expect(late.result.status).toBe('unknown');
@@ -286,7 +286,7 @@ describe('outcomes are said only once the chain proves them (review FA-07)', () 
     expect(late.reads).toBe(2);
   });
 
-  it('a status node far ahead of the finalized view proves nothing either: its cache may start past the swap (F1)', async () => {
+  it('a status node far ahead of the finalized view proves nothing either: its cache may start past the swap', async () => {
     const { result } = await run({ statuses: [null], heights: [LAST_VALID + 1n], finalizedHeights: [LAST_VALID + 10n], statusSlots: [505_000n] });
     expect(result.status).toBe('unknown');
   });
@@ -302,7 +302,7 @@ describe('outcomes are said only once the chain proves them (review FA-07)', () 
   });
 });
 
-describe('reads that must not be older than a slot (final audit, item 6)', () => {
+describe('reads that must not be older than a slot', () => {
   const lagging = (behind: number) => {
     const asked: unknown[] = [];
     let calls = 0;
@@ -334,7 +334,7 @@ describe('reads that must not be older than a slot (final audit, item 6)', () =>
   });
 });
 
-describe('nothing waits without end (final audit, M-02)', () => {
+describe('nothing waits without end', () => {
   it('a first send that never answers counts against the deadline, and the outcome is read for its signature', async () => {
     const { rpc } = fakeRpc({ statuses: [confirmed] });
     // The first send hangs until it is aborted; statuses answer as usual.

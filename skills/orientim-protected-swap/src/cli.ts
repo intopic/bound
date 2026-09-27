@@ -19,7 +19,7 @@
  *
  * Finalize asked again for a swap it already kept (the same signature) is not a new send: it asks
  * Orientim once more for the same bytes and reads the chain, and always answers with that signature and
- * its outcome (third audit, F4). `resolve` settles by hand, after you looked it up in a full history
+ * its outcome. `resolve` settles by hand, after you looked it up in a full history
  * (an explorer), a kept swap whose outcome the chain can no longer prove: `outcome` is `confirmed`,
  * `failed` or `expired`; the chain's own answer is used instead whenever your RPC still has one.
  *
@@ -115,7 +115,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     try {
       // The owner's limits hold here too; a bot that calls the API itself counts its own spending.
       if (deps.policy) await checkPolicy(deps.policy, intent, spendsOf(store));
-      // The same floor as prepare: Jupiter's own price, whatever the intent says (agent review G1).
+      // The same floor as prepare: Jupiter's own price, whatever the intent says.
       const own = await ownFloor(intent, { rpc: deps.rpc, fetchImpl: deps.fetchImpl, jupiterApiKey: deps.jupiterApiKey, requestTimeoutMs: deps.requestTimeoutMs });
       intent.minOut = own.minOut;
       const priceImpactBps = own.priceImpactBps;
@@ -205,11 +205,11 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
 
   if (command === 'prepare') {
     if (!isIntent(body.intent)) return usage(`prepare reads {"intent": ${INTENT_SHAPE}}.`);
-    // Every order has an id, the same on every retry, so that it is never swapped twice (agent review G2).
+    // Every order has an id, the same on every retry, so that it is never swapped twice.
     if (typeof body.intent.id !== 'string' || !body.intent.id) {
       return usage('prepare needs intent.id: your order\'s own id, the same on every retry of that order, so that it is never swapped twice.');
     }
-    // One swap at a time, and none while an earlier one could still land (engineering audit S1-M-01).
+    // One swap at a time, and none while an earlier one could still land.
     // A state directory that cannot be read is an answer too, not a stack trace (Stage 2 re-run, E5).
     const orderId = body.intent.id;
     let pending: string[];
@@ -223,7 +223,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     if (pending.length) {
       return { code: 3, output: { ok: false, pending, error: 'Earlier swaps are not settled yet: run `orientim-verify recover` first. Nothing was prepared.' } };
     }
-    // The same order, asked again: said, not swapped twice (final audit, item 7).
+    // The same order, asked again: said, not swapped twice.
     if (prior && (prior.state === 'confirmed' || prior.state === 'pending')) {
       return { code: 5, output: { ok: false, order: { id: orderId, ...prior }, error: prior.state === 'confirmed' ? 'This order already swapped. Nothing new was prepared.' : 'This order has a transaction that may still land: run `orientim-verify recover`. Nothing new was prepared.' } };
     }
@@ -276,7 +276,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     }
     const { prepared, intent } = checked;
     // The chain's answer is the result; a record that could not be updated is said beside it, with
-    // the signature, never in its place (final audit, M-03).
+    // the signature, never in its place.
     const settle = async (result: { signature: string; outcome: string; refusal?: string }, orderId: string | undefined, resumed: boolean): Promise<CliResult> => {
       let bookkeepingError: string | undefined;
       try {
@@ -329,9 +329,9 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     try {
       // Checked again here, on your RPC: finalize takes nothing on trust, not even prepare's output.
       // One swap per wallet: another that may still land stops this one before anything is sent,
-      // whichever order it was prepared for (final audit, H-02).
+      // whichever order it was prepared for.
       // A swap already kept under this signature may have been sent: it is asked again and settled,
-      // never checked as a first send, and the answer always carries its signature (third audit, F4).
+      // never checked as a first send, and the answer always carries its signature.
       const kept = incoming ? (await store.list()).find(s => s.signature === incoming) : undefined;
       if (kept) {
         signedAs = kept.signature;
@@ -405,7 +405,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       return settle(result, intent.id, false);
     } catch (e) {
       // After the swap was kept it may have been sent: its signature and an unknown outcome, never
-      // "not sent" (final audit, M-03). Before that, nothing was sent.
+      // "not sent". Before that, nothing was sent.
       if (signedAs) return { code: 3, output: { ok: false, signature: signedAs, outcome: 'unknown', error: messageOf(e) } };
       if (e instanceof PendingSwapError) return { code: 3, output: { ok: false, sent: false, pending: e.signatures, error: e.message } };
       if (e instanceof PolicyError) return policyRefusal(e, false);
