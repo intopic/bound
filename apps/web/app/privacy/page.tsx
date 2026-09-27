@@ -19,6 +19,11 @@ const PROCESSING: [string, string, string][] = [
     'Running, securing and troubleshooting the service.',
     'Our legitimate interest in security',
   ],
+  [
+    'When the page shows an error: the message, the kind and first words of the error behind it, the two token symbols and the name of your wallet app. Never your wallet address, a transaction signature or an amount',
+    'To find and fix failures. Kept only in the request logs above.',
+    'Our legitimate interest in running the service',
+  ],
   ['For an API key: the message your wallet signed, and its SOL balance', 'To check that you control the wallet and that it meets the minimum balance. Neither is kept.', 'Providing the service you request'],
   ['What you write to us', 'To answer you.', 'Our legitimate interest, or providing the service'],
 ];
@@ -72,7 +77,8 @@ export default async function Page() {
           The page keeps in your browser&apos;s storage: your recent swaps (their signatures, amounts and wallet address), so it can
           follow their outcome; the last messages it showed you, so you can copy them when you ask for help; your slippage
           setting; and a short-lived marker that stops a second swap from the same wallet while one is in flight. They never leave
-          your browser and are strictly necessary for the page to work. Clearing this site&apos;s data removes them.
+          your browser and are strictly necessary for the page to work. Clearing this site&apos;s data removes them. When an error is
+          shown, the short report described in section 2 is sent to our server; it carries none of these.
         </p>
       </section>
 

@@ -8,7 +8,7 @@ import type { Address, KeyPairSigner } from '@solana/kit';
 import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@orientim/core';
 import type { FeeSide, TxVersion } from '@orientim/core';
 import {
-  OrientimError, DEFAULT_SETTINGS, finalizeProtectedSwap, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, quotedMinimum,
+  OrientimError, DEFAULT_SETTINGS, finalizeProtectedSwap, heliusPriorityFee, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, quotedMinimum,
   revertedOnPrice,
 } from '@orientim/jupiter';
 import type { PreparedSwap, TokenInfo } from '@orientim/jupiter';
@@ -36,6 +36,7 @@ import { fillAgainstQuote, receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
 import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
 import type { Problem } from '@/lib/client/problems';
+import { reportProblem } from '@/lib/client/report';
 import { loadSlippage, percentText, saveSlippage, withSlippage } from '@/lib/client/slippage';
 import type { SlippageChoice } from '@/lib/client/slippage';
 import { Modal } from './Modal';
@@ -520,7 +521,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const outFacts = tokenOut ? facts[tokenOut.id] : undefined;
 
   // --- every message other than a success is kept in this browser with the raw error behind it, so
-  // one replaced by the next click can still be read (lib/client/problems). Nothing is sent anywhere.
+  // one replaced by the next click can still be read (lib/client/problems). An error is also
+  // reported to Orientim's logs, with the symbols and the wallet's name but no address or amount.
   const shown = useRef<Problem | null>(null);
   useEffect(() => watchUncaught(), []);
   useEffect(() => {
@@ -533,6 +535,12 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       context: `${pair}, ${who}${notice.link ? `, ${notice.link}` : ''}`,
     };
     recordProblem(shown.current);
+    if (notice.kind === 'error') {
+      reportProblem({
+        kind: notice.kind, title: notice.title, body: notice.body, detail: notice.detail, wallet: who,
+        pair: tokenIn && tokenOut ? `${tokenIn.symbol} → ${tokenOut.symbol}` : undefined,
+      });
+    }
     // Recorded once per message; the pair and wallet are read as they are when it appears.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notice]);
@@ -906,6 +914,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const swapDeps = (s: PublicStatus) => ({
     rpc: getRpc(),
     jupiter: getJupiter(),
+    priorityFee: heliusPriorityFee(`${window.location.origin}/api/rpc`),
     settings: {
       ...pageSettings,
       feeBps: FEE_BPS,
