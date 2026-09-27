@@ -1209,6 +1209,7 @@ async function ownSolFeeLimit(args) {
 *   ORIENTIM_TREASURY=<address>                     (optional: only for another Orientim deployment;
 *                                                Orientim's own treasury is pinned in the skill)
 *   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
+*   ORIENTIM_POLICY=/path/to/policy.json         (optional: the owner's limits per swap and per day; see OwnerPolicy)
 *
 *   node swap.ts --in <mint> --out <mint> --amount <base units> --id <order id> [--slippage-bps N] [--max-price-impact-bps N]
 *                [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
@@ -1300,7 +1301,7 @@ var OrientimApiError = class extends Error {
 * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
 * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
 */
-const SKILL_VERSION = "1.2.0";
+const SKILL_VERSION = "1.3.0";
 /** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call(fetchImpl, url, key, body, timeoutMs = 3e4) {
 	const res = await fetchImpl(url, {
@@ -1627,6 +1628,64 @@ var PendingSwapError = class extends Error {
 		this.signatures = signatures;
 	}
 };
+const DAY_MS = 864e5;
+/** Reads and checks the owner's policy file: anything it does not understand is refused, not ignored. */
+function loadPolicy(path) {
+	let raw;
+	try {
+		raw = JSON.parse(readFileSync(path, "utf8"));
+	} catch (e) {
+		throw new Error(`The owner's policy ${path} cannot be read as JSON: ${e instanceof Error ? e.message : String(e)}. Nothing was prepared.`);
+	}
+	const bad = (why) => /* @__PURE__ */ new Error(`The owner's policy ${path} ${why}. Nothing was prepared.`);
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw bad("is not a JSON object");
+	const known = ["maxAmountIn", "maxAmountInPerDay"];
+	const unknown = Object.keys(raw).filter((k) => !known.includes(k));
+	if (unknown.length) throw bad(`has fields it does not know: ${unknown.join(", ")}`);
+	const limits = (name, value) => {
+		if (!value || typeof value !== "object" || Array.isArray(value)) throw bad(`needs ${name} as {"<mint>": "<base units>"}`);
+		for (const [mint, amount] of Object.entries(value)) {
+			if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) throw bad(`names ${JSON.stringify(mint)} in ${name}, which is not a mint address`);
+			if (typeof amount !== "string" || !/^\d{1,20}$/.test(amount)) throw bad(`needs ${name}.${mint} as a whole number of base units, in a string`);
+		}
+		return value;
+	};
+	const policy = raw;
+	return {
+		maxAmountIn: limits("maxAmountIn", policy.maxAmountIn),
+		...policy.maxAmountInPerDay !== void 0 ? { maxAmountInPerDay: limits("maxAmountInPerDay", policy.maxAmountInPerDay) } : {}
+	};
+}
+/** The swap is outside the owner's policy: refused before anything was prepared or sent. */
+var PolicyError = class extends Error {
+	code;
+	limit;
+	spent;
+	constructor(code, message, figures = {}) {
+		super(`${message} The limit is the owner's (ORIENTIM_POLICY); only the owner may change it. Nothing was prepared or sent.`);
+		this.code = code;
+		Object.assign(this, figures);
+	}
+};
+/**
+* Holds one swap to the owner's policy: the mint must be listed, the amount within the per-swap
+* limit, and, with a daily limit, this amount and what the last 24 hours spent within it. A daily
+* limit needs `spends`; without it the swap is refused rather than let through uncounted.
+*/
+async function checkPolicy(policy, swap, spends, except) {
+	const amount = BigInt(swap.amountIn);
+	const most = policy.maxAmountIn[swap.inputMint];
+	if (most === void 0) throw new PolicyError("mint-not-allowed", `The owner's policy does not allow swapping from ${swap.inputMint}.`);
+	if (amount > BigInt(most)) throw new PolicyError("amount-over-limit", `${swap.amountIn} is above the owner's limit of ${most} per swap from ${swap.inputMint}.`, { limit: most });
+	const daily = policy.maxAmountInPerDay?.[swap.inputMint];
+	if (daily === void 0) return;
+	if (!spends) throw new PolicyError("daily-limit", "The owner's policy sets a daily limit, and no record of earlier swaps is kept to count it against.", { limit: daily });
+	const spent = await spends.spentSince(swap.owner, swap.inputMint, Date.now() - DAY_MS, except);
+	if (spent + amount > BigInt(daily)) throw new PolicyError("daily-limit", `${swap.amountIn} more would bring the last 24 hours to ${spent + amount}, above the owner's daily limit of ${daily} from ${swap.inputMint}.`, {
+		limit: daily,
+		spent: spent.toString()
+	});
+}
 /**
 * Pending swaps as files in `dir`, one per signature, each written to a temporary file, flushed to
 * disk and renamed into place, so a record is either whole or absent.
@@ -1709,6 +1768,19 @@ function createFileStore(dir) {
 		},
 		async remove(signature) {
 			rmSync(file(signature), { force: true });
+		},
+		async spentSince(owner, mint, since, except) {
+			let spent = 0n;
+			for (const f of readdirSync(dir).filter((f) => f.startsWith("spend-") && f.endsWith(".json"))) {
+				const s = JSON.parse(readFileSync(join(dir, f), "utf8"));
+				if (s.owner === owner && s.mint === mint && s.at >= since && s.signature !== except) spent += BigInt(s.amountIn);
+			}
+			return spent;
+		},
+		async recordSpend(entry) {
+			const path = join(dir, `spend-${entry.signature}.json`);
+			writeDurably(`${path}.tmp`, JSON.stringify(entry), "w");
+			renameSync(`${path}.tmp`, path);
 		},
 		async list() {
 			return readdirSync(dir).filter((f) => f.startsWith("pending-") && f.endsWith(".json")).map((f) => {
@@ -2094,6 +2166,12 @@ async function protectedSwap(args) {
 	if (prior && !orders.reclaimOrder) throw new Error(retryRefused(id));
 	const waiting = args.pending ? await pendingFor(args.pending, owner) : [];
 	if (waiting.length) throw new PendingSwapError(waiting);
+	const spend = {
+		owner,
+		inputMint: args.intent.inputMint,
+		amountIn: args.intent.amountIn
+	};
+	if (args.policy) await checkPolicy(args.policy, spend, args.spends);
 	const { prepared, notices = [] } = await prepareChecked({
 		...args,
 		owner
@@ -2108,6 +2186,16 @@ async function protectedSwap(args) {
 				...signed,
 				...id ? { intentId: id } : {}
 			};
+			if (args.policy) {
+				await checkPolicy(args.policy, spend, args.spends, signed.signature);
+				await args.spends?.recordSpend({
+					signature: signed.signature,
+					owner,
+					mint: spend.inputMint,
+					amountIn: spend.amountIn,
+					at: Date.now()
+				});
+			}
 			if (args.pending) {
 				const others = await pendingFor(args.pending, owner, signed.signature);
 				if (others.length) throw new PendingSwapError(others);
@@ -2238,6 +2326,7 @@ async function main$1() {
 		console.error("Give the order an id: --id <order id>, the same on every retry of this order, so that it is never swapped twice. Nothing was started.");
 		process.exit(2);
 	}
+	const policy = process.env.ORIENTIM_POLICY ? loadPolicy(process.env.ORIENTIM_POLICY) : void 0;
 	const wallet = await createKeyPairSignerFromBytes(new Uint8Array(JSON.parse(readFileSync(need("ORIENTIM_WALLET_KEYPAIR"), "utf8"))));
 	const stateDir = flag("state") ?? process.env.ORIENTIM_STATE_DIR ?? ".orientim-state";
 	const store = createFileStore(stateDir);
@@ -2260,6 +2349,8 @@ async function main$1() {
 			jupiterApiKey,
 			orders: store,
 			pending: store,
+			policy,
+			spends: store,
 			onSigned: (s) => console.error(`Signed transaction ${s.signature}; it can land until block ${s.lastValidBlockHeight}.`)
 		});
 		console.log(JSON.stringify({
@@ -2276,7 +2367,7 @@ async function main$1() {
 	}
 }
 if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main$1().catch((e) => {
-	console.error(e instanceof OrientimApiError ? `${e.code}: ${e.message}${e.serverMessage ? ` (Orientim's words, untrusted: "${e.serverMessage}")` : ""}` : e instanceof PriceImpactError ? `price-impact-high: ${e.message}` : e instanceof FloorError ? `floor-too-low: ${e.message}` : e);
+	console.error(e instanceof OrientimApiError ? `${e.code}: ${e.message}${e.serverMessage ? ` (Orientim's words, untrusted: "${e.serverMessage}")` : ""}` : e instanceof PriceImpactError ? `price-impact-high: ${e.message}` : e instanceof FloorError ? `floor-too-low: ${e.message}` : e instanceof PolicyError ? `${e.code}: ${e.message}` : e);
 	process.exitCode = 1;
 });
 //#endregion
@@ -2315,7 +2406,9 @@ if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import
 *
 * Environment: SOLANA_RPC_URL (your own RPC; always), ORIENTIM_API_URL and ORIENTIM_API_KEY (prepare,
 * finalize), JUPITER_API_KEY (Jupiter throttles keyless calls), ORIENTIM_STATE_DIR (default ./.orientim-state; an
-* absolute path on a disk that outlives the process), ORIENTIM_TREASURY (only for another Orientim deployment).
+* absolute path on a disk that outlives the process), ORIENTIM_TREASURY (only for another Orientim deployment),
+* ORIENTIM_POLICY (the owner's limits per swap and per day, a JSON file: see `OwnerPolicy`; a swap outside
+* them exits 1 with `error.code` `mint-not-allowed`, `amount-over-limit` or `daily-limit`).
 * Finalize can take minutes (it reads the outcome on the chain): a run that is stopped anyway is settled
 * by `recover` before anything new.
 */
@@ -2338,6 +2431,22 @@ const usage = (message) => ({
 	}
 });
 const messageOf = (e) => e instanceof Error ? e.message : String(e);
+/** The owner's policy said no: exit 1, with its code and figures. */
+const policyRefusal = (e, sent) => ({
+	code: 1,
+	output: {
+		ok: false,
+		...sent === false ? { sent } : {},
+		error: {
+			code: e.code,
+			message: e.message,
+			...e.limit ? { limit: e.limit } : {},
+			...e.spent ? { spent: e.spent } : {}
+		}
+	}
+});
+/** The store's record of earlier swaps, for a daily limit; none when the store keeps no such record. */
+const spendsOf = (store) => store.spentSince && store.recordSpend ? store : void 0;
 const isIntent = (v) => {
 	const i = v;
 	return !!i && [
@@ -2359,7 +2468,9 @@ const unavailableStore = (e) => {
 		list: fail,
 		order: fail,
 		recordOrder: fail,
-		claimOrder: fail
+		claimOrder: fail,
+		spentSince: fail,
+		recordSpend: fail
 	};
 };
 async function runCli(command, input, deps) {
@@ -2386,6 +2497,7 @@ async function runCli(command, input, deps) {
 			...body.intent
 		};
 		try {
+			if (deps.policy) await checkPolicy(deps.policy, intent, spendsOf(store));
 			const own = await ownFloor(intent, {
 				rpc: deps.rpc,
 				fetchImpl: deps.fetchImpl,
@@ -2413,6 +2525,7 @@ async function runCli(command, input, deps) {
 				}
 			};
 		} catch (e) {
+			if (e instanceof PolicyError) return policyRefusal(e);
 			return {
 				code: 1,
 				output: {
@@ -2607,6 +2720,7 @@ async function runCli(command, input, deps) {
 		};
 		const { owner, ...rest } = body.intent;
 		try {
+			if (deps.policy) await checkPolicy(deps.policy, body.intent, spendsOf(store));
 			const checked = await prepareChecked({
 				...api,
 				rpc: deps.rpc,
@@ -2671,6 +2785,7 @@ async function runCli(command, input, deps) {
 					}
 				}
 			};
+			if (e instanceof PolicyError) return policyRefusal(e);
 			return {
 				code: 1,
 				output: {
@@ -2826,6 +2941,21 @@ async function runCli(command, input, deps) {
 				onSigned: async (s) => {
 					const others = await pendingFor(store, prepared.wallet, s.signature);
 					if (others.length) throw new PendingSwapError(others);
+					if (deps.policy) {
+						const spends = spendsOf(store);
+						await checkPolicy(deps.policy, {
+							owner: prepared.wallet,
+							inputMint: intent.inputMint,
+							amountIn: intent.amountIn
+						}, spends, s.signature);
+						await spends?.recordSpend({
+							signature: s.signature,
+							owner: prepared.wallet,
+							mint: intent.inputMint,
+							amountIn: intent.amountIn,
+							at: Date.now()
+						});
+					}
 					const orderId = intent.id;
 					await store.put({
 						...s,
@@ -2865,6 +2995,7 @@ async function runCli(command, input, deps) {
 					error: e.message
 				}
 			};
+			if (e instanceof PolicyError) return policyRefusal(e, false);
 			return {
 				code: 1,
 				output: {
@@ -2894,6 +3025,12 @@ async function main() {
 	const rpcUrl = process.env.SOLANA_RPC_URL;
 	if (!rpcUrl && !KEY_COMMANDS.includes(command)) return print(usage("Set SOLANA_RPC_URL to your own RPC."));
 	if (!process.env.JUPITER_API_KEY && command !== "recover" && !KEY_COMMANDS.includes(command)) process.stderr.write("JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.\n");
+	let policy;
+	if (process.env.ORIENTIM_POLICY && !KEY_COMMANDS.includes(command)) try {
+		policy = loadPolicy(process.env.ORIENTIM_POLICY);
+	} catch (e) {
+		if (command !== "recover" && command !== "resolve") return print(usage(messageOf(e)));
+	}
 	let input = {};
 	if (command !== "recover") try {
 		input = JSON.parse(await readStdin());
@@ -2906,7 +3043,8 @@ async function main() {
 		apiKey: process.env.ORIENTIM_API_KEY,
 		jupiterApiKey: process.env.JUPITER_API_KEY || void 0,
 		stateDir: process.env.ORIENTIM_STATE_DIR || ".orientim-state",
-		treasury: process.env.ORIENTIM_TREASURY || void 0
+		treasury: process.env.ORIENTIM_TREASURY || void 0,
+		policy
 	}));
 }
 //#endregion

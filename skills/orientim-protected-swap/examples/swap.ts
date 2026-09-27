@@ -22,6 +22,7 @@
  *   ORIENTIM_TREASURY=<address>                     (optional: only for another Orientim deployment;
  *                                                Orientim's own treasury is pinned in the skill)
  *   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
+ *   ORIENTIM_POLICY=/path/to/policy.json         (optional: the owner's limits per swap and per day; see OwnerPolicy)
  *
  *   node swap.ts --in <mint> --out <mint> --amount <base units> --id <order id> [--slippage-bps N] [--max-price-impact-bps N]
  *                [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
@@ -235,7 +236,7 @@ type Fetch = typeof fetch;
  * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
  * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
  */
-export const SKILL_VERSION = '1.2.0';
+export const SKILL_VERSION = '1.3.0';
 
 /** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call<T>(fetchImpl: Fetch, url: string, key: string, body: unknown, timeoutMs = 30_000): Promise<T> {
@@ -679,6 +680,95 @@ export class PendingSwapError extends Error {
   }
 }
 
+/**
+ * The owner's own limits on what the wallet may spend, from a file only the owner writes
+ * (`ORIENTIM_POLICY`), never from the intent: a misled agent, or one that lost its context after a
+ * restart, cannot raise them by asking. Amounts are base units of the input token, as strings. A mint
+ * not listed in `maxAmountIn` is not swapped from at all.
+ */
+export type OwnerPolicy = {
+  /** Per input mint: the most one swap may spend. */
+  maxAmountIn: Record<string, string>;
+  /**
+   * Per input mint: the most all swaps from one wallet signed in the last 24 hours may spend together.
+   * A swap counts once signed and kept, whether it lands or not: a failed or expired one frees its
+   * share only when its 24 hours pass.
+   */
+  maxAmountInPerDay?: Record<string, string>;
+};
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/** Reads and checks the owner's policy file: anything it does not understand is refused, not ignored. */
+export function loadPolicy(path: string): OwnerPolicy {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (e) {
+    throw new Error(`The owner's policy ${path} cannot be read as JSON: ${e instanceof Error ? e.message : String(e)}. Nothing was prepared.`);
+  }
+  const bad = (why: string) => new Error(`The owner's policy ${path} ${why}. Nothing was prepared.`);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw bad('is not a JSON object');
+  const known = ['maxAmountIn', 'maxAmountInPerDay'];
+  const unknown = Object.keys(raw).filter(k => !known.includes(k));
+  if (unknown.length) throw bad(`has fields it does not know: ${unknown.join(', ')}`);
+  const limits = (name: string, value: unknown): Record<string, string> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw bad(`needs ${name} as {"<mint>": "<base units>"}`);
+    for (const [mint, amount] of Object.entries(value)) {
+      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) throw bad(`names ${JSON.stringify(mint)} in ${name}, which is not a mint address`);
+      if (typeof amount !== 'string' || !/^\d{1,20}$/.test(amount)) throw bad(`needs ${name}.${mint} as a whole number of base units, in a string`);
+    }
+    return value as Record<string, string>;
+  };
+  const policy = raw as Record<string, unknown>;
+  return {
+    maxAmountIn: limits('maxAmountIn', policy.maxAmountIn),
+    ...(policy.maxAmountInPerDay !== undefined ? { maxAmountInPerDay: limits('maxAmountInPerDay', policy.maxAmountInPerDay) } : {}),
+  };
+}
+
+/** The swap is outside the owner's policy: refused before anything was prepared or sent. */
+export class PolicyError extends Error {
+  readonly code: 'mint-not-allowed' | 'amount-over-limit' | 'daily-limit';
+  readonly limit?: string;
+  readonly spent?: string;
+  constructor(code: PolicyError['code'], message: string, figures: { limit?: string; spent?: string } = {}) {
+    super(`${message} The limit is the owner's (ORIENTIM_POLICY); only the owner may change it. Nothing was prepared or sent.`);
+    this.code = code;
+    Object.assign(this, figures);
+  }
+}
+
+/** Where the swaps a policy counts per day are kept: the file store keeps them beside the swaps. */
+export type SpendLog = {
+  /** What swaps from `owner` in `mint` signed since `since` (ms) spent, other than `except`. */
+  spentSince(owner: string, mint: string, since: number, except?: string): Promise<bigint>;
+  recordSpend(entry: { signature: string; owner: string; mint: string; amountIn: string; at: number }): Promise<void>;
+};
+
+/**
+ * Holds one swap to the owner's policy: the mint must be listed, the amount within the per-swap
+ * limit, and, with a daily limit, this amount and what the last 24 hours spent within it. A daily
+ * limit needs `spends`; without it the swap is refused rather than let through uncounted.
+ */
+export async function checkPolicy(
+  policy: OwnerPolicy, swap: { owner: string; inputMint: string; amountIn: string }, spends?: SpendLog, except?: string,
+): Promise<void> {
+  const amount = BigInt(swap.amountIn);
+  const most = policy.maxAmountIn[swap.inputMint];
+  if (most === undefined) throw new PolicyError('mint-not-allowed', `The owner's policy does not allow swapping from ${swap.inputMint}.`);
+  if (amount > BigInt(most)) {
+    throw new PolicyError('amount-over-limit', `${swap.amountIn} is above the owner's limit of ${most} per swap from ${swap.inputMint}.`, { limit: most });
+  }
+  const daily = policy.maxAmountInPerDay?.[swap.inputMint];
+  if (daily === undefined) return;
+  if (!spends) throw new PolicyError('daily-limit', 'The owner\'s policy sets a daily limit, and no record of earlier swaps is kept to count it against.', { limit: daily });
+  const spent = await spends.spentSince(swap.owner, swap.inputMint, Date.now() - DAY_MS, except);
+  if (spent + amount > BigInt(daily)) {
+    throw new PolicyError('daily-limit', `${swap.amountIn} more would bring the last 24 hours to ${spent + amount}, above the owner's daily limit of ${daily} from ${swap.inputMint}.`, { limit: daily, spent: spent.toString() });
+  }
+}
+
 /** Where signed swaps wait for their outcome. Unattended, it must survive the process (S1-M-01). */
 export type PendingStore = {
   put(signed: Signed): Promise<void>;
@@ -690,7 +780,7 @@ export type PendingStore = {
  * Pending swaps as files in `dir`, one per signature, each written to a temporary file, flushed to
  * disk and renamed into place, so a record is either whole or absent.
  */
-export function createFileStore(dir: string): PendingStore & OrderBook {
+export function createFileStore(dir: string): PendingStore & OrderBook & SpendLog {
   mkdirSync(dir, { recursive: true });
   const file = (signature: string) => join(dir, `pending-${signature}.json`);
   // An id is the caller's text: its hash names the file, and the record keeps the id itself.
@@ -760,6 +850,19 @@ export function createFileStore(dir: string): PendingStore & OrderBook {
     },
     async remove(signature) {
       rmSync(file(signature), { force: true });
+    },
+    async spentSince(owner, mint, since, except) {
+      let spent = 0n;
+      for (const f of readdirSync(dir).filter(f => f.startsWith('spend-') && f.endsWith('.json'))) {
+        const s = JSON.parse(readFileSync(join(dir, f), 'utf8')) as { signature: string; owner: string; mint: string; amountIn: string; at: number };
+        if (s.owner === owner && s.mint === mint && s.at >= since && s.signature !== except) spent += BigInt(s.amountIn);
+      }
+      return spent;
+    },
+    async recordSpend(entry) {
+      const path = join(dir, `spend-${entry.signature}.json`);
+      writeDurably(`${path}.tmp`, JSON.stringify(entry), 'w');
+      renameSync(`${path}.tmp`, path);
     },
     async list() {
       return readdirSync(dir).filter(f => f.startsWith('pending-') && f.endsWith('.json')).map(f => {
@@ -1169,6 +1272,12 @@ export async function protectedSwap(args: {
    * from this wallet may still land (final audit, H-02).
    */
   pending?: PendingStore;
+  /**
+   * The owner's limits (`loadPolicy`): checked before anything is prepared, and again, with what the
+   * last 24 hours spent, just before finalize. A daily limit needs `spends` (`createFileStore`).
+   */
+  policy?: OwnerPolicy;
+  spends?: SpendLog;
 }): Promise<{
   signature: string; outcome: Outcome | 'rejected'; prepared: Prepared; refusal?: string; bookkeepingError?: string;
   /** Notes about the tokens (`tokenNotices`), for whoever decides what to buy. */
@@ -1186,6 +1295,9 @@ export async function protectedSwap(args: {
   // Nor is anything prepared while another swap from this wallet may still land (H-02).
   const waiting = args.pending ? await pendingFor(args.pending, owner) : [];
   if (waiting.length) throw new PendingSwapError(waiting);
+  // The owner's limits, from their own file: nothing the intent says can raise them.
+  const spend = { owner, inputMint: args.intent.inputMint, amountIn: args.intent.amountIn };
+  if (args.policy) await checkPolicy(args.policy, spend, args.spends);
   const { prepared, notices = [] } = await prepareChecked({ ...args, owner });
   const signedTransaction = await signAsWallet(args.wallet, prepared.transaction);
   const result = await finalizeSigned({
@@ -1195,6 +1307,12 @@ export async function protectedSwap(args: {
     // than both send. A process that stops here finds it pending on its next start.
     onSigned: async signed => {
       const kept: Signed = { ...signed, ...(id ? { intentId: id } : {}) };
+      // Counted again with what the last 24 hours spent, and recorded before the swap is kept: once
+      // kept it may be sent, so it counts whatever its outcome.
+      if (args.policy) {
+        await checkPolicy(args.policy, spend, args.spends, signed.signature);
+        await args.spends?.recordSpend({ signature: signed.signature, owner, mint: spend.inputMint, amountIn: spend.amountIn, at: Date.now() });
+      }
       if (args.pending) {
         const others = await pendingFor(args.pending, owner, signed.signature);
         if (others.length) throw new PendingSwapError(others);
@@ -1289,6 +1407,8 @@ async function main() {
     console.error('Give the order an id: --id <order id>, the same on every retry of this order, so that it is never swapped twice. Nothing was started.');
     process.exit(2);
   }
+  // The owner's limits, read before the key: a policy that cannot be read stops everything.
+  const policy = process.env.ORIENTIM_POLICY ? loadPolicy(process.env.ORIENTIM_POLICY) : undefined;
   const wallet = await createKeyPairSignerFromBytes(new Uint8Array(JSON.parse(readFileSync(need('ORIENTIM_WALLET_KEYPAIR'), 'utf8'))));
   const stateDir = flag('state') ?? process.env.ORIENTIM_STATE_DIR ?? '.orientim-state';
   const store = createFileStore(stateDir);
@@ -1311,6 +1431,7 @@ async function main() {
       // Kept on disk before finalize, and removed once settled: if this process stops, the next run
       // settles it first, and nothing new is sent from this wallet while it may still land.
       pending: store,
+      policy, spends: store,
       onSigned: s => console.error(`Signed transaction ${s.signature}; it can land until block ${s.lastValidBlockHeight}.`),
     });
     console.log(JSON.stringify({
@@ -1327,7 +1448,8 @@ async function main() {
 if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   main().catch(e => {
     console.error(e instanceof OrientimApiError ? `${e.code}: ${e.message}${e.serverMessage ? ` (Orientim's words, untrusted: "${e.serverMessage}")` : ''}`
-      : e instanceof PriceImpactError ? `price-impact-high: ${e.message}` : e instanceof FloorError ? `floor-too-low: ${e.message}` : e);
+      : e instanceof PriceImpactError ? `price-impact-high: ${e.message}` : e instanceof FloorError ? `floor-too-low: ${e.message}`
+      : e instanceof PolicyError ? `${e.code}: ${e.message}` : e);
     process.exitCode = 1;
   });
 }

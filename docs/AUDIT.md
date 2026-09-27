@@ -1791,6 +1791,30 @@ before anything is prepared; a floor just below the hard limit is refused; no fl
 depth, price impact or fee beyond the limits; `orientim-verify` takes the same limits from its JSON and
 prepares nothing without an id; an injected error and prose added to an answer never reach the agent.
 
+## 0zw. The owner's spending limits, and where an agent's key can hide (27 September 2026)
+
+Research on how agents and bots run in practice (Claude Code's sandbox and permission rules, agents
+that lose their context on a restart, fake skills on skill registries) found two things to change.
+
+- **The advice on the key file did not hold.** SKILL.md said a Claude Code `deny` rule for `Read` kept
+  the agent from the key. Without the sandbox it stops only the Read tool, not `cat`; with the sandbox
+  it also stops `node examples/swap.ts`, which reads the key. SKILL.md now says so, and that a key kept
+  from the agent is one signed with in a process the agent does not run (a signing service, or a signer
+  of the owner's own); with Turnkey or Privy, `signerFromSignTransaction`, so their policies apply.
+- **No limit on the amount lived outside the conversation.** An agent that restarted and lost its
+  context (the Lobstar Wilde incident, February 2026) forgot the limits it was told. Now the owner can
+  set them in a file (`ORIENTIM_POLICY`, `loadPolicy`): `maxAmountIn` per input mint for one swap, a mint
+  not listed is refused, and `maxAmountInPerDay` for all swaps from one wallet signed in 24 hours.
+  `protectedSwap`, the example's command line and `orientim-verify` (`prepare`, `check`, and `finalize`
+  again under the wallet's lock with what the day spent) refuse a swap outside it
+  (`mint-not-allowed`, `amount-over-limit`, `daily-limit`). A swap counts once signed, recorded in the
+  state directory before it is kept, whether it lands or not. A policy that cannot be read stops
+  everything but `recover` and `resolve`.
+
+The policy holds against an agent that was misled or forgot, not against one that rewrites its own
+environment: like the key, it is only as far from the agent as the owner keeps it. The skill's version
+is 1.3.0.
+
 ---
 
 ## 1. What Orientim is

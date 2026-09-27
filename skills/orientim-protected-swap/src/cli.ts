@@ -32,7 +32,9 @@
  *
  * Environment: SOLANA_RPC_URL (your own RPC; always), ORIENTIM_API_URL and ORIENTIM_API_KEY (prepare,
  * finalize), JUPITER_API_KEY (Jupiter throttles keyless calls), ORIENTIM_STATE_DIR (default ./.orientim-state; an
- * absolute path on a disk that outlives the process), ORIENTIM_TREASURY (only for another Orientim deployment).
+ * absolute path on a disk that outlives the process), ORIENTIM_TREASURY (only for another Orientim deployment),
+ * ORIENTIM_POLICY (the owner's limits per swap and per day, a JSON file: see `OwnerPolicy`; a swap outside
+ * them exits 1 with `error.code` `mint-not-allowed`, `amount-over-limit` or `daily-limit`).
  * Finalize can take minutes (it reads the outcome on the chain): a run that is stopped anyway is settled
  * by `recover` before anything new.
  */
@@ -41,8 +43,9 @@ import type { Address, Rpc, SignatureBytes, SolanaRpcApi } from '@solana/kit';
 import {
   acquireLock, apiKeyChallenge, OrientimApiError, checkPrepared, createFileStore, finalizeSigned, isApiKeyMessage, pendingFor, PendingSwapError,
   prepareChecked, PriceImpactError, FloorError, ownFloor, receivedFor, recoverPending, redeemApiKey, resolvePending, resumeSigned, takeOrder,
+  checkPolicy, loadPolicy, PolicyError,
 } from '../examples/swap.ts';
-import type { Checked, Intent, OrderBook, OrderRecord, PendingStore, Prepared } from '../examples/swap.ts';
+import type { Checked, Intent, OrderBook, OrderRecord, OwnerPolicy, PendingStore, Prepared, SpendLog } from '../examples/swap.ts';
 import { ownSolFeeLimit } from '../lib/orientim-verify.mjs';
 
 export type CliDeps = {
@@ -57,7 +60,9 @@ export type CliDeps = {
   maxWaitMs?: number;
   requestTimeoutMs?: number;
   /** Where swaps and orders are kept; the state directory's files unless given (tests give one that fails). */
-  store?: PendingStore & OrderBook;
+  store?: PendingStore & OrderBook & Partial<SpendLog>;
+  /** The owner's limits (`ORIENTIM_POLICY`): per swap and per day, whatever the intent says. */
+  policy?: OwnerPolicy;
 };
 
 export type CliResult = { code: number; output: Record<string, unknown> };
@@ -67,22 +72,30 @@ const COMMANDS = ['prepare', 'finalize', 'recover', 'resolve', 'check', 'key-cha
 const KEY_COMMANDS: readonly string[] = ['key-challenge', 'key'];
 const usage = (message: string): CliResult => ({ code: 2, output: { ok: false, error: message } });
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** The owner's policy said no: exit 1, with its code and figures. */
+const policyRefusal = (e: PolicyError, sent?: false): CliResult => ({
+  code: 1,
+  output: { ok: false, ...(sent === false ? { sent } : {}), error: { code: e.code, message: e.message, ...(e.limit ? { limit: e.limit } : {}), ...(e.spent ? { spent: e.spent } : {}) } },
+});
+/** The store's record of earlier swaps, for a daily limit; none when the store keeps no such record. */
+const spendsOf = (store: Partial<SpendLog>): SpendLog | undefined =>
+  store.spentSince && store.recordSpend ? store as SpendLog : undefined;
 const isIntent = (v: unknown): v is Intent => {
   const i = v as Partial<Intent> | null;
   return !!i && [i.owner, i.inputMint, i.outputMint, i.amountIn].every(x => typeof x === 'string' && x.length > 0);
 };
 const INTENT_SHAPE = '{"owner", "inputMint", "outputMint", "amountIn"} (strings)';
 /** A store for the commands that keep nothing: any use of it is the error that made it. */
-const unavailableStore = (e: unknown): PendingStore & OrderBook => {
+const unavailableStore = (e: unknown): PendingStore & OrderBook & SpendLog => {
   const fail = async (): Promise<never> => { throw e; };
-  return { put: fail, remove: fail, list: fail, order: fail, recordOrder: fail, claimOrder: fail };
+  return { put: fail, remove: fail, list: fail, order: fail, recordOrder: fail, claimOrder: fail, spentSince: fail, recordSpend: fail };
 };
 
 export async function runCli(command: string, input: unknown, deps: CliDeps): Promise<CliResult> {
   const body = (input ?? {}) as Record<string, unknown>;
   // A state directory that cannot be made is an answer too, like one that cannot be read: exit 3, in
   // JSON, and nothing is prepared, sent or changed until it can (the check and the key commands keep none).
-  let store: PendingStore & OrderBook;
+  let store: PendingStore & OrderBook & Partial<SpendLog>;
   try {
     store = deps.store ?? createFileStore(deps.stateDir);
   } catch (e) {
@@ -100,6 +113,8 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     }
     const intent: Intent = { ...(deps.treasury ? { treasury: deps.treasury } : {}), ...body.intent };
     try {
+      // The owner's limits hold here too; a bot that calls the API itself counts its own spending.
+      if (deps.policy) await checkPolicy(deps.policy, intent, spendsOf(store));
       // The same floor as prepare: Jupiter's own price, whatever the intent says (agent review G1).
       const own = await ownFloor(intent, { rpc: deps.rpc, fetchImpl: deps.fetchImpl, jupiterApiKey: deps.jupiterApiKey, requestTimeoutMs: deps.requestTimeoutMs });
       intent.minOut = own.minOut;
@@ -112,6 +127,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       const problems = await checkPrepared(prepared, intent, deps.rpc, { requestTimeoutMs: deps.requestTimeoutMs });
       return { code: problems.length ? 1 : 0, output: { ok: problems.length === 0, problems, yourFloor: intent.minOut, priceImpactBps } };
     } catch (e) {
+      if (e instanceof PolicyError) return policyRefusal(e);
       return { code: 1, output: { ok: false, problems: [messageOf(e)] } };
     }
   }
@@ -213,6 +229,8 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     }
     const { owner, ...rest } = body.intent;
     try {
+      // The owner's limits, before anything is asked of Orientim; finalize holds the swap to them again.
+      if (deps.policy) await checkPolicy(deps.policy, body.intent, spendsOf(store));
       const checked = await prepareChecked({
         ...api, rpc: deps.rpc, owner, intent: { ...(deps.treasury ? { treasury: deps.treasury } : {}), ...rest },
         fetchImpl: deps.fetchImpl, jupiterApiKey: deps.jupiterApiKey, requestTimeoutMs: deps.requestTimeoutMs,
@@ -245,6 +263,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       if (e instanceof PriceImpactError) {
         return { code: 1, output: { ok: false, error: { code: 'price-impact-high', message: e.message, impactBps: e.impactBps, limitBps: e.limitBps } } };
       }
+      if (e instanceof PolicyError) return policyRefusal(e);
       return { code: 1, output: { ok: false, problems: [messageOf(e)] } };
     }
   }
@@ -362,6 +381,13 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
         onSigned: async s => {
           const others = await pendingFor(store, prepared.wallet, s.signature);
           if (others.length) throw new PendingSwapError(others);
+          // The owner's limits again, under the wallet's lock, with what the last 24 hours spent; the
+          // swap counts from here, before it is kept, since once kept it may be sent.
+          if (deps.policy) {
+            const spends = spendsOf(store);
+            await checkPolicy(deps.policy, { owner: prepared.wallet, inputMint: intent.inputMint, amountIn: intent.amountIn }, spends, s.signature);
+            await spends?.recordSpend({ signature: s.signature, owner: prepared.wallet, mint: intent.inputMint, amountIn: intent.amountIn, at: Date.now() });
+          }
           const orderId = intent.id;
           await store.put({ ...s, ...(orderId ? { intentId: orderId } : {}) });
           if (orderId) {
@@ -382,6 +408,7 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       // "not sent" (final audit, M-03). Before that, nothing was sent.
       if (signedAs) return { code: 3, output: { ok: false, signature: signedAs, outcome: 'unknown', error: messageOf(e) } };
       if (e instanceof PendingSwapError) return { code: 3, output: { ok: false, sent: false, pending: e.signatures, error: e.message } };
+      if (e instanceof PolicyError) return policyRefusal(e, false);
       return { code: 1, output: { ok: false, sent: false, error: messageOf(e) } };
     } finally {
       release();
@@ -409,6 +436,15 @@ export async function main(): Promise<void> {
   if (!process.env.JUPITER_API_KEY && command !== 'recover' && !KEY_COMMANDS.includes(command)) {
     process.stderr.write('JUPITER_API_KEY is not set: Jupiter throttles keyless calls, and your own floor may not be priced.\n');
   }
+  // The owner's limits: a policy named but unreadable stops everything but settling what is kept.
+  let policy: OwnerPolicy | undefined;
+  if (process.env.ORIENTIM_POLICY && !KEY_COMMANDS.includes(command)) {
+    try {
+      policy = loadPolicy(process.env.ORIENTIM_POLICY);
+    } catch (e) {
+      if (command !== 'recover' && command !== 'resolve') return print(usage(messageOf(e)));
+    }
+  }
   let input: unknown = {};
   if (command !== 'recover') {
     try {
@@ -425,5 +461,6 @@ export async function main(): Promise<void> {
     jupiterApiKey: process.env.JUPITER_API_KEY || undefined,
     stateDir: process.env.ORIENTIM_STATE_DIR || '.orientim-state',
     treasury: process.env.ORIENTIM_TREASURY || undefined,
+    policy,
   }));
 }
