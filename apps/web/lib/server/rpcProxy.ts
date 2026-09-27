@@ -28,7 +28,42 @@ const rpcError = (id: unknown, code: number, message: string, status: number, no
     },
   );
 
-export async function proxyRpc(req: Request, target: string | null): Promise<Response> {
+/** An upstream that failed this way may be having an outage, and the backup RPC is asked instead. */
+const outage = (status: number) => status === 429 || status >= 500;
+
+type Upstream = { status: number; text: string } | null;
+
+async function ask(url: string, text: string): Promise<Upstream> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: text, cache: 'no-store',
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    return { status: res.status, text: await res.text() };
+  } catch {
+    return null;
+  }
+}
+
+/** A JSON-RPC answer that carries a result: for a send, the signature, the same whichever RPC sent it. */
+function succeeded(answer: Upstream): boolean {
+  if (!answer || answer.status !== 200) return false;
+  try {
+    const body = JSON.parse(answer.text);
+    return body !== null && typeof body === 'object' && 'result' in body && !('error' in body);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `fallback` is the operator's backup RPC (RPC_URL_FALLBACK), asked only when the main one does not
+ * answer, is rate-limited or fails (5xx). A read takes the backup's answer whatever it is. A send
+ * takes it only when it is a success: the same signed bytes can land once however many RPCs relay
+ * them, but a refusal from the backup (a node behind, a blockhash it has not seen) says nothing about
+ * what the main RPC may already have broadcast, so the page is then given the main RPC's answer.
+ */
+export async function proxyRpc(req: Request, target: string | null, fallback: string | null = null): Promise<Response> {
   if (!target) return rpcError(null, -32601, 'Not configured', 404);
   if (fromAnotherSite(req)) return rpcError(null, -32600, "Orientim's RPC serves Orientim's own page", 403);
   const client = clientKey(req);
@@ -63,18 +98,16 @@ export async function proxyRpc(req: Request, target: string | null): Promise<Res
     if (why) return rpcError(body.id, -32602, `Only Orientim transactions are relayed: ${why}`, 422);
   }
 
-  try {
-    const upstream = await fetch(target, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: text, cache: 'no-store',
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    });
-    return new Response(await upstream.text(), {
-      status: upstream.status,
-      headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-    });
-  } catch {
-    // The request may have reached the RPC before the connection failed, so this is not proof that
-    // a send was stopped before broadcast.
-    return rpcError(body.id, -32603, 'Upstream RPC did not answer', 504, false);
+  let answer = await ask(target, text);
+  if (fallback && fallback !== target && (!answer || outage(answer.status))) {
+    const backup = await ask(fallback, text);
+    if (body.method === 'sendTransaction' ? succeeded(backup) : backup) answer = backup;
   }
+  // The request may have reached the RPC before the connection failed, so this is not proof that a
+  // send was stopped before broadcast.
+  if (!answer) return rpcError(body.id, -32603, 'Upstream RPC did not answer', 504, false);
+  return new Response(answer.text, {
+    status: answer.status,
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+  });
 }

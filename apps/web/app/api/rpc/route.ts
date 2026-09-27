@@ -4,5 +4,6 @@ import { proxyRpc } from '@/lib/server/rpcProxy';
 export const dynamic = 'force-dynamic';
 
 export function POST(req: Request) {
-  return proxyRpc(req, serverConfig().rpcUrl);
+  const { rpcUrl, rpcFallbackUrl } = serverConfig();
+  return proxyRpc(req, rpcUrl, rpcFallbackUrl);
 }

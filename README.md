@@ -124,6 +124,7 @@ Server only (never sent to the browser):
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `RPC_URL` | public mainnet RPC | Solana RPC. The public one rate-limits and refuses browser sends; run on a provider (Helius is the chosen one, see SECURITY.md) |
+| `RPC_URL_FALLBACK` | none | A backup RPC from another provider, asked only when `RPC_URL` does not answer, is rate-limited or fails. A send takes its answer only when it is a success |
 | `JUPITER_API_KEY` | — | Required for any real use (free at developers.jup.ag/portal): Jupiter asks for a key on every endpoint and throttles keyless requests after one or two, so quotes fail as "busy". `/api/status` says whether it is set |
 | `ORIENTIM_MAX_USD_PER_SWAP` | unset | Optional cap per swap in USD. Unset means no limit, the intended setting: the guarantee does not depend on the amount. While a cap applies, tokens without a USD price are blocked |
 | `ORIENTIM_DISABLED` | 0 | Kill switch: `1` makes the server refuse new swaps |

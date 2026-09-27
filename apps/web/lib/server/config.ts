@@ -41,6 +41,8 @@ export function serverConfig() {
   }
   return {
     rpcUrl: process.env.RPC_URL || 'https://api.mainnet-beta.solana.com',
+    // A second provider, asked only when the first is down or rate-limited (rpcProxy.ts, rpcFailover.ts).
+    rpcFallbackUrl: process.env.RPC_URL_FALLBACK || null,
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
     // No limit unless one is configured: the protection does not depend on the amount, and a
     // limit would also block every token that has no USD price.

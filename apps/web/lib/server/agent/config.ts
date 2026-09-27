@@ -1,7 +1,7 @@
 import { address } from '@solana/kit';
 import { createJupiterClient, MIN_FEE } from '@orientim/jupiter';
 import type { JupiterClient } from '@orientim/jupiter';
-import { createRetryingRpc } from '@orientim/solana';
+import { createServerRpc } from '../rpcFailover';
 import type { SolanaRpc } from '@orientim/solana';
 import { serverConfig } from '../config';
 import { treasurySetting } from '../../settings';
@@ -125,11 +125,11 @@ export function agentDeps(): AgentDeps | null {
     console.error(`The agent API is off: ${(e as Error).message}`);
     return null;
   }
-  const identity = `${rpcUrl}|${jupiterApiKey ?? ''}`;
+  const identity = `${rpcUrl}|${server.rpcFallbackUrl ?? ''}|${jupiterApiKey ?? ''}`;
   if (clients?.for !== identity) {
     clients = {
       for: identity,
-      rpc: createRetryingRpc(rpcUrl),
+      rpc: createServerRpc(rpcUrl, server.rpcFallbackUrl),
       jupiter: createJupiterClient({
         buildUrl: 'https://api.jup.ag/swap/v2/build',
         tokensUrl: 'https://api.jup.ag/tokens/v2/search',
