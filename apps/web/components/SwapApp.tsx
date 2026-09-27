@@ -1432,7 +1432,12 @@ export function SwapApp({ children }: { children?: ReactNode }) {
               inputMode="decimal"
               placeholder="0"
               value={amountText}
-              onChange={e => setAmountText(e.target.value.replace(',', '.'))}
+              onChange={e => {
+                // Digits and one decimal point (a comma is taken as one): anything else typed or
+                // pasted is refused, so the field never holds text that is not an amount.
+                const text = e.target.value.replace(',', '.');
+                if (/^\d*\.?\d*$/.test(text)) setAmountText(text);
+              }}
               disabled={busy}
               aria-label="Amount to pay"
             />

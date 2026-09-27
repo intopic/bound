@@ -63,6 +63,21 @@ describe('problem reports', () => {
     expect(r).toMatchObject({ wallet: 'Phantom 25.1', pair: 'USDC → SOL' });
   });
 
+  it('every number is taken out, so no amount is logged; a hex error code and the wallet version stay', () => {
+    expect(redact('Your wallet holds 0.5 of the input token, less than the 1,000.25 this swap needs.'))
+      .toBe('Your wallet holds # of the input token, less than the # this swap needs.');
+    expect(redact('This swap needs about 0.0123 SOL in your wallet. Your wallet has 0.004 SOL.'))
+      .toBe('This swap needs about # SOL in your wallet. Your wallet has # SOL.');
+    expect(redact('amount=1e9 lamports 5000000, 1 000 000 left; HTTP 429')).toBe('amount=# lamports #, # left; HTTP #');
+    expect(redact('Program log: custom program error: 0x1771')).toBe('Program log: custom program error: 0x1771');
+    const r = cleanReport({
+      kind: 'error', title: 'Not enough SOL', body: 'Your wallet has 2.5 SOL.', detail: 'Transfer: insufficient lamports 12, need 900',
+      pair: 'USDC → SOL', wallet: 'Phantom 25.1',
+    });
+    expect(JSON.stringify(r)).not.toMatch(/2\.5|12|900/);
+    expect(r).toMatchObject({ body: 'Your wallet has # SOL.', wallet: 'Phantom 25.1' });
+  });
+
   it('only known fields, cut to length; unknown ones (an amount, an address field) are dropped', () => {
     const r = cleanReport({ title: 'no route '.repeat(100), amount: '1000 USDC', owner: W, detail: 42 });
     expect(r).toEqual({ title: 'no route '.repeat(100).slice(0, 200) });

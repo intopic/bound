@@ -4,7 +4,8 @@
  * A failure the page showed, sent to Orientim's own server (/api/report) so the operator learns of
  * failures from the logs and not only when someone writes in. What is sent: the message as shown,
  * the error's kind and first words, the token symbols and the wallet's name. The server takes out
- * anything that looks like an address or a signature before it logs, and the page sends no amount.
+ * anything that looks like an address or a signature, and every number, before it logs: a message
+ * that names an amount ("Your wallet has 0.5 SOL") is logged without it.
  */
 export type ProblemReport = { kind: string; title: string; body?: string; detail?: string; pair?: string; wallet?: string };
 

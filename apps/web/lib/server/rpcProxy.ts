@@ -33,13 +33,21 @@ const rpcError = (id: unknown, code: number, message: string, status: number, no
 /** An upstream that failed this way may be having an outage, and the backup RPC is asked instead. */
 const outage = (status: number) => status === 429 || status >= 500;
 
+/**
+ * How long the relay waits upstream: each RPC at most `attemptMs`, both together at most `totalMs`,
+ * within the route's maxDuration (app/api/rpc/route.ts). A send is not started on the backup with
+ * less than `minSendMs` left.
+ */
+export type RelayTimes = { totalMs: number; attemptMs: number; minSendMs: number };
+export const RELAY_TIMES: RelayTimes = { totalMs: 25_000, attemptMs: UPSTREAM_TIMEOUT_MS, minSendMs: 5_000 };
+
 type Upstream = { status: number; text: string } | null;
 
-async function ask(url: string, text: string): Promise<Upstream> {
+async function ask(url: string, text: string, timeoutMs: number): Promise<Upstream> {
   try {
     const res = await fetch(url, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: text, cache: 'no-store',
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return { status: res.status, text: await res.text() };
   } catch {
@@ -60,12 +68,14 @@ function succeeded(answer: Upstream): boolean {
 
 /**
  * `fallback` is the operator's backup RPC (RPC_URL_FALLBACK), asked only when the main one does not
- * answer, is rate-limited or fails (5xx). A read takes the backup's answer whatever it is. A send
- * takes it only when it is a success: the same signed bytes can land once however many RPCs relay
- * them, but a refusal from the backup (a node behind, a blockhash it has not seen) says nothing about
- * what the main RPC may already have broadcast, so the page is then given the main RPC's answer.
+ * answer, is rate-limited or fails (5xx), and only with the time the main one left. A read takes the
+ * backup's answer unless it is itself rate-limited or failing, when the main one's stands (a backup
+ * answer still beats none). A send takes it only when it is a success: the same signed bytes can land
+ * once however many RPCs relay them, but a refusal from the backup (a node behind, a blockhash it has
+ * not seen) says nothing about what the main RPC may already have broadcast, so the page is then given
+ * the main RPC's answer.
  */
-export async function proxyRpc(req: Request, target: string | null, fallback: string | null = null): Promise<Response> {
+export async function proxyRpc(req: Request, target: string | null, fallback: string | null = null, times: RelayTimes = RELAY_TIMES): Promise<Response> {
   if (!target) return rpcError(null, -32601, 'Not configured', 404);
   if (fromAnotherSite(req)) return rpcError(null, -32600, "Orientim's RPC serves Orientim's own page", 403);
   const client = clientKey(req);
@@ -100,10 +110,13 @@ export async function proxyRpc(req: Request, target: string | null, fallback: st
     if (why) return rpcError(body.id, -32602, `Only Orientim transactions are relayed: ${why}`, 422);
   }
 
-  let answer = await ask(target, text);
-  if (fallback && fallback !== target && (!answer || outage(answer.status))) {
-    const backup = await ask(fallback, text);
-    if (body.method === 'sendTransaction' ? succeeded(backup) : backup) answer = backup;
+  const deadline = Date.now() + times.totalMs;
+  let answer = await ask(target, text, Math.min(times.attemptMs, times.totalMs));
+  const left = deadline - Date.now();
+  const send = body.method === 'sendTransaction';
+  if (fallback && fallback !== target && (!answer || outage(answer.status)) && left > (send ? times.minSendMs : 0)) {
+    const backup = await ask(fallback, text, Math.min(times.attemptMs, left));
+    if (send ? succeeded(backup) : backup && (!answer || !outage(backup.status))) answer = backup;
   }
   // The request may have reached the RPC before the connection failed, so this is not proof that a
   // send was stopped before broadcast.
