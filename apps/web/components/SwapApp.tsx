@@ -507,6 +507,9 @@ export function SwapApp() {
   const busyUntil = useRef(0);
   const balanceRequest = useRef(0);
   const decideOffer = useRef<((accept: boolean) => void) | null>(null);
+  // Ends the wait on the wallet from the page: a wallet that never answers (a popup closed without a
+  // refusal, a phone that went back to the browser) would otherwise hold the page until a reload.
+  const stopWaitingOnWallet = useRef<(() => void) | null>(null);
 
   const W = account ? (account.address as Address) : null;
   // The mint owner is the token program. It is part of every ATA derivation, so keep these facts
@@ -1145,7 +1148,25 @@ export function SwapApp() {
       setPhase('wallet');
       lock.refresh();
       const toSend = prepared;
-      const signed = await walletSign(wallet, account, new Uint8Array(getTransactionEncoder().encode(toSend.transaction)), toSend.contextSlot);
+      // Cancel on the page stops the wait. E has not signed, so whatever the wallet returns later is
+      // never used: that transaction cannot execute, and nothing is sent.
+      const walletAnswer = walletSign(wallet, account, new Uint8Array(getTransactionEncoder().encode(toSend.transaction)), toSend.contextSlot);
+      walletAnswer.catch(() => undefined);
+      const signed = await Promise.race([
+        walletAnswer,
+        new Promise<null>(resolve => {
+          stopWaitingOnWallet.current = () => resolve(null);
+        }),
+      ]).finally(() => {
+        stopWaitingOnWallet.current = null;
+      });
+      if (!signed) {
+        setNotice({
+          kind: 'info', title: 'Swap cancelled',
+          body: `Nothing was sent and no funds moved. If ${wallet.name} is still open, close it: anything it signs now can't be used.`,
+        });
+        return;
+      }
 
       // The minimum is checked on chain as W_out's balance before plus the minimum. If that balance
       // moved while the wallet was open (another swap into this token, from another device, or a
@@ -1554,6 +1575,11 @@ export function SwapApp() {
             <p>
               {wallet?.name} may show a second signer. That is normal for a protected swap.
             </p>
+            <div className="banner-actions">
+              <button className="ghost" onClick={() => stopWaitingOnWallet.current?.()}>
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
