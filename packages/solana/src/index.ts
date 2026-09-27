@@ -206,14 +206,24 @@ export type Simulation = {
 const base64Size = (s: string | undefined) =>
   s ? (s.length * 3) / 4 - (s.endsWith('==') ? 2 : s.endsWith('=') ? 1 : 0) : 0;
 
-/** Simulation answers "will it execute?" — never "is it safe?" (plan, section 15). */
-export async function simulate(rpc: SolanaRpc, transaction: Transaction, watch: readonly Address[] = []): Promise<Simulation> {
-  const { context, value } = await rpc
+/**
+ * Simulation answers "will it execute?" — never "is it safe?" (plan, section 15). With
+ * `minContextSlot`, it runs on state at least that recent: a load-balanced provider cannot answer
+ * from a node behind the snapshot the verifier read.
+ */
+export async function simulate(
+  rpc: SolanaRpc,
+  transaction: Transaction,
+  watch: readonly Address[] = [],
+  opts: { minContextSlot?: bigint } = {},
+): Promise<Simulation> {
+  const { context, value } = await notOlderThan(() => rpc
     .simulateTransaction(getBase64EncodedWireTransaction(transaction), {
       encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed',
       ...(watch.length ? { accounts: { addresses: [...watch], encoding: 'base64' as const } } : {}),
+      ...(opts.minContextSlot !== undefined ? { minContextSlot: opts.minContextSlot } : {}),
     })
-    .send();
+    .send(), opts.minContextSlot);
   const logs = [...(value.logs ?? [])];
   const after = (value as { accounts?: readonly ({ lamports: bigint | number; data?: readonly string[] } | null)[] | null }).accounts;
   // Accounts asked to be watched and not reported are not accounts at zero: what they hold after

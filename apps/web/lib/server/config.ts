@@ -8,6 +8,7 @@ import { maxNetworkFeeSetting } from '../settings';
  * compromised server cannot change where fees go or how large they are (audit B-01).
  */
 let warnedNoJupiterKey = false;
+let warnedNoRpcUrl = false;
 let warnedMaxFee = false;
 
 /** F_max as configured; the default, said once, when the value cannot be read (the build refuses it too). */
@@ -31,6 +32,12 @@ export function serverConfig() {
   if (!process.env.JUPITER_API_KEY && process.env.NODE_ENV === 'production' && !warnedNoJupiterKey) {
     warnedNoJupiterKey = true;
     console.error('JUPITER_API_KEY is not set: Jupiter throttles keyless requests, and quotes will fail as "busy". Get a key at https://developers.jup.ag/portal.');
+  }
+  // Without RPC_URL the site falls back to Solana's public endpoint, whose limits are far too low to
+  // send swaps under any load: they fail as "busy" with no other sign of why. Said once, like the key.
+  if (!process.env.RPC_URL && process.env.NODE_ENV === 'production' && !warnedNoRpcUrl) {
+    warnedNoRpcUrl = true;
+    console.error('RPC_URL is not set: using the public Solana RPC, which rate-limits hard, so swaps will fail as "busy". Set RPC_URL to a paid provider (Helius).');
   }
   return {
     rpcUrl: process.env.RPC_URL || 'https://api.mainnet-beta.solana.com',

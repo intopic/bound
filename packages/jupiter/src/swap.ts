@@ -1282,7 +1282,9 @@ export async function prepareProtectedSwap(deps: {
       };
       const kept = new Set<string>([policy.accounts.wOut, settings.treasury].filter((a): a is Address => !!a));
       const opened = [...new Set(swapAccounts)].filter(a => !existed(a) && !kept.has(a) && !underKey.includes(a));
-      const last = await simulate(rpc, final.transaction, [...underKey, ...opened]);
+      // On state no older than the snapshot the verifier just read (and the simulation before it).
+      const seenAt = (snapshot.slot ?? 0n) > sim.slot ? snapshot.slot! : sim.slot;
+      const last = await simulate(rpc, final.transaction, [...underKey, ...opened], seenAt > 0n ? { minContextSlot: seenAt } : {});
       if (!last.ok) {
         attempts.push({ excluded, route, simulation: `final transaction: ${last.error ?? 'failed'}`, blamed: null });
         continue;
