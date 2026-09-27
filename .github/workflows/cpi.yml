@@ -57,13 +57,19 @@ jobs:
       - name: Run T6
         run: node tests/cpi/run.ts
 
+      # The same program with random plans, amounts and decimals; the Fuzz workflow runs it by the hundred thousand.
+      - name: Fuzz T6
+        env:
+          ORIENTIM_FUZZ_RUNS: 1000
+        run: ORIENTIM_FUZZ_SEED=$GITHUB_RUN_NUMBER node tests/cpi/fuzz.ts
+
       - name: The report
         if: always()
-        run: cat tests/cpi/results/cpi.md || true
+        run: cat tests/cpi/results/cpi.md tests/cpi/results/cpi-fuzz.md || true
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: cpi-report
-          path: tests/cpi/results/cpi.md
+          path: tests/cpi/results/
           if-no-files-found: ignore

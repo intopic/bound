@@ -1851,6 +1851,14 @@ marks writable elsewhere, and a hop account neither opened nor closed when the r
 
 The integration tests call api.jup.ag for token lists, as the page and the canary do since 5b28091.
 
+**T6 fuzzed** (`tests/cpi/fuzz.ts`, sharing `tests/cpi/world.ts` with the fixed cases): the malicious
+swap program runs a random plan of up to four cross-program invocations inside the protected
+transaction in litesvm, for random amounts, minimums, decimals (0 to 12), classic or Token-2022 mints,
+an issuer's delegate (an ordinary key or a multisig the program signs for) and rent sent to the key.
+Whatever the verifier accepts is signed and sent, and the promise is checked on the chain's balances;
+an honest plan must go through. CPI runs 1,000 cases on each change it covers; the Fuzz workflow
+400,000 (about 100 cases a second).
+
 ## 1. What Orientim is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
