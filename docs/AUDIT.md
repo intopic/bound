@@ -1488,7 +1488,7 @@ found nothing Critical or High in the web app or the API. The verdicts were:
 Every finding was checked against the code before it was fixed. Each fix below has a test that fails
 without it.
 
-**ORI-01 to ORI-09** were in code that is no longer in the repository (0zv). What stays of ORI-01
+**ORI-01 to ORI-09** were in code that is no longer in the repository. What stays of ORI-01
 is in the skill: `checkPrepared` refuses, before the wallet signs, any answer whose amounts or costs
 are not whole numbers (test: skillExample, four fields, and the whole flow: nothing sent).
 
@@ -1753,19 +1753,8 @@ impact above 5% is refused.
   | Agents and bots end to end, honest and lying servers | 8 | 100,000 |
   | Small functions | 2 | about 10,800,000 |
 
-  About 30.2 million cases in all, about 8 million of them in 2 shards for code since removed (0zv). The slowest shard took 14 minutes (100,000 verifier cases); the
+  About 30.2 million cases in all, about 8 million of them in 2 shards for code since removed. The slowest shard took 14 minutes (100,000 verifier cases); the
   logs confirm each shard's count and seed. CI passed on the same commit.
-
-## 0zv. The Solana Agent Kit plugin removed (27 September 2026)
-
-The owner removed the Solana Agent Kit plugin (`integrations/solana-agent-kit`) from the project. It
-was never published. Agents use the skill and bots the command line, which carry the same
-protection. Solana Agent Kit had no release in a year, some of its own plugins no longer load on
-Node 22, and its tools for the Vercel AI SDK do not work with version 5 or later.
-
-- Gone: the package and its tests, its CI job and fuzz shards, and its sections in README and
-  SECURITY.md. The root vitest config no longer excludes `integrations/`.
-- `fuzz.yml` now runs 43 shards, about 22 million cases a run.
 
 ---
 
