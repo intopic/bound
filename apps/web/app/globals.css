@@ -396,6 +396,8 @@ a.ghost { display: inline-flex; align-items: center; }
 .prose code { font: 13px ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: #d9e6df; }
 .prose pre { margin: 12px 0 0; padding: 14px 16px; overflow-x: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; font: 13px/1.6 ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; color: #d9e6df; }
 .prose pre code { background: none; border: none; padding: 0; }
+/* A long name in running text (a Rust call, an env value) breaks inside itself instead of widening a phone's page. */
+.prose :not(pre) > code { overflow-wrap: anywhere; }
 .prose table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
 .prose th, .prose td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); vertical-align: top; }
 .prose th { color: var(--text); font-weight: 600; }
