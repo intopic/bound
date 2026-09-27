@@ -311,6 +311,8 @@ export function fakeJupiter(answer: {
         outputMint: p.outputMint,
         inAmount: (p.amount * (answer.inAmountFactor ?? 1n)).toString(),
         outAmount: outAmount.toString(),
+        // Like Jupiter, every answer states the route's price impact.
+        priceImpactPct: '0',
         // Like Jupiter, the threshold is this route's quote less the slippage it was asked for.
         otherAmountThreshold: (answer.threshold ?? (outAmount * BigInt(10_000 - p.slippageBps)) / 10_000n).toString(),
         routePlan: [{ percent: 100, swapInfo: { label: answer.label ?? 'Whirlpool', ammKey: POOL } }],

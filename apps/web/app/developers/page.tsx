@@ -79,11 +79,11 @@ const PREPARE_ANSWER: [string, string][] = [
 /** What `orientim-verify` exits with (skills/orientim-protected-swap/src/cli.ts). */
 const EXIT_CODES: [string, string][] = [
   ['0', 'Done. prepare: sign message. finalize: confirmed, with received. recover: all settled. check: safe to sign.'],
-  ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low, price-impact-high and the owner’s limits (mint-not-allowed, amount-over-limit, daily-limit). Nothing is left to settle.'],
-  ['2', 'A usage or configuration error, such as a prepare without an order id: the answer says what is missing.'],
-  ['3', 'Settle first: an earlier swap may still land, another finalize from this wallet is still running (busy), or the state directory cannot be made or read. Run recover; start nothing new.'],
+  ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low, price-impact-high, unavailable (a service did not answer: try again after retryAfter) and the owner’s limits (mint-not-allowed, amount-over-limit, daily-limit). Nothing is left to settle.'],
+  ['2', 'A usage or configuration error, such as a prepare without an order id, or an intent that names a treasury (it comes only from ORIENTIM_TREASURY): the answer says what is missing.'],
+  ['3', 'Settle first: an earlier swap may still land, another finalize from this wallet is still running (busy), or the state directory cannot be made or read (a finalize then answers outcome unknown). Run recover; start nothing new.'],
   ['4', 'Orientim said no: error.code is one of the Errors below.'],
-  ['5', 'This order id already swapped, or its transaction may still land. It is never swapped twice.'],
+  ['5', 'This order id already swapped, or its transaction may still land (prepare, or a finalize of a second transaction for it). It is never swapped twice.'],
 ];
 
 const ENV: [string, string][] = [
@@ -92,8 +92,8 @@ const ENV: [string, string][] = [
   ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check is worth what the chain state it reads is worth.'],
   ['JUPITER_API_KEY', 'For the agent’s own price floor (free at developers.jup.ag).'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
-  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours. Base units, as strings.'],
-  ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system.'],
+  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours. Base units, as strings. stateDir, optional, pins the state directory to one absolute path.'],
+  ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system; with a daily limit it must be absolute.'],
   ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
 ];
 

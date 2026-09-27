@@ -81,8 +81,10 @@ async function world(lie: Lie, widenTo: number, impact: number) {
     }[lie];
     return Response.json(told);
   }) as unknown as typeof fetch;
+  // It keeps up with the RPC the blockhash came from (valid to block 1000, so handed out at 850).
   const agentRpc = {
     ...rpc,
+    getBlockHeight: () => ({ send: async () => 850n }),
     getSignatureStatuses: () => ({ send: async () => ({ value: [{ confirmationStatus: 'confirmed', err: null }] }) }),
   } as unknown as Rpc<SolanaRpcApi>;
   return { wallet, sent, fetchImpl, agentRpc };
