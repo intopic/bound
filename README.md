@@ -57,7 +57,6 @@ bound/
 │                   /api/status) and the agent API (/api/v1/prepare, /api/v1/finalize)
 ├── skills/orientim-protected-swap/   the package agents and bots download: SKILL.md, the verifier bundle,
 │                                  the `orientim-verify` command and the example (AGENT-API.md)
-├── integrations/solana-agent-kit/   the Solana Agent Kit plugin (its own package, dependencies and tests)
 ├── tests/
 │   ├── integration/   mainnet simulations: T4, T1 and T5 (mainnet.ts), T7 sizes (large.ts), T9 cost of
 │   │                  protection (thresholds.ts), Jupiter's floor, Pump.fun, Token-2022 and issuer stablecoins
@@ -89,7 +88,7 @@ logs.
 ```bash
 npm install
 npm test                  # unit, mutation (M1–M16), audit regression, proxy and property tests
-npm run test:fuzz         # every property at full size; the Fuzz workflow runs about 30 million cases in 45 shards
+npm run test:fuzz         # every property at full size; the Fuzz workflow runs about 22 million cases in 43 shards
 npm run typecheck
 npm run integration       # mainnet simulation: T4 + T1 + T5 (nothing is signed or sent)
 npm run cpi               # T6: build the malicious program and run it (Linux or macOS)
@@ -99,7 +98,6 @@ npm run e2e               # browser smoke test against http://localhost:3000
 node tests/e2e/busy.ts    # the page when Jupiter or the RPC refuse with 429 (same server)
 node tools/agent-key.ts <id>   # an API key for the agent API (docs/OPERATORS.md)
 node tools/agent-key.ts --key-secret   # the secret that turns on self-serve API keys (/developers#access)
-cd integrations/solana-agent-kit && npm install && npm test   # the Solana Agent Kit plugin, on its own
 node skills/orientim-protected-swap/examples/swap.ts   # the agent skill's example (SKILL.md); prints its usage
 node tools/build-skill.ts             # rebuild the verifier bundled in the skill (CI checks it)
 node tests/integration/jupiter-floor.ts   # Jupiter's on-chain floor and where it is measured, on mainnet state

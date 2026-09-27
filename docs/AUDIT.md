@@ -1475,55 +1475,6 @@ one signed message, prepare built its swap (nothing signed or sent), another wal
 feature stays off until the owner sets `ORIENTIM_KEY_SECRET` (`node tools/agent-key.ts --key-secret`);
 until then the page says API access opens with the public launch.
 
-## 0zo. The Solana Agent Kit plugin (26 September 2026)
-
-Solana Agent Kit v2 (sendaifun, 2.0.10) is where most Solana agents are built, so Orientim is one
-plugin away for them: `integrations/solana-agent-kit`, `@orientim/plugin-solana-agent-kit`. It adds
-`agent.methods.orientimSwap(agent, { outputMint, inputAmount, inputMint? })` and one tool,
-`ORIENTIM_PROTECTED_SWAP`, which the Agent Kit hands to Vercel AI, LangChain and OpenAI Agents.
-Underneath it is the skill's `protectedSwap`, bundled in: the same check on the agent's own RPC
-before the wallet signs, the same outcome read from the chain.
-
-What the Agent Kit's code required, read at the source before writing:
-
-- **The agent's own classes.** The Agent Kit tells a zod schema (`instanceof ZodObject`) and a
-  transaction by their class, so zod 3, @solana/web3.js and the Agent Kit are peer dependencies,
-  never bundled; the build refuses a bundle that contains them.
-- **The wallet.** Any Agent Kit wallet signs through its `signTransaction`. Its answer counts only
-  when it is the same message signed by that wallet (`signerFromSignTransaction`): a wallet that adds
-  a priority fee or changes the blockhash is refused before anything is sent. `signOnly` agents are
-  refused, since Orientim sends once the wallet has signed.
-- **The frameworks.** LangChain calls the handler without the schema, so the handler checks it too.
-  The Agent Kit's OpenAI adapter makes every field required, so optional fields are nullable and null
-  means "none". The executor adds `status: "success"` under the handler's answer, so the handler sets
-  `status` itself: `success` only when the swap confirmed.
-- **Amounts** are in whole tokens, as in the Agent Kit's own trade action. They are converted with each
-  mint's decimals, read on the agent's RPC, and rounded down: never more than was asked.
-- **The key.** Without `ORIENTIM_API_KEY`, the wallet signs Orientim's key message once (0zn, checked
-  first), and the key is kept in memory and handed to `onApiKey` for storage.
-- **One swap per wallet** at a time in a process: a second call waits for the first. The kept swaps
-  live in memory, or on disk with a lock (`stateDir`).
-
-Tested with the real Agent Kit, `KeypairWallet`, and the Vercel AI, LangChain and OpenAI adapters,
-against Orientim's agent API handlers on a fake chain. There are 16 tests. The tests for the queue
-and for the handler's own check were first seen to fail with the feature removed. The dist test
-loads the build both ways. The root tests leave `integrations/` to its own folder (vitest.config.ts);
-its dependencies (275 packages) live only there, so the site and its deploys are unchanged.
-
-On mainnet, the owner ran the test agent as a Solana Agent Kit agent: its own `KeypairWallet`, no API
-key set, and the tool called as a model would call it, against a production build on this machine.
-The plugin got its key by signing the key message, then swapped 0.01 SOL for USDC in 9 seconds
-(`gN5weUty9xi9dHtqJeFA9oqzW4vMjd26ZxrEU3xe7eYyxo3zLdHdESMbYnCXMc2PvNFPZPS5hVLoMnvXz3GuZ9p`).
-Read back from the chain:
-
-- the wallet paid 0.01 SOL and a network fee of 0.000189 SOL;
-- the treasury received 0.00003 SOL, which is 0.3%;
-- the wallet received 1.214969 USDC, above the 1.208636 floor and the 1.214709 quoted;
-- the transaction had two signers, the wallet and the one-time key.
-
-Not done: the npm release, which is the owner's step and needs the `@orientim` scope. The package is
-marked private until then.
-
 ## 0zp. The independent audit of 26 September: ORI-01 to ORI-18 (26 September 2026)
 
 An independent audit of `main` at `ff84321` was run in an isolated container, with no network. It
@@ -1533,56 +1484,13 @@ found nothing Critical or High in the web app or the API. The verdicts were:
   800,000-case Token-2022 matrix, an independent decoder of the bytes, and Orientim's instructions
   run in a local Solana VM.
 - **CONDITIONAL** for the web app and the API.
-- **NO-GO** for the Solana Agent Kit plugin until ORI-01, 02, 03 and 09 were fixed. All three
-  Medium findings were in the plugin, written the same day.
 
 Every finding was checked against the code before it was fixed. Each fix below has a test that fails
-without it. For the plugin, each fix was taken out once and its test was seen to fail.
+without it.
 
-**Plugin (Medium)**
-
-- **ORI-01.** A sent swap could come back as "refused". A number in the answer that is not one
-  (`quotedOut`) passed the check, the swap was sent and confirmed, and only then did the plugin fail
-  to convert it. It answered `swap-refused` with no signature, and a model would try again.
-  - `checkPrepared` now refuses, before the wallet signs, any answer whose amounts or costs are not
-    whole numbers.
-  - The plugin's report of a sent swap cannot fail. Its signature and outcome always come back.
-  - Tests: skillExample (four fields, and the whole flow: nothing sent) and plugin ORI-01.
-- **ORI-02.** Two copies of the plugin, the `import` and the `require` build, each had their own
-  memory. So did a restart, or a second server. Each could send a second swap while one might still
-  land.
-  - The queue, the memory store and the keys are now shared by every copy in a process.
-  - A `store` option takes a shared database, for several servers.
-  - `stateDir` survives restarts.
-  - The plugin warns once when it keeps swaps only in memory.
-  - The README says which to use where. The tool never takes an order id: that is for the owner's code.
-- **ORI-03.** The model could set the minimum up to 50% below the price. That floor is what stops a
-  compromised server's bad price, so a prompt injection could have switched it off.
-  - `maxBelowBpsCap`, the owner's setting (500 bps unless set), now bounds the tool and the method alike.
-  - Above it, the swap is refused with `floor-too-low`.
-  - The tool's schema allows at most 1,000.
-
-**Plugin (Low, Info)**
-
-- **ORI-04.** `maxBelowBps: 0` now means a floor at the price, not the default; `NaN` or a fraction is
-  refused.
-- **ORI-05.** `minOutput` is rounded up, never down.
-- **ORI-06.** Reading the mints has a timeout (`requestTimeoutMs`), and a hung RPC no longer holds the
-  wallet's queue.
-- **ORI-07.** A settled swap whose record could not be removed is reported as such
-  (`record-not-updated`), not as "may still land".
-- **ORI-08.** A token account is no longer taken for a mint. The model is told that the minimum is
-  what the transaction enforced, not the amount received.
-- **ORI-09.** The package is now built and checked properly.
-  - rolldown, which the build and the skill's build use, is declared at the root.
-  - A CI job, `plugin`, installs the plugin's own dependencies, runs its typecheck and tests, packs it,
-    installs the tarball in an empty project with the Agent Kit, and loads it with `import` and with
-    `require`.
-  - The peer ranges are narrowed to what was tested: solana-agent-kit ^2.0.10, zod ^3.25.0 (2.0.7
-    with zod 3.24 failed to load) and @solana/web3.js ^1.98.2.
-  - The declared types are now held to the source by exact equality. Mutual assignability had missed
-    an added optional field.
-  - `RELEASE.md` lists the owner's steps before the first release.
+**ORI-01 to ORI-09** were in code that is no longer in the repository (0zv). What stays of ORI-01
+is in the skill: `checkPrepared` refuses, before the wallet signs, any answer whose amounts or costs
+are not whole numbers (test: skillExample, four fields, and the whole flow: nothing sent).
 
 **Keys and settings (Low)**
 
@@ -1613,10 +1521,9 @@ without it. For the plugin, each fix was taken out once and its test was seen to
   owner's step.
 - **The report's evidence gaps.** The README no longer says the real-wallet test is still to be done:
   - Phantom (ten swaps, 0zg) and Trust Wallet (one, 0zh) were tested on mainnet;
-  - Solflare and Backpack remain;
-  - the plugin's mainnet swap was read back from the chain (0zo).
+  - Solflare and Backpack remain.
 
-**Tests.** 574 in the repository (6 new) and 28 in the plugin (12 new). Live, on a production build
+**Tests.** 574 in the repository (6 new). Live, on a production build
 on this machine: a key for the test wallet (90 days), prepare for its own wallet (200) and for another
 (403), a changed key (401). A challenge asked for with `Host: phishing.example` still named the
 configured site.
@@ -1626,8 +1533,7 @@ configured site.
 - `ORIENTIM_PUBLIC_ORIGIN` and `ORIENTIM_KEY_SECRET` on Vercel;
 - the monitoring variables;
 - Solflare and Backpack;
-- a multisig treasury;
-- the npm release.
+- a multisig treasury.
 
 ## 0zq. A slippage setting on the card, up to 15% (26 September 2026)
 
@@ -1704,7 +1610,7 @@ terms swap sites use, and never the mechanism.
 **Tests:** 584 pass, including the fill against the quote. In Edge, a live quote at Auto and at 3%
 showed the minimum with its tolerance, the row "Slippage tolerance" and no page errors.
 
-## 0zs. One protection in every channel: the page, the API, the skill, the command line, the plugin (26 September 2026)
+## 0zs. One protection in every channel: the page, the API, the skill and the command line (26 September 2026)
 
 The owner's rule: whatever works on the page works the same for agents and bots, with nothing done in
 one and left undone in another. Before this entry the core was already the same everywhere: the
@@ -1722,7 +1628,7 @@ and the transaction is verified before signing. What the page did beyond that, a
 - **Price impact.**
   - `ownQuote` returns the agent's own floor and the price impact from the same Jupiter call.
   - Above `maxPriceImpactBps` (default 500) the swap is refused before anything is prepared
-    (`PriceImpactError`; `price-impact-high` from the command line and the plugin). The page asks a
+    (`PriceImpactError`; `price-impact-high` from the command line). The page asks a
     person at the same 5%.
   - With a floor of the agent's own and no quote of its own, Orientim's stated impact is the one checked.
   - This covers the case the owner raised: a token whose pool is being drained.
@@ -1730,19 +1636,12 @@ and the transaction is verified before signing. What the page did beyond that, a
   - `tokenNotices` reads the mints on the agent's RPC and notes an issuer that can freeze balances or
     mint more, as the page warns. SOL, USDC and USDT keep their authorities by design and get no note.
   - The API returns the same facts in `tokens`.
-  - The command line answers with `notices`, and the plugin gives `warnings` and says them to the model.
+  - The command line answers with `notices`.
 - **What arrived.**
   - `receivedFor` reads the confirmed transaction: a token's balance in the wallet, or SOL with the
     network fee and the market's net account fee added back, as the page does.
-  - `protectedSwap`, `orientim-verify finalize` and the plugin return it.
-  - The plugin tells the model how the fill compares with the quote (`fillAgainstQuote`), in the page's words.
-- **The plugin's words.**
-  - Refusals and outcomes are said as the page says them: "Orientim stopped this swap before signing",
-    "Swap cancelled on-chain: the minimum was enforced", "Best available rate", "Price impact is 8.00%".
-  - `maxBelowBpsCap` became `maxSlippageBpsCap`, and `floor-too-low` became `slippage-above-limit`.
-    The tool's `slippageBps` is now the route's tolerance, as on the page.
-
-**Tests:** 591 in the repository and 30 in the plugin. They cover:
+  - `protectedSwap` and `orientim-verify finalize` return it.
+**Tests:** 591 in the repository. They cover:
 - the tolerance built and held, and a widened route refused;
 - a thin market refused before prepare, and allowed by the owner;
 - token notes, read and said;
@@ -1812,7 +1711,7 @@ impact above 5% is refused.
 - The skill is now version 1.1.0: its answers carry more, and agents can tell which copy they run.
 
 **The repository, checked end to end.**
-- 602 tests in the repository and 33 in the plugin; typecheck; the build; the skill's bundle check.
+- 602 tests in the repository; typecheck; the build; the skill's bundle check.
 - The browser smoke test: 24 of 25. The one not passed is the test-mode banner, which a build with a
   treasury does not show.
 - On mainnet, reading only: 24 of 24 routes built, verified and simulated, over 12 pairs in v0 and
@@ -1835,8 +1734,7 @@ impact above 5% is refused.
     curve or not;
   - agents (`protectedSwap`) and bots (`orientim-verify`) end to end, against an honest server or
     one lying in five ways, with any tolerance, price impact and limit;
-  - the small functions: slippage input and storage, the key's message and seal, what arrived;
-  - the plugin: whole-token amounts, and the tool with any input a model may send.
+  - the small functions: slippage input and storage, the key's message and seal, what arrived.
 - The existing verifier properties take a seed.
 - `.github/workflows/fuzz.yml` now runs 45 shards in parallel, each with its own seed printed for
   replay, about 30 million cases a run. It runs by hand, and weekly while the repository is public;
@@ -1854,10 +1752,20 @@ impact above 5% is refused.
   | The page's swap at any tolerance | 4 | 100,000 |
   | Agents and bots end to end, honest and lying servers | 8 | 100,000 |
   | Small functions | 2 | about 10,800,000 |
-  | Plugin: amounts and tool calls | 2 | about 8,020,000 |
 
-  About 30.2 million cases in all. The slowest shard took 14 minutes (100,000 verifier cases); the
+  About 30.2 million cases in all, about 8 million of them in 2 shards for code since removed (0zv). The slowest shard took 14 minutes (100,000 verifier cases); the
   logs confirm each shard's count and seed. CI passed on the same commit.
+
+## 0zv. The Solana Agent Kit plugin removed (27 September 2026)
+
+The owner removed the Solana Agent Kit plugin (`integrations/solana-agent-kit`) from the project. It
+was never published. Agents use the skill and bots the command line, which carry the same
+protection. Solana Agent Kit had no release in a year, some of its own plugins no longer load on
+Node 22, and its tools for the Vercel AI SDK do not work with version 5 or later.
+
+- Gone: the package and its tests, its CI job and fuzz shards, and its sections in README and
+  SECURITY.md. The root vitest config no longer excludes `integrations/`.
+- `fuzz.yml` now runs 43 shards, about 22 million cases a run.
 
 ---
 
