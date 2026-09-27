@@ -8,8 +8,10 @@ name: Fuzz
 # - the edges: any amount, decimals, quote and balance, and any price the market may give;
 # - any change to an honest transaction, bytes or instructions, several at once;
 # - the owner's limits for agents and bots, the 20% floor, and a bot that edits prepare's answer;
+# - what a wallet hands back: a changed message passes only as Lighthouse assertions added;
+# - the site's server: failure reports, the RPC relay with a backup, amounts as shown;
 # - a hostile swap program running random plans in a real Solana VM (litesvm), 400,000 cases.
-# About 27,700,000 cases a run.
+# About 29,600,000 cases a run.
 #
 # By hand only (Actions, Fuzz, Run workflow), before a release: a run is some 600 billed minutes, a
 # third of a private repository's free month. CI runs the same properties at their normal size on
@@ -403,6 +405,42 @@ jobs:
             file: apps/web/test/agents.limits.property.test.ts
             runs: 5000
             proves: "agents and bots alike at any price; the 20% floor; the owner's limits at prepare and finalize; an edited answer sends nothing"
+          - suite: wallet-return
+            shard: 1
+            of: 4
+            file: packages/verifier/test/wallet.property.test.ts
+            runs: 100000
+            proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
+          - suite: wallet-return
+            shard: 2
+            of: 4
+            file: packages/verifier/test/wallet.property.test.ts
+            runs: 100000
+            proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
+          - suite: wallet-return
+            shard: 3
+            of: 4
+            file: packages/verifier/test/wallet.property.test.ts
+            runs: 100000
+            proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
+          - suite: wallet-return
+            shard: 4
+            of: 4
+            file: packages/verifier/test/wallet.property.test.ts
+            runs: 100000
+            proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
+          - suite: site-server
+            shard: 1
+            of: 2
+            file: apps/web/test/relay.property.test.ts
+            runs: 200000
+            proves: "reports name no wallet or amount, the RPC relay picks the right answer, a shown amount is never more than what arrived"
+          - suite: site-server
+            shard: 2
+            of: 2
+            file: apps/web/test/relay.property.test.ts
+            runs: 200000
+            proves: "reports name no wallet or amount, the RPC relay picks the right answer, a shown amount is never more than what arrived"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
