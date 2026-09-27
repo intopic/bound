@@ -1,7 +1,4 @@
-import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
-
-const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
 const CAPSULE_STEPS = [
   ['The amount moves into a one-time key', 'Only what you approve leaves your wallet, into a key that exists for this one swap.'],
@@ -21,14 +18,6 @@ const KEEPS_NOTHING = [
   [ShieldIcon, 'Never your keys or funds.', 'You sign in your own wallet. Orientim never holds funds or asks for a seed phrase.'],
   [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers. Price quotes are requested without your wallet address.'],
 ] as const;
-
-const FAQ: [string, string][] = [
-  ['What does Orientim protect?', 'What a swap can reach. The swap programs work with a one-time key that holds only the amount you approve, never with your wallet’s authority, and the minimum you accepted is enforced on chain. It does not protect the value of a token or a wallet that is already compromised.'],
-  ['Does Orientim hold my funds or my keys?', 'No. You sign with your own wallet. Orientim never holds funds and never asks for your seed phrase.'],
-  ['What happens if the minimum cannot be met?', 'The whole swap cancels itself instead of completing for less. The network fee of an attempted transaction may still be paid.'],
-  ['Which tokens and wallets work?', 'Any token with a route on Solana’s markets that Orientim can isolate, including Token-2022 and Pump.fun tokens. Browser wallets that sign and hand the transaction back work, such as Phantom and Trust Wallet. A token Orientim cannot isolate is refused, with the reason.'],
-  ['Can my AI agent use Orientim?', 'Yes, through the API, the agent skill or the command line. With the skill or the command line, the agent verifies every transaction on its own RPC before signing, so even a compromised server cannot make it sign more than its limits.'],
-];
 
 export function HomeSections() {
   return (
@@ -108,34 +97,6 @@ export function HomeSections() {
             </ul>
           </div>
           <a className="text-link" href="/privacy">Privacy notice →</a>
-        </div>
-      </section>
-
-      <section className="section" id="fees" aria-label="Fees">
-        <div className="container">
-          <p className="fee-line">
-            <span><b>{TREASURY ? feeText : 'No'}</b> Orientim fee</span>
-            <span><b>Usually &lt; $0.01</b> network fee</span>
-            <span>Every cost shown before you sign</span>
-            <a className="text-link" href="/security#fees">All costs →</a>
-          </p>
-        </div>
-      </section>
-
-      <section className="section" id="faq">
-        <div className="container faq-wrap">
-          <div className="section-head">
-            <p className="eyebrow">Questions</p>
-            <h2>Before your first swap.</h2>
-          </div>
-          <div className="faq">
-            {FAQ.map(([q, a]) => (
-              <details key={q}>
-                <summary>{q}</summary>
-                <p>{a}</p>
-              </details>
-            ))}
-          </div>
         </div>
       </section>
 

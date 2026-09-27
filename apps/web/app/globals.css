@@ -292,10 +292,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .ghost-link { border: 1px solid var(--line); color: var(--text); }
 .ghost-link:hover { color: var(--text); border-color: #33454e; }
 
-/* ---- proof, motion, agents, evidence, questions */
-.fee-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 28px; margin: 0; padding: 18px 24px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); color: var(--muted); font-size: 14px; }
-.fee-line b { margin-right: 6px; color: var(--text); font-family: var(--mono); font-weight: 600; }
-.fee-line .text-link { margin-left: auto; }
+/* ---- proof, motion, agents, evidence */
 .proof-strip { border-bottom: 1px solid var(--line-soft); background: var(--bg-2); }
 .proof-row { display: flex; justify-content: center; padding-block: 16px; }
 .one-key { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); text-align: center; text-wrap: balance; }
@@ -332,7 +329,6 @@ a.ghost { display: inline-flex; align-items: center; }
 .capsule-steps h3 { font-size: 15px; }
 .capsule-steps p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
 
-@keyframes dash { to { stroke-dashoffset: -24; } }
 
 /* Stateless by design: three cards of the same glass, tinted green, over the same soft light. */
 .keeps-nothing { position: relative; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0 0 18px; padding: 0; }
@@ -361,16 +357,6 @@ a.ghost { display: inline-flex; align-items: center; }
 .terminal .cy { color: var(--cyan); }
 .caret { display: inline-block; width: 8px; height: 14px; background: var(--accent); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-
-.faq-wrap { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 48px; align-items: start; }
-.faq { display: grid; gap: 10px; }
-.faq details { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 0 18px; }
-.faq details[open] { border-color: var(--ok-line); }
-.faq summary { cursor: pointer; list-style: none; padding: 16px 0; font-weight: 600; display: flex; justify-content: space-between; gap: 12px; }
-.faq summary::-webkit-details-marker { display: none; }
-.faq summary::after { content: '+'; color: var(--accent); font-size: 18px; line-height: 1; }
-.faq details[open] summary::after { content: '\2013'; }
-.faq p { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
 
 /* ---- footer */
 .site-footer { margin-top: 96px; border-top: 1px solid var(--line-soft); background: var(--bg-2); }
@@ -463,7 +449,6 @@ a.ghost { display: inline-flex; align-items: center; }
   .capsule-steps, .keeps-nothing { grid-template-columns: minmax(0, 1fr); }
   .keeps-nothing li { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 16px; align-items: start; }
   .keeps-nothing .trust-icon { grid-row: span 2; margin: 0; }
-  .faq-wrap { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .dev-page { padding-top: 0; }
   .devdocs-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .dev-aside { top: 64px; z-index: 20; max-height: none; overflow: visible; margin: 0 -24px 24px; padding: 0 24px; background: rgba(12, 17, 23, .94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-soft); }
