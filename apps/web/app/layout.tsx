@@ -17,6 +17,13 @@ export const metadata: Metadata = {
     description: 'Swap without handing over your wallet.',
     url: 'https://orientim.com',
     siteName: 'Orientim',
+    type: 'website',
+  },
+  // The image itself is app/opengraph-image.tsx and app/twitter-image.tsx.
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Orientim — Protected swaps on Solana',
+    description: 'Swap without handing over your wallet.',
   },
 };
 
