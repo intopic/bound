@@ -23,7 +23,10 @@ message, a log or a command line.
 
 Slippage is automatic unless you set it, as on the page: 0.5%, or 3% on a Pump.fun curve. Set
 `slippageBps` (10 to 1500) for your own. A swap that would move the market more than 5% is refused
-before anything is prepared (`maxPriceImpactBps` raises it).
+before anything is prepared (`maxPriceImpactBps` raises it, to 20% at most), and so is a minimum of
+your own more than 20% below Jupiter's price (`floor-too-low`). The example and the command line start
+nothing without an order id (`--id`, `intent.id`), the same on every retry, so that it is never
+swapped twice.
 
 **Check your copy before it signs anything.** `SHA256SUMS` lists the hash of every file here, and
 Orientim's site serves the same list at `/skill/SHA256SUMS`: compare the two, then run

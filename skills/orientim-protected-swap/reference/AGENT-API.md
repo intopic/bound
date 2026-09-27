@@ -180,9 +180,12 @@ Every channel runs the same checks: the page, the API with the skill, and the co
 - **Slippage tolerance.** `slippageBps` is the page's setting, 0.1% to 15%. Without it, 0.5%, or 3%
   on a Pump.fun curve. Your own floor follows it: 1.5% below it, or 2% on a curve.
 - **Price impact.** How far this amount moves the market, from your own quote (`ownQuote`). Above
-  `maxPriceImpactBps` (default 5%) the skill refuses before anything is prepared, with
+  `maxPriceImpactBps` (default 5%, at most 20%) the skill refuses before anything is prepared, with
   `PriceImpactError`. The page asks a person at the same point. A large impact is the mark of thin
   liquidity, as when a token's pool is being drained.
+- **Your floor's own limit.** The skill asks Jupiter for its price on every swap and refuses a
+  `minOut` more than 20% below it before anything is prepared (`FloorError`, `floor-too-low` from the
+  command line), and holds Orientim's fee to 0.3% whatever `maxFeeBps` says.
 - **Token notes.** An issuer that can freeze balances or mint more (`tokenNotices`).
 - **What arrived.** The amount received is read from the confirmed transaction (`receivedFor`).
   `protectedSwap` returns it as `received`, and `orientim-verify finalize` as `received` too.
