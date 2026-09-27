@@ -1,6 +1,7 @@
 import { connection } from 'next/server';
 import { InfoPage } from '@/components/site/InfoPage';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
+import { legal } from '@/lib/legal';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 
 /** The fee this build charges, as the swap page states it: compiled in, like the page's own. */
@@ -59,6 +60,9 @@ export default async function Page() {
           <li>You receive at least the minimum shown, or nothing happens and only the network fee is paid.</li>
           <li>Orientim never holds your funds and never asks for your seed phrase.</li>
         </ul>
+        <p>
+          This describes how Orientim is designed. What is and is not guaranteed is set out in the <a href="/terms#protection">Terms</a>.
+        </p>
       </section>
 
       <section>
@@ -132,6 +136,19 @@ export default async function Page() {
           <li><strong>On a phone</strong>: open orientim.com inside your wallet&apos;s browser.</li>
           <li><strong>Wallets that can only sign and send at once, and multisig vaults</strong>: not supported, because your wallet must sign first and Orientim last.</li>
         </ul>
+      </section>
+
+      <section id="report">
+        <h2>Report a vulnerability</h2>
+        <p>
+          If you find a security problem in Orientim, write to {legal('securityEmail')} before telling anyone else, with enough detail to
+          reproduce it. We answer, keep you informed while we fix it, and credit you if you wish.
+        </p>
+        <p>
+          We will not take legal action against research done in good faith that avoids harm to users and their funds, does not access
+          other people&apos;s data, does not disrupt the service, and gives us reasonable time to fix the problem before it is disclosed.
+          Never test with other people&apos;s wallets or funds.
+        </p>
       </section>
     </InfoPage>
   );

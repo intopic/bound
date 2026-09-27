@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { LEGAL } from '@/lib/legal';
 
 /** Orientim's mark: the wallet as four blocks; the green one, the amount, has stepped out of it. */
 export function LogoMark({ size = 26 }: { size?: number }) {
@@ -56,7 +57,7 @@ export function SiteHeader({ right }: { right: ReactNode }) {
 const FOOTER: [string, [string, string][]][] = [
   ['Product', [['Swap', '/#swap'], ['Supported tokens', '/security#supported'], ['Fees', '/security#fees'], ['Security', '/security'], ['Status', '/status']]],
   ['Developers', [['Overview', '/developers'], ['Quickstart', '/developers#start'], ['API reference', '/developers#api'], ['API keys', '/developers#access']]],
-  ['Legal', [['Terms and risks', '/terms'], ['Privacy', '/privacy']]],
+  ['Legal', [['Terms of Use', '/terms'], ['Privacy Notice', '/privacy'], ['Restricted territories', '/restricted'], ['Contact', '/terms#contact']]],
 ];
 
 export function SiteFooter() {
@@ -79,7 +80,7 @@ export function SiteFooter() {
         ))}
       </div>
       <div className="container footer-bottom">
-        <span>© {new Date().getFullYear()} Orientim</span>
+        <span>© {new Date().getFullYear()} Orientim{LEGAL.entity ? ` · Operated by ${LEGAL.entity}, ${LEGAL.country}` : ''}</span>
         <span className="footer-note"><span className="dot" aria-hidden="true" /> Open the app only at orientim.com</span>
       </div>
     </footer>

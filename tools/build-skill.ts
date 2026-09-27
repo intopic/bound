@@ -29,7 +29,7 @@ import { rolldown } from 'rolldown';
 const SKILL = 'skills/orientim-protected-swap';
 /** What the skill ships, besides SHA256SUMS itself, in the order the sums list them. */
 const SHIPPED = [
-  'SKILL.md', 'README.md', 'package.json', 'package-lock.json', 'examples/swap.ts', 'lib/orientim-verify.mjs',
+  'SKILL.md', 'README.md', 'LICENSE', 'package.json', 'package-lock.json', 'examples/swap.ts', 'lib/orientim-verify.mjs',
   'lib/orientim-verify.d.mts', 'bin/orientim-verify.mjs', 'src/verify.ts', 'src/cli.ts', 'src/cli-entry.ts', 'reference/AGENT-API.md',
 ];
 
