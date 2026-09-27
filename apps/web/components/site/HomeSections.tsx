@@ -1,5 +1,5 @@
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
-import { AgentTerminal, AuthorityMap, CapsuleFlow } from './Motion';
+import { AgentTerminal, AuthorityMap, CapsuleFlow, CheckedTwice } from './Motion';
 
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
@@ -103,6 +103,10 @@ export function HomeSections() {
             <div className="agent-media">
               <AgentTerminal />
             </div>
+          </div>
+          <div className="checked-twice">
+            <h3>Every swap is checked twice, independently</h3>
+            <CheckedTwice />
           </div>
         </div>
       </section>
