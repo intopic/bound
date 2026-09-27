@@ -132,8 +132,8 @@ export default async function Page() {
           </table>
         </div>
         <ul>
-          <li><strong>Browser wallets that sign and hand the transaction back</strong>, such as Phantom, Solflare, Backpack and Trust Wallet&apos;s extension: supported. Tested on mainnet with Phantom and Trust Wallet.</li>
-          <li><strong>On a phone</strong>: open orientim.com inside your wallet&apos;s browser.</li>
+          <li><strong>Browser wallets that sign and hand the transaction back</strong>, such as Phantom, Solflare, Backpack and Trust Wallet&apos;s extension, should work. Tested on mainnet so far with Phantom and Trust Wallet.</li>
+          <li><strong>On a phone</strong>: open orientim.com inside your wallet&apos;s browser. Not yet tested on phones; a wallet that asks you to connect in another app is not supported yet.</li>
           <li><strong>Wallets that can only sign and send at once, and multisig vaults</strong>: not supported, because your wallet must sign first and Orientim last.</li>
         </ul>
       </section>

@@ -19,7 +19,13 @@ npm ci               # the one dependency, @solana/kit 8.3.0, as the lockfile pi
 You need an API key from Orientim (`ORIENTIM_API_KEY`) and an RPC of your own (`SOLANA_RPC_URL`). The key
 comes at once: connect the agent's wallet on orientim.com/developers#access and sign one message, or run
 `orientim-verify key-challenge`, then `key` (see `SKILL.md`). Never put a wallet key in a prompt, a
-message, a log or a command line.
+message, a log or a command line. A key file the swap can read, the agent that runs it can read too: to
+keep the key from the agent, sign in a process the agent does not run (a signing service, such as
+Turnkey or Privy, or a signer of your own), and give the agent a wallet holding only what it may swap.
+
+Set `ORIENTIM_POLICY` to a JSON file of your own limits, kept where the agent cannot edit it: the most
+one swap may spend of each input mint (`maxAmountIn`; a mint not listed is refused) and the most all
+swaps may spend in 24 hours (`maxAmountInPerDay`). See Setup in `SKILL.md`.
 
 Slippage is automatic unless you set it, as on the page: 0.5%, or 3% on a Pump.fun curve. Set
 `slippageBps` (10 to 1500) for your own. A swap that would move the market more than 5% is refused

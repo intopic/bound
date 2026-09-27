@@ -75,7 +75,7 @@ const PREPARE_ANSWER: [string, string][] = [
 /** What `orientim-verify` exits with (skills/orientim-protected-swap/src/cli.ts). */
 const EXIT_CODES: [string, string][] = [
   ['0', 'Done. prepare: sign message. finalize: confirmed, with received. recover: all settled. check: safe to sign.'],
-  ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low and price-impact-high. Nothing is left to settle.'],
+  ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low, price-impact-high and the owner’s limits (mint-not-allowed, amount-over-limit, daily-limit). Nothing is left to settle.'],
   ['2', 'A usage or configuration error, such as a prepare without an order id: the answer says what is missing.'],
   ['3', 'Settle first: an earlier swap may still land, another finalize from this wallet is still running (busy), or the state directory cannot be made or read. Run recover; start nothing new.'],
   ['4', 'Orientim said no: error.code is one of the Errors below.'],
@@ -87,7 +87,8 @@ const ENV: [string, string][] = [
   ['ORIENTIM_API_KEY', 'Your key, ori_…'],
   ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check is worth what the chain state it reads is worth.'],
   ['JUPITER_API_KEY', 'For the agent’s own price floor (free at developers.jup.ag).'],
-  ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs.'],
+  ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
+  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours. Base units, as strings.'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system.'],
   ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
 ];
@@ -234,7 +235,15 @@ const result = await protectedSwap({
               <p>
                 Pass <code>signerFromSignBytes(address, sign)</code> (a KMS, an HSM, raw-message signing) or{' '}
                 <code>signerFromSignTransaction(address, sign)</code> (a service that signs and hands the transaction back) as{' '}
-                <code>wallet</code>. A service that can only sign and send cannot be used: Orientim signs last.
+                <code>wallet</code>. A service that can only sign and send cannot be used: Orientim signs last. With a service that
+                reads the transaction and applies its own policies (Turnkey or Privy, for example), prefer{' '}
+                <code>signerFromSignTransaction</code>.
+              </p>
+              <p>
+                Orientim protects the wallet from the route and the server, not from the agent: a key file the swap can read, the
+                agent that runs it can read too, and a permission rule does not change that. To keep the key from the agent, sign in
+                a process the agent does not run: a signing service, or a small signer of your own with its own limits. Either way,
+                give the agent a wallet of its own holding only what it may swap, and set <a href="#env">ORIENTIM_POLICY</a>.
               </p>
             </section>
 
@@ -514,6 +523,10 @@ POST /api/v1/keys
                 <li>
                   Limits no flag can loosen: in the skill, a minimum never more than 20% below Jupiter&apos;s own price
                   (<code>floor-too-low</code>) and Orientim&apos;s fee at 0.3% at most.
+                </li>
+                <li>
+                  The owner&apos;s own limits, per swap and per day for each input mint, in a file (<code>ORIENTIM_POLICY</code>):
+                  a swap outside them is refused before anything is prepared and again before finalize.
                 </li>
                 <li>Swaps smaller than about $1 are not taken.</li>
               </ul>
