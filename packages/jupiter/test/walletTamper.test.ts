@@ -11,6 +11,7 @@ import {
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { LIGHTHOUSE_PROGRAM } from '@orientim/verifier';
 import { DEFAULT_SETTINGS, finalizeProtectedSwap, OrientimError, prepareProtectedSwap } from '../src/swap.ts';
 import { BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, USDC } from './fakes.ts';
 import type { Account } from './fakes.ts';
@@ -86,9 +87,46 @@ async function walletSigns(owner: KeyPairSigner, tx: Transaction) {
   return encode(await partiallySignTransaction([owner.keyPair], tx));
 }
 
-async function finalize(p: Awaited<ReturnType<typeof prepared>>, walletSignedBytes: Uint8Array) {
-  return finalizeProtectedSwap({ rpc: p.rpc, prepared: p.swap, walletSignedBytes, ephemeral: p.E });
+async function finalize(p: Awaited<ReturnType<typeof prepared>>, walletSignedBytes: Uint8Array, acceptAssertions = false) {
+  return finalizeProtectedSwap({ rpc: p.rpc, prepared: p.swap, walletSignedBytes, ephemeral: p.E, acceptAssertions });
 }
+
+/** Adds `key` as a static account in the read-only or writable non-signer group; returns its index. */
+function addAccount(m: Compiled & { header: { numSignerAccounts: number; numReadonlySignerAccounts: number } }, key: Address, writable: boolean): number {
+  const at = writable ? m.staticAccounts.length - m.header.numReadonlyNonSignerAccounts : m.staticAccounts.length;
+  m.staticAccounts.splice(at, 0, key);
+  if (!writable) m.header.numReadonlyNonSignerAccounts++;
+  // Indexes at or after the insertion move up by one: static accounts after it, and lookup-table accounts.
+  for (const ix of m.instructions) {
+    if (ix.programAddressIndex >= at) ix.programAddressIndex++;
+    ix.accountIndices = ix.accountIndices?.map(i => (i >= at ? i + 1 : i));
+  }
+  return at;
+}
+
+/** Phantom's Lighthouse: an instruction of kind `kind` (9: AssertTokenAccount) on the wallet's input account. */
+const lighthouse = (kind: number, owner: Address, extra?: { key: Address; writable: boolean }) => async (tx: Transaction) => {
+  const input = await ataOf(owner, USDC);
+  return alter(tx, m => {
+    const mm = m as Parameters<typeof addAccount>[0];
+    const program = addAccount(mm, LIGHTHOUSE_PROGRAM, false);
+    const accounts = [m.staticAccounts.indexOf(input)];
+    if (extra) accounts.push(addAccount(mm, extra.key, extra.writable));
+    m.instructions.push({ programAddressIndex: m.staticAccounts.indexOf(LIGHTHOUSE_PROGRAM), accountIndices: accounts, data: new Uint8Array([kind, 0, 1, 2, 3]) });
+    expect(program).toBeGreaterThan(0);
+  });
+};
+
+/** A wallet raising the compute limit (SetComputeUnitLimit, 2) by `by` units. */
+const raiseComputeLimit = (by: number) => (m: Compiled) => {
+  const budget = m.staticAccounts.indexOf(address(COMPUTE_BUDGET));
+  const ix = m.instructions.find(i => i.programAddressIndex === budget && i.data?.[0] === 2);
+  expect(ix).toBeDefined();
+  const data = Uint8Array.from(ix!.data!);
+  const view = new DataView(data.buffer);
+  view.setUint32(1, view.getUint32(1, true) + by, true);
+  ix!.data = data;
+};
 
 async function refusal(p: Promise<unknown>) {
   const e = await p.then(() => null, (x: unknown) => x);
@@ -141,4 +179,53 @@ describe('a wallet that alters the message after verification (AUDIT section 10)
     expect(e.violations.map(v => v.detail)).toEqual(["the wallet's signature does not match the verified message"]);
     expect(p.sent).toEqual([]);
   });
+});
+
+describe("Phantom's Lighthouse assertions, on the page", () => {
+  it('an assertion added by the wallet is accepted: E signs the message the wallet signed, sent once', async () => {
+    const p = await prepared();
+    expect(p.swap.transaction.messageBytes.length).toBeGreaterThan(0);
+    const altered = await lighthouse(9, p.owner.address)(p.swap.transaction);
+    const result = await finalize(p, await walletSigns(p.owner, altered), true);
+    expect(result.status).toBe('confirmed');
+    expect(p.sent).toHaveLength(1);
+    const wire = getTransactionDecoder().decode(Buffer.from(p.sent[0], 'base64'));
+    expect([...wire.messageBytes]).toEqual([...altered.messageBytes]);
+    expect(wire.signatures[p.E.address]).toBeTruthy();
+  });
+
+  it('with a new read-only account and a compute limit raised a little, it is still accepted', async () => {
+    const p = await prepared();
+    const readOnly = (await generateKeyPairSigner()).address;
+    const withAccount = await lighthouse(10, p.owner.address, { key: readOnly, writable: false })(p.swap.transaction);
+    const altered = alter(withAccount, raiseComputeLimit(20_000));
+    const result = await finalize(p, await walletSigns(p.owner, altered), true);
+    expect(result.status).toBe('confirmed');
+  });
+
+  it('the agent API path, which does not accept them, still refuses the same message', async () => {
+    const p = await prepared();
+    const altered = await lighthouse(9, p.owner.address)(p.swap.transaction);
+    const e = await refusal(finalize(p, await walletSigns(p.owner, altered)));
+    expect(e.code).toBe('wallet-changed-transaction');
+    expect(p.sent).toEqual([]);
+  });
+
+  const refused: [string, (p: Awaited<ReturnType<typeof prepared>>) => Promise<Transaction>, string][] = [
+    ['a Lighthouse memory write (0)', p => lighthouse(0, p.owner.address)(p.swap.transaction), 'the wallet added a Lighthouse instruction that is not an assertion'],
+    ['a Lighthouse memory close (1)', p => lighthouse(1, p.owner.address)(p.swap.transaction), 'the wallet added a Lighthouse instruction that is not an assertion'],
+    ['a new writable account', async p => lighthouse(9, p.owner.address, { key: (await generateKeyPairSigner()).address, writable: true })(p.swap.transaction), 'an added account is writable or a signer'],
+    ['a raised priority fee beside the assertion', async p => alter(await lighthouse(9, p.owner.address)(p.swap.transaction), raisePriorityFee), 'the wallet changed an instruction'],
+    ['a compute limit raised too far', async p => alter(await lighthouse(9, p.owner.address)(p.swap.transaction), raiseComputeLimit(60_000)), 'the wallet changed the compute limit'],
+    ['an instruction of another program', p => Promise.resolve(alter(p.swap.transaction, appendAssertion)), 'the wallet changed an instruction'],
+  ];
+  for (const [what, change, detail] of refused) {
+    it(`${what} is refused, and nothing is sent`, async () => {
+      const p = await prepared();
+      const e = await refusal(finalize(p, await walletSigns(p.owner, await change(p)), true));
+      expect(e.code).toBe('wallet-changed-transaction');
+      expect(e.violations.map(v => v.detail)).toContain(detail);
+      expect(p.sent).toEqual([]);
+    });
+  }
 });

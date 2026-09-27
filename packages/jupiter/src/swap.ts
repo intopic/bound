@@ -1405,9 +1405,16 @@ export async function countersignProtectedSwap(args: {
    * a repeated finalize with the same signed bytes and sends nothing.
    */
   landed?: boolean;
+  /**
+   * Accept Lighthouse assertions the wallet added (verifyWalletReturn): the page, where Phantom may
+   * add them. The agent API signs only exactly what it built.
+   */
+  acceptAssertions?: boolean;
 }): Promise<FullySignedTransaction & Transaction> {
   const { rpc, prepared, ephemeral } = args;
-  const check = await verifyWalletReturn(prepared.transaction, args.walletSignedBytes, prepared.policy.owner, ephemeral.address);
+  const check = await verifyWalletReturn(
+    prepared.transaction, args.walletSignedBytes, prepared.policy.owner, ephemeral.address, { acceptAssertions: args.acceptAssertions },
+  );
   if (!check.ok || !check.transaction) {
     throw new OrientimError('wallet-changed-transaction', 'The wallet changed the transaction, so it was stopped for your safety.', check.violations);
   }
@@ -1427,6 +1434,7 @@ export async function finalizeProtectedSwap(args: {
   walletSignedBytes: Uint8Array;
   ephemeral: KeyPairSigner;
   onStatus?: (status: SendStatus, signature: string) => void;
+  acceptAssertions?: boolean;
 }): Promise<SendResult> {
   const signed = await countersignProtectedSwap(args);
   return sendAndConfirm({
