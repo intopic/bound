@@ -1,6 +1,6 @@
 /**
- * The second review's proofs of concept, as regression tests: the real pipeline (prepare → compile →
- * verify) runs against a fake RPC and a fake Jupiter that answer the way an attacker would.
+ * Attack scenarios as regression tests: the real pipeline (prepare → compile → verify) runs against
+ * a fake RPC and a fake Jupiter that answer the way an attacker would.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -79,7 +79,7 @@ async function prepare(output: Address, opts: {
 
 const codeOf = async (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e instanceof OrientimError ? e.code : String(e)));
 
-describe('C-01: the amount the user typed is converted with on-chain decimals', () => {
+describe('the amount the user typed is converted with on-chain decimals', () => {
   it('an interface that used metadata decimals (9 for USDC) is refused before anything is built', async () => {
     expect(await codeOf(prepare(WSOL_MINT, { inputDecimals: 9 }))).toBe('token-data-mismatch');
   });
@@ -100,7 +100,7 @@ describe('the prepared swap carries its certificate and timings (ideas 35, 20)',
   });
 });
 
-describe('C-02: Orientim computes the minimum itself', () => {
+describe('Orientim computes the minimum itself', () => {
   it('a Jupiter floor of 1 is replaced by the quote less the accepted slippage', async () => {
     const prepared = await prepare(WSOL_MINT, { jupiter: fakeJupiter({ threshold: 1n }) });
     expect(prepared.policy.minOut).toBe((OUT * BigInt(10_000 - settings.slippageBps)) / 10_000n);
@@ -117,7 +117,7 @@ describe('C-02: Orientim computes the minimum itself', () => {
     expect((await prepare(WSOL_MINT, { acceptedMinOut: accepted })).policy.minOut).toBe(accepted);
   });
 
-  it("Jupiter's own floor is raised to that minimum as well, no further than it needs (engineering review H-03)", async () => {
+  it("Jupiter's own floor is raised to that minimum as well, no further than it needs", async () => {
     const accepted = OUT - 1_000n;
     const route = jupiterArgsOf(await prepare(WSOL_MINT, { acceptedMinOut: accepted }));
     // Its floor counts only what the route delivered: a deposit arriving with the swap cannot fill a gap.
@@ -230,7 +230,7 @@ describe('transient Jupiter refusals', () => {
   });
 });
 
-describe('B-12: the network fee check fails closed', () => {
+describe('the network fee check fails closed', () => {
   it('without a price from the cluster, nothing goes to the wallet', async () => {
     expect(await codeOf(prepare(WSOL_MINT, { feeFails: true }))).toBe('verification-failed');
   });
@@ -240,7 +240,7 @@ describe('B-12: the network fee check fails closed', () => {
   });
 });
 
-describe('C-09 and Revoke: costs and side effects are reported from the chain', () => {
+describe('costs and side effects, Revoke included, are reported from the chain', () => {
   it('a new output account costs the rent the cluster quotes today', async () => {
     expect((await prepare(BONK)).oneTimeCosts.outputAccountRent).toBe(1_488_440n);
     expect((await prepare(BONK, { wOutExists: true })).oneTimeCosts.outputAccountRent).toBe(0n);
@@ -296,7 +296,7 @@ describe('a price that moves between the quote and the simulation', () => {
     expect(prepared.attempts.at(-1)!.excluded).not.toContain('Whirlpool');
   });
 
-  it("so is a refusal on price by a Pump.fun market inside the route: the curve is not left out (research audit)", async () => {
+  it("so is a refusal on price by a Pump.fun market inside the route: the curve is not left out", async () => {
     const prepared = await prepare(BONK, { pumpSlippage: 1, jupiter: fakeJupiter({ label: 'Pump.fun', curveProgram: true }), expectCurve: true });
     expect(prepared.attempts[0].simulation).toBe('output below the minimum');
     expect(prepared.attempts.at(-1)!.excluded).not.toContain('Pump.fun');
@@ -359,7 +359,7 @@ describe('slippage on a Pump.fun bonding curve', () => {
     expect(asked.some(p => p.slippageBps === 300 && p.excludeDexes?.length)).toBe(true);
   });
 
-  it('every other route, PumpSwap included, is built at 0.5%, so Jupiter enforces 0.5% on chain too (BR-01)', async () => {
+  it('every other route, PumpSwap included, is built at 0.5%, so Jupiter enforces 0.5% on chain too', async () => {
     for (const label of ['Whirlpool', 'Pump.fun Amm']) {
       const asked: BuildParams[] = [];
       const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label, asked }) });
@@ -368,7 +368,7 @@ describe('slippage on a Pump.fun bonding curve', () => {
     }
   });
 
-  it('the label alone does not widen the tolerance: the curve program must be in the route (BR-04)', async () => {
+  it('the label alone does not widen the tolerance: the curve program must be in the route', async () => {
     const asked: BuildParams[] = [];
     const prepared = await prepare(BONK, { jupiter: fakeJupiter({ label: 'Pump.fun', asked }) });
     expect(prepared.policy.minOut).toBe(floor(50));
@@ -395,7 +395,7 @@ describe('slippage on a Pump.fun bonding curve', () => {
   });
 });
 
-describe('a wallet short of SOL (review BR-10)', () => {
+describe('a wallet short of SOL', () => {
   it('is told how much SOL the swap needs, and no market is blamed for it', async () => {
     const failure = await prepare(BONK, { walletShort: true }).catch((e: OrientimError) => e);
     expect(failure).toBeInstanceOf(OrientimError);
@@ -410,10 +410,10 @@ describe('a wallet short of SOL (review BR-10)', () => {
   });
 });
 
-describe('a SOL fee into a treasury wallet that does not exist yet (review BR-06)', () => {
+describe('a SOL fee into a treasury wallet that does not exist yet', () => {
   const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
-  it('is refused, not built fee-free and not left to revert, until the treasury wallet exists (final audit, item 9)', async () => {
+  it('is refused, not built fee-free and not left to revert, until the treasury wallet exists', async () => {
     const refused = await prepare(BONK, { input: WSOL_MINT, treasury: TREASURY, amountIn: 100_000_000n }).catch((e: OrientimError) => e);
     expect((refused as OrientimError).code).toBe('fee-unavailable');
     expect((refused as OrientimError).message).toContain("Orientim's fee can't be collected");
@@ -440,7 +440,7 @@ describe('latency without weaker protection', () => {
     expect(asked.every(p => p.slippageBps === 300)).toBe(true);
   });
 
-  it('a wrong curve hint still builds an ordinary route at 0.5% (BR-01 holds)', async () => {
+  it('a wrong curve hint still builds an ordinary route at 0.5%', async () => {
     const asked: BuildParams[] = [];
     const prepared = await prepare(BONK, { jupiter: fakeJupiter({ asked }), expectCurve: true });
     expect(prepared.policy.minOut).toBe(floor(50));
@@ -453,7 +453,7 @@ describe('latency without weaker protection', () => {
       jupiter: fakeJupiter({ label: 'Pump.fun', curveProgram: true }), chain: onChain, takerRent: 1_346_200n, simulations,
     });
     expect(prepared.policy.takerRent).toBe(1_346_200n);
-    // Measuring the rent takes two; the exact final transaction is simulated once more (H-01).
+    // Measuring the rent takes two; the exact final transaction is simulated once more.
     expect(simulations.count).toBe(3);
   });
 
@@ -484,7 +484,7 @@ describe('latency without weaker protection', () => {
   it('a runaway fee level is capped so the whole fee stays within R4', async () => {
     const prepared = await prepare(BONK, { feeLevels: [10n ** 15n] });
     expect(prepared.priorityFeeLamports + 10_000n).toBeLessThanOrEqual(settings.maxNetworkFeeLamports);
-    // Said before signing: the swap may land late or expire (review FA-15).
+    // Said before signing: the swap may land late or expire.
     expect(prepared.priorityFeeCapped).toBe(true);
     expect((await prepare(BONK, { feeLevels: [60_000n] })).priorityFeeCapped).toBe(false);
   });
@@ -515,7 +515,7 @@ describe('a Jupiter that is overloaded or silent', () => {
     expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(504, '{"error":"Jupiter did not answer"}') }))).toBe('unavailable');
   });
 
-  it("a refused key or a path that is gone is Orientim's to fix, not a missing route (research audit F-08)", async () => {
+  it("a refused key or a path that is gone is Orientim's to fix, not a missing route", async () => {
     for (const status of [401, 403, 404, 410]) {
       expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(status, 'Unauthorized') }))).toBe('unavailable');
     }
@@ -550,7 +550,7 @@ describe('a swap that landed and reverted: was it the price?', () => {
   });
 });
 
-describe('accounts frozen by the token issuer (review FA-12)', () => {
+describe('accounts frozen by the token issuer', () => {
   const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
   it("a frozen fee account cannot receive the fee, so that swap is refused rather than built free (a stablecoin's blacklist, say)", async () => {
@@ -569,7 +569,7 @@ describe('accounts frozen by the token issuer (review FA-12)', () => {
   });
 });
 
-describe("Pump's per-buyer account under E is closed after the swap and its rent returned (review FA-05)", () => {
+describe("Pump's per-buyer account under E is closed after the swap and its rent returned", () => {
   const curve = () => fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true });
 
   it('the rent the market takes comes back to the wallet in the same transaction', async () => {
@@ -598,7 +598,7 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     expect(prepared.oneTimeCosts.routeRefund).toBe(0n);
   });
 
-  it("a cashback coin's account holds more than its rent, which no exact refund can return: refused, never left under E (F-03, H-01)", async () => {
+  it("a cashback coin's account holds more than its rent, which no exact refund can return: refused, never left under E", async () => {
     const simulations = { count: 0 };
     const refused = await prepare(BONK, {
       input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, cashback: 1_234n, simulations,
@@ -609,7 +609,7 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     expect(simulations.count).toBe(2);
   });
 
-  it('a route that fits only without the close is never built without it: a narrower route, or a clean refusal (H-01)', async () => {
+  it('a route that fits only without the close is never built without it: a narrower route, or a clean refusal', async () => {
     // Pad a curve route until the close no longer fits in v0: no swap is offered that leaves the
     // market's account open under E, and none is sent to the RPC oversized.
     let refusedForLeftover = 0;
@@ -628,7 +628,7 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     // Twenty-one full builds: about 1.6 s alone, several times that beside the whole suite.
   }, 20_000);
 
-  it("a route too big to close the market's account is traded for a narrower one that closes it (the auditor's SOL → dap, H-01)", async () => {
+  it("a route too big to close the market's account is traded for a narrower one that closes it (SOL → dap)", async () => {
     // The widest padding at which the close no longer fits, found as the route that is refused.
     let pad: Address[] = [];
     for (let n = 0; n <= 20 && !pad.length; n++) {
@@ -655,25 +655,25 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
   });
 });
 
-describe('the reason is named, not blamed on the market (research audit)', () => {
-  it('a Jupiter instruction of a new format is a format change, not a bad price (F-07)', async () => {
+describe('the reason is named, not blamed on the market', () => {
+  it('a Jupiter instruction of a new format is a format change, not a bad price', async () => {
     const failure = await prepare(BONK, { jupiter: fakeJupiter({ unknownFormat: true }) }).catch((e: OrientimError) => e);
     expect((failure as OrientimError).code).toBe('route-format');
     expect((failure as OrientimError).message).toContain("can't read yet");
   });
 
-  it("an input account frozen by the token's issuer is refused before anything is quoted (F-09)", async () => {
+  it("an input account frozen by the token's issuer is refused before anything is quoted", async () => {
     const failure = await prepare(BONK, { wIn: { frozen: true } }).catch((e: OrientimError) => e);
     expect((failure as OrientimError).code).toBe('input-account-restricted');
   });
 
-  it('an input balance short of the amount is named, with the numbers the user typed (F-09)', async () => {
+  it('an input balance short of the amount is named, with the numbers the user typed', async () => {
     const failure = await prepare(BONK, { wIn: { amount: 250_000n }, amountIn: 1_000_000n }).catch((e: OrientimError) => e);
     expect((failure as OrientimError).code).toBe('insufficient-balance');
     expect((failure as OrientimError).message).toContain('holds 0.25 of the input token, less than the 1 this swap needs');
   });
 
-  it("a failure in Orientim's own steps before the swap stops at once, without blaming a market (F-09)", async () => {
+  it("a failure in Orientim's own steps before the swap stops at once, without blaming a market", async () => {
     const simulations = { count: 0 };
     const failure = await prepare(BONK, { failBeforeSwap: true, simulations }).catch((e: OrientimError) => e);
     expect((failure as OrientimError).code).toBe('simulation-failed');
@@ -763,7 +763,7 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     expect((busy as OrientimError).code).toBe('busy');
   });
 
-  it('a fee side that changes between the quote and the build keeps the minimum the page showed (engineering review H-04)', async () => {
+  it('a fee side that changes between the quote and the build keeps the minimum the page showed', async () => {
     // Quoted while the treasury had no wallet but a BONK account: the fee on the input, and the
     // page showed this minimum.
     const bonkAccount: [Address, Account] = [await ataOf(TREASURY, BONK), tokenAccount(TREASURY, BONK)];
@@ -788,7 +788,7 @@ function jupiterArgsOf(prepared: { transaction: Transaction }): JupiterRouteArgs
   return jupiterRouteArgs(instructions.find(ix => ix.programAddress === JUPITER_PROGRAM)?.data ?? [])!;
 }
 
-describe("Jupiter's floor, tightened to Orientim's minimum (engineering review H-03)", () => {
+describe("Jupiter's floor, tightened to Orientim's minimum", () => {
   const ix = (quote: bigint, slippageBps: number) => {
     const d = new Uint8Array(8 + 22 + 4);
     d.set([0xbb, 0x64, 0xfa, 0xcc, 0x31, 0xc4, 0xaf, 0x14], 0);
@@ -827,7 +827,7 @@ describe("Jupiter's floor, tightened to Orientim's minimum (engineering review H
   });
 });
 
-describe('the smallest swap, about $1, so that none costs more to build than it brings (the owner rule)', () => {
+describe('the smallest swap, about $1, so that none costs more to build than it brings', () => {
   const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
   it('a fee in USDC below 2,500 base units (about $0.83 of swap) is refused; at $1 and more the swap is built', async () => {
     const feeAccount: [Address, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
@@ -858,7 +858,7 @@ describe('the smallest swap, about $1, so that none costs more to build than it 
   });
 });
 
-describe('an account the route opens and leaves open is refused, whatever market it is (third audit, F5)', () => {
+describe('an account the route opens and leaves open is refused, whatever market it is', () => {
   it('the route is not offered, a route without its markets is looked for, and none left means no route', async () => {
     const opened = (await generateKeyPairSigner()).address;
     const asked: BuildParams[] = [];

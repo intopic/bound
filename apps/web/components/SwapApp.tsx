@@ -115,14 +115,14 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
 /**
  * A transaction lives 150 blocks: about 41 s at the 272 ms blocks measured in September 2026, and
  * less as slots get shorter. What the wallet is left with is therefore counted in blocks, not
- * seconds (research audit F-05): a swap built ahead of the click, or one that waited on a question,
+ * seconds: a swap built ahead of the click, or one that waited on a question,
  * is used only while at least this many blocks are left (about 27 s today), and is built again
  * otherwise.
  */
 const MIN_BLOCKS_FOR_WALLET = 100n;
 /** A swap built ahead of the click is used only this soon after its build started (its price). */
 const AHEAD_MAX_AGE_MS = 20_000;
-/** A build ahead starts only once the amount has stayed the same this long (the owner's rule). */
+/** A build ahead starts only once the amount has stayed the same this long. */
 const AHEAD_SETTLE_MS = 2_000;
 /** And at most this many a minute, per page. */
 const AHEAD_PER_MINUTE = 3;
@@ -161,7 +161,7 @@ const plainRefusal = (reason: string) => PLAIN_REFUSAL[reason] ?? `it uses ${rea
 
 /**
  * What a prepared swap costs beyond what the page showed before the click. It is said before the
- * wallet opens, because on a phone the wallet covers the page (review BR-03).
+ * wallet opens, because on a phone the wallet covers the page.
  */
 function extrasOf(
   p: PreparedSwap,
@@ -170,8 +170,8 @@ function extrasOf(
 ): string[] {
   const lines: string[] = [];
   // A fee in SOL is priced when the swap is built. Asked about when the page did not show it before
-  // the click, or showed less than it came to (engineering audit S1-M-02): 5% less before the click,
-  // and, after a rebuild, the 2% `costsMoreThan` asks about, so the question always says what grew.
+  // the click, or showed less than it came to: 5% less before the click, and, after a rebuild, the
+  // 2% `costsMoreThan` asks about, so the question always says what grew.
   if (p.policy.feeSide === 'sol' && p.policy.fee > 0n && (t.shownSolFee === null || p.policy.fee * 100n > t.shownSolFee * feeAbovePct)) {
     lines.push(
       `Orientim fee: ${formatExact(p.policy.fee, 9)} SOL` + (t.shownSolFee !== null ? ` (shown earlier as ~${formatExact(t.shownSolFee, 9)} SOL).` : '.'),
@@ -195,7 +195,7 @@ function extrasOf(
 
 /**
  * Identifies the inputs a build ahead of the click was made for, the minimum the user sees among
- * them: a build made for another fee side keeps another minimum (engineering review H-04).
+ * them: a build made for another fee side keeps another minimum.
  */
 const aheadKey = (owner: string, input: string, output: string, amountIn: bigint, quotedAt: number, version: TxVersion, minReceived: bigint) =>
   [owner, input, output, String(amountIn), quotedAt, version, String(minReceived)].join('|');
@@ -227,7 +227,7 @@ async function blocksLeft(p: PreparedSwap): Promise<bigint | null> {
 }
 
 
-/** What the confirmed transaction delivered (review BR-03), or null if the RPC does not say in time. */
+/** What the confirmed transaction delivered, or null if the RPC does not say in time. */
 async function actualReceived(signature: string, prepared: PreparedSwap): Promise<bigint | null> {
   for (let i = 0; i < 3; i++) {
     const tx = await getRpc()
@@ -258,7 +258,7 @@ const AUTO_REFRESHES = 3;
 /** Token amounts are 64-bit on Solana; beyond this nothing on chain can hold the balance. */
 const MAX_U64 = 2n ** 64n - 1n;
 const solscan = (signature: string) => `https://solscan.io/tx/${signature}`;
-/** How often a swap the wallet waits on is looked up again (third audit, F2). */
+/** How often a swap the wallet waits on is looked up again. */
 const SETTLE_EVERY_MS = 10_000;
 const SETTLE_BY_HAND_MS = 30_000;
 
@@ -357,7 +357,7 @@ function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
 function wordsFor(e: unknown, price: PriceContext = {}): Notice {
   if (e instanceof HistoryNotSaved) return NO_STORAGE;
   if (e instanceof OrientimError) {
-    // What exactly was refused is for whoever investigates, not for the person swapping (final audit).
+    // What exactly was refused is for whoever investigates, not for the person swapping.
     if (e.violations.length) console.warn('Orientim refused this swap:', e.violations);
     return orientimWords(e, price);
   }
@@ -382,7 +382,7 @@ function wordsFor(e: unknown, price: PriceContext = {}): Notice {
 }
 
 /**
- * What happened, in words that only claim what the network proved (audit C-03): "no funds moved"
+ * What happened, in words that only claim what the network proved: "no funds moved"
  * appears only when the transaction was refused before broadcast or can no longer execute.
  */
 function outcomeNotice(
@@ -393,7 +393,7 @@ function outcomeNotice(
   switch (status) {
     case 'confirmed':
       // What the route could use, and nothing more is claimed: the network fee, and Orientim's fee
-      // when it is paid in SOL, also leave the wallet, as the card showed (independent audit, ORI-15).
+      // when it is paid in SOL, also leave the wallet, as the card showed.
       return {
         kind: 'success', title: t.received ? `Swapped ${t.paid} for ${t.received}` : `Swapped ${t.paid} for at least ${t.minimum}`,
         body: `${why.vsQuote ? `${why.vsQuote} ` : ''}${t.received ? `At least ${t.minimum} was guaranteed. ` : ''}The swap could use only ${t.exposed}.`,
@@ -431,16 +431,16 @@ function outcomeNotice(
 }
 
 /**
- * Pending or unknown swaps, settled from the chain (audit C-03): on every visit, and every few
- * seconds while one of them holds the wallet's next swap back (third audit, F2).
+ * Pending or unknown swaps, settled from the chain: on every visit, and every few seconds while one
+ * of them holds the wallet's next swap back.
  */
 async function settleHistory(): Promise<HistoryEntry[] | null> {
   const open = readHistory().filter(isUnsettled);
   if (!open.length) return null;
   const rpc = getRpc();
   const signatures = open.map(h => h.signature);
-  // One coherent view (engineering audit S1-H-01): the statuses come from a node that had reached
-  // the finalized slot whose height they are compared with; a lagging node proves no expiry (FA-07).
+  // One coherent view: the statuses come from a node that had reached the finalized slot whose
+  // height they are compared with; a lagging node proves no expiry.
   const first = await statusesCovering(rpc, signatures);
   // Once the recorded lifetime is over, look again: one empty read is not enough evidence for the UI
   // to invite a retry, and the second view must prove it too (the lower covered height, the higher
@@ -493,9 +493,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
-  // What the chain says about each selected mint: decimals and token program (audit C-01).
+  // What the chain says about each selected mint: decimals and token program.
   const [facts, setFacts] = useState<Record<string, MintFacts | 'missing'>>({});
-  // Accounts that decide the Orientim fee and the one-time costs shown before signing (audit B-09).
+  // Accounts that decide the Orientim fee and the one-time costs shown before signing.
   /** Where the Orientim fee is taken, like Jupiter's: SOL first, then USDC and USDT, on either side; else the input. */
   const [feeSide, setFeeSide] = useState<FeeSide | null>('input');
   const [clock, setClock] = useState(0);
@@ -614,7 +614,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   }, [wallet]);
 
   const refreshBalances = useCallback(async () => {
-    const request = ++balanceRequest.current; // only the latest request may set balances (C-10)
+    const request = ++balanceRequest.current; // only the latest request may set balances
     if (!W || !tokenIn || !inFacts || inFacts === 'missing') return setBalances(null);
     const rpc = getRpc();
     const sol = (await rpc.getBalance(W, { commitment: 'confirmed' }).send()).value;
@@ -637,11 +637,11 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   // The fee is taken like Jupiter's: in SOL first, then USDC or USDT, on whichever side of the swap
   // the treasury can receive them; otherwise in the input token; otherwise not at all (Orientim never
   // makes the user pay rent for Orientim's account). A new output account's deposit is Solana's and
-  // stays the user's, as on every swap site, so it is not listed as a cost (the owner's choice).
+  // stays the user's, as on every swap site, so it is not listed as a cost.
   const refreshAccounts = useCallback(async () => {
     const exists = async (a: Address) =>
       (await getRpc().getAccountInfo(a, { encoding: 'base64', commitment: 'confirmed' }).send()).value !== null;
-    // A fee account frozen by the token's issuer cannot receive, so that swap is fee-free (FA-12).
+    // A fee account frozen by the token's issuer cannot receive, so that swap is fee-free.
     const receives = async (a: Address) => {
       const { value } = await getRpc().getAccountInfo(a, { encoding: 'base64', commitment: 'confirmed' }).send();
       if (!value) return false;
@@ -678,7 +678,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     };
   }, [refreshAccounts]);
 
-  // --- amounts, always with the mints' on-chain decimals (audit C-01)
+  // --- amounts, always with the mints' on-chain decimals
   const inDecimals = inFacts && inFacts !== 'missing' ? inFacts.decimals : null;
   const outDecimals = outFacts && outFacts !== 'missing' ? outFacts.decimals : null;
   const chargesFee = !!TREASURY && feeSide !== null;
@@ -688,7 +688,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const swapAmount = amountIn ? amountIn - fee : null;
   const outputFee = chargesFee && feeSide === 'output' && quote ? outputFeeFor(quote.minOut, FEE_BPS) : null;
   // The minimum the page shows, what the wallet keeps after a fee from the output: the one a build
-  // must hold to, whichever side the fee turns out to be on when it is built (engineering review H-04).
+  // must hold to, whichever side the fee turns out to be on when it is built.
   const minReceived = quote ? quote.minOut - (outputFee ?? 0n) : null;
   const price = usablePrice(tokenIn);
   const usdValue = amountIn && price !== null && inDecimals !== null ? (Number(amountIn) / 10 ** inDecimals) * price : null;
@@ -735,7 +735,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         .then(r => {
           if (cancelled) return;
           setBusyTries(0);
-          // Shown only if it answers this exact trade; the minimum is computed by Orientim (C-02), with
+          // Shown only if it answers this exact trade; the minimum is computed by Orientim, with
           // the wider tolerance when the route trades on a Pump.fun bonding curve.
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
@@ -788,7 +788,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     if (status && !status.enabled) return 'Protected swaps are paused';
     if (!W) return null;
     // A swap from this wallet that the chain has not settled holds the next one back, whatever the
-    // time: a retry waits for the chain's answer, so the same swap never runs twice (third audit, F2).
+    // time: a retry waits for the chain's answer, so the same swap never runs twice.
     if (unsettledFor(history, W).length) return 'Waiting for your last swap';
     if (!tokenIn || !tokenOut) return 'Select tokens';
     if (tokenIn.id === tokenOut.id) return 'Choose two different tokens';
@@ -805,13 +805,13 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     const solNeeded = SOL_RESERVE_LAMPORTS + (tokenIn.id === SOL_MINT ? amountIn : 0n);
     if (balances && balances.sol < solNeeded) return 'Not enough SOL for network fees';
     // Any amount is protected the same way, so there is no cap of our own. When an operator does
-    // configure one it fails closed: a token without a USD price cannot be checked (B-05).
+    // configure one it fails closed: a token without a USD price cannot be checked.
     if (!status) return 'Loading limits…';
     if (status.maxUsdPerSwap !== null) {
       if (usdValue === null) return `No USD price for ${tokenIn.symbol} yet`;
       if (usdValue > status.maxUsdPerSwap) return `Limit: ${formatUsd(status.maxUsdPerSwap)} per swap`;
     }
-    // The user accepts a minimum they have seen; without a price there is nothing to accept (C-02).
+    // The user accepts a minimum they have seen; without a price there is nothing to accept.
     if (!quote) {
       if (quoting) return 'Getting a price…';
       if (busyTries > QUOTE_BUSY_RETRIES) return 'Prices are busy right now';
@@ -826,7 +826,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   }, [status, W, tokenIn, tokenOut, inFacts, outFacts, amountIn, swapAmount, balances, usdValue, quote, quoting, clock, refreshes, busyTries, history]);
 
   // --- another tab of this page may record or settle a swap: its history is this tab's too, so a swap
-  // started there holds this wallet back here as well (third audit, F2).
+  // started there holds this wallet back here as well.
   useEffect(() => {
     const sync = (e: StorageEvent) => {
       if (e.key === HISTORY_KEY) setHistory(readHistory());
@@ -836,7 +836,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   }, []);
 
   // --- a swap this wallet waits on is looked up again while the page is visible: every 10 s while it
-  // could still land or be proven expired, every 30 s once only a full history could tell (F2).
+  // could still land or be proven expired, every 30 s once only a full history could tell.
   const waitingOn = W ? unsettledFor(history, W) : [];
   const onlyByHand = waitingOn.length > 0 && waitingOn.every(h => h.over);
   useEffect(() => {
@@ -908,7 +908,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
 
   /**
    * Builds the protected swap with the minimum the user accepted. If the market moved beyond the
-   * tolerance, the user sees the new minimum and decides; it is never lowered silently (C-02).
+   * tolerance, the user sees the new minimum and decides; it is never lowered silently.
    */
   /** The pipeline's dependencies, with the fee fixed at build time and the server's limits. */
   const swapDeps = (s: PublicStatus) => ({
@@ -948,7 +948,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         );
       } catch (e) {
         if (!(e instanceof OrientimError) || round >= 2) throw e;
-        // A route too big for v0 may fit in v1, for a wallet that signs it (research audit F-13).
+        // A route too big for v0 may fit in v1, for a wallet that signs it.
         if (e.code === 'no-route' && e.message.includes('does not fit') && version === 0 && args.v1Fallback) {
           version = 1;
           continue;
@@ -993,9 +993,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   // automatic refresh; and not while Jupiter is busy, since a build nobody clicks on still spends
   // the site's shared quota.
   //
-  // What a build ahead may cost (the owner's rule): it starts only once the amount has stayed the same
-  // for AHEAD_SETTLE_MS, one at a time, and at most AHEAD_PER_MINUTE a minute. Someone trying amounts
-  // costs a build or two, not one per keystroke; the click builds as before when none is ready.
+  // What a build ahead may cost: it starts only once the amount has stayed the same for
+  // AHEAD_SETTLE_MS, one at a time, and at most AHEAD_PER_MINUTE a minute. Someone trying amounts costs
+  // a build or two, not one per keystroke; the click builds as before when none is ready.
   const ahead = useRef<{ key: string; startedAt: number; settled: boolean; task: Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> } | null>(null);
   const aheadStarts = useRef<number[]>([]);
   // The build ahead passed every rule for exactly these inputs: the card may say "Verified" (and only then).
@@ -1054,7 +1054,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       return;
     }
     // A swap is sent only once its record is kept, so this browser must keep one: asked before the
-    // wallet opens, not after the user signed (third audit, F3).
+    // wallet opens, not after the user signed.
     if (!historyWorks()) {
       setNotice(NO_STORAGE);
       return;
@@ -1085,8 +1085,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     const early = ahead.current;
     ahead.current = null;
     try {
-      // Every build holds to the minimum the user saw, net of a fee from the output (H-04), and a fee
-      // in SOL to the estimate the user saw, if any (S1-M-02).
+      // Every build holds to the minimum the user saw, net of a fee from the output, and a fee in SOL
+      // to the estimate the user saw, if any.
       const shown = minReceived;
       const shownSolFee = feeSide === 'sol' ? solFeeEstimate : null;
       const build = (E: KeyPairSigner, acceptedMinReceived: bigint) => prepareAccepted({
@@ -1110,17 +1110,17 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       const E = fresh ? fresh.E : await createEphemeral();
       let prepared = fresh ? fresh.prepared : await build(E, shown);
       if (!prepared) return cancelled();
-      // Costs the page did not show before the click are shown before the wallet opens (BR-03).
+      // Costs the page did not show before the click are shown before the wallet opens.
       const facts = { inSymbol: inToken.symbol, outSymbol: outToken.symbol, inDecimals, shownSolFee };
       const extras = extrasOf(prepared, facts);
       if (extras.length && !(await askAboutOffer({ kind: 'extras', lines: extras }))) return cancelled();
       // However it got here (a build ahead, a fresh build that took long, a question), the wallet opens
       // only with at least 100 blocks of the swap's life left. One that ran low is built again, and
-      // asked about again only if it costs more than what was accepted (M-06, engineering audit S1-M-03).
+      // asked about again only if it costs more than what was accepted.
       for (let round = 0; ; round++) {
         const left = await blocksLeft(prepared);
         // Without a height, how long the swap stays valid is unknown: the wallet is not opened on a
-        // guess (final audit, M-04).
+        // guess.
         if (left === null) {
           throw new OrientimError('network-unavailable', "Couldn't read the network's block height, so the wallet was not opened. Nothing was signed; try again in a moment.");
         }
@@ -1135,7 +1135,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       }
       texts.minimum = `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
-      // What the market keeps: the rent it takes, less what closing its account returns (FA-05).
+      // What the market keeps: the rent it takes, less what closing its account returns.
       const routeRent = keptByMarket(prepared);
       setPending({
         minReceived: `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`,
@@ -1181,7 +1181,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
 
       // The minimum is checked on chain as W_out's balance before plus the minimum. If that balance
       // moved while the wallet was open (another swap into this token, from another device, or a
-      // transfer), the check could count those tokens: stop before E signs (review FA-04).
+      // transfer), the check could count those tokens: stop before E signs.
       const balanceKept = await outputBalanceUnchanged(toSend);
       if (balanceKept === null) {
         setNotice({
@@ -1203,9 +1203,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         rpc: getRpc(), prepared: toSend, walletSignedBytes: signed, ephemeral: E,
         onStatus: (s, signature) => {
           if (s !== 'sending') return;
-          // Recorded before anything is sent, and never sent unless recorded, so it is never lost
-          // (C-03, third audit F3): `addHistory` throws when this browser did not keep the record,
-          // and the send stops before its first request.
+          // Recorded before anything is sent, and never sent unless recorded, so it is never lost:
+          // `addHistory` throws when this browser did not keep the record, and the send stops before
+          // its first request.
           setHistory(addHistory({
             at: Date.now(), signature, status: 'pending', owner: W,
             lastValidBlockHeight: toSend.lifetime.lastValidBlockHeight.toString(),
@@ -1230,7 +1230,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       if (result.status === 'confirmed') setAmountText('');
     } catch (e) {
       if (sent.signature) {
-        // It may have been broadcast: never say that nothing moved (C-03).
+        // It may have been broadcast: never say that nothing moved.
         settled = false;
         setHistory(updateHistory(sent.signature, 'unknown'));
         setNotice(outcomeNotice('unknown', sent.signature, texts));
@@ -1312,7 +1312,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   }
   // An issuer that can move the token anywhere is the token's nature, not something Orientim grants:
   // it can, in this wallet as in any other. What protects this swap from it is the minimum output,
-  // which counts what reaches your account (review BR-05). The user is told before they hold it.
+  // which counts what reaches your account. The user is told before they hold it.
   for (const [token, f, list] of [[tokenIn, inFacts, inWarnings], [tokenOut, outFacts, outWarnings]] as const) {
     if (token && f && f !== 'missing' && f.issuerCanMove) {
       list.push(`${token.symbol}'s issuer can move or freeze it in any wallet at any time. That is true wherever you hold it, and your minimum still holds in this swap.`);

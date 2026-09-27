@@ -1,8 +1,8 @@
 /**
  * The page and the pipeline must ask for a price on the same amount. A token that taxes its own
- * transfers keeps a cut of the transfer into the protected account, and the audit found the page
- * quoting the amount before that cut while the pipeline quoted the amount after it — so the first
- * number a user saw was higher than the one they could actually get.
+ * transfers keeps a cut of the transfer into the protected account. If the page quoted the amount
+ * before that cut while the pipeline quoted the amount after it, the first number a user saw would
+ * be higher than the one they could actually get.
  */
 import { address } from '@solana/kit';
 import { ataOf, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientim/core';
@@ -63,7 +63,7 @@ describe('the active Token-2022 transfer fee', () => {
   });
 });
 
-describe('token warnings come from the chain for a token Jupiter does not vouch for (review BR-11)', () => {
+describe('token warnings come from the chain for a token Jupiter does not vouch for', () => {
   const pasted = { id: 'x', symbol: 'ABCD…WXYZ', name: 'Not listed on Jupiter', decimals: 6, tokenProgram: TOKEN_PROGRAM, isVerified: false };
   const verified = { ...pasted, symbol: 'USDC', name: 'USD Coin', isVerified: true };
 

@@ -103,7 +103,7 @@ export async function fundedAccounts(
  */
 export function lamportsSentToTaker(wire: string): {
   taker: string; lamports: bigint; swapIndex: number;
-  /** The transaction closes the account a Pump market opened for the taker (FA-05). */
+  /** The transaction closes the account a Pump market opened for the taker. */
   closesRouteAccount: boolean;
   /** What the taker sends on, to the wallet, after the close. */
   sentByTaker: bigint;
@@ -156,7 +156,7 @@ export function fakeRpc(
     landOnSend?: boolean;
     /** Reading a status fails. */
     statusFails?: boolean;
-    /** Accounts the route opens and leaves open, holding their rent after the swap (third audit, F5). */
+    /** Accounts the route opens and leaves open, holding their rent after the swap. */
     leavesOpen?: readonly string[];
   } = {},
 ): SolanaRpc {
@@ -242,7 +242,7 @@ export function fakeRpc(
           err: null, logs: [], unitsConsumed: 200_000n,
           // E keeps what it was sent beyond the rent; the account the market opened for E (Pump's
           // per-buyer account) holds the rent.
-          // A cashback coin's account also holds the cashback the trade earned (FA-05, F-03).
+          // A cashback coin's account also holds the cashback the trade earned.
           // Closed, the market's account hands everything it held to E, and E sends on what the
           // transaction says; whatever is left stays with E.
           accounts: await Promise.all((config.accounts?.addresses ?? []).map(async a => {
@@ -288,7 +288,7 @@ export function fakeJupiter(answer: {
   out?: bigint;
   /** The route's swap instruction names the Pump.fun curve program, as a real curve route does. */
   curveProgram?: boolean;
-  /** The route passes the account the curve opens for the buyer, as a real Pump route does (FA-05). */
+  /** The route passes the account the curve opens for the buyer, as a real Pump route does. */
   routeAccount?: boolean;
   /** Jupiter answers with a swap instruction of a format nobody has seen yet. */
   unknownFormat?: boolean;
@@ -316,7 +316,7 @@ export function fakeJupiter(answer: {
         routePlan: [{ percent: 100, swapInfo: { label: answer.label ?? 'Whirlpool', ammKey: POOL } }],
         computeBudgetInstructions: [],
         // Jupiter asks for an ATA of the taker for every token the route passes through. Orientim
-        // does not run these; it recreates the accounts itself and closes them again (D14).
+        // does not run these; it recreates the accounts itself and closes them again.
         setupInstructions: answer.hop
           ? [{
             programId: ATA_PROGRAM,

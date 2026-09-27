@@ -26,9 +26,9 @@ For every swap Orientim builds:
    it. Jupiter's program also enforces a floor on chain, a second one that does not depend on the
    RPC: it measures what its own instruction delivers, and the verifier requires that instruction to
    deliver into the user's own account (or E's temporary one for SOL), so that floor is always on the
-   right account (research audit), and requires it to reach the whole minimum, not only the quote:
-   when the user accepted more than the route's own floor, Orientim tightens the route's tolerance until
-   it does (engineering review H-03). A transfer arriving at the same moment, or another swap into
+   right account, and requires it to reach the whole minimum, not only the quote: when the user
+   accepted more than the route's own floor, Orientim tightens the route's tolerance until it does.
+   A transfer arriving at the same moment, or another swap into
    the same token, cannot then make up for a route that delivered less. Orientim never runs two of its
    own swaps into the same token at once in the same browser.
 
@@ -55,7 +55,7 @@ network fee (≤ F_max, and never above 0.001 SOL)
 ```
 
 The account the route rent pays for, Pump.fun's per-buyer volume accumulator, is closed at the end of
-the same transaction and its lamports go straight back to W (review FA-05): Orientim adds Pump's own
+the same transaction and its lamports go straight back to W: Orientim adds Pump's own
 `close_user_volume_accumulator`, signed by E, and a transfer of what it returned from E to W. What
 the market keeps is only what it spent elsewhere (132,080 lamports when a bonding curve grows its
 own account; nothing on PumpSwap), and that is what the page shows as the market's account fee.
@@ -66,10 +66,10 @@ nothing but the lamports it returns. A Pump program changed by its upgrade autho
 those lamports; the transfer to W would then fail and the whole swap revert, costing the network
 fee. When closing is not possible (the transaction would not fit, the account also holds a cashback
 coin's cashback, or the simulation says no), that route is not offered: a narrower one is tried, and
-without one the swap is refused (final audit, H-01). Rent any other market takes for an account it
+without one the swap is refused. Rent any other market takes for an account it
 opens is caught the same way: before the wallet signs, the exact transaction is simulated, and every
 account the route is given that did not exist before the swap must end closed, besides the wallet's
-own output account (third audit, F5). The page, the agent API and the agent's own check all do it.
+own output account. The page, the agent API and the agent's own check all do it.
 A simulation is not the landing: a market that behaves differently a few seconds later is outside
 what Orientim can check without a program of its own on chain.
 
@@ -96,7 +96,7 @@ the amount, paid before the swap. On the output it is 0.3% of the enforced minim
 minimum is checked (from the wallet once E_out has paid out, for SOL; from `W_out`, for USDC or
 USDT): the minimum the user sees and accepts is what the wallet keeps after it, and the fee is never
 more than 0.3% of what the swap delivers, since Jupiter's own floor holds the route to that minimum
-whatever else arrives in the account (engineering review H-03). This is what lets a memecoin sold for SOL pay, where the treasury
+whatever else arrives in the account. This is what lets a memecoin sold for SOL pay, where the treasury
 could never hold an account for every new token.
 
 ## Why it holds: R6 first
@@ -116,9 +116,9 @@ R1's address filter then only has to cover what can move **without** W's signatu
   balance after the swap against its balance before, so anything the delegate takes out is netted.
   Orientim also refuses a delegate that is a program-derived address, but that rule is not what
   protects the user: an "ordinary" delegate can still be a Token-program multisig whose signer is a
-  program, and the delegate can be reassigned after the snapshot (review BR-05, AUDIT.md sections
-  0j and 0m). A transfer hook with a real program is refused. Tokens used only inside the route's
-  own pools never reach W's accounts; the external instruction is untrusted anyway.
+  program, and the delegate can be reassigned after the snapshot. A transfer hook with a real
+  program is refused. Tokens used only inside the route's own pools never reach W's accounts; the
+  external instruction is untrusted anyway.
 
 Anyone changing R1 or R6 must re-read this section. The same note sits above the rules in
 `packages/verifier/src/verify.ts`.
@@ -163,10 +163,9 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   opens and an agent's check holds it to a price of its own. The server also relays RPC answers,
   Jupiter's answers and token metadata. Wrong decimals are caught against the chain. A relay that
   under-reports the balance of the user's output account weakens Orientim's own minimum-output check
-  for a token output, which counts from that balance (review BR-01); what still holds the route to
-  the whole minimum is Jupiter's on-chain floor, which the verifier requires at that same account
-  and which measures what Jupiter's instruction delivered there, whatever else is in it
-  (engineering review H-03). That rests on Jupiter's program, pinned by its address, doing what its
+  for a token output, which counts from that balance; what still holds the route to the whole
+  minimum is Jupiter's on-chain floor, which the verifier requires at that same account and which
+  measures what Jupiter's instruction delivered there, whatever else is in it. That rests on Jupiter's program, pinned by its address, doing what its
   published program does (see the trusted computing base above). The defence against a relay that
   lies is serving the genuine page and relays from a published, monitored release (section
   "Verifying the code you are running").
@@ -219,7 +218,7 @@ signature has no record, the finalized block height is past its last valid block
 answered still holds every block the transaction could have landed in. A node answers from its status
 cache, which holds its last 300 blocks, before any ledger history or archive; that history can be
 pruned or missing, and an archive that fails answers "no record" as well. So "no record" is proof
-only for some 30 seconds after the transaction's lifetime (third audit, F1). Past that it proves
+only for some 30 seconds after the transaction's lifetime. Past that it proves
 nothing, and the outcome stays unknown:
 
 - on the page, the wallet starts no new swap until the network settles the last one; if it never
@@ -229,7 +228,7 @@ nothing, and the outcome stays unknown:
   still has one, is used instead of the operator's.
 
 The page keeps each swap in the browser before sending it, and sends nothing when the browser will
-not keep the record (third audit, F3): a closed tab or a lost connection never loses track of a
+not keep the record: a closed tab or a lost connection never loses track of a
 transaction that may have landed. This holds while the person keeps this browser's site data.
 
 ## What works and what is refused
@@ -243,13 +242,13 @@ transaction that may have landed. This holds while the person keeps this browser
 | Active transfer hook, default state frozen, pausable, non-transferable, interest-bearing, scaled UI amount, required memo, unknown extensions | Refused, with the reason |
 | An account the issuer froze, or freezes later | Fails in simulation, or reverts: nothing moves |
 | Pump.fun bonding curve and PumpSwap | Swapped; the per-buyer account is closed and its rent returned, or the route is refused |
-| Any other market that opens an account and leaves it open | Refused (third audit, F5) |
+| Any other market that opens an account and leaves it open | Refused |
 | Routes too large for one transaction | Refused: Orientim never splits a swap |
-| Wallets that sign and return (Wallet Standard `signTransaction`) | Supported: tested on mainnet with Phantom, which returns the message byte for byte, and Trust Wallet (docs/AUDIT.md 0zg) |
+| Wallets that sign and return (Wallet Standard `signTransaction`) | Supported: tested on mainnet with Phantom, which returns the message byte for byte, and Trust Wallet |
 | Sign-and-send-only wallets, multisig vaults | Cannot sign first: not supported |
 | v1 transactions | Built only when enabled and only for a route too big for v0 |
 
-## The temporary key (D7)
+## The temporary key
 
 E is a non-extractable WebCrypto key: its private bytes cannot be exported, not even by Orientim's own
 code. That is not the same as "cannot be used": while the page is open, script running in it could
@@ -285,7 +284,7 @@ compare. For an automated signer that is the intended use — run the verifier n
   guarantee.
 - Live quotes are asked for a neutral address. The swap built ahead of the click, while the user
   reads the quote, is asked for with the user's output account (an associated account, so the user's
-  address follows from it): Jupiter can learn who is about to swap before they click (review FA-11),
+  address follows from it): Jupiter can learn who is about to swap before they click,
   a trade made for latency.
 
 ## Data
@@ -380,11 +379,11 @@ companies would remove one trust assumption, at the cost of a second account, a 
 second thing that can break.
 
 The rules are applied to a snapshot the RPC provides, so the RPC is trusted for more than lookup
-tables. What depends on it, from the v1 review (AUDIT.md section 0m):
+tables. What depends on it:
 
 | Read | Used for | If the RPC lies |
 | --- | --- | --- |
-| Balance of the output account | The minimum-output check for a token output | Orientim's check can pass with less delivered, but Jupiter's floor still holds the route to the whole minimum: the verifier requires Jupiter to deliver into that same account and its floor (quote less tolerance) to reach the minimum, and Jupiter measures what its instruction delivered, not the balance (engineering review H-03) |
+| Balance of the output account | The minimum-output check for a token output | Orientim's check can pass with less delivered, but Jupiter's floor still holds the route to the whole minimum: the verifier requires Jupiter to deliver into that same account and its floor (quote less tolerance) to reach the minimum, and Jupiter measures what its instruction delivered, not the balance |
 | Lookup table contents | R1 | Together with a lying Jupiter, an account could be hidden. v1 transactions have no lookup tables |
 | Owners and data of the route's accounts | R1's test for W's own accounts | A W account with a delegate the user set up earlier could be hidden |
 | Mints: owner, decimals, extensions | R2, R7, amounts | A wrong decimals value reverts on chain (TransferChecked); a hidden extension falls back on the minimum |
@@ -397,14 +396,13 @@ What does not depend on it: that W's signature never reaches the external progra
 templates, the fee caps, and the bytes the wallet signs.
 
 A v1 transaction carries no lookup tables at all, so the assumption disappears as wallets adopt
-it. The optional cross-check against a second provider was removed on 23 September 2026 to keep
-Orientim simple; it never ran in the setup Orientim uses, and bringing it back would be a code change.
+it. Orientim does not cross-check the snapshot against a second provider.
 
 ## Operational controls
 
 - Kill switch `ORIENTIM_DISABLED=1`: enforced by the server (`/api/jupiter/build`, `sendTransaction`
   on `/api/rpc` and both agent endpoints are refused), not only hidden in the UI. **On Vercel an
-  environment change reaches only new deployments** (review FA-02), so flipping it in the dashboard
+  environment change reaches only new deployments**, so flipping it in the dashboard
   does nothing until a redeploy. The runbook:
   1. Keep a paused deployment ready: deploy the current release once more with `ORIENTIM_DISABLED=1`
      and leave it unpromoted. Rebuild it with every release.
@@ -419,8 +417,8 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
   4. Rehearse it once on a preview: promote, check `/api/status` says paused and a
      `sendTransaction` is refused, promote back, and write down how long each step took.
 - The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
-  or a multisig (e.g. Squads). It is a hot wallet today (docs/AUDIT.md 0zh).
-- If the treasury is compromised (it happened once, 0zh): its key can take the fees it holds and
+  or a multisig (e.g. Squads). It is a hot wallet today.
+- If the treasury is compromised (it has happened once): its key can take the fees it holds and
   nothing else, since it never signs a swap. Then:
   1. Stop sending fees there: pause (runbook above, step 2).
   2. Move what is left to a safe wallet, if the key is still yours.
@@ -429,30 +427,28 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
      rebuild the skill. Agents refuse a fee to any treasury but the one pinned in their copy of the skill.
   4. Release, redeploy and promote. Agents on an older copy of the skill refuse every swap until they
      update, so raise `ORIENTIM_MIN_SKILL_VERSION` with the new skill's version and tell them.
-  5. Record it in docs/AUDIT.md, with the old and the new address.
+  5. Record the old and the new address, with the date of the change.
 - Relays: `/api/rpc` sends and simulates only transactions shaped like a Orientim swap (two signers,
-  one Jupiter route the verifier can read, otherwise only its trusted instruction shapes; review
-  FA-06). That narrows what Orientim's RPC account can be used for, but a shape says nothing about
-  amounts or destinations, so it does not prove a request is a paid Orientim swap (engineering review
-  M-08); the app's rate limit is per instance. What bounds the cost: a firewall rule per path at the
+  one Jupiter route the verifier can read, otherwise only its trusted instruction shapes). That
+  narrows what Orientim's RPC account can be used for, but a shape says nothing about amounts or
+  destinations, so it does not prove a request is a paid Orientim swap; the app's rate limit is per instance. What bounds the cost: a firewall rule per path at the
   host, spend alerts on the RPC account, and separate keys for the agent API
   (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`). Jupiter counts its limits per organisation, not per
-  key: the API's Jupiter key has a quota of its own only if it comes from a separate Jupiter account
-  (research audit F-10).
+  key: the API's Jupiter key has a quota of its own only if it comes from a separate Jupiter account.
 - Upstream changes: Jupiter, Pump.fun and Token-2022 are upgraded while Orientim runs (on 24 September
   2026 the Pump curve program was half a day old and Jupiter's two days; the canary prints the dates
   each run), and a Jupiter instruction the verifier cannot read stops every swap with `route-format`
   ("waiting for an update"). `node tools/canary.ts` builds and simulates seven swaps on mainnet state,
   each with its fee where it belongs (SOL on either side, USDC from the output), one as a v1
   transaction, and Pump.fun buys on the curve and on PumpSwap; it fails on such a change, on a fee
-  that is no longer taken where it should be, and exits 2 when nothing could be checked at all
-  (engineering review M-09). `.github/workflows/canary.yml` runs it every twelve hours once the repository
-  variable `ORIENTIM_CANARY` is `1` (off by default). Until it is set, and until `ORIENTIM_SITE_URL`
-  is set for the live check, nothing watches production: both are the owner's to switch on. The page and the API also log Jupiter refusing Orientim's key (401, 403) or
-  an endpoint that is gone (404, 410) (research audit F-07, F-08).
+  that is no longer taken where it should be, and exits 2 when nothing could be checked at all.
+  `.github/workflows/canary.yml` runs it every twelve hours once the repository variable
+  `ORIENTIM_CANARY` is `1` (off by default). Until it is set, and until `ORIENTIM_SITE_URL` is set for
+  the live check, nothing watches production: the operator must switch both on. The page and the API
+  also log Jupiter refusing Orientim's key (401, 403) or an endpoint that is gone (404, 410).
 - Releases: deploy only tagged commits, and only after CI is green. The release workflow runs the
   typecheck, the tests and the skill bundle's check itself before it publishes a digest. Actions are pinned by commit, and
-  a second job builds on another runner image and must match the digest (review FA-10). A tag `v*` publishes the build's digest as a GitHub
+  a second job builds on another runner image and must match the digest. A tag `v*` publishes the build's digest as a GitHub
   release, built with the public settings in the repository variables, which must match
   production's; the live check compares the site with it every six hours and needs
   `ORIENTIM_SITE_URL`. The build is deterministic: CI builds every release tag twice and fails if the two

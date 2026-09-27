@@ -55,7 +55,7 @@ jobs:
           echo "digest=$first" >> "$GITHUB_OUTPUT"
 
   reproducible-elsewhere:
-    # The same build on another runner image must give the same digest (review FA-10): two builds
+    # The same build on another runner image must give the same digest: two builds
     # on one machine agree even when that machine is what changed them.
     needs: reproducible
     runs-on: ubuntu-22.04

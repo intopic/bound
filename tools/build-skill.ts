@@ -8,7 +8,7 @@
  *   SHA256SUMS                 the hash of every file the skill ships (`sha256sum -c SHA256SUMS`)
  *
  * and, for the site, apps/web/lib/server/skillSums.ts: the same hashes, served at /skill/SHA256SUMS,
- * so that a copy of the skill can be checked against a second channel (final audit, item 10); and
+ * so that a copy of the skill can be checked against a second channel; and
  * apps/web/public/skill/orientim-protected-swap.zip: the skill folder as one download, public at
  * /skill/orientim-protected-swap.zip. The zip is stored without compression and with fixed dates, so
  * that it is byte for byte the same from every machine and the check below can compare it.

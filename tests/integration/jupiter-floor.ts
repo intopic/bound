@@ -1,5 +1,5 @@
 /**
- * Jupiter's own floor, on mainnet state (review FA-03).
+ * Jupiter's own floor, on mainnet state.
  *
  * The verifier reads Jupiter's route arguments (in amount, quoted out amount, tolerance) because
  * Jupiter's program stops a swap whose instruction delivers less than the quote less the tolerance,
@@ -12,10 +12,10 @@
  * arguments equal the JSON, and that the account the verifier reads as its destination is the one
  * asked for: the destination is another wallet's account, not the taker's, so a floor measured
  * anywhere else would stop the honest route too. Both forms, route_v2 and
- * shared_accounts_route_v2, are asked for (research audit). Nothing is signed or sent.
+ * shared_accounts_route_v2, are asked for. Nothing is signed or sent.
  *
- * And the tightening Orientim applies when the user accepted more than a route's floor (engineering
- * review H-03): with the tolerance lowered by `withFloorAtLeast`, the arguments read back unchanged
+ * And the tightening Orientim applies when the user accepted more than a route's floor: with the
+ * tolerance lowered by `withFloorAtLeast`, the arguments read back unchanged
  * but for the tolerance, in both forms, and the route still executes.
  *
  *   node tests/integration/jupiter-floor.ts
@@ -121,7 +121,7 @@ for (const maxAccounts of [64, 12]) {
   check(`${maxAccounts} accounts: the honest route executes`, honest.err === null, json(honest.err));
 
   if (args) {
-    // Tightened as Orientim does for a minimum halfway into the route's tolerance (H-03).
+    // Tightened as Orientim does for a minimum halfway into the route's tolerance.
     const floor = jupiterFloor(args);
     const wanted = floor + (args.quotedOutAmount - floor) / 2n;
     const tightened = withFloorAtLeast(swap, wanted);

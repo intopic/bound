@@ -12,8 +12,8 @@ import type { KeyPairSigner } from '@solana/kit';
  * sign as E for Orientim's own messages, which could drop the fee from them, and collect whatever is
  * left under an E it derives. The skill's check refuses to sign a swap that would leave anything
  * there: every lamport W sends E must be spent by the route or returned in the same transaction, and
- * the account a Pump.fun market opens in E's name must end closed (research audit F-06, engineering
- * review M-05). Removing an old secret stops its tickets; it cannot unlearn an E already derived.
+ * the account a Pump.fun market opens in E's name must end closed. Removing an old secret stops
+ * its tickets; it cannot unlearn an E already derived.
  */
 export type Ticket = {
   v: 1;
@@ -31,7 +31,7 @@ export type Ticket = {
   lvbh: string;
   /**
    * The output account and the balance its minimum-output check was built on (B and C): finalize
-   * reads it again and signs nothing if it moved (review FA-04). Absent for SOL output.
+   * reads it again and signs nothing if it moved. Absent for SOL output.
    */
   wOut?: string;
   b0?: string;

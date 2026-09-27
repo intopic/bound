@@ -194,7 +194,7 @@ const TERMINAL: [string, string][] = [
   ['ok', '✓ nothing was signed'],
 ];
 
-/** An agent's real run on mainnet, then the same agent refusing a tampered swap (docs/AUDIT.md 0zk). */
+/** An agent's real run on mainnet, then the same agent refusing a tampered swap. */
 export function AgentTerminal() {
   const reduce = useReducedMotion();
   const box = useRef<HTMLDivElement>(null);

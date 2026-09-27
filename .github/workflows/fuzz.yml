@@ -12,8 +12,8 @@ name: Fuzz
 # About 27,700,000 cases a run.
 #
 # By hand only (Actions, Fuzz, Run workflow), before a release: a run is some 600 billed minutes, a
-# third of a private repository's free month (final audit, H3). CI runs the same properties at their
-# normal size on every change to the code.
+# third of a private repository's free month. CI runs the same properties at their normal size on
+# every change to the code.
 on:
   workflow_dispatch:
 

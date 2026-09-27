@@ -5,7 +5,7 @@ import { checkDeploymentSettings } from './lib/settings';
 // every swap, or runs without its fee (lib/settings.ts).
 checkDeploymentSettings(process.env);
 
-// The Content-Security-Policy for pages is set per request, with a nonce, in proxy.ts (audit B-08).
+// The Content-Security-Policy for pages is set per request, with a nonce, in proxy.ts.
 // API responses are JSON (or images from /api/token-icon, which set their own CSP) under nosniff.
 const config: NextConfig = {
   transpilePackages: ['@orientim/core', '@orientim/verifier', '@orientim/solana', '@orientim/jupiter'],

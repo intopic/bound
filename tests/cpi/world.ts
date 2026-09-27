@@ -185,8 +185,7 @@ export function sendOrThrow(svm: LiteSVM, tx: Transaction, what: string) {
  * Who holds the permanent delegate of the swap's two Token-2022 mints, when one is set: an ordinary
  * key (the attacker's own wallet, which never signs the swap), an address the attacker's program can
  * sign for itself (its pool authority), or a Token multisig at an ordinary address whose one signer
- * is that program address: R7 sees an ordinary key, and the program can still act as the delegate
- * (final audit, item 4).
+ * is that program address: R7 sees an ordinary key, and the program can still act as the delegate.
  */
 export type IssuerDelegate = 'key' | 'program' | 'multisig';
 /** A Token multisig account: m, n, initialized, then eleven signer slots. */

@@ -1,6 +1,6 @@
 /**
- * What actually arrived, read from the confirmed transaction (review BR-03). The quote is what
- * Jupiter expected; this is what the chain recorded, and it is what the page reports and keeps.
+ * What actually arrived, read from the confirmed transaction. The quote is what Jupiter
+ * expected; this is what the chain recorded, and it is what the page reports and keeps.
  */
 export type TokenBalance = { accountIndex: number; mint: string; owner?: string; uiTokenAmount: { amount: string } };
 
@@ -27,7 +27,7 @@ export function receivedFromMeta(
     const before = meta.preBalances[0];
     const after = meta.postBalances[0];
     if (before === undefined || after === undefined) return null;
-    // The market's account fee went out and most of it came back (FA-05): neither is swap output.
+    // The market's account fee went out and most of it came back: neither is swap output.
     // A Orientim fee taken from the output also left the wallet: what is counted is what it kept.
     return BigInt(after) - BigInt(before) + BigInt(meta.fee) + swap.routeRent - (swap.routeRefund ?? 0n);
   }

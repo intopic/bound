@@ -10,12 +10,12 @@ const ALLOWED = new Set([
 /** Stateless proxy for Jupiter's /build: fixed upstream, allowlisted parameters, key added server-side. */
 export async function proxyBuild(req: Request): Promise<Response> {
   const { disabled, jupiterApiKey } = serverConfig();
-  if (disabled) return Response.json({ error: 'Protected swaps are paused' }, { status: 503 }); // audit B-05
+  if (disabled) return Response.json({ error: 'Protected swaps are paused' }, { status: 503 });
   if (fromAnotherSite(req)) return Response.json({ error: "Orientim's proxy serves Orientim's own page" }, { status: 403 });
   if (rateLimited(`build:${clientKey(req)}`, 90)) return Response.json({ error: 'Too many requests' }, { status: 429 });
   const params = new URL(req.url).searchParams;
   for (const key of params.keys()) {
-    // `payer` in particular is refused: with payer = W, W appeared inside the swap (D12).
+    // `payer` in particular is refused: with payer = W, W appeared inside the swap.
     if (!ALLOWED.has(key)) return Response.json({ error: `Parameter ${key} is not allowed` }, { status: 400 });
   }
   if (params.get('wrapAndUnwrapSol') !== 'false') {

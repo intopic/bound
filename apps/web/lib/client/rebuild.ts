@@ -12,14 +12,14 @@ type Costs = {
 /** Orientim's fee when it is paid in SOL from the wallet; 0 otherwise. */
 const solFeeOf = (p: Costs) => (p.policy?.feeSide === 'sol' ? p.policy.fee : 0n);
 
-/** What the market keeps: the rent it takes, less what closing its account returns in the same transaction (FA-05). */
+/** What the market keeps: the rent it takes, less what closing its account returns in the same transaction. */
 export const keptByMarket = (p: Costs) => p.oneTimeCosts.routeRent - p.oneTimeCosts.routeRefund;
 
 /**
  * Does `next` cost more than `accepted`? The market's rent counts net of its refund, so a refund the
- * rebuild lost is a new cost even when the rent is the same (engineering review M-06); so are a
- * larger transfer tax, a delegate removal the user was not told about, and a fee in SOL that is new
- * or more than 2% higher (engineering audit S1-M-02; a price moves a little between builds).
+ * rebuild lost is a new cost even when the rent is the same; so are a larger transfer tax, a
+ * delegate removal the user was not told about, and a fee in SOL that is new or more than 2% higher
+ * (a price moves a little between builds).
  */
 export const costsMoreThan = (next: Costs, accepted: Costs) =>
   keptByMarket(next) > keptByMarket(accepted)

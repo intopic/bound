@@ -4,8 +4,8 @@ name: CPI
 # real Solana VM. Separate from CI because it needs the Rust and Solana toolchains.
 on:
   # When what T6 exercises changes (the transaction it builds, the verifier, its dependencies), on main
-  # and in pull requests; by hand otherwise. It used to run on every push to main (review FA-10), which
-  # a private repository's minutes do not afford.
+  # and in pull requests; by hand otherwise. Running it on every push to main would cost more minutes
+  # than a private repository's plan affords.
   push:
     branches: [main]
     paths:

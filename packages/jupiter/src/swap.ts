@@ -23,7 +23,7 @@ import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';
 import type { PriorityFeeLevel } from './priorityFee.ts';
 
 export type SwapSettings = OrientimConfig & {
-  /** DEXes that charge the taker persistent rent (D13). */
+  /** DEXes that charge the taker persistent rent. */
   excludeDexes: readonly string[];
   slippageBps: number;
   /**
@@ -39,7 +39,7 @@ export type SwapSettings = OrientimConfig & {
    */
   chosenSlippageBps?: number;
   /**
-   * How far below the unrestricted route a protected one may sit (D15). Under `askAboveBps` the
+   * How far below the unrestricted route a protected one may sit. Under `askAboveBps` the
    * swap proceeds; above it the user is told the difference and decides, with a stronger warning
    * past `warnAboveBps`. Orientim refuses on its own only past `badQuoteBps`, where the number is no
    * longer a price but a broken or manipulated answer.
@@ -85,7 +85,7 @@ const feeMintOf = (p: Pick<Policy, 'feeSide' | 'inputMint' | 'outputMint'>): Add
 export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'> = {
   feeBps: 30n,
   // 0.0005 SOL. Under congestion 0.0002 SOL clipped the priority fee and swaps expired more often
-  // than elsewhere (review FA-15); the verifier's own ceiling stays 0.001 SOL.
+  // than elsewhere; the verifier's own ceiling stays 0.001 SOL.
   maxNetworkFeeLamports: 500_000n,
   // HumidiFi opens a per-taker account whose rent (about 0.013 SOL) would be lost on every swap.
   // Pump.fun's two markets, PumpSwap and the bonding curve, do the same for about 0.0013–0.0015
@@ -114,12 +114,12 @@ export type SwapRequest = {
   amountIn: bigint;
   /**
    * The decimals the interface used to turn what the user typed into `amountIn` and to show
-   * amounts. They must equal the mints' on-chain decimals, or nothing is built (audit C-01).
+   * amounts. They must equal the mints' on-chain decimals, or nothing is built.
    */
   inputDecimals: number;
   outputDecimals: number;
   /**
-   * The minimum the user saw and accepted before clicking (audit C-02). Orientim enforces at least
+   * The minimum the user saw and accepted before clicking. Orientim enforces at least
    * this on chain. When the market no longer supports it, nothing is built: prepare stops with
    * `price-moved` and the new minimum, and the user decides.
    */
@@ -132,7 +132,7 @@ export type SwapRequest = {
   /**
    * The page's quote already showed a route through a Pump.fun bonding curve. Jupiter is then asked
    * at the curve tolerance first, which saves the second request (latency). Only a hint: a route
-   * that turns out not to be a curve route is asked for again at the usual tolerance (BR-01).
+   * that turns out not to be a curve route is asked for again at the usual tolerance.
    */
   expectCurve?: boolean;
   /**
@@ -150,12 +150,12 @@ export type PreparedSwap = {
   policy: Policy;
   version: TxVersion;
   transaction: Transaction;
-  /** The slot the blockhash was read at; a wallet's own simulation should not use older state (F-15). */
+  /** The slot the blockhash was read at; a wallet's own simulation should not use older state. */
   contextSlot: bigint;
   lifetime: Lifetime;
   size: number;
   computeUnits: number;
-  /** `minOut` is enforced by Orientim's own check after the swap (audit B-04), not only by Jupiter. */
+  /** `minOut` is enforced by Orientim's own check after the swap, not only by Jupiter. */
   quote: {
     inAmount: bigint; outAmount: bigint; minOut: bigint; route: string[]; priceImpactPct: number; baselineOut: bigint;
     /** What the wallet keeps at least: `minOut`, less a fee taken from the output. What to show. */
@@ -163,14 +163,14 @@ export type PreparedSwap = {
     /** How far below the unrestricted route this one sits, in bps: the cost of the protection. */
     gapBps: bigint;
   };
-  /** Rent this transaction moves out of W beyond the network fee, to show before signing (audit B-09, C-09). */
+  /** Rent this transaction moves out of W beyond the network fee, to show before signing. */
   /**
    * `routeRent`: SOL the route keeps as rent for an account it opens in the temporary key's name
    * (Pump.fun's per-buyer account). It does not come back, and it is shown before signing.
    */
   /**
    * `routeRefund`: what closing that account after the swap returns to the wallet in the same
-   * transaction (review FA-05); `routeRent` less `routeRefund` is what the market keeps.
+   * transaction; `routeRent` less `routeRefund` is what the market keeps.
    */
   oneTimeCosts: { outputAccountRent: bigint; routeRent: bigint; routeRefund: bigint };
   /** W_out's balance the minimum-output check was built on (B and C), to spot a stale build. */
@@ -179,10 +179,10 @@ export type PreparedSwap = {
   priorityFeeLamports: bigint;
   /**
    * The network asked for a higher priority fee than the limit allows, so this one was capped: the
-   * swap may take longer to land, or expire without executing (review FA-15).
+   * swap may take longer to land, or expire without executing.
    */
   priorityFeeCapped: boolean;
-  /** The network fee of this exact message, as the cluster prices it (audit B-12). */
+  /** The network fee of this exact message, as the cluster prices it. */
   networkFeeLamports: bigint;
   /** Side effects the user should be told about before signing. */
   notices: { removesDelegate: boolean };
@@ -205,15 +205,15 @@ export type OrientimErrorCode =
   | 'insufficient-sol'
   | 'costs-more' | 'simulation-failed'
   | 'verification-failed' | 'wallet-changed-transaction' | 'expired'
-  // The wallet's own account for the input token cannot send the amount (research audit F-09).
+  // The wallet's own account for the input token cannot send the amount.
   | 'insufficient-balance' | 'input-account-restricted'
   // Jupiter refused with 429 or did not answer: says nothing about the route or the token.
   | 'busy' | 'unavailable'
-  // Jupiter answered with an instruction Orientim cannot read: its format changed (research audit F-07).
+  // Jupiter answered with an instruction Orientim cannot read: its format changed.
   | 'route-format'
-  // Orientim's fee cannot be collected on this swap, so it is not built (final audit, item 9).
+  // Orientim's fee cannot be collected on this swap, so it is not built.
   | 'fee-unavailable' | 'amount-too-small'
-  // The network could not say how long the swap stays valid, so the wallet is not opened (M-04).
+  // The network could not say how long the swap stays valid, so the wallet is not opened.
   | 'network-unavailable';
 
 /** The treasury wallet does not exist yet (or cannot receive): Orientim's to fix, not the user's. */
@@ -263,7 +263,7 @@ export class OrientimError extends Error {
 
 /**
  * Jupiter's setup instructions show which ATA(E, m) the route expects to exist. We never run
- * Jupiter's setup (its payer is E, who holds no SOL); we recreate these ATAs ourselves (D14).
+ * Jupiter's setup (its payer is E, who holds no SOL); we recreate these ATAs ourselves.
  */
 export function intermediatesFromSetup(setup: readonly ApiInstruction[], policy: Policy): IntermediateAta[] {
   const ours = new Set<string>([policy.accounts.eIn, policy.accounts.eOut ?? '']);
@@ -314,7 +314,7 @@ type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps' | 'chosen
 /**
  * Does this route trade on a Pump.fun bonding curve? Jupiter's label says so, and the curve program
  * must also be among the swap instruction's accounts: a label alone is Jupiter's word, unchecked,
- * and it would widen the tolerance of any route it was put on (review BR-04).
+ * and it would widen the tolerance of any route it was put on.
  */
 export function isCurveRoute(r: Pick<BuildResponse, 'routePlan' | 'swapInstruction'>): boolean {
   return r.routePlan.some(p => p.swapInfo.label === BONDING_CURVE_LABEL)
@@ -346,7 +346,7 @@ export function quotedMinimum(
 }
 
 /**
- * The minimum Orientim enforces for a route (audit C-02): the quoted output less the slippage the user
+ * The minimum Orientim enforces for a route: the quoted output less the slippage the user
  * accepted, computed here and rounded down. Jupiter's own threshold can only make it stricter, never
  * weaker, so an answer with a tiny `otherAmountThreshold` cannot lower the floor.
  */
@@ -401,7 +401,7 @@ export async function feeInSol(
 
 /**
  * Jupiter's instruction with its own floor raised to Orientim's minimum, when the minimum the user
- * accepted is above the route's (engineering review H-03). Jupiter's floor counts only what its
+ * accepted is above the route's. Jupiter's floor counts only what its
  * route delivered to the output account, so it holds when other tokens reach that account at the
  * same moment, where Orientim's balance check alone would count them. Only the tolerance changes, and
  * only as far as the minimum needs; a route whose quote is below the minimum is left for the
@@ -483,7 +483,7 @@ const PUMP_SLIPPAGE_ERRORS: readonly (readonly [string, readonly string[]])[] = 
 /**
  * Did the route stop itself because it would deliver less than its own threshold? That is
  * Jupiter's error 6001, SlippageToleranceExceeded, or the same check inside a Pump.fun market
- * (research audit): the price moved between the quote and the simulation. The market is working and
+ * the price moved between the quote and the simulation. The market is working and
  * the quote is stale, so like a miss at Orientim's own minimum it calls for a fresh quote, not for
  * leaving the market out. On a token that trades in one place only, a Pump.fun bonding curve,
  * leaving it out means no route at all.
@@ -569,7 +569,7 @@ async function latestLifetime(rpc: SolanaRpc): Promise<Lifetime> {
   return (await latestLifetimeAt(rpc)).lifetime;
 }
 
-/** A fresh blockhash, and the slot the RPC read it at (for the wallet's own simulation, F-15). */
+/** A fresh blockhash, and the slot the RPC read it at (for the wallet's own simulation). */
 async function latestLifetimeAt(rpc: SolanaRpc): Promise<{ lifetime: Lifetime; contextSlot: bigint }> {
   const { context, value } = await rpc.getLatestBlockhash({ commitment: 'confirmed' }).send();
   return {
@@ -613,13 +613,13 @@ export async function prepareProtectedSwap(deps: {
     : [];
   const wOutCandidates = variant === 'A' ? [] : await Promise.all(bothPrograms.map(tp => ataOf(req.owner, req.outputMint, tp)));
   const wInCandidates = variant === 'B' ? [] : await Promise.all(bothPrograms.map(tp => ataOf(req.owner, req.inputMint, tp)));
-  // From the cluster, since it changed in 2026 (audit C-09). If the RPC cannot answer, the
+  // From the cluster, since it changed in 2026. If the RPC cannot answer, the
   // pre-2026 value is shown, which is an upper bound.
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
     .then(BigInt)
     .catch(() => TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS);
   // A fee in SOL goes to the treasury wallet itself, so it is read whenever there is a treasury: SOL
-  // on either side pays there (BR-06, below), and so does a pair no token of which can carry the fee.
+  // on either side pays there (see below), and so does a pair no token of which can carry the fee.
   // A fee on a USDC or USDT output goes to the treasury's account for it.
   const treasuryWallet = settings.treasury ? [settings.treasury] : [];
   const outputFeeCandidates = settings.treasury && req.outputMint !== WSOL_MINT && FEE_TOKENS.includes(req.outputMint)
@@ -674,7 +674,7 @@ export async function prepareProtectedSwap(deps: {
       : outputAccountSize === TOKEN_2022_ACCOUNT_SIZE ? extendedRent
         : await rentFor(outputAccountSize);
   // The amount the user typed was converted with `inputDecimals`; if the chain disagrees, the
-  // wallet would be asked for a different amount than the one shown (audit C-01).
+  // wallet would be asked for a different amount than the one shown.
   for (const [m, shown] of [[req.inputMint, req.inputDecimals], [req.outputMint, req.outputDecimals]] as const) {
     if (mints.get(m)!.decimals !== shown) {
       throw new OrientimError('token-data-mismatch', `The token data for ${m} does not match the chain. Nothing was built; reload and try again.`);
@@ -682,14 +682,14 @@ export async function prepareProtectedSwap(deps: {
   }
 
   // A token account frozen by its issuer (a stablecoin's blacklist, say) cannot receive: a frozen fee
-  // account is treated like a missing one, and the fee goes to the next side in line (FA-12).
+  // account is treated like a missing one, and the fee goes to the next side in line.
   const frozen = (s: { data: Uint8Array } | null | undefined) => !!s && s.data.length >= TOKEN_ACCOUNT_SIZE && s.data[108] === 2;
   const feeAccountExists = feeAccount ? !!firstReads.get(feeAccount) && !frozen(firstReads.get(feeAccount)) : true;
   const outputFeeAccount = outputFeeCandidates.length ? await ataOf(settings.treasury!, req.outputMint, outputTokenProgram) : null;
   const outputFeeAccountExists = !!outputFeeAccount && !!firstReads.get(outputFeeAccount) && !frozen(firstReads.get(outputFeeAccount));
   // A SOL fee into a treasury wallet that does not exist yet would open it below the rent minimum,
   // which the runtime refuses, and every small swap would revert. Until the wallet exists the fee
-  // is taken in the next token in line, or the swap is refused (review BR-06; audit B-09; item 9).
+  // is taken in the next token in line, or the swap is refused.
   const treasuryWalletReady = treasuryWallet.length > 0 && !!firstReads.get(settings.treasury!);
   // A pair that neither token can carry the fee for pays it in SOL from the wallet: feeBps of what the
   // swap is worth in SOL, asked of Jupiter now, like the route itself. A pair Jupiter cannot price in
@@ -724,14 +724,14 @@ export async function prepareProtectedSwap(deps: {
     treasuryWalletReady,
     solFee,
   });
-  // Every swap a deployment with a treasury builds pays Orientim's fee (the owner's rule; final audit,
-  // item 9). Test mode, without a treasury, is the only fee-free mode: a swap whose fee cannot be
-  // collected is refused, never built for free.
+  // Every swap a deployment with a treasury builds pays Orientim's fee. Test mode, without a
+  // treasury, is the only fee-free mode: a swap whose fee cannot be collected is refused, never
+  // built for free.
   if (settings.treasury && policy.feeSide === null) {
     throw new OrientimError('fee-unavailable', treasuryWalletReady ? FEE_UNPRICED_MESSAGE : FEE_UNAVAILABLE_MESSAGE);
   }
   if (settings.treasury && policy.feeSide !== 'output' && policy.fee <= 0n) throw new OrientimError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
-  // The smallest swap, so that none costs more to build than its fee brings (the owner's rule).
+  // The smallest swap, so that none costs more to build than its fee brings.
   if (settings.treasury && policy.feeSide !== 'output' && belowMinFee(policy.fee, feeMintOf(policy), settings.minFee)) {
     throw new OrientimError('amount-too-small', MIN_SWAP_MESSAGE);
   }
@@ -744,7 +744,7 @@ export async function prepareProtectedSwap(deps: {
 
   // W_in is the one account of W that Orientim's own transfer draws on. Frozen or short, that transfer
   // fails before the swap, which would read as a broken route and exclude every market on it; say
-  // what it is instead (research audit F-09).
+  // what it is instead.
   if (policy.accounts.wIn) {
     const state = firstReads.get(policy.accounts.wIn);
     if (frozen(state)) {
@@ -763,7 +763,7 @@ export async function prepareProtectedSwap(deps: {
   }
 
   // W_out is the only account of W the swap sees. A delegate is revoked in the transaction, but a
-  // close authority cannot be, so such an account is refused up front (audit B-03).
+  // close authority cannot be, so such an account is refused up front.
   let wOutBefore: { exists: boolean; balance: bigint } = { exists: false, balance: 0n };
   let removesDelegate = false;
   if (policy.accounts.wOut) {
@@ -787,7 +787,7 @@ export async function prepareProtectedSwap(deps: {
         'Your account for the output token requires a memo on every incoming transfer, which a swap cannot provide.',
       );
     }
-    // The trusted Revoke also removes a delegate the user set up on purpose: say so (review, B-03).
+    // The trusted Revoke also removes a delegate the user set up on purpose: say so.
     removesDelegate = !!view && view.getUint32(72, true) === 1;
     wOutBefore = { exists: !!state, balance: tokenAmountOf(state?.data) };
   }
@@ -798,7 +798,7 @@ export async function prepareProtectedSwap(deps: {
     amount: arriving,
     taker: E,
     // Each route is built at its own tolerance, so that Jupiter's program enforces a second floor on
-    // chain that does not depend on the balance Orientim read from the RPC (review BR-01). A curve route
+    // chain that does not depend on the balance Orientim read from the RPC. A curve route
     // is asked for again at the curve tolerance once it is known to be one.
     slippageBps: settings.chosenSlippageBps ?? (req.expectCurve ? settings.curveSlippageBps : settings.slippageBps),
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
@@ -814,7 +814,7 @@ export async function prepareProtectedSwap(deps: {
       if (e instanceof JupiterError) {
         if (e.status === 429) throw new OrientimError('busy', BUSY_MESSAGE);
         // Jupiter answers "No routes found" with 400. A refused key or an endpoint that is gone is
-        // Orientim's to fix, not the pair's, so it is not reported as a missing route (research audit F-08).
+        // Orientim's to fix, not the pair's, so it is not reported as a missing route.
         if ([401, 403, 404, 410].includes(e.status)) {
           console.error(`Jupiter refused Orientim's request with HTTP ${e.status}: ${e.message}`);
           throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
@@ -826,8 +826,7 @@ export async function prepareProtectedSwap(deps: {
       throw e;
     }
   };
-  // Jupiter is untrusted: an answer for another pair or another amount is not a quote for this
-  // swap (audit C-02).
+  // Jupiter is untrusted: an answer for another pair or another amount is not a quote for this swap.
   const answersThisRequest = (r: BuildResponse) =>
     r.inputMint === req.inputMint && r.outputMint === req.outputMint && BigInt(r.inAmount) === arriving;
   // The unrestricted baseline, the first protected route, the blockhash and the DEX labels do not
@@ -860,7 +859,7 @@ export async function prepareProtectedSwap(deps: {
   // The narrowest route level still worth trying: raised when a route fits only without closing the
   // account a market opened under E, so that the next attempt looks for one that fits with it.
   let minLevel = 0;
-  // What is left under E after the swap, watched in the final simulation (final audit, H-01): E, the
+  // What is left under E after the swap, watched in the final simulation: E, the
   // account each Pump market opens in E's name, and the token accounts those hold cashback in. The
   // agent's check watches the same (skill, leftUnderKey); the page and the API now hold to it too.
   const underKey: Address[] = await (async () => {
@@ -868,8 +867,8 @@ export async function prepareProtectedSwap(deps: {
     const cashback = await Promise.all(markets.flatMap(m => [WSOL_MINT, USDC_MINT].map(mint => ataOf(m, mint))));
     return [E, ...markets, ...cashback];
   })();
-  // Orientim computes each route's floor itself and enforces it on chain, never below what the user
-  // accepted (audit B-04, C-02).
+  // Orientim computes each route's floor itself and enforces it on chain, never below what the
+  // user accepted.
   const accepted = req.acceptedMinReceived !== undefined
     ? (policy.feeSide === 'output' ? minimumForReceived(req.acceptedMinReceived, policy.feeBps) : req.acceptedMinReceived)
     : req.acceptedMinOut ?? 0n;
@@ -878,7 +877,7 @@ export async function prepareProtectedSwap(deps: {
   const floorOf = (r: BuildResponse) => strictMinimumOutput(r, slippageFor(r, settings), accepted);
   // Rent the chosen route needs E to pay, measured in simulation (see `measureTakerRent`).
   let takerRent = 0n;
-  // Pump's per-buyer account under E, closed after the swap and returned to W (FA-05).
+  // Pump's per-buyer account under E, closed after the swap and returned to W.
   let routeRefund: RouteRefund | null = null;
   const policyFor = (r: BuildResponse) => withRouteRefund(withTakerRent(withMinOut(policy, floorOf(r)), takerRent), routeRefund);
   const priceMoved = (r: BuildResponse) =>
@@ -931,7 +930,7 @@ export async function prepareProtectedSwap(deps: {
   const failedInSwap = (s: Simulation, tx: Transaction, lookups: Record<string, string[]> | null) =>
     programAt(tx, s.failedInstruction, lookups) === settings.jupiterProgram;
   /**
-   * Did the simulation fail because the wallet itself is short of SOL (review BR-10)? The network
+   * Did the simulation fail because the wallet itself is short of SOL? The network
    * fee, a new account's rent and the SOL being swapped all leave W before the swap runs. Blaming the
    * route for that would exclude every DEX on it and tell the user that no route works.
    */
@@ -952,7 +951,7 @@ export async function prepareProtectedSwap(deps: {
     const temporaryAccounts = BigInt(1 + (variant === 'A' ? 1 : 0) + intermediateCount);
     const need = (variant === 'B' ? req.amountIn : 0n) + temporaryAccounts * temporaryRent
       + (policy.accounts.wOut && !wOutBefore.exists ? newAccountRent : 0n) + routeRent + settings.maxNetworkFeeLamports + reserve
-      // A fee in SOL is paid from the wallet up front (engineering audit, Stage 1, L-01).
+      // A fee in SOL is paid from the wallet up front.
       + (policy.feeSide === 'sol' ? policy.fee : 0n);
     return new OrientimError(
       'insufficient-sol',
@@ -970,7 +969,7 @@ export async function prepareProtectedSwap(deps: {
       policy: policyFor(r),
       outputBalanceBefore,
       // Jupiter's own floor covers the whole minimum, also when the user accepted more than the
-      // route's floor (engineering review H-03).
+      // route's floor.
       swapInstruction: withFloorAtLeast(toKitInstruction(r.swapInstruction), policyFor(r).minOut),
       intermediates,
       version: req.version,
@@ -1018,7 +1017,7 @@ export async function prepareProtectedSwap(deps: {
     let chosen: { r: BuildResponse; intermediates: IntermediateAta[]; level: number } | null = null;
     let chosenGapBps = 0n;
     let sawBadQuote = false;
-    /** Jupiter answered with an instruction Orientim cannot read: its format changed (F-07). */
+    /** Jupiter answered with an instruction Orientim cannot read: its format changed. */
     let sawUnknownFormat = false;
     // A route priced right but too big for one transaction is the usual outcome for a large
     // amount: Solana allows 64 accounts per transaction, and Orientim's own instructions need a
@@ -1032,9 +1031,9 @@ export async function prepareProtectedSwap(deps: {
       if (level < minLevel) continue;
       let r = attempt === 0 && level === 0 && minLevel === 0 ? await firstRouteTask : await buildOrNull(maxAccounts, excluded);
       if (!r) continue;
-      // Every route is built at its own tolerance, so Jupiter's threshold matches Orientim's floor
-      // (BR-01). A route asked for at the other one is asked for again; if the answer changes
-      // kind on the way, this level is skipped rather than built at a mismatched tolerance.
+      // Every route is built at its own tolerance, so Jupiter's threshold matches Orientim's floor.
+      // A route asked for at the other one is asked for again; if the answer changes kind on the
+      // way, this level is skipped rather than built at a mismatched tolerance.
       const own = slippageFor(r, settings);
       if (own !== buildBase.slippageBps) {
         const again = await buildOrNull(maxAccounts, excluded, own);
@@ -1042,7 +1041,7 @@ export async function prepareProtectedSwap(deps: {
         r = again;
       }
       if (!answersThisRequest(r)) { sawBadQuote = true; continue; }
-      // What Jupiter's program will enforce must be what its answer says (review FA-03): the amount
+      // What Jupiter's program will enforce must be what its answer says: the amount
       // in, the quote and the tolerance this route was asked for. The verifier checks the ceilings.
       const args = jupiterRouteArgs(toKitInstruction(r.swapInstruction).data ?? new Uint8Array());
       if (!args) { sawUnknownFormat = true; continue; }
@@ -1118,7 +1117,7 @@ export async function prepareProtectedSwap(deps: {
     // Pump.fun's markets do, once per buyer. E holds no SOL on purpose, so such a route fails for
     // want of lamports.
     // Measure exactly what it needs and send E that and no more; see `measureTakerRent`. Only a
-    // failure inside the swap is the route's: one before it is the wallet's own (review BR-10).
+    // failure inside the swap is the route's: one before it is the wallet's own.
     const lookups = chosen.r.addressesByLookupTableAddress;
     let probedForRent = !!early;
     if (!early && !sim.ok && failedInSwap(sim, trial.transaction, lookups) && sim.logs.some(l => l.includes('insufficient lamports'))) {
@@ -1133,19 +1132,19 @@ export async function prepareProtectedSwap(deps: {
       throw await insufficientSol(chosen.intermediates.length, probedForRent && takerRent === 0n ? MAX_TAKER_RENT_LAMPORTS : takerRent);
     }
     // The account the market opened in E's name holds most of that rent. It is closed after the swap,
-    // once E owns no token account, and its lamports go on to W (review FA-05). What it holds comes
+    // once E owns no token account, and its lamports go on to W. What it holds comes
     // from the simulation that measured the rent; the swap with the close is simulated once more and
     // must leave E with nothing. If any of that fails, this route is not offered, and a narrower one
-    // is tried (final audit, H-01). Only an account that holds exactly its rent can be closed: one
-    // that also holds cashback (Pump's cashback coins) would make the exact refund depend on the price
-    // at landing (research audit F-03), so such a route is refused, never left with value under E.
-    // Rent a route takes for an account of any other market is caught by the final simulation, which
-    // refuses every account the route opens and leaves open (third audit, F5).
+    // is tried. Only an account that holds exactly its rent can be closed: one that also holds
+    // cashback (Pump's cashback coins) would make the exact refund depend on the price at landing,
+    // so such a route is refused, never left with value under E. Rent a route takes for an account
+    // of any other market is caught by the final simulation, which refuses every account the route
+    // opens and leaves open.
     if (sim.ok && takerRent > 0n && opened) {
       const held = sim.lamportsAfter[1] ?? 0n;
       const rentOnly = held > 0n && held === await rentFor(sim.sizesAfter[1] ?? 0);
       // Holding more than its rent (a cashback coin's account), what it holds depends on the price at
-      // landing, so no exact refund can be written: that route would leave value under E (H-01).
+      // landing, so no exact refund can be written: that route would leave value under E.
       if (!rentOnly || held > MAX_TAKER_RENT_LAMPORTS) throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
       {
         routeRefund = { ...opened, lamports: held };
@@ -1166,7 +1165,7 @@ export async function prepareProtectedSwap(deps: {
           sim = closed;
         } else {
           // The close does not fit, or does not return everything: this route is not offered. A
-          // narrower one may leave room for it (final audit, H-01); the next attempt looks there.
+          // narrower one may leave room for it; the next attempt looks there.
           routeRefund = null;
           const why = !withClose ? `the close does not fit: ${closeSize}`
             : !closed?.ok ? `the close fails: ${closed?.error ?? 'no answer'}` : `E keeps ${closed.lamportsAfter[0]} lamports`;
@@ -1182,7 +1181,7 @@ export async function prepareProtectedSwap(deps: {
     if (sim.ok) {
       const chosenPolicy = policyFor(chosen.r);
       // A fee on the output is a share of the minimum, known only now: a swap too small to carry it
-      // is refused like any other swap whose fee cannot be collected (final audit, item 9).
+      // is refused like any other swap whose fee cannot be collected.
       if (settings.treasury && chosenPolicy.fee <= 0n) throw new OrientimError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
       if (settings.treasury && belowMinFee(chosenPolicy.fee, feeMintOf(chosenPolicy), settings.minFee)) {
         throw new OrientimError('amount-too-small', MIN_SWAP_MESSAGE);
@@ -1195,7 +1194,7 @@ export async function prepareProtectedSwap(deps: {
           rpc,
           addresses: [
             ...swapAccounts, E, policy.accounts.eIn, ...(policy.accounts.eOut ? [policy.accounts.eOut] : []),
-            // W_out explicitly, not only when Jupiter happens to list it (audit B-03).
+            // W_out explicitly, not only when Jupiter happens to list it.
             ...(policy.accounts.wOut ? [policy.accounts.wOut] : []),
             ...chosen.intermediates.flatMap(x => [x.ata, x.mint]), req.inputMint, req.outputMint,
           ],
@@ -1237,7 +1236,7 @@ export async function prepareProtectedSwap(deps: {
       const certification = await certify(final.transaction, chosenPolicy, snapshot, { maxSlippageBps: settings.chosenSlippageBps });
       localMs += performance.now() - verifyStarted;
       const verdict = certification.ok ? { ok: true, violations: [] as Violation[] } : { ok: false, violations: certification.violations };
-      // A route through a Token-2022 hop with a transfer hook or permanent delegate (B-10) is not
+      // A route through a Token-2022 hop with a transfer hook or permanent delegate is not
       // an error of the pair: exclude that route's DEXes and look for another one.
       if (!verdict.ok && verdict.violations.every(v => v.rule === 'R7' && v.detail.startsWith('intermediate mint'))) {
         attempts[attempts.length - 1].simulation = 'refused hop mint';
@@ -1250,7 +1249,7 @@ export async function prepareProtectedSwap(deps: {
         throw new OrientimError('verification-failed', 'A protected transaction cannot be produced.', verdict.violations);
       }
 
-      // The cluster prices the exact message (audit B-12). Fail closed: without a price there is
+      // The cluster prices the exact message. Fail closed: without a price there is
       // no proof that the fee stays under the limit, so nothing goes to the wallet.
       const feeLimit = chosenPolicy.maxNetworkFeeLamports < ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS
         ? chosenPolicy.maxNetworkFeeLamports
@@ -1275,12 +1274,11 @@ export async function prepareProtectedSwap(deps: {
       const createsOutputAccount = !!policy.accounts.wOut && !snapshot.accounts.get(policy.accounts.wOut);
       if (!certification.ok) throw new OrientimError('verification-failed', 'A protected transaction cannot be produced.', certification.violations);
 
-      // The exact transaction the wallet will sign, simulated once more (final audit, H-01, and the
-      // shared contract's point 4): it must execute, and leave nothing under E. A simulation that
-      // does not report those accounts reads as failed, never as empty. Watched with them: every
-      // account the route is given that did not exist before the swap, besides the wallet's own output
-      // account and the treasury. What a market opens and leaves open may hold a claim tied to E,
-      // whichever market it is, so none may stay open (third audit, F5).
+      // The exact transaction the wallet will sign, simulated once more: it must execute, and leave
+      // nothing under E. A simulation that does not report those accounts reads as failed, never as
+      // empty. Watched with them: every account the route is given that did not exist before the
+      // swap, besides the wallet's own output account and the treasury. What a market opens and
+      // leaves open may hold a claim tied to E, whichever market it is, so none may stay open.
       const existed = (a: Address) => {
         const state = snapshot.accounts.get(a);
         return !!state && (state.lamports > 0n || state.data.length > 0);
@@ -1359,7 +1357,7 @@ export async function prepareProtectedSwap(deps: {
     }
 
     // A failure before the swap is in Orientim's own instructions, which draw only on the wallet: no
-    // route is to blame and no other route would fare better (research audit F-09).
+    // route is to blame and no other route would fare better.
     const swapAt = compiledInstructions(trial.transaction).findIndex(ix => ix.program === settings.jupiterProgram);
     if (sim.failedInstruction !== null && swapAt >= 0 && sim.failedInstruction < swapAt) {
       throw new OrientimError(
@@ -1368,7 +1366,7 @@ export async function prepareProtectedSwap(deps: {
       );
     }
 
-    // Route repair (D15): exclude the DEX to blame; if our own cleanup failed, the route left
+    // Route repair: exclude the DEX to blame; if our own cleanup failed, the route left
     // funds behind, so exclude every DEX on it.
     const before = learned.length;
     const blamedLabel = sim.blame && !isInfrastructureProgram(sim.blame) ? labels[sim.blame] : null;
@@ -1378,7 +1376,7 @@ export async function prepareProtectedSwap(deps: {
     if (learned.length === before) break;
   }
   // Every route tried could not return the deposit its market kept under E: that is the reason, not
-  // a failed simulation (final audit, H-01).
+  // a failed simulation.
   if (attempts.length && attempts.every(a => a.simulation.startsWith("the market's account under the one-time key"))) {
     throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
   }
@@ -1394,7 +1392,7 @@ export type Countersignable = {
 
 /**
  * The wallet has signed first. Check that it signed exactly the verified message, still in its
- * lifetime, then E signs last (D4). Without E's signature the transaction can never execute, so
+ * lifetime, then E signs last. Without E's signature the transaction can never execute, so
  * this is the only place a Orientim transaction becomes sendable.
  */
 export async function countersignProtectedSwap(args: {
@@ -1404,7 +1402,7 @@ export async function countersignProtectedSwap(args: {
   ephemeral: KeyPairSigner;
   /**
    * The chain already has this transaction, so its lifetime no longer matters: the agent API answers
-   * a repeated finalize with the same signed bytes and sends nothing (engineering review H-01).
+   * a repeated finalize with the same signed bytes and sends nothing.
    */
   landed?: boolean;
 }): Promise<FullySignedTransaction & Transaction> {

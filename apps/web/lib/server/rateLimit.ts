@@ -1,6 +1,6 @@
 /**
  * Fixed-window rate limit kept in memory, per instance. Nothing is persisted and nothing about the
- * request body is recorded (D8): only a counter per client key for the current window.
+ * request body is recorded: only a counter per client key for the current window.
  *
  * This is a local layer only. A limit that holds across instances belongs to the hosting
  * platform's own rate-limit rules (e.g. the Vercel firewall), not to a database of ours.
@@ -19,12 +19,12 @@ export const fromAnotherSite = (req: Request) => req.headers.get('sec-fetch-site
 
 export function rateLimited(key: string, limit: number, windowMs = 60_000): boolean {
   const now = Date.now();
-  // Sweep expired windows at most once a minute instead of scanning inside every request (B-06).
+  // Sweep expired windows at most once a minute instead of scanning inside every request.
   if (now >= nextSweep) {
     for (const [k, w] of windows) if (w.resetAt <= now) windows.delete(k);
     nextSweep = now + 60_000;
   }
-  // Under a flood of new keys, drop the oldest windows instead of resetting everyone (C-04).
+  // Under a flood of new keys, drop the oldest windows instead of resetting everyone.
   if (windows.size >= MAX_KEYS && !windows.has(key)) {
     let drop = Math.ceil(MAX_KEYS / 10);
     for (const k of windows.keys()) {
@@ -50,7 +50,7 @@ export function secondsUntilReset(key: string): number {
 }
 
 /**
- * The client address, from the one header the deployment's ingress overwrites (audit B-06, C-04).
+ * The client address, from the one header the deployment's ingress overwrites.
  * Which header that is depends on where Orientim runs, so it is configuration, never a guess:
  * `ORIENTIM_CLIENT_IP_HEADER` (default `x-vercel-forwarded-for`, which Vercel sets itself; behind
  * Cloudflare use `cf-connecting-ip`). Any other client-supplied header is ignored. Without the

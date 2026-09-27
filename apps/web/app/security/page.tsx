@@ -26,7 +26,7 @@ const SUPPORTED: [string, string][] = [
 
 /**
  * What the product promises, in the words a person swapping needs, and no more than the code
- * enforces (README, SECURITY.md). A trust page for people who never read a repository (final audit, M3).
+ * enforces (README, SECURITY.md). A trust page for people who never read a repository.
  */
 export default async function Page() {
   signPageChunks('security/page');

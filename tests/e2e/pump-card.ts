@@ -1,5 +1,5 @@
 /**
- * The costs a Pump.fun buy shows before the wallet opens (review FA-05), in a real browser (Edge)
+ * The costs a Pump.fun buy shows before the wallet opens, in a real browser (Edge)
  * against a production build: the market's per-buyer account is closed in the same swap, so the card
  * must say how much of the market's charge comes back. When all of it comes back (PumpSwap, or a curve
  * that does not grow), there is nothing to ask and the wallet opens directly. SOL → Pump.fun tokens

@@ -14,7 +14,7 @@ import type { SignatureBytes } from '@solana/kit';
  * happens in minutes, must not end keys meant to last months.
  */
 export const KEY_PREFIX = 'ori_w1.';
-/** A key lives this long; the wallet signs again for a new one (90 days: independent audit, ORI-12). */
+/** A key lives this long; the wallet signs again for a new one (90 days). */
 export const KEY_LIFETIME_S = 90 * 24 * 3600;
 /** A challenge must be signed within this long. */
 export const CHALLENGE_LIFETIME_S = 10 * 60;
@@ -119,7 +119,7 @@ export async function issueKey(secret: Uint8Array, wallet: string, now: number):
 /**
  * Is a key of `wallet` issued at `iat` revoked? ORIENTIM_API_REVOKED lists `wallet` (all its keys) or
  * `wallet@seconds` (its keys issued at or before that time, so that its owner can sign again for a
- * new one: independent audit, ORI-12).
+ * new one).
  */
 export function isRevoked(revoked: ReadonlySet<string>, wallet: string, iat: number): boolean {
   if (revoked.has(wallet)) return true;

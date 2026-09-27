@@ -19,7 +19,7 @@ export type AccessDeps = {
   minLamports: bigint;
   /**
    * The site the message names (ORIENTIM_PUBLIC_ORIGIN, e.g. https://orientim.com), whatever host a
-   * request claims; the request's own when unset, as on a machine of one's own (ORI-12).
+   * request claims; the request's own when unset, as on a machine of one's own.
    */
   origin?: string | null;
   now?: () => number;

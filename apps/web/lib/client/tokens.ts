@@ -39,7 +39,7 @@ export const POPULAR = [
 export const isSupported = (t: TokenInfo) => t.tokenProgram === TOKEN_PROGRAM || t.tokenProgram === TOKEN_2022_PROGRAM;
 
 /**
- * What the chain says about a mint. These, not token metadata, convert amounts (audit C-01).
+ * What the chain says about a mint. These, not token metadata, convert amounts.
  * `unsupported` names the extension that makes a protected swap impossible, and comes from the
  * verifier itself, so the page and the rules cannot disagree.
  */
@@ -156,9 +156,9 @@ export async function searchTokens(query: string): Promise<TokenInfo[]> {
  * Warnings about the token itself. Orientim protects the wallet, not the value of what you buy.
  *
  * For a token Jupiter has not verified, including a pasted one it does not list, the authorities
- * come from the mint account, not from metadata (review BR-11). For a verified token Jupiter's audit
- * decides, as before: the regulated stablecoins all keep a freeze authority, and a warning on every
- * USDC swap would teach people to skip warnings.
+ * come from the mint account, not from metadata. For a verified token Jupiter's audit decides: the
+ * regulated stablecoins all keep a freeze authority, and a warning on every USDC swap would teach
+ * people to skip warnings.
  */
 export function tokenWarnings(t: TokenInfo, facts?: Pick<MintFacts, 'freezeAuthority' | 'mintAuthority'> | null): string[] {
   const w: string[] = [];
@@ -171,6 +171,6 @@ export function tokenWarnings(t: TokenInfo, facts?: Pick<MintFacts, 'freezeAutho
   return w;
 }
 
-/** A USD price is only used when it is a real, positive number (second review, C-01). */
+/** A USD price is only used when it is a real, positive number. */
 export const usablePrice = (t: TokenInfo | null) =>
   t && typeof t.usdPrice === 'number' && Number.isFinite(t.usdPrice) && t.usdPrice > 0 ? t.usdPrice : null;

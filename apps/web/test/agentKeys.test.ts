@@ -161,7 +161,7 @@ describe('a self-serve key in the agent API', () => {
   });
 });
 
-describe('the independent audit of 26 September (ORI-12, ORI-13)', () => {
+describe('self-serve keys: the site, revocation and secrets', () => {
   const balance = { getBalance: () => ({ send: async () => ({ value: 20_000_000n }) }) } as unknown as AccessDeps['rpc'];
   const site = (origin: string | null): AccessDeps => ({ rpc: balance, keySecrets: [secret(8)], minLamports: 10_000_000n, origin, now: () => NOW * 1000 });
   let ip = 0;

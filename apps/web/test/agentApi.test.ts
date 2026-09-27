@@ -113,7 +113,7 @@ describe('prepare', () => {
     expect(opened?.ticket.msg).toBe(p.messageSha256);
     expect(opened?.ticket.key).toBe('agent-one');
     expect(Object.keys(tx.signatures).sort()).toEqual([w.W.address, p.temporaryAuthority].sort());
-    // What the transaction has left to live, in blocks (research audit F-05): the fake chain is at 1.
+    // What the transaction has left to live, in blocks: the fake chain is at 1.
     expect((p as unknown as { blocksLeft: string }).blocksLeft).toBe('999');
   });
 
@@ -154,7 +154,7 @@ describe('prepare', () => {
     }
   });
 
-  it("Jupiter's format changing is a 503 to retry much later, not a price (research audit F-07)", async () => {
+  it("Jupiter's format changing is a 503 to retry much later, not a price", async () => {
     const w = await world({ jupiter: fakeJupiter({ unknownFormat: true }) });
     const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
     expect(res.status).toBe(503);
@@ -194,7 +194,7 @@ describe('prepare', () => {
     const body = await res.json();
     expect(body.error.code).toBe('price-moved');
     expect(BigInt(body.error.newMinOut)).toBeGreaterThan(0n);
-    // A new authorization, not a retry, in a field a program reads (engineering review, section 5).
+    // A new authorization, not a retry, in a field a program reads.
     expect(body.error.requiresApproval).toBe(true);
   });
 
@@ -355,9 +355,9 @@ describe('finalize', () => {
   });
 });
 
-describe('a finalize repeated after its answer was lost (engineering review H-01)', () => {
-  // A swap into BONK: once it lands the output balance has moved, which used to answer "prepare
-  // again", and an agent that did would have swapped twice.
+describe('a finalize repeated after its answer was lost', () => {
+  // A swap into BONK: once it lands the output balance has moved, which must not be answered
+  // with "prepare again": an agent that did would swap twice.
   async function landedSwap() {
     const w = await world({ landOnSend: true });
     const res = await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps);
@@ -445,8 +445,8 @@ describe('E, derived rather than stored', () => {
   });
 });
 
-describe('review fixes on the API', () => {
-  it('a swap into a token whose balance moved since prepare is not signed (FA-04)', async () => {
+describe('further safeguards on the API', () => {
+  it('a swap into a token whose balance moved since prepare is not signed', async () => {
     const w = await world();
     const res = await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps);
     expect(res.status).toBe(200);
@@ -461,7 +461,7 @@ describe('review fixes on the API', () => {
     expect(r.status).toBe(409);
     const { error } = await r.json();
     expect(error.code).toBe('output-balance-changed');
-    // What this request did, and the transaction an earlier finalize may have sent (H-01).
+    // What this request did, and the transaction an earlier finalize may have sent.
     expect(error.signature).toBe(signatureOf(signed));
     expect(error.lastValidBlockHeight).toBe('1000');
     expect(error.message).toContain('this request signed and sent nothing');
@@ -469,7 +469,7 @@ describe('review fixes on the API', () => {
     expect(w.sent).toHaveLength(0);
   });
 
-  it('a finalize refused by the network hands back no transaction to broadcast (FA-08)', async () => {
+  it('a finalize refused by the network hands back no transaction to broadcast', async () => {
     const preflight = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
     const w = await world({ sendError: preflight });
     const p = await prepared(w);
@@ -478,7 +478,7 @@ describe('review fixes on the API', () => {
     expect(body.signedTransaction).toBeUndefined();
   });
 
-  it('a fee-free swap says 0 bps, not the configured fee (FA-16)', async () => {
+  it('a fee-free swap says 0 bps, not the configured fee', async () => {
     const w = await world({ treasury: null });
     const p = await prepared(w);
     expect(p.amounts.fee).toBe('0');
@@ -487,7 +487,7 @@ describe('review fixes on the API', () => {
 });
 
 describe('API keys from the environment', () => {
-  it('a fee above the verifier\'s ceiling turns the API off instead of charging another (engineering audit L-01)', async () => {
+  it('a fee above the verifier\'s ceiling turns the API off instead of charging another', async () => {
     const { agentDeps } = await import('../lib/server/agent/config.ts');
     process.env.ORIENTIM_API_SECRET = Buffer.alloc(32, 1).toString('base64');
     process.env.ORIENTIM_API_KEYS = `a:${sha('key-one')}`;
@@ -503,7 +503,7 @@ describe('API keys from the environment', () => {
     }
   });
 
-  it('two keys with one id: the first one wins, so they never share tickets and limits (FA-16)', async () => {
+  it('two keys with one id: the first one wins, so they never share tickets and limits', async () => {
     const { agentDeps } = await import('../lib/server/agent/config.ts');
     process.env.ORIENTIM_API_SECRET = Buffer.alloc(32, 1).toString('base64');
     process.env.ORIENTIM_API_KEYS = `a:${sha('key-one')},a:${sha('key-two')},b:${sha('key-three')}`;
@@ -541,7 +541,7 @@ describe("the fee, taken like Jupiter's", () => {
   });
 });
 
-describe('the skill says its version, and an old copy is asked to update (final audit, M1)', () => {
+describe('the skill says its version, and an old copy is asked to update', () => {
   const withSkill = (W: Address, version: string | null) => {
     const req = post('prepare', swapBody(W));
     const headers = new Headers(req.headers);
@@ -581,7 +581,7 @@ describe('the skill says its version, and an old copy is asked to update (final 
   });
 });
 
-describe("a swap whose fee cannot be collected is refused, never built free (final audit, item 9)", () => {
+describe("a swap whose fee cannot be collected is refused, never built free", () => {
   it('prepare answers 503 fee-unavailable, with a Retry-After, and signs nothing', async () => {
     const w = await world();
     // No USDC account and no wallet for the treasury: the fee of USDC → SOL has nowhere to go.

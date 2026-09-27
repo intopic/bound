@@ -35,7 +35,7 @@ function network(main: () => Response, backup: () => Response) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-/** An Orientim transaction: the relay sends nothing else (FA-06). */
+/** An Orientim transaction: the relay sends nothing else. */
 async function swapWire() {
   const s = await scenario();
   const { transaction } = compileProtectedSwap({

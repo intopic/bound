@@ -3,15 +3,15 @@ name: Canary
 # Does a protected swap still build and execute? tools/canary.ts builds seven swaps on mainnet state,
 # each with its fee where it belongs, one as v1, and Pump.fun buys on both markets (nothing is signed
 # or sent). It fails when Jupiter's format, a Pump.fun program or a token program changed under
-# Orientim, or a fee is no longer taken where it should be (research audit F-07, engineering review
-# M-09), and exits 2 when nothing could be checked. A failed run makes GitHub tell the owner of this
-# workflow. Off until the repository variable ORIENTIM_CANARY is set to 1.
+# Orientim, or a fee is no longer taken where it should be, and exits 2 when nothing could be
+# checked. A failed run makes GitHub notify the maintainers of this workflow. Off until the repository
+# variable ORIENTIM_CANARY is set to 1.
 on:
   schedule:
     # Every twelve hours. Each run is about two billed minutes: some 120 minutes a month on a private
-    # repository's free plan (2,000), beside CI and the live check (final audit, H3).
-    # A scheduled Claude session reads each result and fixes a failure. Set the repository variable ORIENTIM_CANARY to 1 to turn it on; run it by hand after
-    # anything changes under Orientim (a Solana upgrade such as Alpenglow, a Jupiter or Pump.fun release).
+    # repository's free plan (2,000), beside CI and the live check. Set the repository variable
+    # ORIENTIM_CANARY to 1 to turn it on; run it by hand after anything changes under Orientim (a
+    # Solana upgrade such as Alpenglow, a Jupiter or Pump.fun release).
     - cron: '23 */12 * * *'
   workflow_dispatch:
 

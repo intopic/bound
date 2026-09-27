@@ -1,5 +1,5 @@
 /**
- * Confirms the mechanism behind the B-04 fix on mainnet state (simulation only, nothing sent):
+ * Confirms the mechanism behind the minimum-output check on mainnet state (simulation only, nothing sent):
  * a self-TransferChecked is a no-op when the balance covers the amount and fails with
  * InsufficientFunds (custom error 1) when it does not.
  *

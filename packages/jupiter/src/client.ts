@@ -109,7 +109,7 @@ export function checkBuildResponse(r: unknown): BuildResponse {
 }
 
 /**
- * Jupiter Swap API V2. In the browser the URLs point at Orientim's stateless proxy (D8), which adds
+ * Jupiter Swap API V2. In the browser the URLs point at Orientim's stateless proxy, which adds
  * the API key; on the server they point at api.jup.ag directly.
  */
 export function createJupiterClient(opts: {
@@ -123,7 +123,7 @@ export function createJupiterClient(opts: {
   /** The first retry's wait; each later one doubles it. */
   retryBaseMs?: number;
   /**
-   * Gives up on a request after this long (review FA-16). The page's relay has its own timeout; a
+   * Gives up on a request after this long. The page's relay has its own timeout; a
    * server calling Jupiter directly needs one, or a silent Jupiter holds the request to its limit.
    */
   timeoutMs?: number;
@@ -178,7 +178,7 @@ export function createJupiterClient(opts: {
         // SOL is wrapped and unwrapped by Orientim's own trusted instructions, never by Jupiter.
         wrapAndUnwrapSol: 'false',
       });
-      // Never `payer`: with payer = W, W appeared inside the swap instruction (D12).
+      // Never `payer`: with payer = W, W appeared inside the swap instruction.
       if (p.destinationTokenAccount) qs.set('destinationTokenAccount', p.destinationTokenAccount);
       if (p.excludeDexes?.length) qs.set('excludeDexes', p.excludeDexes.join(','));
       return get<unknown>(`${opts.buildUrl}?${qs}`).then(checkBuildResponse);

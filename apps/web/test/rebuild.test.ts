@@ -7,7 +7,7 @@ const swap = (routeRent: bigint, routeRefund: bigint, extra: { tax?: bigint; rem
   notices: { removesDelegate: extra.removesDelegate ?? false },
 });
 
-describe('a swap built again after a question (engineering review M-06)', () => {
+describe('a swap built again after a question', () => {
   it('the same rent with its refund lost costs more: the user is asked again', () => {
     const accepted = swap(1_346_200n, 1_346_200n);
     const rebuilt = swap(1_346_200n, 0n);
@@ -23,7 +23,7 @@ describe('a swap built again after a question (engineering review M-06)', () => 
     expect(costsMoreThan(swap(1_346_200n, 1_000_000n), swap(1_346_200n, 1_000_000n))).toBe(false);
   });
 
-  it('a fee in SOL that is new, or more than 2% higher, costs more (engineering audit S1-M-02)', () => {
+  it('a fee in SOL that is new, or more than 2% higher, costs more', () => {
     const withSolFee = (fee: bigint) => ({ ...swap(0n, 0n), policy: { feeSide: 'sol', fee } });
     expect(costsMoreThan(withSolFee(100_000n), swap(0n, 0n))).toBe(true);
     expect(costsMoreThan(withSolFee(103_000n), withSolFee(100_000n))).toBe(true);

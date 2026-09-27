@@ -23,7 +23,7 @@ describe('persisted swap settlement', () => {
   it('uses the signature status for confirmed and failed outcomes', () => {
     expect(settledHistoryStatus(entry('100'), { confirmationStatus: 'confirmed', err: null }, view(50n))).toBe('confirmed');
     expect(settledHistoryStatus(entry('100'), { confirmationStatus: 'confirmed', err: { InstructionError: [] } }, view(50n))).toBe('failed');
-    // An error seen only at processed may be on a fork: not an outcome yet (review FA-07).
+    // An error seen only at processed may be on a fork: not an outcome yet.
     expect(settledHistoryStatus(entry('100'), { confirmationStatus: 'processed', err: { InstructionError: [] } }, view(50n))).toBeNull();
   });
 
@@ -40,7 +40,7 @@ describe('persisted swap settlement', () => {
   });
 });
 
-describe('"no record" proves nothing once the node may have forgotten (third audit, F1)', () => {
+describe('"no record" proves nothing once the node may have forgotten', () => {
   // The page's blockhash: the swap could land in blocks 851 to 1,000. A node's status cache holds its
   // last 300 blocks, so from about 1,120 on "no record" may only mean a pruned history.
   it('a visit right after the lifetime proves expiry; a later one does not', () => {
@@ -83,7 +83,7 @@ function fakeStorage() {
   return state;
 }
 
-describe('a swap is sent only once its record is kept (third audit, F3)', () => {
+describe('a swap is sent only once its record is kept', () => {
   afterEach(() => { delete (globalThis as { window?: unknown }).window; });
 
   it('a browser that will not keep the record is told before the wallet opens, and the send stops', () => {
@@ -111,7 +111,7 @@ describe('a swap is sent only once its record is kept (third audit, F3)', () => 
   });
 });
 
-describe('a wallet with an unsettled swap starts no new one (third audit, F2)', () => {
+describe('a wallet with an unsettled swap starts no new one', () => {
   afterEach(() => { delete (globalThis as { window?: unknown }).window; });
 
   it("holds back only that wallet's swaps, and an older entry without a wallet holds back every wallet", () => {

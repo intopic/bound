@@ -5,13 +5,13 @@ import type { StatusView } from '@orientim/solana';
 
 /**
  * Swap history lives only in this browser (no accounts, no database). Browsing works without
- * storage; swapping does not (third audit, F3).
+ * storage; swapping does not.
  *
  * A swap is recorded as `pending` the moment its signature exists, before anything is sent, and it
  * is sent only once that record is stored, so a lost connection or a closed tab never loses track
- * of a transaction that may have landed (audit C-03). `pending` and `unknown` entries are settled
- * from the chain, and while one from a wallet is unsettled that wallet starts no new swap: a retry
- * waits for the chain's answer, not for a timer (third audit, F2).
+ * of a transaction that may have landed. `pending` and `unknown` entries are settled from the
+ * chain, and while one from a wallet is unsettled that wallet starts no new swap: a retry waits for
+ * the chain's answer, not for a timer.
  */
 export type HistoryStatus = 'pending' | 'confirmed' | 'failed' | 'expired' | 'rejected' | 'unknown' | 'checked';
 
@@ -50,15 +50,15 @@ const lastValidOf = (entry: HistoryEntry): bigint | null => {
 /**
  * A persisted swap changes state only when the chain proves the outcome. `view`: the heights the
  * status answer covers (see `statusesCovering`). "No record" proves the swap never landed only while
- * the answering node still holds every block it could have landed in (`provesNeverLanded`, third
- * audit F1); a later visit finds no proof either way, and the swap stays unknown.
+ * the answering node still holds every block it could have landed in (`provesNeverLanded`); a later
+ * visit finds no proof either way, and the swap stays unknown.
  */
 export function settledHistoryStatus(
   entry: HistoryEntry,
   state: SignatureState,
   view: Pick<StatusView, 'coveredHeight' | 'reachHeight'>,
 ): HistoryStatus | null {
-  // Only a confirmed status is an outcome: an error seen at `processed` may be on a fork (FA-07).
+  // Only a confirmed status is an outcome: an error seen at `processed` may be on a fork.
   const confirmed = !!state && (state.confirmationStatus === 'confirmed' || state.confirmationStatus === 'finalized');
   if (confirmed) return state!.err ? 'failed' : 'confirmed';
   const lastValid = lastValidOf(entry);

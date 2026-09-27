@@ -131,7 +131,7 @@ try {
   const clickedAt = await page.evaluate(() => Date.now());
   await page.getByRole('button', { name: 'Protected swap' }).click();
   const banner = page.locator('.banner.error');
-  // If the price moved beyond the tolerance between the quote and the build, Orientim asks first (C-02).
+  // If the price moved beyond the tolerance between the quote and the build, Orientim asks first.
   const moved = page.getByRole('button', { name: 'Continue with the new minimum' });
   await Promise.race([banner.waitFor({ timeout: 90_000 }), moved.waitFor({ timeout: 90_000 }).then(() => moved.click())]);
   await banner.waitFor({ timeout: 90_000 });
@@ -174,14 +174,14 @@ try {
   await m.keyboard.press('Escape');
   check('the wallet window closes with Escape', !(await m.getByRole('dialog').isVisible()));
 
-  // The page that says what is and is not guaranteed, one tap from the swap (final audit, M3).
+  // The page that says what is and is not guaranteed, one tap from the swap.
   await m.getByRole('link', { name: 'Security', exact: true }).last().click();
   await m.getByRole('heading', { name: 'How Orientim protects you' }).waitFor({ timeout: 15_000 });
   const howOverflow = await m.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('"How Orientim protects you" opens from the swap page and fits a phone', !howOverflow);
   await m.screenshot({ path: `${OUT}/7-how.png`, fullPage: true });
 
-  // M-04 (final audit, Stage 2): the wallet never opens on a lifetime Orientim could not read, nor on
+  // The wallet never opens on a lifetime Orientim could not read, nor on
   // one that has run out. The RPC's block height is answered 503, then far past the swap's lifetime.
   for (const [what, answer, expected] of [
     ['cannot read the block height', 'fail', "Couldn't reach the network"],
@@ -225,8 +225,8 @@ try {
     await p.close();
   }
 
-  // The owner's rule on cost: someone trying amounts costs a build or two ahead of the click, not one
-  // per amount. Three amounts a second and a half apart asked Jupiter 18 times before the rule.
+  // Cost: someone trying amounts costs a build or two ahead of the click, not one per amount. Three
+  // amounts a second and a half apart must stay within a few answered builds.
   {
     const p = await context.newPage();
     // Answers Jupiter gave, not its 429s: without a key it refuses bursts, and the page asks again.
@@ -250,7 +250,7 @@ try {
     await p.close();
   }
 
-  // Third audit, F2: a swap from this wallet that the chain has not settled holds the next one back,
+  // A swap from this wallet that the chain has not settled holds the next one back,
   // whatever the time. One that can no longer land, and that nothing proves either way, the person
   // sets aside by hand once they looked it up.
   {
@@ -275,7 +275,7 @@ try {
     await p.close();
   }
 
-  // Third audit, F3: a browser that will not keep the swap's record sends nothing, and says so before
+  // A browser that will not keep the swap's record sends nothing, and says so before
   // the wallet opens.
   {
     const p = await context.newPage();

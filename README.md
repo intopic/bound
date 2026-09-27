@@ -30,9 +30,8 @@ Wallets: any wallet that signs a transaction and hands it back unsent (Wallet St
 enabled, only a route too big for v0 is built as v1, because not every signer reads v1 yet (Ledger's
 Solana app does not). Phantom's embedded wallets (sign-and-send
 only) and multisig or smart-wallet vaults (Squads, Swig) cannot sign first, so they cannot use Orientim
-(review FA-14). Tested with real wallets on mainnet: Phantom (ten swaps, Token-2022 and Pump.fun
-among them, docs/AUDIT.md 0zg) and Trust Wallet (one swap, 0zh). Solflare and Backpack are still to be
-tested.
+Tested with real wallets on mainnet: Phantom (ten swaps, Token-2022 and Pump.fun among them) and
+Trust Wallet (one swap). Solflare and Backpack are still to be tested.
 
 | Rule | Guarantee |
 | --- | --- |
@@ -63,8 +62,7 @@ bound/
 │   ├── cpi/           T6: a malicious swap program (Rust) executed against the protected transaction in a real Solana VM
 │   └── e2e/           browser tests (Microsoft Edge via Playwright)
 ├── tools/          skill build, release digest, live check, canary, agent API keys
-├── docs/           AUDIT.md (every review, finding and fix), TESTIMI.md (the manual wallet test, in
-│                   Albanian), audit-prompts/ (the briefs given to auditors)
+├── docs/           OPERATORS.md (running the agent API)
 └── .github/        CI, fuzz, T6, canary, release and live-check workflows
 ```
 
@@ -115,7 +113,7 @@ Fixed at build time (compiled into the page, so the server cannot change them af
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `NEXT_PUBLIC_ORIENTIM_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then every swap pays, memecoin sales included; a pair neither token of which the treasury can receive pays in SOL from the wallet, at the swap's value (AUDIT.md 0w). With a treasury set, a swap whose fee cannot be collected (the wallet not funded yet, a pair that cannot be priced in SOL, an amount too small to carry it) is refused, never built free (AUDIT.md 0zb) |
+| `NEXT_PUBLIC_ORIENTIM_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then every swap pays, memecoin sales included; a pair neither token of which the treasury can receive pays in SOL from the wallet, at the swap's value. With a treasury set, a swap whose fee cannot be collected (the wallet not funded yet, a pair that cannot be priced in SOL, an amount too small to carry it) is refused, never built free |
 | `NEXT_PUBLIC_ORIENTIM_FEE_BPS` | 30 | 0.3%. The verifier refuses more than 100 (1%) |
 | `NEXT_PUBLIC_ORIENTIM_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Orientim v1 swap has landed on mainnet |
 
@@ -163,9 +161,9 @@ off-chain minimum is not accepted as protection; a route that cannot express the
 Not in scope: price movement and MEV within that tolerance, the value of the token you buy,
 approvals granted elsewhere before, phishing sites that do not use Orientim, and Token-2022 tokens
 whose extensions Orientim refuses (a permanent delegate a program can sign for, frozen by default,
-pausable and the rest, listed in docs/AUDIT.md section 0f), and what a token's own issuer can do outside
+pausable and the rest), and what a token's own issuer can do outside
 the swap (PYUSD's, for example, can move it in any wallet; the page says so). Transfer-fee tokens are supported: Orientim prices the active schedule
 from the current epoch and harvests temporary accounts before closing them.
 
-See `SECURITY.md` for the threat model, `AGENT-API.md` for the agent API, `docs/AUDIT.md` for every
-review, finding and fix, and `docs/TESTIMI.md` for the manual wallet test.
+See `SECURITY.md` for the threat model, `AGENT-API.md` for the agent API and `docs/OPERATORS.md` for
+running it.

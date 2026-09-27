@@ -14,7 +14,7 @@ const ALLOWED_METHODS = new Set([
 const MAX_BODY_BYTES = 64 * 1024;
 const LIMIT_PER_MINUTE = 300;
 // A swap re-broadcasts every 3 s for at most ~90 s, and a user may retry: 60 per minute leaves room
-// for that while still bounding the one method that costs real money per call (B-06).
+// for that while still bounding the one method that costs real money per call.
 const SENDS_PER_MINUTE = 60;
 
 const rpcError = (id: unknown, code: number, message: string, status: number, notForwarded = true) =>
@@ -70,7 +70,7 @@ export async function proxyRpc(req: Request, target: string | null, fallback: st
   if (fromAnotherSite(req)) return rpcError(null, -32600, "Orientim's RPC serves Orientim's own page", 403);
   const client = clientKey(req);
   if (rateLimited(`rpc:${client}`, LIMIT_PER_MINUTE)) return rpcError(null, -32005, 'Too many requests', 429);
-  const text = await readBodyLimited(req, MAX_BODY_BYTES); // bytes, counted while reading (C-07)
+  const text = await readBodyLimited(req, MAX_BODY_BYTES); // bytes, counted while reading
   if (text === null) return rpcError(null, -32600, 'Request too large', 413);
   let body: { id?: unknown; method?: unknown; params?: unknown };
   try {
@@ -85,13 +85,13 @@ export async function proxyRpc(req: Request, target: string | null, fallback: st
     return rpcError(body.id, -32601, 'Method not allowed', 403);
   }
   if (body.method === 'sendTransaction') {
-    // The kill switch is enforced here, not only in the UI (audit B-05). Local refusals carry an
+    // The kill switch is enforced here, not only in the UI. Local refusals carry an
     // explicit marker, so an upstream 4xx can never be mistaken for proof that nothing was sent.
     if (serverConfig().disabled) return rpcError(body.id, -32000, 'Protected swaps are paused', 403);
     if (rateLimited(`send:${client}`, SENDS_PER_MINUTE)) return rpcError(body.id, -32005, 'Too many requests', 429);
   }
   // After the kill switch and the send limit: only Orientim's own transactions are sent or simulated
-  // through Orientim's RPC account (review FA-06). A local refusal: nothing was forwarded, so the
+  // through Orientim's RPC account. A local refusal: nothing was forwarded, so the
   // sender may say "never broadcast".
   if (body.method === 'sendTransaction' || body.method === 'simulateTransaction') {
     const params = Array.isArray(body.params) ? body.params : [];

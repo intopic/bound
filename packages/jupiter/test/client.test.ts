@@ -1,6 +1,6 @@
 /**
  * Jupiter is untrusted, including the shape of its answers: a malformed quote must fail as a
- * JupiterError, not as a crash further down the pipeline (review, answer to question 7).
+ * JupiterError, not as a crash further down the pipeline.
  */
 import { describe, expect, it } from 'vitest';
 import { address } from '@solana/kit';
@@ -94,7 +94,7 @@ describe('a Jupiter under load', () => {
   });
 });
 
-describe('a Jupiter that does not answer (FA-16)', () => {
+describe('a Jupiter that does not answer', () => {
   it('a request past the timeout ends as a 504 JupiterError, which the pipeline reports as unavailable', async () => {
     const client = createJupiterClient({
       buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels',

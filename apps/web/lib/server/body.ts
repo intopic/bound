@@ -1,5 +1,5 @@
 /**
- * Reads a request body up to `maxBytes`, counting bytes while reading instead of after (audit C-07):
+ * Reads a request body up to `maxBytes`, counting bytes while reading instead of after:
  * an oversized body is refused without being held in memory.
  */
 export async function readBodyLimited(req: Request, maxBytes: number): Promise<string | null> {

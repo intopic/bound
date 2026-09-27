@@ -41,7 +41,7 @@ export type AgentDeps = {
   maxNetworkFeeLamports: bigint;
   /** The kill switch, read on every request. */
   disabled: boolean;
-  /** v1 transactions, only when the deployment enables them (review BR-12). */
+  /** v1 transactions, only when the deployment enables them. */
   v1: boolean;
   /** Requests per minute per API key, for each endpoint. */
   perMinute: number;
@@ -122,7 +122,7 @@ function explain(e: unknown): Response {
     const violations = e.violations.length ? { violations: e.violations } : {};
     switch (e.code) {
       // Both need the user's yes before the agent asks again: a worse price is a new authorization,
-      // not a retry, and says so in a field a program can read (engineering review, section 5).
+      // not a retry, and says so in a field a program can read.
       case 'price-moved':
         return fail(409, e.code, e.message, {
           // What the wallet would keep, after a fee taken from the output: the same unit as minOut.
@@ -140,7 +140,7 @@ function explain(e: unknown): Response {
       case 'unavailable':
         return fail(503, e.code, e.message, {}, { 'retry-after': '5' });
       // Orientim cannot collect its fee on this swap (its treasury wallet is not ready, or the pair
-      // cannot be priced in SOL): nothing is built for free (final audit, item 9).
+      // cannot be priced in SOL): nothing is built for free.
       case 'fee-unavailable':
         return fail(503, e.code, e.message, {}, { 'retry-after': '60' });
       // Jupiter's format changed: nothing builds until Orientim is updated, so do not retry soon.
@@ -247,7 +247,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString() } : {}),
     });
     const p = prepared.policy;
-    // What the transaction has left to live, in blocks: 150 at most, about 40 s (research audit F-05).
+    // What the transaction has left to live, in blocks: 150 at most, about 40 s.
     const height = await deps.rpc.getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
     return json(200, {
       ticket,
@@ -271,16 +271,16 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         networkFeeLamports: prepared.networkFeeLamports,
         outputAccountRentLamports: prepared.oneTimeCosts.outputAccountRent,
         routeRentLamports: prepared.oneTimeCosts.routeRent,
-        // Returned to the wallet in the same transaction when Orientim closes the market's account (FA-05).
+        // Returned to the wallet in the same transaction when Orientim closes the market's account.
         routeRefundLamports: prepared.oneTimeCosts.routeRefund,
-        // All the SOL the swap costs and does not return, in one number (third audit, priority 4):
+        // All the SOL the swap costs and does not return, in one number:
         // the network fee, rent the route keeps, and Orientim's fee when paid in SOL. A new output
         // account's rent is apart: it stays the wallet's own.
         keptSolLamports: prepared.networkFeeLamports + prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund
           + (p.feeSide === 'sol' ? p.fee : 0n),
         tokenTax: prepared.tokenTax,
       },
-      // networkBusy: the priority fee is at its limit, so the swap may land late or expire (FA-15).
+      // networkBusy: the priority fee is at its limit, so the swap may land late or expire.
       notices: { ...prepared.notices, networkBusy: prepared.priorityFeeCapped },
       // What the mint accounts say about the tokens themselves: an issuer that can freeze balances or
       // mint more. Orientim's word; the skill reads the same on the agent's own RPC.
@@ -301,7 +301,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
 /**
  * Said with every refusal once the transaction is known. An earlier finalize of the same ticket may
  * have sent it and lost its answer on the way back, so "prepare again" is safe only once that
- * transaction can no longer land (engineering review H-01).
+ * transaction can no longer land.
  */
 const EARLIER =
   'If an earlier finalize of this ticket went out, that transaction can still land until lastValidBlockHeight: check its signature on your own RPC before preparing again.';
@@ -345,7 +345,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     fail(status, code, `${message} ${EARLIER}`, { ...extra, ...known }, headers);
 
   // What the chain knows of this transaction comes before any condition for a first send: a repeated
-  // finalize must describe the transaction it repeats, never invite a second swap (H-01).
+  // finalize must describe the transaction it repeats, never invite a second swap.
   let onChain: unknown;
   try {
     onChain = (await deps.rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()).value[0];
@@ -372,7 +372,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     if (deps.disabled) return refuse(503, 'paused', 'Protected swaps are paused. This request signed and sent nothing.');
     // The minimum-output check is the output account's balance at prepare plus the minimum. If the
     // balance moved since (another swap into this token, a transfer), the check could count those
-    // tokens: sign nothing (review FA-04). Run one swap per output token until it is confirmed.
+    // tokens: sign nothing. Run one swap per output token until it is confirmed.
     if (ticket.wOut) {
       const now = tokenAmountOf((await fetchAccounts(deps.rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
       if (now !== BigInt(ticket.b0!)) {
@@ -388,7 +388,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       status: sent.status,
       ...(sent.refusal ? { refusal: sent.refusal } : {}),
       // Fully signed, so the agent can re-broadcast it and confirm it with its own RPC until it
-      // expires. Not when it was refused: an agent that prepares again must not land both (FA-08).
+      // expires. Not when it was refused: an agent that prepares again must not land both.
       ...(sent.status === 'rejected' ? {} : { signedTransaction: getBase64EncodedWireTransaction(signed) }),
       lastValidBlockHeight: ticket.lvbh,
     });

@@ -45,7 +45,7 @@ function trusted(ix: Ix): boolean {
         || (d[0] === 5 && d.length === 1 && ix.accounts === 2)
         || (d[0] === 17 && d.length === 1 && ix.accounts === 1 && ix.program === TOKEN_PROGRAM)
         || (d[0] === 26 && d[1] === 4 && d.length === 2 && ix.accounts >= 2 && ix.program === TOKEN_2022_PROGRAM);
-    // Closing the account a Pump market opened for the one-time key (FA-05).
+    // Closing the account a Pump market opened for the one-time key.
     case PUMP_CURVE_PROGRAM:
     case PUMP_AMM_PROGRAM:
       return ix.accounts === 4 && d.length === 8 && CLOSE_USER_VOLUME_ACCUMULATOR.every((b, i) => d[i] === b);
@@ -55,12 +55,12 @@ function trusted(ix: Ix): boolean {
 }
 
 /**
- * Why a transaction is not one Orientim builds, or null when it has the shape of one (review FA-06):
+ * Why a transaction is not one Orientim builds, or null when it has the shape of one:
  * two signers, one Jupiter route Orientim can read, and otherwise only the trusted instructions a Orientim
  * swap is made of. The relay sends and simulates nothing else. That narrows what Orientim's RPC account
  * can be used for; it does not prove a transaction is a Orientim swap or that it pays a fee (the shapes
  * say nothing about amounts or destinations), so what bounds the cost of misuse is the rate limits:
- * this instance's, and the host firewall's across instances (engineering review M-08). Nor is it a
+ * this instance's, and the host firewall's across instances. Nor is it a
  * security check: the verifier, with the chain state, decides whether a transaction is safe.
  */
 export function notOrientimShaped(wireBase64: unknown): string | null {

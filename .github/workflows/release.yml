@@ -27,7 +27,7 @@ jobs:
           cache: npm
       - run: npm ci
       # Nothing is published that has not passed the tests and the skill bundle's check: a digest
-      # says which code runs, not that it was tested (engineering review, section 8).
+      # says which code runs, not that it was tested.
       - run: npm run typecheck
       - run: npm test
       - run: node tools/build-skill.ts --check

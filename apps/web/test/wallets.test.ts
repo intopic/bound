@@ -24,13 +24,13 @@ describe('wallet chain selection', () => {
   });
 });
 
-describe('the transaction version (review BR-12)', () => {
+describe('the transaction version', () => {
   it('v0 even when the wallet advertises v1, until a build enables it', () => {
     expect(chooseVersion(['legacy', 0, 1], false)).toBe(0);
   });
 
   it('v1 when the build enables it and the wallet signs it', () => {
-    // v0 first even when v1 is on: Ledger cannot sign v1 (research audit F-13).
+    // v0 first even when v1 is on: Ledger cannot sign v1.
     expect(chooseVersion(['legacy', 0, 1], true)).toBe(0);
     expect(chooseVersion([1], true)).toBe(1);
     expect(chooseVersion([1], false)).toBeNull();

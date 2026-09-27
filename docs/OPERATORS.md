@@ -23,4 +23,4 @@ wallet's owner can sign again for a new one).
 
 ## Further reading
 
-Threat model: `SECURITY.md`; the history of every review and fix: `docs/AUDIT.md`.
+Threat model: `SECURITY.md`.

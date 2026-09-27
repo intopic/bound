@@ -1,5 +1,5 @@
 /**
- * The server-side controls from both reviews (B-05, B-06, B-08, C-04, C-07, C-08): they must hold
+ * The server-side controls (kill switch, rate limits, client key, body limit, icon proxy): they must hold
  * for direct API calls, not only for requests made by Orientim's own page.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -28,14 +28,14 @@ afterEach(() => {
   delete process.env.ORIENTIM_CLIENT_IP_HEADER;
 });
 
-describe('B-06, C-04: the client key comes only from the header the ingress overwrites', () => {
+describe('the client key comes only from the header the ingress overwrites', () => {
   const key = (headers: Record<string, string>) => clientKey(new Request('http://orientim.test/', { headers }));
 
   it('on Vercel (default) it reads x-vercel-forwarded-for and ignores every other header', () => {
     expect(key({ 'x-vercel-forwarded-for': '198.51.100.7', 'cf-connecting-ip': '1.1.1.1', 'x-forwarded-for': '2.2.2.2' })).toBe('198.51.100.7');
   });
 
-  it('behind Cloudflare, a client-sent x-vercel-forwarded-for cannot mint a new identity (C-04)', () => {
+  it('behind Cloudflare, a client-sent x-vercel-forwarded-for cannot mint a new identity', () => {
     process.env.ORIENTIM_CLIENT_IP_HEADER = 'cf-connecting-ip';
     expect(key({ 'cf-connecting-ip': '198.51.100.8', 'x-vercel-forwarded-for': 'spoofed-1' })).toBe('198.51.100.8');
     expect(key({ 'cf-connecting-ip': '198.51.100.8', 'x-vercel-forwarded-for': 'spoofed-2' })).toBe('198.51.100.8');
@@ -115,7 +115,7 @@ describe('RPC proxy', () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it('C-07: the body limit counts bytes, not characters', async () => {
+  it('the body limit counts bytes, not characters', async () => {
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
     // 40,000 two-byte characters: under 64 KiB of characters, 80,000 bytes on the wire.
@@ -141,7 +141,7 @@ describe('RPC proxy', () => {
     expect(res.headers.get('x-orientim-not-forwarded')).toBeNull();
   });
 
-  it('B-05: the kill switch refuses sendTransaction on the server, with a 4xx (never forwarded)', async () => {
+  it('the kill switch refuses sendTransaction on the server, with a 4xx (never forwarded)', async () => {
     process.env.ORIENTIM_DISABLED = '1';
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
@@ -151,10 +151,10 @@ describe('RPC proxy', () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it('B-06: sendTransaction has its own limit per client, sized for re-broadcasts', async () => {
+  it('sendTransaction has its own limit per client, sized for re-broadcasts', async () => {
     vi.stubGlobal('fetch', upstreamOk());
     const ip = uniqueIp();
-    // A Orientim transaction: the relay sends nothing else (FA-06).
+    // A Orientim transaction: the relay sends nothing else.
     const s = await scenario();
     const { transaction } = compileProtectedSwap({
       policy: s.policy, swapInstruction: s.swapIx, intermediates: s.intermediates, version: 0, lifetime: LIFETIME,
@@ -172,7 +172,7 @@ describe('Jupiter build proxy', () => {
   const build = (query: string) =>
     proxyBuild(new Request(`http://orientim.test/api/jupiter/build?${query}`, { headers: { 'x-vercel-forwarded-for': uniqueIp() } }));
 
-  it('B-05: the kill switch refuses new builds on the server', async () => {
+  it('the kill switch refuses new builds on the server', async () => {
     process.env.ORIENTIM_DISABLED = '1';
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
@@ -180,7 +180,7 @@ describe('Jupiter build proxy', () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
-  it('refuses payer and SOL wrapping (D12)', async () => {
+  it('refuses payer and SOL wrapping', async () => {
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
     expect((await build('inputMint=a&payer=b&wrapAndUnwrapSol=false')).status).toBe(400);
@@ -196,7 +196,7 @@ describe('Jupiter build proxy', () => {
   });
 });
 
-describe('B-08: token icons are served from Orientim, from listed hosts only', () => {
+describe('token icons are served from Orientim, from listed hosts only', () => {
   const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
   // Each test uses its own mint, because the proxy caches icon URLs per mint.
   const MINTS = [
@@ -207,9 +207,9 @@ describe('B-08: token icons are served from Orientim, from listed hosts only', (
   const icon = (mint: string) =>
     proxyIcon(new Request(`http://orientim.test/api/token-icon?mint=${mint}`, { headers: { 'x-vercel-forwarded-for': uniqueIp() } }));
   /**
-   * Jupiter's token record for the mint that was asked for points at `iconUrl` (C-08: the record
-   * must match the requested mint, or the proxy stops before the path under test). Every fetched
-   * URL is recorded, so each test can assert which hosts were actually contacted.
+   * Jupiter's token record for the mint that was asked for points at `iconUrl` (the record must
+   * match the requested mint, or the proxy stops before the path under test). Every fetched URL is
+   * recorded, so each test can assert which hosts were actually contacted.
    */
   const stubNetwork = (iconUrl: string, pages: Record<string, () => Response>) => {
     const seen: string[] = [];
@@ -300,7 +300,7 @@ describe('B-08: token icons are served from Orientim, from listed hosts only', (
   });
 });
 
-describe('the RPC relay sends and simulates only Orientim transactions (review FA-06)', () => {
+describe('the RPC relay sends and simulates only Orientim transactions', () => {
   const call = (method: string, wire: string, encoding = 'base64') =>
     proxyRpc(rpcRequest({ jsonrpc: '2.0', id: 1, method, params: [wire, { encoding }] }), 'https://rpc.test');
 
@@ -339,7 +339,7 @@ describe('the RPC relay sends and simulates only Orientim transactions (review F
   });
 });
 
-describe("the relay passes Orientim's close of a Pump market's account (FA-05)", () => {
+describe("the relay passes Orientim's close of a Pump market's account", () => {
   it('a swap that closes the account the market opened for E is relayed', async () => {
     const upstream = upstreamOk();
     vi.stubGlobal('fetch', upstream);
@@ -357,7 +357,7 @@ describe("the relay passes Orientim's close of a Pump market's account (FA-05)",
   });
 });
 
-describe("Orientim's proxies serve Orientim's own page (final audit, M2)", () => {
+describe("Orientim's proxies serve Orientim's own page", () => {
   const crossSite = { 'sec-fetch-site': 'cross-site', 'x-vercel-forwarded-for': uniqueIp() };
 
   it("another website's page cannot spend Orientim's RPC, Jupiter or icon quota through its visitors", async () => {
@@ -401,7 +401,7 @@ describe("Orientim's proxies serve Orientim's own page (final audit, M2)", () =>
   });
 });
 
-describe('the skill hashes the site publishes (final audit, item 10)', () => {
+describe('the skill hashes the site publishes', () => {
   it('/skill/SHA256SUMS lists every shipped file, with the version, and matches the skill folder', async () => {
     const { GET } = await import('../app/skill/SHA256SUMS/route.ts');
     const res = GET();

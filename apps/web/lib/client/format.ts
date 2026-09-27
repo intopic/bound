@@ -9,8 +9,8 @@ export function parseUnits(input: string, decimals: number): bigint | null {
 
 /**
  * 12500000n with 6 decimals → "12.5": at most `maxFraction` fraction digits, trailing zeros
- * trimmed, and never rounded up (audit C-06). A positive amount too small to show reads
- * "<0.000001", never as the smallest visible unit.
+ * trimmed, and never rounded up. A positive amount too small to show reads "<0.000001", never as
+ * the smallest visible unit.
  */
 export function formatUnits(value: bigint, decimals: number, maxFraction = 6): string {
   const negative = value < 0n;

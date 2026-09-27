@@ -11,7 +11,7 @@ function memoryStorage() {
   };
 }
 
-describe('the swap lock outlives a wallet left open (review BR-02)', () => {
+describe('the swap lock outlives a wallet left open', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

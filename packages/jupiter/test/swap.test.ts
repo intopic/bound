@@ -125,7 +125,7 @@ describe('which slippage a route gets', () => {
     expect(slippageFor(route(['Whirlpool', 'Pump.fun'], [PUMP_CURVE_PROGRAM]), DEFAULT_SETTINGS)).toBe(300);
   });
 
-  it('0.5% otherwise, including a curve label on a route without the curve program (BR-04)', () => {
+  it('0.5% otherwise, including a curve label on a route without the curve program', () => {
     expect(slippageFor(route(['Pump.fun']), DEFAULT_SETTINGS)).toBe(50);
     expect(slippageFor(route(['Whirlpool'], [PUMP_CURVE_PROGRAM]), DEFAULT_SETTINGS)).toBe(50);
     expect(slippageFor(route(['Pump.fun Amm']), DEFAULT_SETTINGS)).toBe(50);

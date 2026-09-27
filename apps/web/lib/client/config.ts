@@ -3,8 +3,8 @@ import type { Address } from '@solana/kit';
 import { feeBpsSetting, treasurySetting } from '../settings';
 
 /**
- * Fee settings fixed at build time (audit B-01). They are compiled into the bundle, so with a
- * reproducible build they are pinned, and the server has no live channel to change them.
+ * Fee settings fixed at build time. They are compiled into the bundle, so with a reproducible
+ * build they are pinned, and the server has no live channel to change them.
  * The verifier additionally caps the fee at MAX_FEE_BPS whatever these say.
  */
 // Read the way the build checked them (next.config.ts refuses a wrong one), so what reaches the page
@@ -12,5 +12,5 @@ import { feeBpsSetting, treasurySetting } from '../settings';
 const treasury = treasurySetting(process.env.NEXT_PUBLIC_ORIENTIM_TREASURY);
 export const TREASURY: Address | null = treasury ? address(treasury) : null;
 export const FEE_BPS: bigint = feeBpsSetting(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS);
-/** v1 transactions only when a build says so, until one has landed on mainnet (review BR-12). */
+/** v1 transactions only when a build says so, until one has landed on mainnet. */
 export const V1_ENABLED = process.env.NEXT_PUBLIC_ORIENTIM_ENABLE_V1 === '1';

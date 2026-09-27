@@ -8,9 +8,9 @@ import { shortAddress } from '@/lib/client/format';
 import { Modal } from './Modal';
 
 /**
- * Icons are served by Orientim's own origin (audit B-08): the browser never contacts the hosts that
- * token creators choose, and the page's img-src stays 'self' data:. A letter is shown when the
- * icon is missing or its host is not on the server's list.
+ * Icons are served by Orientim's own origin: the browser never contacts the hosts that token creators
+ * choose, and the page's img-src stays 'self' data:. A letter is shown when the icon is missing or
+ * its host is not on the server's list.
  */
 export function TokenIcon({ token, size = 24 }: { token: TokenInfo | null; size?: 24 | 28 }) {
   const [broken, setBroken] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export function TokenPicker(props: {
     }
     setLoading(true);
     // Only the answer for the query on screen may fill the list: a slower answer for an older
-    // query is dropped, even if its request already started (audit C-10).
+    // query is dropped, even if its request already started.
     let stale = false;
     // A pasted address is looked up at once; typed words wait for the typing to pause.
     const timer = setTimeout(() => {

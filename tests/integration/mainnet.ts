@@ -6,7 +6,7 @@
  *      temporary account.
  *  T1  Runtime attacks: the Jupiter instruction is replaced by attacker instructions against the
  *      real SPL Token and System programs. Nothing beyond q is reachable, and since the output
- *      floor is enforced (audit B-04) a route that does not deliver reverts entirely.
+ *      floor is enforced a route that does not deliver reverts entirely.
  *  T5  The output floor in the real runtime: a verified swap whose floor is raised to twice the
  *      quote must fail exactly at Orientim's minimum-output check.
  *
@@ -136,7 +136,7 @@ async function pickSimWallet(a: Sym, b: Sym, amount: bigint): Promise<Address> {
   return fallback ?? SIM_WALLET;
 }
 
-// A token-input swap is fee-free when the treasury has no account for that token (audit B-09).
+// A token-input swap is fee-free when the treasury has no account for that token.
 // To exercise the fee path, simulations send the fee to another exchange wallet that holds the
 // input token (nothing is sent, so the recipient only has to exist).
 async function pickTreasury(owner: Address, a: Sym): Promise<Address> {
@@ -146,7 +146,7 @@ async function pickTreasury(owner: Address, a: Sym): Promise<Address> {
 }
 
 /** About $100 of `sym`, priced with a Jupiter quote (retried: quotes fail transiently). */
-/** On-chain decimals, as the dApp reads them before converting what the user typed (audit C-01). */
+/** On-chain decimals, as the dApp reads them before converting what the user typed. */
 const decimalsCache = new Map<string, number>();
 async function decimalsOf(a: Sym, b: Sym) {
   const missing = [M[a], M[b]].filter(m => !decimalsCache.has(m));
@@ -239,7 +239,7 @@ async function runT4(): Promise<Row[]> {
             },
           );
           // Execution check: every temporary account is closed at the end of the transaction.
-          // Every temporary account, intermediates included (second review, C-08).
+          // Every temporary account, intermediates included.
           const temp = [
             E.address, prepared.policy.accounts.eIn, ...(prepared.policy.accounts.eOut ? [prepared.policy.accounts.eOut] : []),
             ...prepared.intermediates.map(x => x.ata),
@@ -443,7 +443,7 @@ const md = [
     `## T1: sulme në runtime (SPL Token dhe System Program realë)`,
     ``,
     `${okT1}/${t1.length} sulme u sollën siç pritej në runtime, dhe verifier-i i refuzoi të gjitha para nënshkrimit.`,
-    `A1 tregon efektin e kontrollit të minimumit (B-04): edhe marrja e q-së anulohet kur output-i nuk mbërrin. A5 dhe A6 tregojnë anulimin automatik. A7 tregon pse ekziston R1: instruction-i që vjedh SOL nga W kalon në runtime nëse W i jepet kodit të jashtëm.`,
+    `A1 tregon efektin e kontrollit të minimumit: edhe marrja e q-së anulohet kur output-i nuk mbërrin. A5 dhe A6 tregojnë anulimin automatik. A7 tregon pse ekziston R1: instruction-i që vjedh SOL nga W kalon në runtime nëse W i jepet kodit të jashtëm.`,
     ``,
     `| Sulmi | Pritej | Ndodhi | Verifier-i |`,
     `| --- | --- | --- | --- |`,
@@ -451,7 +451,7 @@ const md = [
   ] : []),
   ...(t5.length ? [
     ``,
-    `## T5: minimumi i output-it në runtime-in real (B-04)`,
+    `## T5: minimumi i output-it në runtime-in real`,
     ``,
     `${t5.filter(r => r.pass).length}/${t5.length}: swap-i i verifikuar kalon, dhe i njëjti swap me minimumin ×2 rrëzohet pikërisht te kontrolli i Orientim-it.`,
     ``,

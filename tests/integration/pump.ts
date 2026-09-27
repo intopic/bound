@@ -156,7 +156,7 @@ for (const t of candidates) {
   const E = prepared.policy.ephemeral;
   const wOut = prepared.policy.accounts.wOut!;
   const before = tokenAmountOf((await fetchAccounts(rpc, [wOut])).get(wOut)?.data);
-  // E, E_in, W_out, and the account the market opens for E when Orientim closes it (FA-05).
+  // E, E_in, W_out, and the account the market opens for E when Orientim closes it.
   const watchBuy = (p: Awaited<ReturnType<typeof prepareProtectedSwap>>) => [p.policy.ephemeral, p.policy.accounts.eIn, wOut, ...(p.policy.accounts.routeAccount ? [p.policy.accounts.routeAccount] : [])];
   let run = await execute(prepared.transaction, watchBuy(prepared));
   if (!run.ok && priceMoved(run.failure)) {
@@ -183,7 +183,7 @@ for (const t of candidates) {
     check(t.symbol, 'buy: the temporary key ends with nothing', gone(run.after[0]), run.after[0] ? `${run.after[0].lamports} lamports left` : '');
     check(t.symbol, 'buy: the temporary account is gone', gone(run.after[1]));
     // The account the market opened for E is closed in the same swap and its rent goes back to the
-    // wallet (review FA-05); what the market keeps is the rest (the curve's own growth, when any).
+    // wallet; what the market keeps is the rest (the curve's own growth, when any).
     const refund = prepared.policy.routeRefund;
     check(
       t.symbol, "buy: the market's account under the temporary key is closed and its rent returned",

@@ -10,7 +10,7 @@ import type { AgentDeps } from './api';
 
 /**
  * The agent API is off unless the deployment sets both of these (tools/agent-key.ts makes them).
- * They are read when a deployment starts: on Vercel a change needs a redeploy (review FA-02), so
+ * They are read when a deployment starts: on Vercel a change needs a redeploy, so
  * revoking a key or pausing follows the runbook in SECURITY.md, not an edit in the dashboard.
  *
  *   ORIENTIM_API_SECRET           32 random bytes, base64: seals tickets and derives each E
@@ -39,7 +39,7 @@ function sayOnce(message: string, level: 'error' | 'warn' = 'error') {
 /**
  * A secret: canonical base64 of at least 32 bytes, as `node tools/agent-key.ts --secret` prints it.
  * Anything else (a passphrase, a hex string, base64 with a typo) leaves its feature off rather than
- * run on a secret weaker than it looks (independent audit, ORI-13).
+ * run on a secret weaker than it looks.
  */
 function secretOf(value: string | undefined, name = 'A secret'): Uint8Array | null {
   const text = value?.trim();
@@ -73,7 +73,7 @@ export function keysOf(value: string | undefined): Map<string, string> {
     const [id, hash] = entry.split(':');
     // A malformed entry is skipped before its id is taken, so a typo cannot shut out a valid key.
     if (!/^[\w-]{1,40}$/.test(id ?? '') || !/^[0-9a-f]{64}$/.test(hash ?? '')) continue;
-    // Two keys with one id would share tickets and limits: the first one wins (FA-16).
+    // Two keys with one id would share tickets and limits: the first one wins.
     if (ids.has(id)) continue;
     ids.add(id);
     keys.set(hash, id);
@@ -82,7 +82,7 @@ export function keysOf(value: string | undefined): Map<string, string> {
 }
 
 // The clients are kept per instance. The settings are read on every request, but a host may fix the
-// environment per deployment (Vercel does): see the runbook for pausing and revoking (FA-02).
+// environment per deployment (Vercel does): see the runbook for pausing and revoking.
 let clients: { rpc: SolanaRpc; jupiter: JupiterClient; priorityFee: PriorityFeeLevel; for: string } | null = null;
 
 /** The self-serve key secrets, the current one first; none when self-serve keys are off. */
@@ -100,21 +100,21 @@ export function agentDeps(): AgentDeps | null {
   if (!current || (keys.size === 0 && ownKeys.length === 0)) return null;
   const previous = secretOf(process.env.ORIENTIM_API_SECRET_PREVIOUS, 'ORIENTIM_API_SECRET_PREVIOUS');
   const server = serverConfig();
-  // The API may run on keys of its own, so that agents cannot use up the page's quota (FA-06).
-  // Jupiter counts its limits per organisation, not per key (research audit F-10): only a key from
+  // The API may run on keys of its own, so that agents cannot use up the page's quota.
+  // Jupiter counts its limits per organisation, not per key: only a key from
   // a separate Jupiter account gives the API a quota of its own.
   const rpcUrl = process.env.RPC_URL_AGENTS || server.rpcUrl;
   const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
   const feeBps = BigInt(/^\d{1,3}$/.test(process.env.ORIENTIM_API_FEE_BPS ?? '') ? process.env.ORIENTIM_API_FEE_BPS!
     : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS! : '30');
   // A fee the verifier would refuse is a configuration error: the API stays off, rather than charge
-  // a fee nobody chose (engineering audit, Stage 1, L-01).
+  // a fee nobody chose.
   if (feeBps > 100n) {
     console.error(`The agent API is off: its fee is ${feeBps} bps, above the verifier's ceiling of 100.`);
     return null;
   }
   // Allowed, but said: the skill refuses a fee above Orientim's own 0.3% unless the agent raises its
-  // limit, and an agent calling the API without it would pay it unasked (ORI-13).
+  // limit, and an agent calling the API without it would pay it unasked.
   const pageFee = /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? BigInt(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS!) : 30n;
   if (feeBps > pageFee) sayOnce(`The agent API charges ${feeBps} bps, more than the page's ${pageFee}: agents using the skill will refuse it.`, 'warn');
   // A treasury that is set but cannot be read would make every API swap fee-free: the API stays off.
@@ -164,7 +164,7 @@ export function agentDeps(): AgentDeps | null {
   };
 }
 
-/** The least ORIENTIM_KEY_MIN_LAMPORTS may ask: 0.001 SOL (ORI-13). */
+/** The least ORIENTIM_KEY_MIN_LAMPORTS may ask: 0.001 SOL. */
 const KEY_MIN_LAMPORTS_FLOOR = 1_000_000n;
 
 /** Self-serve access, when the agent API is on and ORIENTIM_KEY_SECRET is set. */
