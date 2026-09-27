@@ -49,7 +49,7 @@ const V1_SIZE_LIMIT = 4096;
 */
 const LAMPORTS_PER_SIGNATURE = 5000n;
 const BPS_DENOMINATOR = 10000n;
-const MAX_FEE_BPS = 100n;
+const MAX_FEE_BPS$1 = 100n;
 const ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS = 1000000n;
 /**
 * The most W may send E for rent of an account the route opens in E's name. Both of Pump.fun's
@@ -558,7 +558,7 @@ async function verify(transaction, policy, snapshot, opts = {}) {
 	const feeOnInput = p.feeSide === "input" ? p.fee : 0n;
 	if (p.fee !== expectedFee || p.swapAmount + feeOnInput !== p.amountIn || p.swapAmount <= 0n) fail("R2", "policy amounts are inconsistent");
 	if (p.inputMint === p.outputMint) fail("R2", "input and output token are the same");
-	if (p.feeBps < 0n || p.feeBps > 100n) fail("R2", `fee of ${p.feeBps} bps is above the maximum of ${MAX_FEE_BPS}`);
+	if (p.feeBps < 0n || p.feeBps > 100n) fail("R2", `fee of ${p.feeBps} bps is above the maximum of ${MAX_FEE_BPS$1}`);
 	if (p.maxNetworkFeeLamports > 1000000n) fail("R4", `configured network fee limit ${p.maxNetworkFeeLamports} is above the absolute maximum`);
 	if (p.minOut <= 0n) fail("R2", "the policy has no minimum output");
 	for (const [mint, decimals, side] of [[
@@ -908,6 +908,18 @@ async function verify(transaction, policy, snapshot, opts = {}) {
 	};
 }
 const MAX_SLIPPAGE_BPS = 1500;
+/**
+* Hard limits no intent, flag or JSON field can raise (agent review G1). An agent sets its own
+* limits, and an agent can be misled: a page, an issue or a token name that tells it to "set the
+* minimum to 1" must not be able to sell the amount for nothing. Its floor never sits more than
+* `MAX_BELOW_BPS` below Jupiter's own price, the price impact it accepts never exceeds
+* `MAX_PRICE_IMPACT_BPS`, and Orientim's fee is never accepted above `MAX_FEE_BPS`. An owner who
+* needs more changes these constants in their own copy, knowingly.
+*/
+const MAX_BELOW_BPS = 2e3;
+const MAX_PRICE_IMPACT_BPS = 2e3;
+/** The fee limit the check applies: the agent's own, never above Orientim's pinned fee. */
+const feeLimitBps = (maxFeeBps) => Number.isInteger(maxFeeBps) && maxFeeBps >= 0 ? Math.min(maxFeeBps, 30) : 30;
 const isSlippageBps = (v) => typeof v === "number" && Number.isInteger(v) && v >= 10 && v <= 1500;
 const BIGINT_FIELDS = [
 	"minOut",
@@ -934,6 +946,8 @@ function policyOf(json) {
 		return null;
 	}
 }
+/** A value from the server, shown in a problem only as an address; anything else is not repeated (agent review G7). */
+const shown = (v) => typeof v === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v) ? v : "(not an address)";
 const hex$1 = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
 /**
 * The problems found, or an empty list. Sign only when it is empty. `rpc` must be the agent's own
@@ -951,13 +965,13 @@ async function verifyPrepared(prepared, limits, rpc, opts = {}) {
 	if (hex$1(await crypto.subtle.digest("SHA-256", new Uint8Array(transaction.messageBytes))) !== prepared.messageSha256) problems.push("the message does not hash to messageSha256");
 	const p = policyOf(prepared.policy);
 	if (!p) return [...problems, "the policy is malformed"];
-	if (p.owner !== limits.owner) problems.push(`the policy is for wallet ${p.owner}, not yours`);
+	if (p.owner !== limits.owner) problems.push(`the policy is for wallet ${shown(p.owner)}, not yours`);
 	if (p.inputMint !== limits.inputMint || p.outputMint !== limits.outputMint) problems.push("the policy is for other tokens");
 	if (p.amountIn !== BigInt(limits.amountIn)) problems.push(`the policy debits ${p.amountIn}, not ${limits.amountIn}`);
-	if (p.jupiterProgram !== JUPITER_PROGRAM) problems.push(`the swap program is ${p.jupiterProgram}, not Jupiter`);
+	if (p.jupiterProgram !== JUPITER_PROGRAM) problems.push(`the swap program is ${shown(p.jupiterProgram)}, not Jupiter`);
 	if (p.ephemeral !== prepared.temporaryAuthority) problems.push("the one-time key differs from the one stated");
-	if (p.feeBps > BigInt(limits.maxFeeBps ?? 30)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
-	if (p.treasury !== null && p.treasury !== (limits.treasury || "ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE")) problems.push(`the fee goes to ${p.treasury}, not Orientim's treasury`);
+	if (p.feeBps > BigInt(feeLimitBps(limits.maxFeeBps))) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
+	if (p.treasury !== null && p.treasury !== (limits.treasury || "ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE")) problems.push(`the fee goes to ${shown(p.treasury)}, not Orientim's treasury`);
 	if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1e6)) problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
 	if (p.feeSide === "sol") {
 		if (limits.maxSolFeeLamports === void 0) problems.push("the Orientim fee is paid in SOL at a price the check cannot see: set maxSolFeeLamports from a price you got yourself (ownSolFeeLimit asks Jupiter)");
@@ -1069,8 +1083,9 @@ async function leftUnderKey(transaction, key, rpc, minContextSlot = 0n, timeoutM
 * when a token's pool is drained: the check refuses it (`DEFAULT_MAX_PRICE_IMPACT_BPS`).
 */
 async function ownQuote(args) {
+	if (args.maxBelowBps !== void 0 && !(Number.isInteger(args.maxBelowBps) && args.maxBelowBps >= 0 && args.maxBelowBps <= 2e3)) throw new Error(`maxBelowBps must be a whole number of bps from 0 to ${MAX_BELOW_BPS}: a floor further below the market is not accepted. Nothing was prepared.`);
 	const amount = BigInt(args.amountIn);
-	const afterFee = amount - amount * BigInt(args.maxFeeBps ?? 30) / 10000n;
+	const afterFee = amount - amount * BigInt(feeLimitBps(args.maxFeeBps)) / 10000n;
 	const routed = args.inputTax ? afterFee - transferFeeOn(afterFee, args.inputTax) : afterFee;
 	const url = new URL(args.jupiterUrl ?? "https://api.jup.ag/swap/v2/build");
 	const query = {
@@ -1094,6 +1109,7 @@ async function ownQuote(args) {
 	const impact = Number(r.priceImpactPct);
 	return {
 		minOut: (BigInt(r.outAmount) * (10000n - below) / 10000n).toString(),
+		outAmount: r.outAmount,
 		priceImpactBps: Number.isFinite(impact) && impact > 0 ? Math.round(impact * 1e4) : 0,
 		curve
 	};
@@ -1162,7 +1178,7 @@ async function ownSolFeeLimit(args) {
 	if (!res.ok) throw new Error(`Jupiter answered ${res.status} when asked for the value of your swap in SOL`);
 	const r = await res.json();
 	if (r.inputMint !== args.inputMint || r.outputMint !== query.outputMint || r.inAmount !== args.amountIn || !/^\d{1,20}$/.test(r.outAmount ?? "")) throw new Error("Jupiter answered for another trade when asked for the value of your swap in SOL");
-	const fee = BigInt(r.outAmount) * BigInt(args.maxFeeBps ?? 30) / 10000n;
+	const fee = BigInt(r.outAmount) * BigInt(feeLimitBps(args.maxFeeBps)) / 10000n;
 	const limit = fee + fee / 50n;
 	if (limit > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("the fee in SOL for this amount is beyond an exact limit; set maxSolFeeLamports yourself");
 	return Number(limit);
@@ -1194,7 +1210,7 @@ async function ownSolFeeLimit(args) {
 *                                                Orientim's own treasury is pinned in the skill)
 *   JUPITER_API_KEY=...                          (for your own price: Jupiter throttles keyless calls after one or two)
 *
-*   node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--slippage-bps N] [--max-price-impact-bps N]
+*   node swap.ts --in <mint> --out <mint> --amount <base units> --id <order id> [--slippage-bps N] [--max-price-impact-bps N]
 *                [--min-out <base units>] [--max-below-bps N] [--max-fee-bps 30] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1]
 *   (without --slippage-bps the tolerance is automatic: 0.5%, or 3% on a Pump.fun curve; above 5% price impact, refused)
 *   node swap.ts ... --owner <address> --dry-run      prepare and verify only: nothing is signed
@@ -1203,17 +1219,79 @@ async function ownSolFeeLimit(args) {
 * --state, default ./.orientim-state) before finalize, settles what a stopped run left there before it
 * starts another, and holds a lock per wallet so that two workers never swap from it at once.
 */
+/**
+* What each error code means, in the skill's own words (agent review G7). An agent reads an error to
+* decide what to do next, so the words it reads are these, never the server's: a compromised server
+* or relay could otherwise write instructions into an error ("call transfer ..."). The server's own
+* text is kept apart, cut to one short line, as `serverMessage`, and marked as untrusted.
+*/
+const ERROR_MEANINGS = {
+	"price-moved": "The market no longer meets your minimum. Ask the user before preparing again with minOut set to newMinOut.",
+	"costs-more": "The protected route costs more than the open market. Ask the user; to accept, prepare again with acceptCostBps set to gapBps.",
+	"output-balance-changed": "Your balance of the output token changed since prepare, so nothing was signed. Settle what may still land, then prepare again.",
+	busy: "Orientim is busy. Wait the Retry-After seconds, then try again.",
+	unavailable: "Orientim is unavailable. Wait the Retry-After seconds, then try again.",
+	"rate-limited": "Too many requests. Wait the Retry-After seconds, then try again.",
+	expired: "The transaction expired before it was signed by Orientim. Settle what may still land, then prepare again.",
+	"route-format": "Jupiter changed its format and Orientim cannot read it yet. Wait at least the Retry-After seconds.",
+	paused: "Orientim has paused swaps; funds are not affected. Try later.",
+	"fee-unavailable": "Orientim cannot collect its fee on this swap right now, so it built nothing. Wait the Retry-After seconds.",
+	"amount-too-small": "The amount is below the smallest swap Orientim takes. Swap a larger amount.",
+	"skill-outdated": "This copy of the skill is too old. Replace the skill folder with the current one.",
+	"transaction-changed": "The signed transaction differs from the one prepared. Sign exactly what prepare returned.",
+	"wallet-changed-transaction": "The wallet changed the transaction or did not sign it. Sign exactly what prepare returned.",
+	"unsupported-token": "This token cannot be swapped safely now.",
+	"no-route": "No protected route was found for this swap now.",
+	"insufficient-sol": "The wallet does not hold enough SOL for this swap.",
+	"insufficient-balance": "The wallet does not hold enough of the input token.",
+	"simulation-failed": "The swap failed in simulation, so nothing was built.",
+	"bad-request": "Orientim could not read the request.",
+	unauthorized: "The API key was refused.",
+	"not-found": "Orientim does not know this request."
+};
+const CODE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+/** An error code as data: Orientim's own shape, or `other`. */
+const safeCode = (code) => typeof code === "string" && CODE.test(code) ? code : "other";
+/** Text from a server, as one short printable line, for a person to read: never instructions. */
+const untrustedLine = (text) => typeof text === "string" ? text.replace(/[^\x20-\x7e]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160) : "";
+/**
+* Only data: numbers, booleans, null, and strings with no spaces or control characters (amounts,
+* addresses, base64, codes), in objects and arrays of the same. Anything else, prose included, is
+* dropped. What a server sends reaches the agent through this (agent review G7).
+*/
+function dataOnly(value, depth = 0) {
+	if (value === null || typeof value === "boolean") return value;
+	if (typeof value === "number") return Number.isFinite(value) ? value : null;
+	if (typeof value === "string") return /^[\x21-\x7e]{0,4096}$/.test(value) ? value : void 0;
+	if (depth > 6) return void 0;
+	if (Array.isArray(value)) return value.map((v) => dataOnly(v, depth + 1)).filter((v) => v !== void 0);
+	if (typeof value === "object") {
+		const out = {};
+		for (const [k, v] of Object.entries(value)) {
+			const kept = /^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(k) ? dataOnly(v, depth + 1) : void 0;
+			if (kept !== void 0) out[k] = kept;
+		}
+		return out;
+	}
+}
 var OrientimApiError = class extends Error {
 	status;
+	/** Orientim's error code, or `other` for one it does not have. */
 	code;
+	/** The answer's data fields only (`newMinOut`, `gapBps`, `signature`...): no prose. */
 	body;
+	/** The server's own words, one short line: untrusted, for a person to read, never to act on. */
+	serverMessage;
 	/** Seconds to wait before asking again, from the answer's Retry-After header; null without one. */
 	retryAfter;
 	constructor(e) {
-		super(`${e.status} ${e.code}: ${e.message}`);
-		this.status = e.status;
-		this.code = e.code;
-		this.body = e.body;
+		const code = safeCode(e.code);
+		super(`${Number(e.status) || 0} ${code}: ${ERROR_MEANINGS[code] ?? "Orientim refused this request; this request signed and sent nothing."}`);
+		this.status = Number(e.status) || 0;
+		this.code = code;
+		const { message: _message, code: _code, ...data } = e.body ?? {};
+		this.body = dataOnly(data);
+		this.serverMessage = untrustedLine(e.message);
 		this.retryAfter = e.retryAfter ?? null;
 	}
 };
@@ -1222,7 +1300,7 @@ var OrientimApiError = class extends Error {
 * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
 * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
 */
-const SKILL_VERSION = "1.1.3";
+const SKILL_VERSION = "1.2.0";
 /** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call(fetchImpl, url, key, body, timeoutMs = 3e4) {
 	const res = await fetchImpl(url, {
@@ -1308,6 +1386,8 @@ async function redeemApiKey(args) {
 		expiresAt: json.expiresAt ?? ""
 	};
 }
+/** An address, as Solana writes one. */
+const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const hex = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, "0")).join("");
 const sameBytes = (a, b) => a.length === b.length && Array.from(a).every((x, i) => x === b[i]);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1334,7 +1414,12 @@ async function checkPrepared(p, intent, rpc, opts = {}) {
 			"routeRefundLamports"
 		].filter((k) => !digits(p.costs?.[k])).map((k) => `costs.${k}`),
 		...p.costs?.keptSolLamports !== void 0 && !digits(p.costs.keptSolLamports) ? ["costs.keptSolLamports"] : [],
-		...p.amounts?.feeMint !== void 0 && typeof p.amounts.feeMint !== "string" ? ["amounts.feeMint"] : []
+		...p.amounts?.feeMint !== void 0 && !(typeof p.amounts.feeMint === "string" && BASE58.test(p.amounts.feeMint)) ? ["amounts.feeMint"] : [],
+		...p.amounts?.priceImpactPct !== void 0 && !Number.isFinite(Number(p.amounts.priceImpactPct)) ? ["amounts.priceImpactPct"] : [],
+		...!digits(p.lastValidBlockHeight) ? ["lastValidBlockHeight"] : [],
+		...p.blocksLeft !== void 0 && !digits(p.blocksLeft) ? ["blocksLeft"] : [],
+		...["totalDebit", "orientimFee"].filter((k) => !digits(p.certificate?.input?.[k])).map((k) => `certificate.input.${k}`),
+		...!digits(p.certificate?.output?.minimumOutput) ? ["certificate.output.minimumOutput"] : []
 	];
 	if (malformed.length) return [`the answer's numbers are malformed: ${malformed.join(", ")}`];
 	const problems = [];
@@ -1349,7 +1434,7 @@ async function checkPrepared(p, intent, rpc, opts = {}) {
 	if (p.certificate.input.mint !== intent.inputMint || p.certificate.output.mint !== intent.outputMint) problems.push("the tokens differ from the ones asked for");
 	if (p.amounts.amountIn !== intent.amountIn || p.certificate.input.totalDebit !== intent.amountIn) problems.push(`the wallet would pay ${p.certificate.input.totalDebit}, not ${intent.amountIn}`);
 	const inSol = p.policy.feeSide === "sol";
-	const maxFee = (p.amounts.feeMint !== void 0 && p.amounts.feeMint === intent.outputMint && p.amounts.feeMint !== intent.inputMint ? BigInt(p.amounts.minOut) + BigInt(p.amounts.fee) : BigInt(intent.amountIn)) * BigInt(intent.maxFeeBps ?? 30) / 10000n;
+	const maxFee = (p.amounts.feeMint !== void 0 && p.amounts.feeMint === intent.outputMint && p.amounts.feeMint !== intent.inputMint ? BigInt(p.amounts.minOut) + BigInt(p.amounts.fee) : BigInt(intent.amountIn)) * BigInt(feeLimitBps(intent.maxFeeBps)) / 10000n;
 	const stated = BigInt(p.certificate.input.orientimFee) + BigInt(p.certificate.output.orientimFee ?? "0") + BigInt(p.certificate.solFee?.lamports ?? "0");
 	if (!inSol && BigInt(p.amounts.fee) > maxFee) problems.push(`the Orientim fee ${p.amounts.fee} is above ${maxFee}`);
 	if (stated !== BigInt(p.amounts.fee)) problems.push("the fee the certificate states differs from the one in amounts");
@@ -1776,6 +1861,54 @@ function acquireLock(dir, owner, staleMs = 6e5) {
 	};
 }
 /**
+* The minimum a caller asked for sits further below Jupiter's own price than `MAX_BELOW_BPS` allows:
+* refused before anything was prepared (agent review G1). A misled agent cannot sell for nothing.
+*/
+var FloorError = class extends Error {
+	minOut;
+	lowest;
+	constructor(minOut, lowest) {
+		super(`The minimum ${minOut} is more than ${MAX_BELOW_BPS / 100}% below the market's own price; the lowest accepted is ${lowest}. Nothing was prepared or signed.`);
+		this.minOut = minOut;
+		this.lowest = lowest;
+	}
+};
+/**
+* Your floor and the market's price impact, from a price asked of Jupiter directly, whatever the
+* intent says (research audit F-02, agent review G1). Without `minOut`, the floor is Jupiter's price
+* less `maxBelowBps`; with one, it may be higher than that, never more than `MAX_BELOW_BPS` below
+* the market. The price impact is held to `maxPriceImpactBps`, itself at most `MAX_PRICE_IMPACT_BPS`.
+*/
+async function ownFloor(intent, deps) {
+	const maxImpact = intent.maxPriceImpactBps ?? 500;
+	if (!(Number.isInteger(maxImpact) && maxImpact >= 0 && maxImpact <= 2e3)) throw new Error(`maxPriceImpactBps must be a whole number of bps from 0 to ${MAX_PRICE_IMPACT_BPS}. Nothing was prepared.`);
+	if (intent.maxFeeBps !== void 0 && feeLimitBps(intent.maxFeeBps) !== intent.maxFeeBps) throw new Error(`maxFeeBps may be at most ${feeLimitBps()}, Orientim's pinned fee. Nothing was prepared.`);
+	if (intent.minOut !== void 0 && !/^\d{1,20}$/.test(intent.minOut)) throw new Error("minOut must be a whole number of base units, as a string. Nothing was prepared.");
+	const own = await ownQuote({
+		inputMint: intent.inputMint,
+		outputMint: intent.outputMint,
+		amountIn: intent.amountIn,
+		taker: intent.owner,
+		maxFeeBps: intent.maxFeeBps,
+		maxBelowBps: intent.maxBelowBps,
+		slippageBps: intent.slippageBps,
+		apiKey: deps.jupiterApiKey,
+		fetchImpl: deps.fetchImpl,
+		inputTax: await inputTransferFee(deps.rpc, intent.inputMint, deps.requestTimeoutMs)
+	});
+	if (own.priceImpactBps > maxImpact) throw new PriceImpactError(own.priceImpactBps, maxImpact);
+	if (intent.minOut === void 0) return {
+		minOut: own.minOut,
+		priceImpactBps: own.priceImpactBps
+	};
+	const lowest = BigInt(own.outAmount) * BigInt(8e3) / 10000n;
+	if (BigInt(intent.minOut) < lowest) throw new FloorError(intent.minOut, lowest.toString());
+	return {
+		minOut: intent.minOut,
+		priceImpactBps: own.priceImpactBps
+	};
+}
+/**
 * Prepare and check: your own floor (asked of Jupiter when you set none), Orientim's answer, and the
 * full check on the exact bytes with chain state from your RPC. Throws on anything to refuse; sign
 * only the transaction this returns. A price that moved or a costlier route is not accepted
@@ -1786,26 +1919,15 @@ async function prepareChecked(args) {
 	const owner = args.owner;
 	const { slippageBps } = args.intent;
 	if (slippageBps !== void 0 && !isSlippageBps(slippageBps)) throw new Error(`slippageBps must be a whole number of bps from 10 to ${MAX_SLIPPAGE_BPS}. Nothing was prepared.`);
-	const maxImpact = args.intent.maxPriceImpactBps ?? 500;
-	let minOut = args.intent.minOut;
-	let impactBps = null;
-	if (minOut === void 0) {
-		const own = await ownQuote({
-			inputMint: args.intent.inputMint,
-			outputMint: args.intent.outputMint,
-			amountIn: args.intent.amountIn,
-			taker: owner,
-			maxFeeBps: args.intent.maxFeeBps,
-			maxBelowBps: args.intent.maxBelowBps,
-			slippageBps,
-			apiKey: args.jupiterApiKey,
-			fetchImpl,
-			inputTax: await inputTransferFee(args.rpc, args.intent.inputMint, args.requestTimeoutMs)
-		});
-		minOut = own.minOut;
-		impactBps = own.priceImpactBps;
-		if (impactBps > maxImpact) throw new PriceImpactError(impactBps, maxImpact);
-	}
+	const minOut = (await ownFloor({
+		...args.intent,
+		owner
+	}, {
+		rpc: args.rpc,
+		fetchImpl,
+		jupiterApiKey: args.jupiterApiKey,
+		requestTimeoutMs: args.requestTimeoutMs
+	})).minOut;
 	const intent = {
 		...args.intent,
 		owner,
@@ -1821,11 +1943,6 @@ async function prepareChecked(args) {
 		...slippageBps !== void 0 ? { slippageBps } : {},
 		...intent.version !== void 0 ? { version: intent.version } : {}
 	}, args.requestTimeoutMs);
-	if (impactBps === null) {
-		const stated = Number(prepared.amounts?.priceImpactPct);
-		const bps = Number.isFinite(stated) && stated > 0 ? Math.round(stated * 1e4) : 0;
-		if (bps > maxImpact) throw new PriceImpactError(bps, maxImpact);
-	}
 	if (prepared.policy.feeSide === "sol" && intent.maxSolFeeLamports === void 0) intent.maxSolFeeLamports = await ownSolFeeLimit({
 		inputMint: intent.inputMint,
 		amountIn: intent.amountIn,
@@ -1837,7 +1954,7 @@ async function prepareChecked(args) {
 	const problems = await checkPrepared(prepared, intent, args.rpc, { requestTimeoutMs: args.requestTimeoutMs });
 	if (problems.length) throw new Error(`Not signing: ${problems.join("; ")}`);
 	return {
-		prepared,
+		prepared: dataOnly(prepared),
 		intent,
 		notices: await tokenNotices(args.rpc, [intent.inputMint, intent.outputMint], args.requestTimeoutMs ?? 1e4)
 	};
@@ -1937,7 +2054,7 @@ async function askAndConfirm(args, signed, mine, temporaryAuthority) {
 		requestTimeoutMs: args.requestTimeoutMs,
 		earliestHeight: signed.signedHeight
 	});
-	const refusal = refused ? refused.code : done?.status === "rejected" ? done.refusal ?? "network" : void 0;
+	const refusal = refused ? refused.code : done?.status === "rejected" ? safeCode(done.refusal ?? "network") : void 0;
 	if (outcome === "expired" && refusal) return {
 		signature,
 		outcome: "rejected",
@@ -2049,7 +2166,7 @@ async function main$1() {
 		flag("amount")
 	];
 	if (!inputMint || !outputMint || !amountIn) {
-		console.error("usage: node swap.ts --in <mint> --out <mint> --amount <base units> [--id <order id>] [--slippage-bps N] [--max-price-impact-bps N] [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1] [--state <dir>] [--owner <address> --dry-run]");
+		console.error("usage: node swap.ts --in <mint> --out <mint> --amount <base units> --id <order id> [--slippage-bps N] [--max-price-impact-bps N] [--min-out N] [--max-below-bps N] [--max-fee-bps N] [--max-route-cost-lamports N] [--accept-cost-bps N] [--v1] [--state <dir>] [--owner <address> --dry-run]");
 		process.exit(2);
 	}
 	const apiUrl = need("ORIENTIM_API_URL").replace(/\/+$/, "");
@@ -2074,18 +2191,14 @@ async function main$1() {
 	const rpc = createSolanaRpc(need("SOLANA_RPC_URL"));
 	if (process.argv.includes("--dry-run")) {
 		const owner = flag("owner") ?? (console.error("--dry-run needs --owner <address>."), process.exit(2));
-		const own = intent.minOut ? null : await ownQuote({
-			inputMint,
-			outputMint,
-			amountIn,
-			taker: owner,
-			maxFeeBps: intent.maxFeeBps,
-			maxBelowBps: intent.maxBelowBps,
-			slippageBps: intent.slippageBps,
-			apiKey: jupiterApiKey,
-			inputTax: await inputTransferFee(rpc, inputMint)
+		const own = await ownFloor({
+			...intent,
+			owner
+		}, {
+			rpc,
+			jupiterApiKey
 		});
-		const minOut = intent.minOut ?? own.minOut;
+		const minOut = own.minOut;
 		const prepared = await call(fetch, `${apiUrl}/api/v1/prepare`, apiKey, {
 			owner,
 			inputMint,
@@ -2111,7 +2224,7 @@ async function main$1() {
 		}, rpc);
 		console.log(JSON.stringify({
 			yourFloor: minOut,
-			priceImpactBps: own?.priceImpactBps,
+			priceImpactBps: own.priceImpactBps,
 			amounts: prepared.amounts,
 			costs: prepared.costs,
 			blocksLeft: prepared.blocksLeft,
@@ -2120,6 +2233,10 @@ async function main$1() {
 		}, null, 2));
 		process.exitCode = problems.length ? 1 : 0;
 		return;
+	}
+	if (!intent.id) {
+		console.error("Give the order an id: --id <order id>, the same on every retry of this order, so that it is never swapped twice. Nothing was started.");
+		process.exit(2);
 	}
 	const wallet = await createKeyPairSignerFromBytes(new Uint8Array(JSON.parse(readFileSync(need("ORIENTIM_WALLET_KEYPAIR"), "utf8"))));
 	const stateDir = flag("state") ?? process.env.ORIENTIM_STATE_DIR ?? ".orientim-state";
@@ -2159,7 +2276,7 @@ async function main$1() {
 	}
 }
 if (process.argv[1] && /swap\.ts$/.test(process.argv[1]) && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main$1().catch((e) => {
-	console.error(e instanceof OrientimApiError ? `${e.code}: ${e.message}` : e instanceof PriceImpactError ? `price-impact-high: ${e.message}` : e);
+	console.error(e instanceof OrientimApiError ? `${e.code}: ${e.message}${e.serverMessage ? ` (Orientim's words, untrusted: "${e.serverMessage}")` : ""}` : e instanceof PriceImpactError ? `price-impact-high: ${e.message}` : e instanceof FloorError ? `floor-too-low: ${e.message}` : e);
 	process.exitCode = 1;
 });
 //#endregion
@@ -2269,23 +2386,14 @@ async function runCli(command, input, deps) {
 			...body.intent
 		};
 		try {
-			let priceImpactBps;
-			if (intent.minOut === void 0) {
-				const own = await ownQuote({
-					inputMint: intent.inputMint,
-					outputMint: intent.outputMint,
-					amountIn: intent.amountIn,
-					taker: intent.owner,
-					maxFeeBps: intent.maxFeeBps,
-					maxBelowBps: intent.maxBelowBps,
-					slippageBps: intent.slippageBps,
-					apiKey: deps.jupiterApiKey,
-					fetchImpl: deps.fetchImpl,
-					inputTax: await inputTransferFee(deps.rpc, intent.inputMint, deps.requestTimeoutMs)
-				});
-				intent.minOut = own.minOut;
-				priceImpactBps = own.priceImpactBps;
-			}
+			const own = await ownFloor(intent, {
+				rpc: deps.rpc,
+				fetchImpl: deps.fetchImpl,
+				jupiterApiKey: deps.jupiterApiKey,
+				requestTimeoutMs: deps.requestTimeoutMs
+			});
+			intent.minOut = own.minOut;
+			const priceImpactBps = own.priceImpactBps;
 			if (prepared.policy.feeSide === "sol" && intent.maxSolFeeLamports === void 0) intent.maxSolFeeLamports = await ownSolFeeLimit({
 				inputMint: intent.inputMint,
 				amountIn: intent.amountIn,
@@ -2295,8 +2403,6 @@ async function runCli(command, input, deps) {
 				fetchImpl: deps.fetchImpl
 			});
 			const problems = await checkPrepared(prepared, intent, deps.rpc, { requestTimeoutMs: deps.requestTimeoutMs });
-			const maxImpact = intent.maxPriceImpactBps ?? 500;
-			if (priceImpactBps !== void 0 && priceImpactBps > maxImpact) problems.push(`the price impact is ${(priceImpactBps / 100).toFixed(2)}%, above the limit of ${(maxImpact / 100).toFixed(2)}%`);
 			return {
 				code: problems.length ? 1 : 0,
 				output: {
@@ -2463,6 +2569,7 @@ async function runCli(command, input, deps) {
 	};
 	if (command === "prepare") {
 		if (!isIntent(body.intent)) return usage(`prepare reads {"intent": ${INTENT_SHAPE}}.`);
+		if (typeof body.intent.id !== "string" || !body.intent.id) return usage("prepare needs intent.id: your order's own id, the same on every retry of that order, so that it is never swapped twice.");
 		const orderId = body.intent.id;
 		let pending;
 		let prior;
@@ -2535,7 +2642,20 @@ async function runCli(command, input, deps) {
 						code: e.code,
 						message: e.message,
 						retryAfter: e.retryAfter,
-						details: e.body
+						details: e.body,
+						...e.serverMessage ? { untrustedServerMessage: e.serverMessage } : {}
+					}
+				}
+			};
+			if (e instanceof FloorError) return {
+				code: 1,
+				output: {
+					ok: false,
+					error: {
+						code: "floor-too-low",
+						message: e.message,
+						minOut: e.minOut,
+						lowest: e.lowest
 					}
 				}
 			};

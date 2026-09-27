@@ -129,7 +129,7 @@ describe('agents and bots, fuzzed end to end', () => {
               rpc: w.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: w.fetchImpl, pollMs: 1, maxWaitMs: 60,
               stateDir: mkdtempSync(join(tmpdir(), 'orientim-fuzz-')), treasury: TREASURY,
             };
-            const ready = await runCli('prepare', { intent: { owner: w.wallet.address, ...intent } }, deps);
+            const ready = await runCli('prepare', { intent: { owner: w.wallet.address, ...intent, id: 'fuzz-order' } }, deps);
             const out = JSON.parse(JSON.stringify(ready.output)) as { checked?: unknown; message?: string };
             if (ready.code !== 0 || !out.message) {
               swapped = false;

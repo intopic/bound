@@ -45,6 +45,20 @@ export const MIN_SLIPPAGE_BPS = 10;
 export const MAX_SLIPPAGE_BPS = 1_500;
 /** Above this price impact an agent refuses unless its owner allows more: the page asks a person there. */
 export const DEFAULT_MAX_PRICE_IMPACT_BPS = 500;
+/**
+ * Hard limits no intent, flag or JSON field can raise (agent review G1). An agent sets its own
+ * limits, and an agent can be misled: a page, an issue or a token name that tells it to "set the
+ * minimum to 1" must not be able to sell the amount for nothing. Its floor never sits more than
+ * `MAX_BELOW_BPS` below Jupiter's own price, the price impact it accepts never exceeds
+ * `MAX_PRICE_IMPACT_BPS`, and Orientim's fee is never accepted above `MAX_FEE_BPS`. An owner who
+ * needs more changes these constants in their own copy, knowingly.
+ */
+export const MAX_BELOW_BPS = 2_000;
+export const MAX_PRICE_IMPACT_BPS = 2_000;
+export const MAX_FEE_BPS = 30;
+/** The fee limit the check applies: the agent's own, never above Orientim's pinned fee. */
+export const feeLimitBps = (maxFeeBps?: number) =>
+  Number.isInteger(maxFeeBps) && (maxFeeBps as number) >= 0 ? Math.min(maxFeeBps as number, MAX_FEE_BPS) : MAX_FEE_BPS;
 export const isSlippageBps = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= MIN_SLIPPAGE_BPS && v <= MAX_SLIPPAGE_BPS;
 
 export type AgentLimits = {
@@ -118,6 +132,8 @@ function policyOf(json: Record<string, unknown>): Policy | null {
   }
 }
 
+/** A value from the server, shown in a problem only as an address; anything else is not repeated (agent review G7). */
+const shown = (v: unknown) => (typeof v === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v) ? v : '(not an address)');
 const hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
 
 /**
@@ -143,13 +159,13 @@ export async function verifyPrepared(
   // own intent and limits before the verifier uses it.
   const p = policyOf(prepared.policy);
   if (!p) return [...problems, 'the policy is malformed'];
-  if (p.owner !== limits.owner) problems.push(`the policy is for wallet ${p.owner}, not yours`);
+  if (p.owner !== limits.owner) problems.push(`the policy is for wallet ${shown(p.owner)}, not yours`);
   if (p.inputMint !== limits.inputMint || p.outputMint !== limits.outputMint) problems.push('the policy is for other tokens');
   if (p.amountIn !== BigInt(limits.amountIn)) problems.push(`the policy debits ${p.amountIn}, not ${limits.amountIn}`);
-  if (p.jupiterProgram !== JUPITER_PROGRAM) problems.push(`the swap program is ${p.jupiterProgram}, not Jupiter`);
+  if (p.jupiterProgram !== JUPITER_PROGRAM) problems.push(`the swap program is ${shown(p.jupiterProgram)}, not Jupiter`);
   if (p.ephemeral !== prepared.temporaryAuthority) problems.push('the one-time key differs from the one stated');
-  if (p.feeBps > BigInt(limits.maxFeeBps ?? 30)) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
-  if (p.treasury !== null && p.treasury !== (limits.treasury || ORIENTIM_TREASURY)) problems.push(`the fee goes to ${p.treasury}, not Orientim's treasury`);
+  if (p.feeBps > BigInt(feeLimitBps(limits.maxFeeBps))) problems.push(`the fee of ${p.feeBps} bps is above your limit`);
+  if (p.treasury !== null && p.treasury !== (limits.treasury || ORIENTIM_TREASURY)) problems.push(`the fee goes to ${shown(p.treasury)}, not Orientim's treasury`);
   if (p.maxNetworkFeeLamports > BigInt(limits.maxNetworkFeeLamports ?? 1_000_000)) {
     problems.push(`the network fee may reach ${p.maxNetworkFeeLamports} lamports, above your limit`);
   }
@@ -308,9 +324,12 @@ export async function ownMinimum(args: OwnQuoteArgs): Promise<string> {
  * route trades on a Pump.fun bonding curve. A large price impact is the mark of thin liquidity, as
  * when a token's pool is drained: the check refuses it (`DEFAULT_MAX_PRICE_IMPACT_BPS`).
  */
-export async function ownQuote(args: OwnQuoteArgs): Promise<{ minOut: string; priceImpactBps: number; curve: boolean }> {
+export async function ownQuote(args: OwnQuoteArgs): Promise<{ minOut: string; outAmount: string; priceImpactBps: number; curve: boolean }> {
+  if (args.maxBelowBps !== undefined && !(Number.isInteger(args.maxBelowBps) && args.maxBelowBps >= 0 && args.maxBelowBps <= MAX_BELOW_BPS)) {
+    throw new Error(`maxBelowBps must be a whole number of bps from 0 to ${MAX_BELOW_BPS}: a floor further below the market is not accepted. Nothing was prepared.`);
+  }
   const amount = BigInt(args.amountIn);
-  const afterFee = amount - (amount * BigInt(args.maxFeeBps ?? 30)) / 10_000n;
+  const afterFee = amount - (amount * BigInt(feeLimitBps(args.maxFeeBps))) / 10_000n;
   const routed = args.inputTax ? afterFee - transferFeeOn(afterFee, args.inputTax) : afterFee;
   const url = new URL(args.jupiterUrl ?? 'https://api.jup.ag/swap/v2/build');
   const query = {
@@ -333,6 +352,7 @@ export async function ownQuote(args: OwnQuoteArgs): Promise<{ minOut: string; pr
   const impact = Number(r.priceImpactPct);
   return {
     minOut: ((BigInt(r.outAmount!) * (10_000n - below)) / 10_000n).toString(),
+    outAmount: r.outAmount!,
     priceImpactBps: Number.isFinite(impact) && impact > 0 ? Math.round(impact * 10_000) : 0,
     curve,
   };
@@ -402,7 +422,7 @@ export async function ownSolFeeLimit(args: {
   if (r.inputMint !== args.inputMint || r.outputMint !== query.outputMint || r.inAmount !== args.amountIn || !/^\d{1,20}$/.test(r.outAmount ?? '')) {
     throw new Error('Jupiter answered for another trade when asked for the value of your swap in SOL');
   }
-  const fee = (BigInt(r.outAmount!) * BigInt(args.maxFeeBps ?? 30)) / 10_000n;
+  const fee = (BigInt(r.outAmount!) * BigInt(feeLimitBps(args.maxFeeBps))) / 10_000n;
   const limit = fee + fee / 50n;
   // A limit beyond what a Number holds exactly is refused rather than rounded (Stage 1, U5).
   if (limit > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('the fee in SOL for this amount is beyond an exact limit; set maxSolFeeLamports yourself');

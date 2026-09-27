@@ -40,10 +40,10 @@ import { createSolanaRpc, getBase58Encoder, getSignatureFromTransaction, getTran
 import type { Address, Rpc, SignatureBytes, SolanaRpcApi } from '@solana/kit';
 import {
   acquireLock, apiKeyChallenge, OrientimApiError, checkPrepared, createFileStore, finalizeSigned, isApiKeyMessage, pendingFor, PendingSwapError,
-  prepareChecked, PriceImpactError, receivedFor, recoverPending, redeemApiKey, resolvePending, resumeSigned, takeOrder,
+  prepareChecked, PriceImpactError, FloorError, ownFloor, receivedFor, recoverPending, redeemApiKey, resolvePending, resumeSigned, takeOrder,
 } from '../examples/swap.ts';
 import type { Checked, Intent, OrderBook, OrderRecord, PendingStore, Prepared } from '../examples/swap.ts';
-import { DEFAULT_MAX_PRICE_IMPACT_BPS, inputTransferFee, ownQuote, ownSolFeeLimit } from '../lib/orientim-verify.mjs';
+import { ownSolFeeLimit } from '../lib/orientim-verify.mjs';
 
 export type CliDeps = {
   rpc: Rpc<SolanaRpcApi>;
@@ -100,26 +100,16 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
     }
     const intent: Intent = { ...(deps.treasury ? { treasury: deps.treasury } : {}), ...body.intent };
     try {
-      let priceImpactBps: number | undefined;
-      if (intent.minOut === undefined) {
-        const own = await ownQuote({
-          inputMint: intent.inputMint, outputMint: intent.outputMint, amountIn: intent.amountIn, taker: intent.owner,
-          maxFeeBps: intent.maxFeeBps, maxBelowBps: intent.maxBelowBps, slippageBps: intent.slippageBps, apiKey: deps.jupiterApiKey, fetchImpl: deps.fetchImpl,
-          inputTax: await inputTransferFee(deps.rpc, intent.inputMint, deps.requestTimeoutMs),
-        });
-        intent.minOut = own.minOut;
-        priceImpactBps = own.priceImpactBps;
-      }
+      // The same floor as prepare: Jupiter's own price, whatever the intent says (agent review G1).
+      const own = await ownFloor(intent, { rpc: deps.rpc, fetchImpl: deps.fetchImpl, jupiterApiKey: deps.jupiterApiKey, requestTimeoutMs: deps.requestTimeoutMs });
+      intent.minOut = own.minOut;
+      const priceImpactBps = own.priceImpactBps;
       if ((prepared.policy as { feeSide?: unknown }).feeSide === 'sol' && intent.maxSolFeeLamports === undefined) {
         intent.maxSolFeeLamports = await ownSolFeeLimit({
           inputMint: intent.inputMint, amountIn: intent.amountIn, taker: intent.owner, maxFeeBps: intent.maxFeeBps, apiKey: deps.jupiterApiKey, fetchImpl: deps.fetchImpl,
         });
       }
       const problems = await checkPrepared(prepared, intent, deps.rpc, { requestTimeoutMs: deps.requestTimeoutMs });
-      const maxImpact = intent.maxPriceImpactBps ?? DEFAULT_MAX_PRICE_IMPACT_BPS;
-      if (priceImpactBps !== undefined && priceImpactBps > maxImpact) {
-        problems.push(`the price impact is ${(priceImpactBps / 100).toFixed(2)}%, above the limit of ${(maxImpact / 100).toFixed(2)}%`);
-      }
       return { code: problems.length ? 1 : 0, output: { ok: problems.length === 0, problems, yourFloor: intent.minOut, priceImpactBps } };
     } catch (e) {
       return { code: 1, output: { ok: false, problems: [messageOf(e)] } };
@@ -199,6 +189,10 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
 
   if (command === 'prepare') {
     if (!isIntent(body.intent)) return usage(`prepare reads {"intent": ${INTENT_SHAPE}}.`);
+    // Every order has an id, the same on every retry, so that it is never swapped twice (agent review G2).
+    if (typeof body.intent.id !== 'string' || !body.intent.id) {
+      return usage('prepare needs intent.id: your order\'s own id, the same on every retry of that order, so that it is never swapped twice.');
+    }
     // One swap at a time, and none while an earlier one could still land (engineering audit S1-M-01).
     // A state directory that cannot be read is an answer too, not a stack trace (Stage 2 re-run, E5).
     const orderId = body.intent.id;
@@ -234,7 +228,19 @@ export async function runCli(command: string, input: unknown, deps: CliDeps): Pr
       };
     } catch (e) {
       if (e instanceof OrientimApiError) {
-        return { code: 4, output: { ok: false, error: { status: e.status, code: e.code, message: e.message, retryAfter: e.retryAfter, details: e.body } } };
+        return {
+          code: 4,
+          output: {
+            ok: false,
+            error: {
+              status: e.status, code: e.code, message: e.message, retryAfter: e.retryAfter, details: e.body,
+              ...(e.serverMessage ? { untrustedServerMessage: e.serverMessage } : {}),
+            },
+          },
+        };
+      }
+      if (e instanceof FloorError) {
+        return { code: 1, output: { ok: false, error: { code: 'floor-too-low', message: e.message, minOut: e.minOut, lowest: e.lowest } } };
       }
       if (e instanceof PriceImpactError) {
         return { code: 1, output: { ok: false, error: { code: 'price-impact-high', message: e.message, impactBps: e.impactBps, limitBps: e.limitBps } } };

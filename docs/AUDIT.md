@@ -1756,6 +1756,41 @@ impact above 5% is refused.
   About 30.2 million cases in all, about 8 million of them in 2 shards for code since removed. The slowest shard took 14 minutes (100,000 verifier cases); the
   logs confirm each shard's count and seed. CI passed on the same commit.
 
+
+## 0zv. The agent review: what a misled agent could loosen, and what reaches the model (27 September 2026)
+
+A review of the skill as coding agents use it (Claude Code, Cursor), against what goes wrong for AI
+agents with wallets in practice: prompt injection, agents holding keys, amounts in the wrong units,
+mints taken from a name, parameters made up to "make it work", retries after a lost answer. The skill
+held against a compromised server; four gaps were in the agent's own hands, each shown without funds.
+
+- **G1, the agent loosened its own floor.** `--min-out 1` sold at a thousandth of the market and
+  confirmed; `--max-below-bps 9999` put the floor at almost nothing; price impact and fee limits took
+  any value. SKILL.md said "only the user", but nothing in the code knew who the user was. Now the
+  example asks Jupiter for its own price on every swap (`ownFloor`), with or without `minOut`, and holds
+  hard limits no intent, flag or JSON field can raise: a minimum never more than `MAX_BELOW_BPS` (20%)
+  below that price (`FloorError`, `floor-too-low`), a price impact of at most `MAX_PRICE_IMPACT_BPS`
+  (20%), and Orientim's fee at most `MAX_FEE_BPS` (30 bps, as pinned). `orientim-verify check` applies
+  the same floor.
+- **G2, the same swap twice.** Without `--id`, running the same command again after a confirmed swap
+  sent a second one. The example's command line and `orientim-verify prepare` now start nothing
+  without an order id (exit 2); `--dry-run` needs none.
+- **G7, the server's words reached the model.** An error's `message` and every field of an answer went
+  to the agent as the server wrote them, so a compromised server or relay could write instructions
+  there. `OrientimApiError` now carries the skill's own words for each code, an unknown code as
+  `other`, the server's text as one short line apart (`serverMessage`, untrusted), and only data fields
+  in `body`. A checked prepared answer keeps only data (numbers, booleans, strings without spaces);
+  problems name a server's value only when it is an address. Finalize's `refusal` is a code or `other`.
+- **In SKILL.md** ("For agents: before any swap"): confirm with the person after a dry run, base units,
+  the canonical mints and never a name, an id on every swap, a long timeout, never delete the state
+  directory, limits are the owner's, errors are data; a wallet of the agent's own, its key outside the
+  folder the agent reads.
+
+The skill's version is 1.2.0. Tests: a floor of 1 against a server selling for a thousandth is refused
+before anything is prepared; a floor just below the hard limit is refused; no flag raises the floor
+depth, price impact or fee beyond the limits; `orientim-verify` takes the same limits from its JSON and
+prepares nothing without an id; an injected error and prose added to an answer never reach the agent.
+
 ---
 
 ## 1. What Orientim is

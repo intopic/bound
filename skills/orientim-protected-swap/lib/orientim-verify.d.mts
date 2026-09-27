@@ -12,6 +12,14 @@ export declare const MIN_SLIPPAGE_BPS: 10;
 export declare const MAX_SLIPPAGE_BPS: 1500;
 /** Above this price impact an agent refuses unless its owner allows more. */
 export declare const DEFAULT_MAX_PRICE_IMPACT_BPS: 500;
+/** Hard limits no intent can raise: the floor at most this far below Jupiter's price, bps. */
+export declare const MAX_BELOW_BPS: 2000;
+/** The most price impact any intent may accept, bps. */
+export declare const MAX_PRICE_IMPACT_BPS: 2000;
+/** Orientim's fee is never accepted above this, bps. */
+export declare const MAX_FEE_BPS: 30;
+/** The fee limit the check applies: the agent's own, never above MAX_FEE_BPS. */
+export declare function feeLimitBps(maxFeeBps?: number): number;
 export function isSlippageBps(v: unknown): v is number;
 
 /** What the agent asked for, and the most it accepts. */
@@ -94,7 +102,7 @@ export type OwnQuoteArgs = {
 export function ownMinimum(args: OwnQuoteArgs): Promise<string>;
 
 /** Jupiter's price, asked for directly: the agent's own floor, the price impact in bps, and whether the route is a Pump.fun curve. */
-export function ownQuote(args: OwnQuoteArgs): Promise<{ minOut: string; priceImpactBps: number; curve: boolean }>;
+export function ownQuote(args: OwnQuoteArgs): Promise<{ minOut: string; outAmount: string; priceImpactBps: number; curve: boolean }>;
 
 /**
  * Notes about the tokens themselves, read from the mint accounts on the agent's RPC: an issuer that
