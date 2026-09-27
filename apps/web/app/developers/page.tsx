@@ -19,9 +19,9 @@ const NAV: DevNavGroup[] = [
   { title: 'Getting started', items: [['overview', 'Overview'], ['start', 'Quickstart'], ['access', 'API keys']] },
   {
     title: 'Guides',
-    items: [['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['recovery', 'Results and recovery']],
+    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['recovery', 'Results and recovery']],
   },
-  { title: 'API reference', items: [['api', 'Authentication'], ['prepare', 'Prepare'], ['finalize', 'Finalize'], ['keys', 'Keys'], ['errors', 'Errors'], ['limits', 'Rate limits']] },
+  { title: 'API reference', items: [['api', 'Authentication'], ['prepare', 'Prepare'], ['finalize', 'Finalize'], ['keys', 'Key endpoints'], ['errors', 'Errors'], ['limits', 'Rate limits']] },
   { title: 'Reference', items: [['env', 'Environment variables'], ['fees', 'Fees and limits'], ['supported', 'Tokens and wallets'], ['downloads', 'Downloads']] },
 ];
 
@@ -30,9 +30,11 @@ const ERRORS: [string, string, string][] = [
   ['400', 'bad-request', 'Fix the request; message says which field.'],
   ['400', 'invalid-ticket', 'The ticket was not issued to this API key, or was altered.'],
   ['400', 'transaction-changed', 'The message is not the one Orientim built. Sign the transaction exactly as returned.'],
+  ['400', 'bad-signature', 'Key endpoints: the signature does not match, or the challenge expired or was not Orientim’s. Ask for a new challenge.'],
   ['400', 'wallet-changed-transaction', 'Your wallet’s signature is missing or does not match.'],
   ['401', 'unauthorized', 'Missing or unknown API key.'],
   ['403', 'wrong-wallet', 'The key belongs to another wallet; a self-serve key prepares swaps for its own wallet only.'],
+  ['403', 'wallet-empty', 'Key endpoints: the wallet holds less than 0.01 SOL. Fund it, then ask again.'],
   ['404', 'not-enabled', 'The agent API is not available.'],
   ['409', 'price-moved', 'The market cannot meet your minOut. newMinOut is what it supports now: prepare again with it only with the user’s approval.'],
   ['409', 'costs-more', 'The protected route is gapBps below the open market. With the user’s approval, prepare again with acceptCostBps.'],
@@ -68,6 +70,16 @@ const PREPARE_ANSWER: [string, string][] = [
   ['costs', 'The network fee, rent, and keptSolLamports: all the SOL the swap costs and does not return.'],
   ['notices, tokens', 'A busy network, and what each token’s issuer can do (freeze balances, mint more).'],
   ['certificate, policy', 'What this exact transaction does, and the rules it was verified against.'],
+];
+
+/** What `orientim-verify` exits with (skills/orientim-protected-swap/src/cli.ts). */
+const EXIT_CODES: [string, string][] = [
+  ['0', 'Done. prepare: sign message. finalize: confirmed, with received. recover: all settled. check: safe to sign.'],
+  ['1', 'Refused, or not swapped (failed, expired or rejected). Nothing is left to settle.'],
+  ['2', 'A usage or configuration error: the answer says what is missing.'],
+  ['3', 'Settle first: an earlier swap may still land, or the state directory cannot be read. Run recover; start nothing new.'],
+  ['4', 'Orientim said no: error.code is one of the Errors below.'],
+  ['5', 'This order id already swapped, or its transaction may still land. It is never swapped twice.'],
 ];
 
 const ENV: [string, string][] = [
@@ -112,7 +124,7 @@ export default async function Page() {
                   <tbody>
                     <tr><td><a href="#skill">Agent skill</a></td><td>Coding agents: instructions, a working TypeScript example and the verifier.</td></tr>
                     <tr><td><a href="#cli">Command line</a></td><td>Bots in Python, Rust, Go or any language that can start a process.</td></tr>
-                    <tr><td><a href="#api">API</a></td><td>Your own integration: two calls, with the verifier run before you sign.</td></tr>
+                    <tr><td><a href="#api">API</a></td><td>Your own integration: two calls, with <a href="#verify">the check</a> run before you sign.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -140,8 +152,8 @@ export default async function Page() {
 curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                 </li>
                 <li>
-                  <strong>Run it</strong>: <code>npm ci</code>, set the <a href="#env">environment variables</a>, then start from{' '}
-                  <code>examples/swap.ts</code>, or from <code>bin/orientim-verify.mjs</code> for a bot in any language.
+                  <strong>Run it</strong>: <code>npm ci</code>, set the <a href="#env">environment variables</a>, then follow{' '}
+                  <a href="#skill">AI agents</a> or <a href="#cli">Bots</a>.
                 </li>
               </ol>
             </section>
@@ -160,6 +172,118 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
               <p>
                 In code, <code>requestApiKey</code> from the skill does both steps. It signs only Orientim&apos;s key message for that
                 wallet, and refuses anything else. The HTTP calls are in <a href="#keys">Keys</a>.
+              </p>
+            </section>
+
+            <section id="skill">
+              <h2>AI agents: the skill</h2>
+              <p>
+                For coding agents: instructions for the agent (<code>SKILL.md</code>), a working example that needs only{' '}
+                <code>@solana/kit</code>, and the check it runs before every signature. The agent gets its settings from you, in the{' '}
+                <a href="#env">environment variables</a>, never in chat.
+              </p>
+              <h3>1. Install it</h3>
+              <ul>
+                <li>
+                  <strong>Claude Code</strong>: unzip it into <code>.claude/skills/orientim-protected-swap/</code> in your project, or into{' '}
+                  <code>~/.claude/skills/</code> for every project. The agent picks it up when a task needs a swap.
+                </li>
+                <li><strong>Any other agent</strong>: put the folder in your project and point the agent to <code>SKILL.md</code>.</li>
+                <li>Then, in that folder: check it (see <a href="#start">Quickstart</a>) and run <code>npm ci</code>.</li>
+              </ul>
+              <h3>2. Try it without signing</h3>
+              <pre><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 \\
+  --owner <wallet> --dry-run`}</code></pre>
+              <p>This prepares and verifies a swap on your RPC and prints what it would cost. Nothing is signed.</p>
+              <h3>3. Swap</h3>
+              <pre><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 --id order-42`}</code></pre>
+              <p>
+                The same order id on every retry: an order that swapped, or may still land, is never swapped again. Or ask your agent,
+                in plain words: <em>&ldquo;swap 5 USDC to SOL with Orientim&rdquo;</em>.
+              </p>
+              <h3>4. In your own code</h3>
+              <pre><code>{`import { createKeyPairSignerFromBytes, createSolanaRpc } from '@solana/kit';
+import { readFileSync } from 'node:fs';
+import { createFileStore, protectedSwap, recoverPending } from './examples/swap.ts';
+
+const rpc = createSolanaRpc(process.env.SOLANA_RPC_URL!);
+const wallet = await createKeyPairSignerFromBytes(
+  new Uint8Array(JSON.parse(readFileSync(process.env.ORIENTIM_WALLET_KEYPAIR!, 'utf8'))));
+const store = createFileStore('.orientim-state');
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const SOL = 'So11111111111111111111111111111111111111112';
+
+// Settle what a stopped run left before anything new.
+const { unknown } = await recoverPending(store, rpc, { orders: store });
+if (unknown.length) throw new Error('An earlier swap may still land');
+
+const result = await protectedSwap({
+  apiUrl: process.env.ORIENTIM_API_URL!,
+  apiKey: process.env.ORIENTIM_API_KEY!,
+  jupiterApiKey: process.env.JUPITER_API_KEY,
+  rpc, wallet, pending: store, orders: store,
+  intent: { id: 'order-42', inputMint: USDC, outputMint: SOL, amountIn: '5000000' },
+});
+// result.outcome: 'confirmed' | 'failed' | 'expired' | 'unknown' | 'rejected'`}</code></pre>
+              <p>
+                <code>protectedSwap</code> gets your own minimum from Jupiter when <code>minOut</code> is not set, verifies the
+                transaction on your RPC, signs as the wallet, keeps the swap before finalize and reads the outcome on chain.
+              </p>
+              <h3>A wallet in a signing service</h3>
+              <p>
+                Pass <code>signerFromSignBytes(address, sign)</code> (a KMS, an HSM, raw-message signing) or{' '}
+                <code>signerFromSignTransaction(address, sign)</code> (a service that signs and hands the transaction back) as{' '}
+                <code>wallet</code>. A service that can only sign and send cannot be used: Orientim signs last.
+              </p>
+            </section>
+
+            <section id="cli">
+              <h2>Bots: the command line</h2>
+              <p>
+                <code>bin/orientim-verify.mjs</code> in the skill runs the whole flow for a bot written in Python, Rust, Go or anything
+                that can start a process: JSON in on stdin, JSON out on stdout, and an exit code. It does everything the skill does:
+                your own floor, the check on your RPC, the record kept before finalize, and the outcome read on chain. The bot keeps
+                its key and signs one message itself. Run <code>npm ci</code> in the skill folder first.
+              </p>
+              <h3>The flow</h3>
+              <ol>
+                <li><strong>recover</strong>: settles what a stopped run left. Exit 3 means an earlier swap may still land: start nothing new.</li>
+                <li><strong>prepare</strong> <code>{'{"intent": {...}}'}</code>: answers <code>message</code> and <code>checked</code>, already verified on your RPC.</li>
+                <li><strong>Sign</strong> the bytes of <code>message</code> (base64) with the wallet&apos;s ed25519 key.</li>
+                <li>
+                  <strong>finalize</strong> <code>{'{"checked": ..., "signature": "<base58>"}'}</code>, with <code>checked</code> unchanged:
+                  answers the <code>outcome</code> and what was <code>received</code>.
+                </li>
+              </ol>
+              <h3>In Python</h3>
+              <pre><code>{`import base64, json, subprocess
+
+def orientim(command, payload=None):
+    run = subprocess.run(["node", "bin/orientim-verify.mjs", command],
+                         input=json.dumps(payload or {}), capture_output=True, text=True)
+    return run.returncode, json.loads(run.stdout)
+
+code, _ = orientim("recover")          # 3: an earlier swap may still land; stop
+if code == 0:
+    code, ready = orientim("prepare", {"intent": {
+        "id": "order-42", "owner": str(keypair.pubkey()),
+        "inputMint": USDC, "outputMint": SOL, "amountIn": "5000000"}})
+if code == 0:
+    # keypair: the wallet's solders Keypair, loaded from its file
+    signature = keypair.sign_message(base64.b64decode(ready["message"]))
+    code, result = orientim("finalize", {
+        "checked": ready["checked"], "signature": str(signature)})`}</code></pre>
+              <p>In Rust, <code>keypair.sign_message(&amp;message).to_string()</code> gives the same base58 signature.</p>
+              <h3>Exit codes</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+                  <tbody>{EXIT_CODES.map(([code, text]) => <tr key={code}><td><code>{code}</code></td><td>{text}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <p>
+                <code>resolve</code> settles by hand a swap the chain can no longer prove, after you looked it up in an explorer. The
+                keys have their own commands: <code>key-challenge</code> and <code>key</code>, in <a href="#access">API keys</a>.
               </p>
             </section>
 
@@ -184,7 +308,10 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
                 sign one that moves more than the approved amount, or one priced below a floor you got yourself.{' '}
                 <strong>Without it, you are trusting Orientim&apos;s server with your whole wallet.</strong>
               </p>
-              <p><code>verifyPrepared(prepared, limits, yourRpc)</code>, in the skill, does all of it:</p>
+              <p>
+                <code>checkPrepared(prepared, intent, yourRpc)</code>, in the skill, does all of it and returns the problems it found;
+                sign only when there are none. The skill and the command line run it for you.
+              </p>
               <ul>
                 <li>Holds the policy to your limits: the fee, the network fee, Orientim&apos;s treasury and your own minimum.</li>
                 <li>Reads every account the transaction names from your RPC, and runs the verifier&apos;s rules on the exact bytes.</li>
@@ -198,29 +325,11 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
                 Your minimum is required, and it must be a price you got yourself, never Orientim&apos;s: <code>ownMinimum</code> asks
                 Jupiter for one. For a large order, check it against a second source as well.
               </p>
-            </section>
-
-            <section id="skill">
-              <h2>AI agents: the skill</h2>
               <p>
-                For coding agents: instructions (<code>SKILL.md</code>), a working example that needs only <code>@solana/kit</code>,
-                and the check it runs before every signature. It is the download in <a href="#start">Quickstart</a>.
+                Calling the API yourself, in any language? Pipe prepare&apos;s answer to the command line before you sign:{' '}
+                <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>orientim-verify check</code> exits 0 only when it is safe
+                to sign.
               </p>
-              <p>
-                The agent gets its settings from you, never in chat: the <a href="#env">environment variables</a>. A wallet held by a
-                signing service works through <code>signerFromSignBytes</code> or <code>signerFromSignTransaction</code>.
-              </p>
-            </section>
-
-            <section id="cli">
-              <h2>Bots: the command line</h2>
-              <p>
-                <code>bin/orientim-verify.mjs</code> in the skill runs the whole flow for a bot written in Python, Rust, Go or anything
-                that can start a process: JSON in on stdin, JSON out on stdout, an exit code. The bot keeps its key and signs one
-                message itself.
-              </p>
-              <pre><code>{`echo '{"intent":{"owner":"<wallet>","inputMint":"<mint>","outputMint":"<mint>","amountIn":"5000000"}}' \\
-  | node bin/orientim-verify.mjs prepare`}</code></pre>
             </section>
 
             <section id="recovery">
@@ -240,6 +349,11 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
                   </tbody>
                 </table>
               </div>
+              <p>
+                The skill and the command line read the result on chain for you and answer an <code>outcome</code> instead:{' '}
+                <code>confirmed</code>, <code>failed</code>, <code>expired</code>, <code>unknown</code> (check again before anything new),
+                or <code>rejected</code> (finalize refused, and the transaction can no longer land).
+              </p>
               <ul>
                 <li>Finalizing the same ticket again is safe: it answers for the same transaction, which can land only once.</li>
                 <li>
