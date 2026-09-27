@@ -1358,7 +1358,7 @@ export function SwapApp() {
 
           <div className="hero-app">
       {status && !status.enabled && (
-        <div className="banner error">Protected swaps are paused while we check something. Your funds are not affected.</div>
+        <div className="banner error">Protected swaps are paused while Orientim checks something. Your funds are not affected.</div>
       )}
       {!TREASURY && <div className="banner info">Test mode: no Orientim fee is charged.</div>}
 

@@ -17,7 +17,7 @@ const AGENT_POINTS = [
 ];
 
 const KEEPS_NOTHING = [
-  [NoDatabaseIcon, 'No account. No database.', 'No sign-up, and Orientim’s servers keep no record of your swaps. Your history stays in your own browser.'],
+  [NoDatabaseIcon, 'No account. No database.', 'No sign-up, and Orientim keeps no record of your swaps. Our host keeps standard request logs. Your history stays in your own browser.'],
   [ShieldIcon, 'Never your keys or funds.', 'You sign in your own wallet. Orientim never holds funds or asks for a seed phrase.'],
   [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers. Price quotes are requested without your wallet address.'],
 ] as const;
@@ -41,7 +41,7 @@ export function HomeSections() {
         <div className="container proof-row">
           <p className="one-key">
             <LockIcon />
-            <strong>Zero exposure beyond the order.</strong>
+            <strong>Zero exposure beyond the amount you approve.</strong>
           </p>
         </div>
       </section>
@@ -139,8 +139,8 @@ export function HomeSections() {
             </div>
             <div className="fee">
               <p className="fee-name">Network fee</p>
-              <p className="fee-value">Solana&apos;s</p>
-              <p>Usually a fraction of a cent. The exact amount is shown before you sign.</p>
+              <p className="fee-value">Usually &lt; $0.01</p>
+              <p>Paid to Solana, never more than 0.001 SOL. The exact amount is shown before you sign.</p>
             </div>
             <div className="fee">
               <p className="fee-name">Market charges</p>
