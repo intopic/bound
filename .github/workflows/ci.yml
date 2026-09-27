@@ -1,8 +1,14 @@
 name: CI
 
+# The tests run on each change to the code; a change only to the docs runs nothing. The reproducible
+# build (three full builds) runs on a release tag and by hand, not on every push: on a private
+# repository each billed minute counts against the plan.
 on:
   push:
+    paths-ignore: ['*.md', 'docs/**']
   pull_request:
+    paths-ignore: ['*.md', 'docs/**']
+  workflow_dispatch:
 
 jobs:
   test:
@@ -21,6 +27,7 @@ jobs:
       - run: npm run build
 
   reproducible:
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     # The digest of the built client assets is what a user can check against the audited source,
     # and it is worth nothing unless the same source always produces the same bytes.
     runs-on: ubuntu-latest

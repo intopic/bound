@@ -301,7 +301,7 @@ A page can claim anything. These are the two ways to check this one.
 
 **The build is reproducible.** `ORIENTIM_BUILD_ID=<commit> npm run build && node tools/build-digest.ts`
 prints one hash over every file the browser can load from `/_next/static`. Two builds of the same
-commit produce the same hash — CI proves it on every push by building twice — so the digest
+commit produce the same hash — CI proves it for every release tag by building twice — so the digest
 published with a release can be compared against a build you made yourself.
 
 **Scripts carry their own hashes.** The page sets `integrity` on the scripts it loads
@@ -315,7 +315,7 @@ is still covered by the digest above, which is over every file.
 
 **The live site is compared with the release.** A tag `v*` publishes a GitHub release with
 `build-digest.txt`, the hash of every file for that commit (`.github/workflows/release.yml`). Every
-three hours `tools/check-live.ts` fetches each of those files from the site and fails if one
+six hours `tools/check-live.ts` fetches each of those files from the site and fails if one
 differs, if a page refers to a static file the release does not have, or if a page loads a script
 from anywhere else (`.github/workflows/live-check.yml`). Anyone can run the same check:
 `node tools/check-live.ts --site <url> --manifest build-digest.txt`.
@@ -446,7 +446,7 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
   each with its fee where it belongs (SOL on either side, USDC from the output), one as a v1
   transaction, and Pump.fun buys on the curve and on PumpSwap; it fails on such a change, on a fee
   that is no longer taken where it should be, and exits 2 when nothing could be checked at all
-  (engineering review M-09). `.github/workflows/canary.yml` runs it every three hours once the repository
+  (engineering review M-09). `.github/workflows/canary.yml` runs it every twelve hours once the repository
   variable `ORIENTIM_CANARY` is `1` (off by default). Until it is set, and until `ORIENTIM_SITE_URL`
   is set for the live check, nothing watches production: both are the owner's to switch on. The page and the API also log Jupiter refusing Orientim's key (401, 403) or
   an endpoint that is gone (404, 410) (research audit F-07, F-08).
@@ -454,8 +454,8 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
   typecheck, the tests and the skill bundle's check itself before it publishes a digest. Actions are pinned by commit, and
   a second job builds on another runner image and must match the digest (review FA-10). A tag `v*` publishes the build's digest as a GitHub
   release, built with the public settings in the repository variables, which must match
-  production's; the live check compares the site with it every three hours and needs
-  `ORIENTIM_SITE_URL`. The build is deterministic: CI builds every commit twice and fails if the two
+  production's; the live check compares the site with it every six hours and needs
+  `ORIENTIM_SITE_URL`. The build is deterministic: CI builds every release tag twice and fails if the two
   digests differ, and a Vercel build takes its build id from the commit.
 - No limit per swap: the guarantee is the same for any amount, and nothing in Orientim holds funds.
   `ORIENTIM_MAX_USD_PER_SWAP` exists as an operational valve and is unset by default; while it applies

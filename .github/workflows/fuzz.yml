@@ -10,12 +10,10 @@ name: Fuzz
 # - the owner's limits for agents and bots, the 20% floor, and a bot that edits prepare's answer.
 # About 27,300,000 cases a run.
 #
-# By hand (Actions, Fuzz, Run workflow), and weekly while the repository is public. On a private
-# repository a run would use more than a month of the free plan's minutes (final audit, H3). CI runs
-# the same properties at their normal size on every push.
+# By hand only (Actions, Fuzz, Run workflow), before a release: a run is some 600 billed minutes, a
+# third of a private repository's free month (final audit, H3). CI runs the same properties at their
+# normal size on every change to the code.
 on:
-  schedule:
-    - cron: '41 3 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -23,7 +21,6 @@ permissions:
 
 jobs:
   fuzz:
-    if: github.event_name != 'schedule' || !github.event.repository.private
     name: ${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.of }}
     runs-on: ubuntu-latest
     timeout-minutes: 180

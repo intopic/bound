@@ -5,9 +5,9 @@ name: Live check
 # the owner of this workflow. Off until the repository variable ORIENTIM_SITE_URL is set.
 on:
   schedule:
-    # Every three hours. On a private repository each run counts against the plan's Actions
-    # minutes; on a public one it is free and can run more often.
-    - cron: '17 */3 * * *'
+    # Every six hours, some 120 minutes a month. On a private repository each run counts against the
+    # plan's Actions minutes; on a public one it is free and can run more often.
+    - cron: '17 */6 * * *'
   # Run it by hand once the tagged deploy is live.
   workflow_dispatch:
 
