@@ -20,6 +20,7 @@ import type { Certificate } from '@orientim/verifier';
 import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientim/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
 import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';
+import type { PriorityFeeLevel } from './priorityFee.ts';
 
 export type SwapSettings = OrientimConfig & {
   /** DEXes that charge the taker persistent rent (D13). */
@@ -585,6 +586,8 @@ export async function prepareProtectedSwap(deps: {
   rpc: SolanaRpc;
   jupiter: JupiterClient;
   settings: SwapSettings;
+  /** The RPC provider's own priority estimate (heliusPriorityFee); without one, or when it fails, recent fees. */
+  priorityFee?: PriorityFeeLevel;
 }, req: SwapRequest): Promise<PreparedSwap> {
   const { rpc, jupiter, settings } = deps;
   const E = req.ephemeral.address;
@@ -1202,8 +1205,10 @@ export async function prepareProtectedSwap(deps: {
           ...(sim.slot > 0n ? { minContextSlot: sim.slot } : {}),
         }),
         latestLifetimeAt(rpc),
-        // What the pools this swap writes to are paying for priority now; the default when unknown.
-        rpc.getRecentPrioritizationFees(writable).send().then(recentFeeLevel).catch(() => null),
+        // What the pools this swap writes to are paying for priority now: the provider's estimate, else
+        // the recent fees on them; the default when neither is known.
+        (deps.priorityFee ? deps.priorityFee(writable).catch(() => null) : Promise.resolve(null))
+          .then(level => level ?? rpc.getRecentPrioritizationFees(writable).send().then(recentFeeLevel).catch(() => null)),
       ]);
 
       // Final build with a tight compute budget, a fresh blockhash, and W_out's balance as the

@@ -4,7 +4,7 @@ import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
 import type { TxVersion } from '@orientim/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
-import type { JupiterClient } from '@orientim/jupiter';
+import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { fetchAccounts, fetchMints, httpStatusOf, sendOnce } from '@orientim/solana';
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
@@ -23,6 +23,8 @@ import { ephemeralFor, kidOf, newNonce, openTicket, sealTicket } from './ticket'
 export type AgentDeps = {
   rpc: SolanaRpc;
   jupiter: JupiterClient;
+  /** The RPC provider's priority estimate; without it, recent fees on the swap's accounts. */
+  priorityFee?: PriorityFeeLevel;
   /** Server secrets, the current one first; older ones still open their tickets while they rotate out. */
   secrets: readonly Uint8Array[];
   /** SHA-256 of each API key (hex) → the key's id. The keys themselves are never stored. */
@@ -216,6 +218,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       {
         rpc: deps.rpc,
         jupiter: deps.jupiter,
+        ...(deps.priorityFee ? { priorityFee: deps.priorityFee } : {}),
         settings: {
           ...DEFAULT_SETTINGS,
           feeBps: deps.feeBps,

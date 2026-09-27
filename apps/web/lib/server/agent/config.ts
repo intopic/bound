@@ -1,6 +1,6 @@
 import { address } from '@solana/kit';
-import { createJupiterClient, MIN_FEE } from '@orientim/jupiter';
-import type { JupiterClient } from '@orientim/jupiter';
+import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
+import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc } from '../rpcFailover';
 import type { SolanaRpc } from '@orientim/solana';
 import { serverConfig } from '../config';
@@ -83,7 +83,7 @@ export function keysOf(value: string | undefined): Map<string, string> {
 
 // The clients are kept per instance. The settings are read on every request, but a host may fix the
 // environment per deployment (Vercel does): see the runbook for pausing and revoking (FA-02).
-let clients: { rpc: SolanaRpc; jupiter: JupiterClient; for: string } | null = null;
+let clients: { rpc: SolanaRpc; jupiter: JupiterClient; priorityFee: PriorityFeeLevel; for: string } | null = null;
 
 /** The self-serve key secrets, the current one first; none when self-serve keys are off. */
 export function keySecrets(): Uint8Array[] {
@@ -130,6 +130,7 @@ export function agentDeps(): AgentDeps | null {
     clients = {
       for: identity,
       rpc: createServerRpc(rpcUrl, server.rpcFallbackUrl),
+      priorityFee: heliusPriorityFee(rpcUrl),
       jupiter: createJupiterClient({
         buildUrl: 'https://api.jup.ag/swap/v2/build',
         tokensUrl: 'https://api.jup.ag/tokens/v2/search',
@@ -144,6 +145,7 @@ export function agentDeps(): AgentDeps | null {
   return {
     rpc: clients.rpc,
     jupiter: clients.jupiter,
+    priorityFee: clients.priorityFee,
     secrets: previous ? [current, previous] : [current],
     keys,
     keySecrets: ownKeys,

@@ -48,6 +48,7 @@ async function prepare(output: Address, opts: {
   expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
   wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean; acceptedMinReceived?: bigint;
   minFee?: SwapSettings['minFee']; leavesOpen?: readonly string[]; chosenSlippageBps?: number;
+  priorityFee?: (writable: readonly Address[]) => Promise<bigint | null>;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
   // The wallet holds the input token, unless a test says otherwise through `chain`.
@@ -61,6 +62,7 @@ async function prepare(output: Address, opts: {
         walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations, cashback: opts.cashback,
         pumpSlippage: opts.pumpSlippage, failBeforeSwap: opts.failBeforeSwap, leavesOpen: opts.leavesOpen,
       }),
+      ...(opts.priorityFee ? { priorityFee: opts.priorityFee } : {}),
       jupiter: opts.jupiter ?? fakeJupiter(), settings: {
         ...settings, treasury: opts.treasury ?? null, ...(opts.minFee ? { minFee: opts.minFee } : {}),
         ...(opts.chosenSlippageBps !== undefined ? { chosenSlippageBps: opts.chosenSlippageBps } : {}),
@@ -453,6 +455,22 @@ describe('latency without weaker protection', () => {
     expect(prepared.policy.takerRent).toBe(1_346_200n);
     // Measuring the rent takes two; the exact final transaction is simulated once more (H-01).
     expect(simulations.count).toBe(3);
+  });
+
+  it("the provider's estimate, when there is one, sets the priority fee; recent fees only when it has none", async () => {
+    let asked: readonly Address[] = [];
+    const estimated = await prepare(BONK, { feeLevels: [1n, 2n], priorityFee: async w => { asked = w; return 300_000n; } });
+    const recent = await prepare(BONK, { feeLevels: [300_000n] });
+    const quiet = await prepare(BONK, { feeLevels: [1n, 2n] });
+    expect(asked.length).toBeGreaterThan(0);
+    expect(estimated.priorityFeeLamports).toBe(recent.priorityFeeLamports);
+    expect(estimated.priorityFeeLamports).toBeGreaterThan(quiet.priorityFeeLamports);
+    // No estimate (another provider, a timeout): the recent fees, exactly as without one.
+    for (const priorityFee of [async () => null, async () => { throw new Error('down'); }]) {
+      expect((await prepare(BONK, { feeLevels: [300_000n], priorityFee })).priorityFeeLamports).toBe(recent.priorityFeeLamports);
+    }
+    // An estimate is capped like any level.
+    expect((await prepare(BONK, { priorityFee: async () => 10n ** 15n })).priorityFeeCapped).toBe(true);
   });
 
   it('the priority fee follows recent fees on the pools, never below the default', async () => {

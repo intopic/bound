@@ -6,3 +6,5 @@ export {
   revertedOnPrice, routeMissedItsThreshold, slippageFor, strictMinimumOutput, UNAVAILABLE_MESSAGE, withFloorAtLeast,
 } from './swap.ts';
 export type { Attempt, OrientimErrorCode, CostsMore, Countersignable, PreparedSwap, PriceMoved, SwapRequest, SwapSettings } from './swap.ts';
+export { heliusPriorityFee } from './priorityFee.ts';
+export type { PriorityFeeLevel } from './priorityFee.ts';

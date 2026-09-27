@@ -8,6 +8,8 @@ const ALLOWED_METHODS = new Set([
   'getAccountInfo', 'getMultipleAccounts', 'getBalance', 'getTokenAccountBalance', 'getLatestBlockhash',
   'getBlockHeight', 'getEpochInfo', 'simulateTransaction', 'sendTransaction', 'getSignatureStatuses', 'getFeeForMessage',
   'getMinimumBalanceForRentExemption', 'getTransaction', 'getRecentPrioritizationFees',
+  // Helius's priority estimate (heliusPriorityFee); another provider answers "method not found".
+  'getPriorityFeeEstimate',
 ]);
 const MAX_BODY_BYTES = 64 * 1024;
 const LIMIT_PER_MINUTE = 300;
