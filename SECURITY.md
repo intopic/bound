@@ -446,7 +446,7 @@ Orientim simple; it never ran in the setup Orientim uses, and bringing it back w
   each with its fee where it belongs (SOL on either side, USDC from the output), one as a v1
   transaction, and Pump.fun buys on the curve and on PumpSwap; it fails on such a change, on a fee
   that is no longer taken where it should be, and exits 2 when nothing could be checked at all
-  (engineering review M-09). `.github/workflows/canary.yml` runs it every three hours once the repository
+  (engineering review M-09). `.github/workflows/canary.yml` runs it every twelve hours once the repository
   variable `ORIENTIM_CANARY` is `1` (off by default). Until it is set, and until `ORIENTIM_SITE_URL`
   is set for the live check, nothing watches production: both are the owner's to switch on. The page and the API also log Jupiter refusing Orientim's key (401, 403) or
   an endpoint that is gone (404, 410) (research audit F-07, F-08).
