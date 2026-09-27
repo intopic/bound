@@ -100,13 +100,15 @@ const botDeps = (w: World, extra: Record<string, unknown> = {}) => ({
   stateDir: mkdtempSync(join(tmpdir(), 'orientim-limits-')), treasury: TREASURY, ...extra,
 });
 
-/** A bot's prepare, then its own signature over the message; null when prepare refused. */
-async function botPrepare(w: World, intent: Omit<Intent, 'owner'> & { id: string }, deps: ReturnType<typeof botDeps>) {
+type BotReady = { refused: string } | { checked: Record<string, unknown>; signature: string };
+
+/** A bot's prepare, then its own signature over the message; the refusal's code when prepare refused. */
+async function botPrepare(w: World, intent: Omit<Intent, 'owner'> & { id: string }, deps: ReturnType<typeof botDeps>): Promise<BotReady> {
   const ready = await runCli('prepare', { intent: { owner: w.wallet.address, ...intent } }, deps);
   const out = JSON.parse(JSON.stringify(ready.output)) as { checked?: Record<string, unknown>; message?: string; error?: { code?: string } };
-  if (ready.code !== 0 || !out.message) return { refused: out.error?.code ?? 'refused' } as const;
+  if (ready.code !== 0 || !out.message) return { refused: out.error?.code ?? 'refused' };
   const signature = getBase58Decoder().decode(await signBytes(w.wallet.keyPair.privateKey, Buffer.from(out.message, 'base64')));
-  return { checked: out.checked!, signature } as const;
+  return { checked: out.checked!, signature };
 }
 
 async function botFinalize(checked: unknown, signature: string, deps: ReturnType<typeof botDeps>) {
