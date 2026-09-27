@@ -186,7 +186,7 @@ export default async function Page() {
         <h2>10. The Software</h2>
         <p>
           The Software is open source, under the Apache License, Version 2.0. The licence is in the <code>LICENSE</code> file of
-          the download and of its source repository, and it governs your use of the Software itself: you may use, copy, modify
+          the download and of its source repository (<a href="https://github.com/orientimhq/orientim-protected-swap">github.com/orientimhq/orientim-protected-swap</a>), and it governs your use of the Software itself: you may use, copy, modify
           and share it under its terms. The licence gives no right to the name &ldquo;Orientim&rdquo; or its logo (see the{' '}
           <code>NOTICE</code> file of the repository), and a changed copy must not be presented as Orientim&rsquo;s. Using the Software with the
           Services is governed by these Terms.{' '}

@@ -7,6 +7,9 @@ import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 import { SKILL_ARCHIVE, SKILL_VERSION } from '@/lib/server/skillSums';
 
+/** The skill's public source: the same files, and a build that gives the same zip (tools/build-skill.ts). */
+const SKILL_SOURCE = 'https://github.com/orientimhq/orientim-protected-swap';
+
 export const metadata = {
   title: 'Developers — Orientim',
   description: 'Protected Solana swaps for AI agents and bots: the agent skill, the command line and the API.',
@@ -145,7 +148,8 @@ export default async function Page() {
                 <li><strong>Get an API key</strong> with the wallet your agent swaps from, in <a href="#access">API keys</a>.</li>
                 <li>
                   <strong>Download the skill</strong>: <a href={SKILL_ARCHIVE} download>orientim-protected-swap.zip</a> (v{SKILL_VERSION}).
-                  It holds the instructions for your agent, a working example, the command line and the verifier.
+                  It holds the instructions for your agent, a working example, the command line and the verifier. Its source is
+                  open, under Apache-2.0, at <a href={SKILL_SOURCE}>github.com/orientimhq/orientim-protected-swap</a>.
                 </li>
                 <li>
                   <strong>Check it</strong>: in the unzipped folder, every file against the list this site serves (on macOS,{' '}
@@ -550,6 +554,7 @@ POST /api/v1/keys
               <ul>
                 <li><a href={SKILL_ARCHIVE} download>orientim-protected-swap.zip</a>: the skill, version {SKILL_VERSION}.</li>
                 <li><a href="/skill/SHA256SUMS">SHA256SUMS</a>: the checksum of every file in it.</li>
+                <li><a href={SKILL_SOURCE}>Source on GitHub</a>: the skill and its verifier, Apache-2.0, with a build that gives this same zip, byte for byte.</li>
                 <li>The full API reference, every field and recovery step, is <code>reference/AGENT-API.md</code> in the download.</li>
               </ul>
             </section>
