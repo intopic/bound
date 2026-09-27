@@ -282,6 +282,9 @@ function explainError(e: unknown, price: PriceContext = {}): Notice {
   return { ...wordsFor(e, price), detail: errorDetail(e) };
 }
 
+/** The title of an error no rule below could explain. */
+const UNEXPLAINED = 'Something went wrong';
+
 /** Said at the end of every refusal: the person's question is whether anything happened. */
 const NOTHING_SENT = 'Nothing was sent and no funds moved.';
 
@@ -378,7 +381,7 @@ function wordsFor(e: unknown, price: PriceContext = {}): Notice {
   }
   // The raw error is for the console, not the page: it is rarely readable, and never actionable.
   console.error(e);
-  return { kind: 'error', title: 'Something went wrong', body: `${NOTHING_SENT} Try again.` };
+  return { kind: 'error', title: UNEXPLAINED, body: `${NOTHING_SENT} Try again.` };
 }
 
 /**
@@ -858,7 +861,12 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       setAccount(acc);
       setNotice(null);
     } catch (e) {
-      setNotice(explainError(e));
+      const said = explainError(e);
+      // A wallet that fails inside its own extension (locked, still starting, or another wallet
+      // extension in the way) says nothing a person can act on: name the wallet and what to try.
+      setNotice(said.title === UNEXPLAINED
+        ? { kind: 'error', title: `${w.name} didn't connect`, body: `Unlock ${w.name}, reload the page and try again. If another wallet extension is on, turn it off for this site. Nothing was signed.`, detail: said.detail }
+        : said);
     }
   }
 
