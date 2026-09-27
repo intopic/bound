@@ -134,7 +134,7 @@ The guarantee holds if these are correct and unmodified:
 | Orientim code in the browser | Compiler and verifier are correct and untampered | Independent verifier, mutation and property tests, nonce-based CSP, minimal dependencies |
 | Orientim's server | Serves the genuine page, and relays RPC answers and token metadata | CI compares two builds and the page uses partial SRI (details below). The server cannot change the fee or the treasury (compiled into the page); F_max from the server is capped by the verifier; decimals are checked against the mint on chain |
 | RPC | Returns true lookup tables and account state | v1 has no lookup tables, but account state (owners, balances, decimals, authorities) still comes from the RPC; v0 tables come from the same single provider (see "One RPC provider") |
-| Wallet | Signs what it is given | The returned message is re-verified byte for byte before E signs |
+| Wallet | Signs what it is given | The returned message is re-verified before E signs: byte for byte, except that the page accepts Lighthouse assertions a wallet adds (below) |
 | Jupiter's on-chain program | Its floor measures what its route instruction delivered to the destination account | Pinned by address; only its two known route formats are accepted, and the verifier requires the floor at the account the minimum is checked on |
 
 The largest remaining risk is a modified frontend (compromised server or supply chain). Serve it
@@ -149,6 +149,11 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   bad price, or a route label, is not something the verifier can detect.
 - Changes to the transaction after verification (by the wallet or a browser extension): rejected by
   the wallet-return check (R6), which compares the message byte for byte and the wallet's signature.
+  On the page, one change is accepted: Lighthouse assertions (kinds 2 to 15) that a wallet such as
+  Phantom adds. Every original instruction must be unchanged and in order, the signers, blockhash and
+  lookup tables the same, added accounts read-only, and the compute limit raised by at most 50,000
+  units with the network fee still within F_max. An assertion can only make the transaction fail;
+  the agent API accepts the exact message only.
   It does not freeze the chain: state that changes between the check and the landing (a balance, a
   pool, a token's settings) is met by what the transaction enforces on chain (the exact debits, the
   minimum-output check, Jupiter's floor), or the transaction reverts.
@@ -244,7 +249,7 @@ transaction that may have landed. This holds while the person keeps this browser
 | Pump.fun bonding curve and PumpSwap | Swapped; the per-buyer account is closed and its rent returned, or the route is refused |
 | Any other market that opens an account and leaves it open | Refused |
 | Routes too large for one transaction | Refused: Orientim never splits a swap |
-| Wallets that sign and return (Wallet Standard `signTransaction`) | Supported: tested on mainnet with Phantom, which returns the message byte for byte, and Trust Wallet |
+| Wallets that sign and return (Wallet Standard `signTransaction`) | Supported: tested on mainnet with Phantom, which may add Lighthouse assertions (accepted on the page, see R6 above), and Trust Wallet |
 | Sign-and-send-only wallets, multisig vaults | Cannot sign first: not supported |
 | v1 transactions | Built only when enabled and only for a route too big for v0 |
 

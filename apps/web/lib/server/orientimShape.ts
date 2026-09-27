@@ -3,7 +3,7 @@ import {
   ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, COMPUTE_BUDGET_PROGRAM, JUPITER_PROGRAM, PUMP_AMM_PROGRAM, PUMP_CURVE_PROGRAM,
   SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
 } from '@orientim/core';
-import { jupiterRouteArgs } from '@orientim/verifier';
+import { isLighthouseAssertion, jupiterRouteArgs, LIGHTHOUSE_PROGRAM } from '@orientim/verifier';
 
 type Ix = { program: string | undefined; accounts: number; data: Uint8Array };
 
@@ -28,7 +28,10 @@ function instructionsOf(messageBytes: Uint8Array): { version: unknown; signers: 
   return { version: m.version, signers: m.header.numSignerAccounts, ixs };
 }
 
-/** The shapes a Orientim transaction is made of, the same the verifier's parser accepts (parse.ts). */
+/**
+ * The shapes a Orientim transaction is made of, the same the verifier's parser accepts (parse.ts),
+ * and the Lighthouse assertions a wallet may add before it signs (verifyWalletReturn).
+ */
 function trusted(ix: Ix): boolean {
   const d = ix.data;
   switch (ix.program) {
@@ -49,6 +52,8 @@ function trusted(ix: Ix): boolean {
     case PUMP_CURVE_PROGRAM:
     case PUMP_AMM_PROGRAM:
       return ix.accounts === 4 && d.length === 8 && CLOSE_USER_VOLUME_ACCUMULATOR.every((b, i) => d[i] === b);
+    case LIGHTHOUSE_PROGRAM:
+      return isLighthouseAssertion(d);
     default:
       return false;
   }

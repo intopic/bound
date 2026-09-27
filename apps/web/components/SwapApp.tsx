@@ -1241,7 +1241,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       }
       setHistory(updateHistory(result.signature, result.status, texts.received || undefined));
       settled = result.status !== 'unknown';
-      const onPrice = result.status === 'failed' && revertedOnPrice(toSend.transaction, result.error, JUPITER_PROGRAM);
+      const onPrice = result.status === 'failed' && revertedOnPrice(result.sent, result.error, JUPITER_PROGRAM);
       setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice, ...priceContext }));
       if (result.status === 'confirmed') setAmountText('');
     } catch (e) {

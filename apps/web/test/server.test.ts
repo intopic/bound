@@ -337,6 +337,41 @@ describe('the RPC relay sends and simulates only Orientim transactions', () => {
     vi.stubGlobal('fetch', upstreamOk());
     expect((await call('sendTransaction', 'AA==', 'base58')).status).toBe(422);
   });
+
+  it('a swap with a Lighthouse assertion a wallet added is relayed; a Lighthouse memory write is not', async () => {
+    const { getCompiledTransactionMessageDecoder, getCompiledTransactionMessageEncoder } = await import('@solana/kit');
+    const { LIGHTHOUSE_PROGRAM } = await import('@orientim/verifier');
+    const upstream = upstreamOk();
+    vi.stubGlobal('fetch', upstream);
+    const s = await scenario();
+    const { transaction } = compileProtectedSwap({
+      policy: s.policy, swapInstruction: s.swapIx, intermediates: s.intermediates, version: 0, lifetime: LIFETIME,
+      computeUnitLimit: 400_000, microLamportsPerComputeUnit: 50_000n, lookupTables: s.lookupTables, outputBalanceBefore: s.wOutBalance,
+    });
+    const withLighthouse = (kind: number) => {
+      const m = structuredClone(getCompiledTransactionMessageDecoder().decode(transaction.messageBytes)) as unknown as {
+        header: { numReadonlyNonSignerAccounts: number }; staticAccounts: string[];
+        instructions: { programAddressIndex: number; accountIndices?: number[]; data?: Uint8Array }[];
+      };
+      const at = m.staticAccounts.length;
+      m.staticAccounts.push(LIGHTHOUSE_PROGRAM);
+      m.header.numReadonlyNonSignerAccounts++;
+      for (const ix of m.instructions) {
+        if (ix.programAddressIndex >= at) ix.programAddressIndex++;
+        ix.accountIndices = ix.accountIndices?.map(i => (i >= at ? i + 1 : i));
+      }
+      m.instructions.push({ programAddressIndex: at, accountIndices: [0], data: Uint8Array.from([kind, 0, 1, 2, 3]) });
+      const messageBytes = getCompiledTransactionMessageEncoder().encode(m as never);
+      return getBase64EncodedWireTransaction({ ...transaction, messageBytes } as typeof transaction);
+    };
+    const assertion = await call('sendTransaction', withLighthouse(9));
+    expect(assertion.status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    const write = await call('sendTransaction', withLighthouse(0));
+    expect(write.status).toBe(422);
+    expect(write.headers.get('x-orientim-not-forwarded')).toBe('1');
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the relay passes Orientim's close of a Pump market's account", () => {

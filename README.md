@@ -20,7 +20,8 @@ other is refused with the reason (SECURITY.md, "What works and what is refused")
    arrived, then closes the temporary accounts back to W.
 3. Before the wallet opens, the **verifier** checks the exact bytes against 7 rules (below).
 4. The wallet signs first with `signTransaction` (no send). Orientim checks that the returned message is
-   byte-for-byte the verified one with a valid W signature. Only then does E add the last required
+   byte-for-byte the verified one with a valid W signature (on the page, Lighthouse assertions a wallet
+   such as Phantom adds are accepted, and nothing else). Only then does E add the last required
    signature and Orientim sends it.
 
 If anything fails, nothing is signed or the whole transaction reverts. There is no "continue anyway".

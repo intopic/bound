@@ -20,7 +20,8 @@ const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111';
 // A stand-in for the Lighthouse program: what matters is that an instruction is appended.
 const ASSERTION_PROGRAM = address('Sysvar1nstructions1111111111111111111111111');
 
-async function prepared() {
+/** `priority`: the price recent fees ask for, in micro-lamports per unit; far above the cap, the cap is used. */
+async function prepared(priority?: bigint) {
   const owner = await generateKeyPairSigner();
   const E = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
@@ -34,7 +35,10 @@ async function prepared() {
   // A sent transaction lands at once, so the happy path settles without waiting.
   const rpc = fakeRpc(accounts, { sent, landOnSend: true, statuses: new Map() });
   const swap = await prepareProtectedSwap(
-    { rpc, jupiter: fakeJupiter(), settings: { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_PROGRAM } },
+    {
+      rpc, jupiter: fakeJupiter(), settings: { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_PROGRAM },
+      ...(priority ? { priorityFee: async () => priority } : {}),
+    },
     {
       owner: owner.address, ephemeral: E, inputMint: USDC, outputMint: BONK, amountIn: 1_000_000n,
       inputDecimals: DECIMALS[USDC], outputDecimals: DECIMALS[BONK], version: 0,
@@ -219,6 +223,28 @@ describe("Phantom's Lighthouse assertions, on the page", () => {
     ['a compute limit raised too far', async p => alter(await lighthouse(9, p.owner.address)(p.swap.transaction), raiseComputeLimit(60_000)), 'the wallet changed the compute limit'],
     ['an instruction of another program', p => Promise.resolve(alter(p.swap.transaction, appendAssertion)), 'the wallet changed an instruction'],
   ];
+  it('with the priority price at its cap, a compute limit raised as far as allowed still fits the fee limit', async () => {
+    // A busy network: the price is capped, with room left for the compute a wallet may add.
+    const p = await prepared(100_000_000n);
+    expect(p.swap.priorityFeeCapped).toBe(true);
+    const altered = alter(await lighthouse(9, p.owner.address)(p.swap.transaction), raiseComputeLimit(50_000));
+    const result = await finalize(p, await walletSigns(p.owner, altered), true);
+    expect(result.status).toBe('confirmed');
+    // What was sent is the message the wallet signed, so a failure is read against its instructions.
+    expect([...result.sent.messageBytes]).toEqual([...altered.messageBytes]);
+  });
+
+  it('a raised compute limit whose fee goes above the verified limit is refused, and nothing is sent', async () => {
+    const p = await prepared(100_000_000n);
+    const altered = alter(await lighthouse(9, p.owner.address)(p.swap.transaction), raiseComputeLimit(50_000));
+    // The same message held to a lower limit than the one it was built for.
+    const tighter = { ...p, swap: { ...p.swap, policy: { ...p.swap.policy, maxNetworkFeeLamports: p.swap.networkFeeLamports } } };
+    const e = await refusal(finalize(tighter, await walletSigns(p.owner, altered), true));
+    expect(e.code).toBe('wallet-changed-transaction');
+    expect(e.violations.map(v => v.detail).join()).toContain(`above ${p.swap.networkFeeLamports}`);
+    expect(p.sent).toEqual([]);
+  });
+
   for (const [what, change, detail] of refused) {
     it(`${what} is refused, and nothing is sent`, async () => {
       const p = await prepared();

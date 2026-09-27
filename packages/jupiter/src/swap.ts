@@ -14,7 +14,8 @@ import {
 import type { OrientimConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@orientim/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@orientim/solana';
 import {
-  certify, hasTransferFee, jupiterFloor, jupiterRouteArgs, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension, verifyWalletReturn,
+  certify, hasTransferFee, jupiterFloor, jupiterRouteArgs, MAX_ADDED_COMPUTE_UNITS, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension,
+  verifyWalletReturn,
 } from '@orientim/verifier';
 import type { Certificate } from '@orientim/verifier';
 import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientim/solana';
@@ -1220,7 +1221,9 @@ export async function prepareProtectedSwap(deps: {
       const feeRoom = (chosenPolicy.maxNetworkFeeLamports < ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS
         ? chosenPolicy.maxNetworkFeeLamports : ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS) - 2n * LAMPORTS_PER_SIGNATURE;
       const wantedPrice = feeLevel !== null && feeLevel > settings.microLamportsPerComputeUnit ? feeLevel : settings.microLamportsPerComputeUnit;
-      const maxPrice = (feeRoom * 1_000_000n) / BigInt(units);
+      // A v0 price at the cap leaves room for the compute a wallet may add for its assertions
+      // (verifyWalletReturn), so that raise still fits within the limit.
+      const maxPrice = (feeRoom * 1_000_000n) / BigInt(units + (req.version === 0 ? MAX_ADDED_COMPUTE_UNITS : 0));
       const microLamports = wantedPrice < maxPrice ? wantedPrice : maxPrice;
       const v1Wanted = (microLamports * BigInt(units) + 999_999n) / 1_000_000n;
       const v1Priority = v1Wanted > settings.priorityFeeLamports ? v1Wanted : settings.priorityFeeLamports;
@@ -1387,7 +1390,8 @@ export async function prepareProtectedSwap(deps: {
 export type Countersignable = {
   transaction: Transaction;
   lifetime: { lastValidBlockHeight: bigint };
-  policy: { owner: Address };
+  /** F_max: what a compute limit a wallet raised must stay within (acceptAssertions). */
+  policy: { owner: Address; maxNetworkFeeLamports?: bigint };
 };
 
 /**
@@ -1413,7 +1417,8 @@ export async function countersignProtectedSwap(args: {
 }): Promise<FullySignedTransaction & Transaction> {
   const { rpc, prepared, ephemeral } = args;
   const check = await verifyWalletReturn(
-    prepared.transaction, args.walletSignedBytes, prepared.policy.owner, ephemeral.address, { acceptAssertions: args.acceptAssertions },
+    prepared.transaction, args.walletSignedBytes, prepared.policy.owner, ephemeral.address,
+    { acceptAssertions: args.acceptAssertions, maxNetworkFeeLamports: prepared.policy.maxNetworkFeeLamports },
   );
   if (!check.ok || !check.transaction) {
     throw new OrientimError('wallet-changed-transaction', 'The wallet changed the transaction, so it was stopped for your safety.', check.violations);
@@ -1427,7 +1432,10 @@ export async function countersignProtectedSwap(args: {
   return signed;
 }
 
-/** Signs last and sends, then settles the outcome (the page's flow). */
+/**
+ * Signs last and sends, then settles the outcome (the page's flow). `sent` is the transaction as
+ * sent: with assertions a wallet added, its instruction indexes are not the prepared ones.
+ */
 export async function finalizeProtectedSwap(args: {
   rpc: SolanaRpc;
   prepared: Countersignable;
@@ -1435,9 +1443,10 @@ export async function finalizeProtectedSwap(args: {
   ephemeral: KeyPairSigner;
   onStatus?: (status: SendStatus, signature: string) => void;
   acceptAssertions?: boolean;
-}): Promise<SendResult> {
+}): Promise<SendResult & { sent: Transaction }> {
   const signed = await countersignProtectedSwap(args);
-  return sendAndConfirm({
+  const result = await sendAndConfirm({
     rpc: args.rpc, transaction: signed, lastValidBlockHeight: args.prepared.lifetime.lastValidBlockHeight, onStatus: args.onStatus,
   });
+  return { ...result, sent: signed };
 }
