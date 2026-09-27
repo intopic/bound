@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 import { SiteFooter, SiteHeader } from './Brand';
+import { MobileNav } from './MobileNav';
 
 /** The pages behind the footer share one frame: the site's header, a title, a lead, the text. */
 export function InfoPage(props: { eyebrow: string; title: string; lead?: ReactNode; updated?: string; draft?: boolean; children: ReactNode }) {
   return (
     <div className="site">
-      <SiteHeader right={<a className="ghost connect" href="/#swap">Open the app</a>} />
+      <SiteHeader menu={<MobileNav />} right={<a className="ghost connect" href="/#swap">Open the app</a>} />
       <main className="info-page">
         <div className="container">
           <p className="eyebrow">{props.eyebrow}</p>

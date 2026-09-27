@@ -1,5 +1,6 @@
 import { connection } from 'next/server';
 import { SiteFooter, SiteHeader } from '@/components/site/Brand';
+import { MobileNav } from '@/components/site/MobileNav';
 import { DevNav, type DevNavGroup } from '@/components/site/DevNav';
 import { GetApiKey } from '@/components/site/GetApiKey';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
@@ -100,7 +101,7 @@ export default async function Page() {
   await connection();
   return (
     <div className="site">
-      <SiteHeader right={<a className="ghost connect" href="/#swap">Open the app</a>} />
+      <SiteHeader menu={<MobileNav />} right={<a className="ghost connect" href="/#swap">Open the app</a>} />
       <main className="dev-page">
         <div className="container devdocs-grid">
           <aside className="dev-aside">

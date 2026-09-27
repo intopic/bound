@@ -42,6 +42,7 @@ import { Modal } from './Modal';
 import { SlippageSettings } from './SlippageSettings';
 import { TokenIcon, TokenPicker } from './TokenPicker';
 import { ShieldIcon, SiteHeader } from './site/Brand';
+import { MobileNav } from './site/MobileNav';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
 /** `detail`: the raw error behind the words, kept in this browser for when help is asked (never shown by itself). */
@@ -1321,6 +1322,7 @@ export function SwapApp() {
   return (
     <>
       <SiteHeader
+        menu={<MobileNav />}
         right={W ? (
           <div className="account" ref={accountRef}>
             <button className="ghost wallet-pill" onClick={() => setAccountMenu(v => !v)} aria-expanded={accountMenu}>

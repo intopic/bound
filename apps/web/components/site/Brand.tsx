@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { LEGAL } from '@/lib/legal';
+import { MAIN_NAV } from './nav';
 
 /** Orientim's mark: the wallet as four blocks; the green one, the amount, has stepped out of it. */
 export function LogoMark({ size = 26 }: { size?: number }) {
@@ -35,20 +36,24 @@ export function ShieldIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-/** The header of every page: the swap page puts the wallet on the right, the other pages a way back to it. */
-export function SiteHeader({ right }: { right: ReactNode }) {
+/**
+ * The header of every page: the swap page puts the wallet on the right, the other pages a way back to it.
+ * `menu` is the phone menu (MobileNav). It is passed in, not imported here, so that a server page
+ * importing only the footer or the logo does not list the menu's chunk as its own: a listed chunk the
+ * page never loads would be preloaded without the CSP nonce (lib/server/scriptIntegrity.ts).
+ */
+export function SiteHeader({ right, menu }: { right: ReactNode; menu?: ReactNode }) {
   return (
     <header className="site-header">
       <div className="container header-row">
         <Logo />
         <nav className="site-nav" aria-label="Main">
-          <a href="/#swap">Swap</a>
-          <a href="/#how">How it works</a>
-          <a href="/#agents">Agents</a>
-          <a href="/security">Security</a>
-          <a href="/developers">Developers</a>
+          {MAIN_NAV.map(([label, href]) => (
+            <a key={href} href={href}>{label}</a>
+          ))}
         </nav>
         <div className="header-right">{right}</div>
+        {menu}
       </div>
     </header>
   );

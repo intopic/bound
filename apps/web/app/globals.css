@@ -67,6 +67,15 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.02em; margin: 
 .site-nav a { color: var(--muted); font-size: 14px; font-weight: 500; }
 .site-nav a:hover { color: var(--text); }
 .header-right { margin-left: auto; display: flex; align-items: center; }
+.mobile-nav { display: none; }
+.mobile-nav-toggle { display: grid; place-items: center; width: 40px; height: 40px; margin-right: -8px; background: none; border: 0; border-radius: var(--radius); color: var(--text); }
+.mobile-nav-toggle:hover { background: rgba(255, 255, 255, .04); }
+/* The header blurs its backdrop, so a fixed child would be clipped to it: the scrim hangs under the header instead. */
+.mobile-nav-scrim { position: absolute; left: 0; right: 0; top: 100%; height: 100vh; background: rgba(4, 8, 11, .55); }
+.mobile-nav-panel { position: absolute; left: 0; right: 0; top: 100%; display: flex; flex-direction: column; padding: 8px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: 0 18px 40px rgba(0, 0, 0, .45); }
+.mobile-nav-panel a { padding: 13px 4px; color: var(--text); font-size: 16px; font-weight: 500; border-bottom: 1px solid var(--line-soft); }
+.mobile-nav-panel a:last-child { border-bottom: 0; }
+.mobile-nav-panel a:hover { color: var(--accent); }
 
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 12px; color: var(--text); }
 .ghost:hover:not(:disabled) { border-color: #33454e; background: rgba(255, 255, 255, .02); }
@@ -465,7 +474,8 @@ a.ghost { display: inline-flex; align-items: center; }
 @media (max-width: 640px) {
   .container { padding-inline: 16px; }
   .site-nav { display: none; }
-  .header-row { height: 58px; }
+  .mobile-nav { display: block; }
+  .header-row { height: 58px; gap: 12px; }
   .hero-title { font-size: 34px; }
   .page-grid { opacity: .7; }
   .section { padding-top: 64px; }
