@@ -225,6 +225,13 @@ function memoryStore(): PendingStore & OrderBook {
     order: async id => orders.get(id) ?? null,
     recordOrder: async (id, record) => void orders.set(id, record),
     claimOrder: async (id, record) => (orders.has(id) ? false : (orders.set(id, record), true)),
+    // A retry takes the order only while the attempt it retries is still the one recorded.
+    reclaimOrder: async (id, prior, record) => {
+      const now = orders.get(id);
+      if (!now || now.signature !== prior.signature || now.state !== prior.state) return false;
+      orders.set(id, record);
+      return true;
+    },
   };
 }
 

@@ -37,6 +37,7 @@ export type OrderBook = {
   order(id: string): Promise<OrderRecord | null>;
   recordOrder(id: string, record: OrderRecord): Promise<void>;
   claimOrder(id: string, record: OrderRecord): Promise<boolean>;
+  reclaimOrder?(id: string, prior: OrderRecord, record: OrderRecord): Promise<boolean>;
 };
 
 export declare const SOL_MINT = 'So11111111111111111111111111111111111111112';
