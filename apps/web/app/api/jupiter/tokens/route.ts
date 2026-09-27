@@ -11,7 +11,8 @@ export async function GET(req: Request) {
   const query = new URL(req.url).searchParams.get('query')?.trim() ?? '';
   if (!query || query.length > 2000) return Response.json({ error: 'Invalid query' }, { status: 400 });
   const { jupiterApiKey } = serverConfig();
-  const base = jupiterApiKey ? 'https://api.jup.ag/tokens/v2/search' : 'https://lite-api.jup.ag/tokens/v2/search';
+  // api.jup.ag with or without a key: lite-api.jup.ag is being retired (Jupiter's portal migration notes).
+  const base = 'https://api.jup.ag/tokens/v2/search';
   try {
     const upstream = await fetch(`${base}?${new URLSearchParams({ query })}`, {
       headers: jupiterApiKey ? { 'x-api-key': jupiterApiKey } : {},

@@ -39,7 +39,7 @@ const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';
 const rpc = createRetryingRpc(RPC_URL, 8);
 const jupiter = createJupiterClient({
   buildUrl: 'https://api.jup.ag/swap/v2/build',
-  tokensUrl: 'https://lite-api.jup.ag/tokens/v2/search',
+  tokensUrl: 'https://api.jup.ag/tokens/v2/search',
   labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
   apiKey: process.env.JUPITER_API_KEY || undefined,
   minIntervalMs: process.env.JUPITER_API_KEY ? 300 : 2_100,
@@ -191,10 +191,10 @@ else report('warn', 'USDC → BONK (fee in SOL)', 'no wallet found to stand in f
 
 // Pump.fun tokens: the newest still on their bonding curve, the trending ones mostly on PumpSwap.
 type Listed = { id: string; symbol: string };
-const list = (url: string) => fetch(url).then(r => r.json() as Promise<Listed[]>).catch(() => [] as Listed[]);
+const list = (url: string) => fetch(url, { headers: process.env.JUPITER_API_KEY ? { 'x-api-key': process.env.JUPITER_API_KEY } : {} }).then(r => r.json() as Promise<Listed[]>).catch(() => [] as Listed[]);
 for (const [market, want, url] of [
-  ['Pump.fun curve', 'Pump.fun', 'https://lite-api.jup.ag/tokens/v2/recent'],
-  ['PumpSwap', 'Pump.fun Amm', 'https://lite-api.jup.ag/tokens/v2/toptrending/1h?limit=100'],
+  ['Pump.fun curve', 'Pump.fun', 'https://api.jup.ag/tokens/v2/recent'],
+  ['PumpSwap', 'Pump.fun Amm', 'https://api.jup.ag/tokens/v2/toptrending/1h?limit=100'],
 ] as const) {
   let outcome: 'done' | 'elsewhere' | 'failed' = 'elsewhere';
   for (const t of (await list(url)).filter(x => x.id.endsWith('pump')).slice(0, 8)) {

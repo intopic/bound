@@ -146,7 +146,8 @@ Orientim's proxies already refuse requests other websites make from their visito
 | `/api/v1/*` | 120 per minute | The agent API; each key has its own limit too (`ORIENTIM_API_PER_MINUTE`) |
 
 Give the agent API quotas of its own (`RPC_URL_AGENTS`, and `JUPITER_API_KEY_AGENTS` from a separate
-Jupiter account), so that agents cannot use up the page's, and set usage alerts at the RPC provider
+Jupiter organisation with its own plan: Jupiter counts rate limits per organisation, so a second key in
+the same one shares the page's limit), so that agents cannot use up the page's, and set usage alerts at the RPC provider
 (Helius: credit usage) and on the hosting bill, so abnormal consumption is seen the day it starts.
 
 ## Scope of v0.1

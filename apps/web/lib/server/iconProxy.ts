@@ -44,7 +44,8 @@ export function sniffImage(b: Uint8Array): string | null {
 async function iconUrlOf(mint: string): Promise<string | null> {
   if (iconUrls.has(mint)) return iconUrls.get(mint)!;
   const { jupiterApiKey } = serverConfig();
-  const base = jupiterApiKey ? 'https://api.jup.ag/tokens/v2/search' : 'https://lite-api.jup.ag/tokens/v2/search';
+  // api.jup.ag with or without a key: lite-api.jup.ag is being retired (Jupiter's portal migration notes).
+  const base = 'https://api.jup.ag/tokens/v2/search';
   const res = await fetch(`${base}?${new URLSearchParams({ query: mint })}`, {
     headers: jupiterApiKey ? { 'x-api-key': jupiterApiKey } : {},
     signal: AbortSignal.timeout(TIMEOUT_MS),

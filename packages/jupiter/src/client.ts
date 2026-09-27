@@ -64,6 +64,20 @@ const COOL_DOWN_MS = 5_000;
 const UINT = /^\d{1,20}$/;
 
 /**
+ * How long Jupiter asks us to wait, or null. Its 429s carry `x-ratelimit-reset`, the Unix time in
+ * seconds when the oldest request leaves its sliding window (developers.jup.ag/docs/portal/rate-limit);
+ * a `Retry-After` in seconds is read too.
+ */
+export function serverWaitMs(headers: Headers, now = Date.now()): number | null {
+  const after = Number(headers.get('retry-after'));
+  if (after > 0) return after * 1000;
+  const reset = Number(headers.get('x-ratelimit-reset'));
+  if (!(reset > 0)) return null;
+  const wait = reset * 1000 - now;
+  return wait > 0 ? wait : null;
+}
+
+/**
  * Jupiter is untrusted: a malformed answer becomes a JupiterError here instead of a confusing
  * crash further down (for example `BigInt` on a non-numeric amount).
  */
@@ -140,10 +154,10 @@ export function createJupiterClient(opts: {
       // Jupiter wraps transient upstream failures ("Pool has not been updated in a while") in a 400.
       const retryable = res.status === 429 || res.status >= 500 || (res.status === 400 && /quote failed|not been updated/i.test(body));
       if (retryable && attempt < 3) {
-        // Jittered, so pages refused together do not all retry at the same moment; a Retry-After
-        // from Jupiter is honoured up to a few seconds.
-        const after = Number(res.headers.get('retry-after'));
-        await sleep(after > 0 ? Math.min(after * 1000, COOL_DOWN_MS) : retryBaseMs * 2 ** attempt * (0.5 + Math.random()));
+        // Jittered, so pages refused together do not all retry at the same moment; Jupiter's own
+        // wait is honoured up to a few seconds.
+        const told = serverWaitMs(res.headers);
+        await sleep(told !== null ? Math.min(told, COOL_DOWN_MS) : retryBaseMs * 2 ** attempt * (0.5 + Math.random()));
         continue;
       }
       if (res.status === 429) coolUntil = Date.now() + COOL_DOWN_MS;
