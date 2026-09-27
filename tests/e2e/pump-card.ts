@@ -17,7 +17,7 @@ const publicKey = Array.from(getAddressEncoder().encode(address(SIM_WALLET)));
 
 type Listed = { id: string; symbol: string };
 const list = async (url: string) => fetch(url).then(r => r.json() as Promise<Listed[]>).catch(() => [] as Listed[]);
-const listed = [...await list('https://lite-api.jup.ag/tokens/v2/recent'), ...await list('https://lite-api.jup.ag/tokens/v2/toptrending/1h?limit=100')];
+const listed = [...await list('https://api.jup.ag/tokens/v2/recent'), ...await list('https://api.jup.ag/tokens/v2/toptrending/1h?limit=100')];
 const candidates = listed.filter((t, i) => t.id.endsWith('pump') && listed.findIndex(x => x.id === t.id) === i).slice(0, 14);
 
 const browser = await chromium.launch({ channel: 'msedge', headless: true });

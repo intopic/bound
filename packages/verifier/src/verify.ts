@@ -484,6 +484,14 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
     fail('R1', `message accounts cannot be resolved: ${(e as Error).message}`);
     return { ok: false, violations };
   }
+  // An index past the accounts the message loads decodes without an error but names no account;
+  // such bytes are refused here, as a verdict, rather than failing later with an exception.
+  const unnamed = (msg.instructions as readonly RawInstruction[]).some(ix =>
+    typeof ix.programAddress !== 'string' || (ix.accounts ?? []).some(a => typeof a?.address !== 'string'));
+  if (unnamed) {
+    fail('R1', 'an instruction names an account the message does not load');
+    return { ok: false, violations };
+  }
   const version = compiled.version;
   if (version !== 0 && version !== 1) fail('R5', `unsupported transaction version ${String(version)}`);
 
@@ -495,6 +503,10 @@ export async function verify(transaction: Transaction, policy: Policy, snapshot:
   for (const l of lookups) {
     const table = snapshot.lookupTables[l.lookupTableAddress] ?? [];
     for (const i of [...l.writableIndexes, ...l.readonlyIndexes]) loaded.push(table[i]);
+  }
+  if (loaded.some(a => typeof a !== 'string')) {
+    fail('R1', 'a lookup names an account its table does not hold');
+    return { ok: false, violations };
   }
   if (new Set(loaded).size !== loaded.length) fail('R5', 'the message loads the same account more than once');
 

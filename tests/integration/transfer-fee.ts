@@ -34,7 +34,7 @@ const SYMBOL = arg('symbol', 'FEELSGOOD');
 const rpc = createRetryingRpc(process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com', 8);
 const jupiter = createJupiterClient({
   buildUrl: 'https://api.jup.ag/swap/v2/build',
-  tokensUrl: 'https://lite-api.jup.ag/tokens/v2/search',
+  tokensUrl: 'https://api.jup.ag/tokens/v2/search',
   labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
   apiKey: process.env.JUPITER_API_KEY,
   // Keyless Jupiter allows one request every two seconds; a key allows more.
@@ -53,7 +53,7 @@ const check = (name: string, ok: boolean, detail = '') => {
 };
 
 // --- the token and its tax, from the chain
-const listed = (await (await fetch('https://lite-api.jup.ag/tokens/v2/toptraded/24h?limit=100')).json()) as
+const listed = (await (await fetch('https://api.jup.ag/tokens/v2/toptraded/24h?limit=100')).json()) as
   { id: string; symbol: string; decimals: number; tokenProgram: string }[];
 const token = listed.find(t => t.symbol === SYMBOL);
 if (!token) {

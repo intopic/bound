@@ -38,7 +38,7 @@ const LEVELS = [64, 56, 48, 40, 32, 24, 16];
 const rpc = createRetryingRpc(process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com', 8);
 const jupiter = createJupiterClient({
   buildUrl: 'https://api.jup.ag/swap/v2/build',
-  tokensUrl: 'https://lite-api.jup.ag/tokens/v2/search',
+  tokensUrl: 'https://api.jup.ag/tokens/v2/search',
   labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
   apiKey: process.env.JUPITER_API_KEY,
   // Keyless Jupiter allows one request every two seconds; a key allows more.
@@ -50,7 +50,7 @@ const W = 'GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE' as Address;
 const log = (...a: unknown[]) => console.log(...a);
 
 type Listed = { id: string; symbol: string; decimals: number; tokenProgram: string; usdPrice?: number };
-const listed = (await (await fetch('https://lite-api.jup.ag/tokens/v2/toptraded/24h?limit=100')).json()) as Listed[];
+const listed = (await (await fetch('https://api.jup.ag/tokens/v2/toptraded/24h?limit=100')).json()) as Listed[];
 const usdc = listed.find(t => t.id === USDC) ?? { id: USDC, symbol: 'USDC', decimals: 6, tokenProgram: TOKEN_PROGRAM, usdPrice: 1 };
 // Liquid first, then down the volume list: the thin end is where the cost of protection shows up.
 const outputs = listed.filter(t => t.id !== USDC && t.usdPrice && t.usdPrice > 0).slice(0, TOKEN_COUNT);

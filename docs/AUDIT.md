@@ -1817,6 +1817,40 @@ is 1.3.0.
 
 ---
 
+## 0zx. Harsher fuzzing: the edges, any change to the transaction, and the owner's limits (27 September 2026)
+
+The fuzz suites varied slippage well but the price hardly at all: the fake Jupiter answered with one
+fixed market, the agents' suite swapped 1 USDC to SOL only, and the verifier's fixtures fixed the amount,
+the minimum and the decimals. Four suites were added (`npm run test:fuzz`, and 16 more shards in
+`.github/workflows/fuzz.yml`, about 27,300,000 cases a run):
+
+- **The edges** (`packages/verifier/test/extremes.property.test.ts`): amounts from one unit to the u64
+  limit, decimals 0 to 18, any quote and any balance already held. The fee is never above 0.3% or
+  negative, the least minimum for what must arrive is the least, an honest swap passes at any size, and
+  a route whose own floor is short of the minimum by one unit or by all of it is refused.
+- **Any change to an honest transaction** (`packages/verifier/test/mutation.property.test.ts`): bytes
+  flipped, set, inserted or cut, and instructions dropped, repeated, reordered, rewritten or added,
+  up to four at once. The verifier must answer every case with a verdict, and whatever it accepts is
+  judged harmless by an oracle of its own (same signers, Orientim's instructions unchanged and on the
+  same side of the route, the route's amount, floor and destination, the network fee).
+- **The page at any price** (`packages/jupiter/test/price.property.test.ts`): a market from one unit to
+  10^18, amounts to 10^15, a protected route below the market by any gap, accepted or not. Certified
+  with the right minimum and fee, or refused with one of Orientim's own codes, `costs-more` exactly
+  when the gap is above 0.5% and more than the person accepted.
+- **Agents and bots at the limits** (`apps/web/test/agents.limits.property.test.ts`): the agent and the
+  bot decide alike at any price and amount; a floor more than 20% below Jupiter's price is refused and
+  an accepted one is never enforced lower; the owner's limits of skill 1.3.0 (mint not listed, per swap,
+  per day with earlier swaps on record, several swaps prepared before any is finalized, so the daily
+  limit must hold at finalize); a bot that edits prepare's answer before finalize sends nothing.
+
+Found and fixed: bytes whose instruction named an account index past those the message loads, or a
+lookup index past its table, made `verify` throw a TypeError instead of answering. Nothing was signed,
+but the promise is a verdict: it now refuses them under R1. The skill ships the verifier, so it is 1.3.1. Seen and judged harmless, so the oracle
+allows them: which pools the route passes and in what order, the blockhash, an account the message
+marks writable elsewhere, and a hop account neither opened nor closed when the route does not use it.
+
+The integration tests call api.jup.ag for token lists, as the page and the canary do since 5b28091.
+
 ## 1. What Orientim is
 
 A Solana dApp for swapping tokens through Jupiter where the swap program **never receives authority
@@ -2148,3 +2182,4 @@ npm run e2e                             # needs Microsoft Edge
 - Answers to section 9, and anything in the guarantee (section 1) still stated too strongly.
 - Design feedback: simpler or safer ways to achieve the same guarantee, and what you would change
   before real users. Explanations are welcome; this is also a learning exercise for the team.
+

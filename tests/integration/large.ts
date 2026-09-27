@@ -26,7 +26,7 @@ const arg = (name: string, fallback: string) => {
 const rpc = createRetryingRpc(process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com', 8);
 const jupiter = createJupiterClient({
   buildUrl: 'https://api.jup.ag/swap/v2/build',
-  tokensUrl: 'https://lite-api.jup.ag/tokens/v2/search',
+  tokensUrl: 'https://api.jup.ag/tokens/v2/search',
   labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
   apiKey: process.env.JUPITER_API_KEY,
   // Keyless Jupiter allows one request every two seconds; a key allows more.

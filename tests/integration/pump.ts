@@ -44,7 +44,7 @@ const RPC_URL = process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const rpc = createRetryingRpc(RPC_URL, 8);
 const jupiter = createJupiterClient({
   buildUrl: 'https://api.jup.ag/swap/v2/build',
-  tokensUrl: 'https://lite-api.jup.ag/tokens/v2/search',
+  tokensUrl: 'https://api.jup.ag/tokens/v2/search',
   labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
   apiKey: process.env.JUPITER_API_KEY,
   // Keyless Jupiter allows one request every two seconds; a key allows more.
@@ -121,9 +121,9 @@ async function holderOf(mint: Address, program: Address): Promise<{ owner: Addre
 
 type Listed = { id: string; symbol: string; liquidity?: number };
 const list = async (url: string) => fetch(url).then(r => r.json() as Promise<Listed[]>).catch(() => [] as Listed[]);
-const trending = await list('https://lite-api.jup.ag/tokens/v2/toptrending/1h?limit=100');
+const trending = await list('https://api.jup.ag/tokens/v2/toptrending/1h?limit=100');
 // Most tokens still on a bonding curve are new, and the newest are listed separately.
-const listed = CURVE ? [...await list('https://lite-api.jup.ag/tokens/v2/recent'), ...trending] : trending;
+const listed = CURVE ? [...await list('https://api.jup.ag/tokens/v2/recent'), ...trending] : trending;
 const candidates = listed.filter((t, i) =>
   t.id.endsWith('pump') && (CURVE || (t.liquidity ?? 0) > 5_000) && listed.findIndex(x => x.id === t.id) === i);
 log(`${candidates.length} Pump.fun tokens listed; looking for ${WANTED} that route through ${MARKET.name}\n`);

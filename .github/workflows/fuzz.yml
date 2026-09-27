@@ -4,8 +4,11 @@ name: Fuzz
 # - the verifier (honest transactions, attacks, Token-2022, the tolerance rule);
 # - the page's swap at any tolerance;
 # - agents and bots end to end, against honest and lying servers, with any tolerance and price impact;
-# - the small functions every channel leans on.
-# About 22,200,000 cases a run.
+# - the small functions every channel leans on;
+# - the edges: any amount, decimals, quote and balance, and any price the market may give;
+# - any change to an honest transaction, bytes or instructions, several at once;
+# - the owner's limits for agents and bots, the 20% floor, and a bot that edits prepare's answer.
+# About 27,300,000 cases a run.
 #
 # By hand (Actions, Fuzz, Run workflow), and weekly while the repository is public. On a private
 # repository a run would use more than a month of the free plan's minutes (final audit, H3). CI runs
@@ -306,6 +309,102 @@ jobs:
             file: apps/web/test/pure.property.test.ts
             runs: 1000000
             proves: "slippage input and storage, key message and seal, what arrived"
+          - suite: edges
+            shard: 1
+            of: 4
+            file: packages/verifier/test/extremes.property.test.ts
+            runs: 200000
+            proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
+          - suite: edges
+            shard: 2
+            of: 4
+            file: packages/verifier/test/extremes.property.test.ts
+            runs: 200000
+            proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
+          - suite: edges
+            shard: 3
+            of: 4
+            file: packages/verifier/test/extremes.property.test.ts
+            runs: 200000
+            proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
+          - suite: edges
+            shard: 4
+            of: 4
+            file: packages/verifier/test/extremes.property.test.ts
+            runs: 200000
+            proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
+          - suite: mutations
+            shard: 1
+            of: 4
+            file: packages/verifier/test/mutation.property.test.ts
+            runs: 100000
+            proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
+          - suite: mutations
+            shard: 2
+            of: 4
+            file: packages/verifier/test/mutation.property.test.ts
+            runs: 100000
+            proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
+          - suite: mutations
+            shard: 3
+            of: 4
+            file: packages/verifier/test/mutation.property.test.ts
+            runs: 100000
+            proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
+          - suite: mutations
+            shard: 4
+            of: 4
+            file: packages/verifier/test/mutation.property.test.ts
+            runs: 100000
+            proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
+          - suite: page-price
+            shard: 1
+            of: 4
+            file: packages/jupiter/test/price.property.test.ts
+            runs: 50000
+            proves: "the page's swap at any price: the right minimum and fee, or a reason of its own"
+          - suite: page-price
+            shard: 2
+            of: 4
+            file: packages/jupiter/test/price.property.test.ts
+            runs: 50000
+            proves: "the page's swap at any price: the right minimum and fee, or a reason of its own"
+          - suite: page-price
+            shard: 3
+            of: 4
+            file: packages/jupiter/test/price.property.test.ts
+            runs: 50000
+            proves: "the page's swap at any price: the right minimum and fee, or a reason of its own"
+          - suite: page-price
+            shard: 4
+            of: 4
+            file: packages/jupiter/test/price.property.test.ts
+            runs: 50000
+            proves: "the page's swap at any price: the right minimum and fee, or a reason of its own"
+          - suite: agents-limits
+            shard: 1
+            of: 4
+            file: apps/web/test/agents.limits.property.test.ts
+            runs: 5000
+            proves: "agents and bots alike at any price; the 20% floor; the owner's limits at prepare and finalize; an edited answer sends nothing"
+          - suite: agents-limits
+            shard: 2
+            of: 4
+            file: apps/web/test/agents.limits.property.test.ts
+            runs: 5000
+            proves: "agents and bots alike at any price; the 20% floor; the owner's limits at prepare and finalize; an edited answer sends nothing"
+          - suite: agents-limits
+            shard: 3
+            of: 4
+            file: apps/web/test/agents.limits.property.test.ts
+            runs: 5000
+            proves: "agents and bots alike at any price; the 20% floor; the owner's limits at prepare and finalize; an edited answer sends nothing"
+          - suite: agents-limits
+            shard: 4
+            of: 4
+            file: apps/web/test/agents.limits.property.test.ts
+            runs: 5000
+            proves: "agents and bots alike at any price; the 20% floor; the owner's limits at prepare and finalize; an edited answer sends nothing"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

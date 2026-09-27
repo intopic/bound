@@ -111,6 +111,14 @@ export async function scenario(opts: {
   owner?: KeyPairSigner;
   minOut?: bigint;
   wOutBalance?: bigint;
+  /** The whole amount the wallet spends; 100 USDC, or 0.9 SOL, unless a test asks for another. */
+  amountIn?: bigint;
+  /** Decimals of each mint, as the chain states them; the real token's unless a test asks. */
+  inputDecimals?: number;
+  outputDecimals?: number;
+  /** What Jupiter's instruction quotes, and the tolerance it carries: twice the minimum at 0.5% unless set. */
+  quotedOut?: bigint;
+  routeBps?: number;
   /** A Pump market's account opened in E's name, closed after the swap and its rent sent on to W (FA-05). */
   routeRefund?: { program: Address; lamports: bigint };
   /** Token program of each mint; classic SPL unless a test asks for Token-2022. */
@@ -128,10 +136,10 @@ export async function scenario(opts: {
   const inputProgram = input === WSOL_MINT ? TOKEN_PROGRAM : opts.inputProgram ?? TOKEN_PROGRAM;
   const outputProgram = output === WSOL_MINT ? TOKEN_PROGRAM : opts.outputProgram ?? TOKEN_PROGRAM;
   let policy = await buildPolicy({
-    intent: { owner: W, inputMint: input, outputMint: output, amountIn: input === WSOL_MINT ? 900_000_000n : 100_000_000n },
+    intent: { owner: W, inputMint: input, outputMint: output, amountIn: opts.amountIn ?? (input === WSOL_MINT ? 900_000_000n : 100_000_000n) },
     ephemeral: E.address,
-    inputDecimals: DECIMALS[input],
-    outputDecimals: DECIMALS[output],
+    inputDecimals: opts.inputDecimals ?? DECIMALS[input],
+    outputDecimals: opts.outputDecimals ?? DECIMALS[output],
     inputTokenProgram: inputProgram,
     outputTokenProgram: outputProgram,
     // A mint that taxes its transfers needs the withheld amount harvested before the close.
@@ -193,7 +201,7 @@ export async function scenario(opts: {
         : []),
     ],
     // Quoted at twice the minimum, at 0.5%: what an honest route carries.
-    data: routeV2Data(policy.swapAmount, policy.minOut * 2n),
+    data: routeV2Data(policy.swapAmount, opts.quotedOut ?? policy.minOut * 2n, opts.routeBps),
   };
 
   const lookupTable = await randomAddress();
@@ -221,8 +229,8 @@ export async function scenario(opts: {
     }
     return { owner: program, lamports: 1_066_800n, data };
   };
-  accounts.set(input, mintState(inputProgram, DECIMALS[input], opts.inputExtensions ?? [[18, 64]]));
-  accounts.set(output, mintState(outputProgram, DECIMALS[output], opts.outputExtensions ?? [[18, 64]]));
+  accounts.set(input, mintState(inputProgram, opts.inputDecimals ?? DECIMALS[input], opts.inputExtensions ?? [[18, 64]]));
+  accounts.set(output, mintState(outputProgram, opts.outputDecimals ?? DECIMALS[output], opts.outputExtensions ?? [[18, 64]]));
   // A hop mint may also be the output mint; the swap's own mints win.
   for (const m of hopMints) if (!accounts.has(m)) accounts.set(m, mintState(TOKEN_PROGRAM, DECIMALS[m]));
   for (const p of pools) accounts.set(p, { owner: DEX, lamports: 5_000_000n, data: new Uint8Array(300) });

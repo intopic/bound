@@ -617,6 +617,13 @@ async function verify(transaction, policy, snapshot, opts = {}) {
 			violations
 		};
 	}
+	if (msg.instructions.some((ix) => typeof ix.programAddress !== "string" || (ix.accounts ?? []).some((a) => typeof a?.address !== "string"))) {
+		fail("R1", "an instruction names an account the message does not load");
+		return {
+			ok: false,
+			violations
+		};
+	}
 	const version = compiled.version;
 	if (version !== 0 && version !== 1) fail("R5", `unsupported transaction version ${String(version)}`);
 	const loaded = [...compiled.staticAccounts];
@@ -624,6 +631,13 @@ async function verify(transaction, policy, snapshot, opts = {}) {
 	for (const l of lookups) {
 		const table = snapshot.lookupTables[l.lookupTableAddress] ?? [];
 		for (const i of [...l.writableIndexes, ...l.readonlyIndexes]) loaded.push(table[i]);
+	}
+	if (loaded.some((a) => typeof a !== "string")) {
+		fail("R1", "a lookup names an account its table does not hold");
+		return {
+			ok: false,
+			violations
+		};
 	}
 	if (new Set(loaded).size !== loaded.length) fail("R5", "the message loads the same account more than once");
 	const numSigners = compiled.header.numSignerAccounts;
@@ -1301,7 +1315,7 @@ var OrientimApiError = class extends Error {
 * that a change old copies cannot follow (a commitment level Solana retires, a new Jupiter format) is
 * answered with "update the skill" (426 skill-outdated) instead of failing in some other way.
 */
-const SKILL_VERSION = "1.3.0";
+const SKILL_VERSION = "1.3.1";
 /** Each call to Orientim ends within `timeoutMs`: an answer that never comes is no answer (S1-M-04). */
 async function call(fetchImpl, url, key, body, timeoutMs = 3e4) {
 	const res = await fetchImpl(url, {
