@@ -106,10 +106,6 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
         </button>
       )}
       {error && <p className="key-error">{error}</p>}
-      <p className="consent">
-        By getting a key, you agree to the <a href="/terms">Terms of Use</a>, including <a href="/terms#developers">section 9</a>, and
-        acknowledge the <a href="/privacy">Privacy Notice</a>.
-      </p>
     </div>
   );
 }

@@ -1560,9 +1560,6 @@ export function SwapApp() {
         <button className="primary" onClick={onButton} disabled={busy || (!!W && !!blocker)}>
           {buttonLabel}
         </button>
-        <p className="consent">
-          By swapping, you agree to the <a href="/terms">Terms of Use</a> and acknowledge the <a href="/privacy">Privacy Notice</a>.
-        </p>
 
         {waitingOn.length > 0 && !busy && notice?.link !== solscan(waitingOn[0].signature) && (
           <div className="banner info" role="status">
