@@ -1406,20 +1406,23 @@ export type Countersignable = {
 
 /**
  * The lookup tables named by the verified message and by the one the wallet returned, read on chain,
- * when the two differ in them: Phantom recompiles the message with tables of its own when it adds
- * assertions, so its accounts are compared by address (verifyWalletReturn). Undefined when the
- * tables are the same, the returned bytes cannot be read, or the tables cannot be fetched: the
- * check then holds the tables to be the same.
+ * whenever either names any and the two messages differ: Phantom recompiles the message when it adds
+ * assertions, with tables or entries of its own and its own order, so its accounts are compared by
+ * address (verifyWalletReturn). Undefined when neither names a table, the messages are the same or
+ * the returned bytes cannot be read; empty when the tables cannot be fetched, which the check refuses.
  */
 async function lookupTablesOf(rpc: SolanaRpc, original: Transaction, returnedBytes: Uint8Array): Promise<Map<string, string[]> | undefined> {
   try {
     const decode = getCompiledTransactionMessageDecoder();
     type Lookups = { addressTableLookups?: { lookupTableAddress: Address }[] };
+    const returned = getTransactionDecoder().decode(returnedBytes).messageBytes;
+    if (returned.length === original.messageBytes.length && returned.every((b, i) => b === original.messageBytes[i])) return undefined;
     const keysOf = (bytes: Transaction['messageBytes']) => ((decode.decode(bytes) as unknown as Lookups).addressTableLookups ?? []).map(l => l.lookupTableAddress);
-    const [a, b] = [keysOf(original.messageBytes), keysOf(getTransactionDecoder().decode(returnedBytes).messageBytes)];
-    if (JSON.stringify(a) === JSON.stringify(b)) return undefined;
-    const found = await fetchAddressesForLookupTables([...new Set([...a, ...b])], rpc as never);
-    return new Map(Object.entries(found).map(([k, v]) => [k, v.map(x => x as string)]));
+    const keys = [...new Set([...keysOf(original.messageBytes), ...keysOf(returned)])];
+    if (!keys.length) return undefined;
+    // A table that cannot be read is said as such (an empty map), not as "the tables changed".
+    const found = await fetchAddressesForLookupTables(keys, rpc as never).catch(() => ({}));
+    return new Map(Object.entries(found).map(([k, v]) => [k, (v as string[]).map(x => x as string)]));
   } catch {
     return undefined;
   }
