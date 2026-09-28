@@ -10,6 +10,8 @@
  *    24 hours above the daily limit, including earlier swaps already on record; through either
  *    channel, over several swaps. Bots prepare several swaps before finalizing any, so the daily
  *    limit must hold at finalize as well as at prepare.
+ *    Every swap of the wallet counts against a daily limit, those made before the owner set any
+ *    policy included, at millions of USDC a swap.
  * 4. A bot that edits prepare's answer before finalize (a smaller amount, another token, the figures
  *    changed to match) sends nothing, whatever it changed.
  *
@@ -253,6 +255,47 @@ describe('agents and bots at the limits', () => {
           }
           expect(got).toEqual(expected);
           expect(w.sent.length).toBe(expected.filter(x => x === 'swapped').length);
+        },
+      ),
+      { ...PARAMS, numRuns: Math.max(1, Math.floor(RUNS / 2)) },
+    );
+  }, TIMEOUT);
+
+  it('counts every swap of the wallet against a daily limit, those made with no policy included, at millions of USDC', async () => {
+    // 2 to 9 million USDC a swap: no money moves, the chain is fake, and the amounts are where a
+    // limit that forgets a swap would cost the most.
+    const millions = fc.bigInt({ min: 2_000_000_000_000n, max: 9_000_000_000_000n });
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom('agent', 'bot'),
+        fc.array(millions, { minLength: 1, maxLength: 3 }),
+        millions,
+        fc.bigInt({ min: 2_000_000_000_000n, max: 40_000_000_000_000n }),
+        async (channel, before, next, daily) => {
+          const w = await world(1_000_000_000n);
+          const deps = botDeps(w);
+          const store = createFileStore(deps.stateDir);
+          const intentOf = (amount: bigint, i: number) =>
+            ({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: amount.toString(), treasury: TREASURY, id: `order-${i}` });
+          const swapOnce = async (amount: bigint, i: number, policy?: OwnerPolicy) => {
+            if (channel === 'agent') {
+              const r = await agentSwap(w, intentOf(amount, i), { ...(policy ? { policy } : {}), spends: store, pending: store, orders: store });
+              return r.swapped ? 'swapped' : r.error instanceof PolicyError ? r.error.code : `other: ${String(r.error)}`;
+            }
+            const withPolicy = { ...deps, ...(policy ? { policy } : {}) };
+            const ready = await botPrepare(w, intentOf(amount, i), withPolicy);
+            if ('refused' in ready) return ready.refused;
+            const done = await botFinalize(ready.checked, ready.signature, withPolicy);
+            return done.swapped ? 'swapped' : done.code ?? 'other';
+          };
+          // Before the owner sets any policy: every swap goes through, and each is recorded.
+          for (const [i, amount] of before.entries()) expect(await swapOnce(amount, i)).toBe('swapped');
+          // Then a daily limit: the swaps already made in the last 24 hours count against it.
+          const spent = before.reduce((a, b) => a + b, 0n);
+          const policy: OwnerPolicy = { maxAmountIn: { [USDC]: '10000000000000' }, maxAmountInPerDay: { [USDC]: daily.toString() } };
+          const expected = spent + next > daily ? 'daily-limit' : 'swapped';
+          expect(await swapOnce(next, before.length, policy)).toBe(expected);
+          expect(w.sent.length).toBe(before.length + (expected === 'swapped' ? 1 : 0));
         },
       ),
       { ...PARAMS, numRuns: Math.max(1, Math.floor(RUNS / 2)) },
