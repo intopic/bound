@@ -327,7 +327,9 @@ describe('what the rules cannot see, the agent checks itself', () => {
     }));
     const lie = await lyingAnswer(honest, b.wallet.address, ixs, { ...honest.policy, takerRent: '5000000' });
     const problems = await checkPrepared(lie, { ...intentFor(b.wallet), maxRouteCostLamports: 5_000_000 }, b.agentRpc);
-    expect(problems).toEqual(['the one-time key would keep 5000000 lamports after the swap']);
+    expect(problems).toContain('the one-time key would keep 5000000 lamports after the swap');
+    // The rent it states beside the bytes is not the policy's either, and is refused as such.
+    expect(problems[0]).toMatch(/^the figures stated differ from the policy .*costs\.routeRentLamports/);
   });
 
   it('rent the route keeps is refused beyond the limit the agent sets, 0.001 SOL by default', async () => {
@@ -1185,7 +1187,9 @@ describe('one swap per wallet, owned locks, outcomes kept apart from bookkeeping
     const ready = JSON.parse(JSON.stringify((await runCli('prepare', { intent: { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'order-m03' } }, deps)).output)) as { checked: unknown; message: string };
     const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(ready.message, 'base64')));
     const done = await runCli('finalize', { checked: ready.checked, signature }, deps);
-    expect(done.code).toBe(0);
+    // Confirmed, and a record to repair: exit 3, as the example exits, so nothing new starts first.
+    expect(done.code).toBe(3);
+    expect(done.output.recoveryRequired).toBe(true);
     expect(done.output.outcome).toBe('confirmed');
     expect(done.output.signature).toBe(signature);
     expect(String(done.output.bookkeepingError)).toContain('ENOSPC');
@@ -1527,7 +1531,9 @@ describe('the same as the page, for agents and bots: tolerance, price impact, to
     const stub = (meta: unknown) => ({ getTransaction: () => ({ send: async () => ({ meta }) }) }) as unknown as Rpc<SolanaRpcApi>;
     const swap = (mint: string) => ({
       wallet: W, certificate: { output: { mint } } as never,
-      costs: { networkFeeLamports: '0', outputAccountRentLamports: '0', routeRentLamports: '1000', routeRefundLamports: '500' },
+      // The route's rent is the verified policy's; the costs the answer states are not read.
+      policy: { takerRent: '1000', routeRefund: '500' },
+      costs: { networkFeeLamports: '0', outputAccountRentLamports: '0', routeRentLamports: '9999999', routeRefundLamports: '0' },
     });
     const token = stub({
       fee: 5_000, preBalances: [], postBalances: [],
@@ -1855,7 +1861,8 @@ describe('the skill holds its own limits and its state against what it is handed
     const run = spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--id', 'k'], {
       encoding: 'utf8', cwd, env: { ...env, ORIENTIM_STATE_DIR: join(dir, 'state') },
     });
-    expect(run.status).toBe(1);
+    // A keypair file it cannot use is a configuration error: exit 2.
+    expect(run.status).toBe(2);
     expect(run.stderr).toContain('not a solana-keygen file');
     expect(run.stderr).not.toContain('Nx8Tk');
   });

@@ -107,7 +107,7 @@ describe('what arrived', () => {
         postTokenBalances: [{ accountIndex: 2, mint: mintOut, owner: W, uiTokenAmount: { amount: after.toString() } }],
       };
       const rpc = { getTransaction: () => ({ send: async () => ({ meta }) }) } as unknown as Rpc<SolanaRpcApi>;
-      const got = await receivedFor(rpc, 'sig', { wallet: W, certificate: { output: { mint: mintOut } } as never, costs: { networkFeeLamports: '0', outputAccountRentLamports: '0', routeRentLamports: '0', routeRefundLamports: '0' } });
+      const got = await receivedFor(rpc, 'sig', { wallet: W, certificate: { output: { mint: mintOut } } as never, policy: { takerRent: '0', routeRefund: '0' } });
       expect(got).toBe(gained);
     }), { ...PARAMS, numRuns: Math.max(1, Math.floor(RUNS / 5)) });
   }, TIMEOUT);
