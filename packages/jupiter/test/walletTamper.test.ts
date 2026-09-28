@@ -207,6 +207,47 @@ describe("Phantom's Lighthouse assertions, on the page", () => {
     expect(result.status).toBe('confirmed');
   });
 
+  it('with a lookup table of its own for what it asserts, read on chain, it is still accepted', async () => {
+    const p = await prepared();
+    const table = (await generateKeyPairSigner()).address;
+    const asserted = (await generateKeyPairSigner()).address;
+    const altered = alter(await lighthouse(9, p.owner.address)(p.swap.transaction), m => {
+      const mm = m as Compiled & { addressTableLookups?: { lookupTableAddress: Address; writableIndexes: number[]; readonlyIndexes: number[] }[] };
+      const loaded = (mm.addressTableLookups ?? []).reduce((n, l) => n + l.writableIndexes.length + l.readonlyIndexes.length, 0);
+      mm.addressTableLookups = [...(mm.addressTableLookups ?? []), { lookupTableAddress: table, writableIndexes: [], readonlyIndexes: [0] }];
+      mm.instructions[mm.instructions.length - 1]!.accountIndices!.push(m.staticAccounts.length + loaded);
+    });
+    // The table as the chain answers for it (jsonParsed), the rest as before.
+    const base = p.rpc as unknown as { getMultipleAccounts: (a: string[], c?: { encoding?: string }) => { send: () => Promise<{ value: unknown[] }> } };
+    const rpc = {
+      ...p.rpc,
+      getMultipleAccounts: (addresses: string[], config?: { encoding?: string }) => (config?.encoding === 'jsonParsed' && addresses.includes(table)
+        ? {
+          send: async () => ({
+            context: { slot: 300_000_000n },
+            value: addresses.map(a => (a === table
+              ? {
+                owner: 'AddressLookupTab1e1111111111111111111111111', lamports: 2_000_000n, executable: false, space: 88n,
+                data: { program: 'address-lookup-table', space: 88n, parsed: { type: 'lookupTable', info: { addresses: [asserted], authority: null, deactivationSlot: '18446744073709551615', lastExtendedSlot: '1', lastExtendedSlotStartIndex: 0 } } },
+              }
+              : null)),
+          }),
+        }
+        : base.getMultipleAccounts(addresses, config)),
+    } as unknown as typeof p.rpc;
+    const result = await finalizeProtectedSwap({ rpc, prepared: p.swap, walletSignedBytes: await walletSigns(p.owner, altered), ephemeral: p.E, acceptAssertions: true });
+    expect(result.status).toBe('confirmed');
+    expect(p.sent).toHaveLength(1);
+    // Without the table on chain, the same message is refused and nothing is sent.
+    const q = await prepared();
+    const again = alter(await lighthouse(9, q.owner.address)(q.swap.transaction), m => {
+      const mm = m as Compiled & { addressTableLookups?: { lookupTableAddress: Address; writableIndexes: number[]; readonlyIndexes: number[] }[] };
+      mm.addressTableLookups = [...(mm.addressTableLookups ?? []), { lookupTableAddress: table, writableIndexes: [], readonlyIndexes: [0] }];
+    });
+    expect(await refusal(finalize(q, await walletSigns(q.owner, again), true))).toBeTruthy();
+    expect(q.sent).toHaveLength(0);
+  });
+
   it('the agent API path, which does not accept them, still refuses the same message', async () => {
     const p = await prepared();
     const altered = await lighthouse(9, p.owner.address)(p.swap.transaction);

@@ -1,6 +1,6 @@
 import {
-  address, assertIsFullySignedTransaction, decompileTransactionMessage, getBase64Decoder,
-  getCompiledTransactionMessageDecoder, isSolanaError, partiallySignTransaction,
+  address, assertIsFullySignedTransaction, decompileTransactionMessage, fetchAddressesForLookupTables, getBase64Decoder,
+  getCompiledTransactionMessageDecoder, getTransactionDecoder, isSolanaError, partiallySignTransaction,
   SOLANA_ERROR__TRANSACTION__TOO_MANY_ACCOUNT_ADDRESSES,
 } from '@solana/kit';
 import type { Address, FullySignedTransaction, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
@@ -1405,6 +1405,27 @@ export type Countersignable = {
 };
 
 /**
+ * The lookup tables named by the verified message and by the one the wallet returned, read on chain,
+ * when the two differ in them: Phantom recompiles the message with tables of its own when it adds
+ * assertions, so its accounts are compared by address (verifyWalletReturn). Undefined when the
+ * tables are the same, the returned bytes cannot be read, or the tables cannot be fetched: the
+ * check then holds the tables to be the same.
+ */
+async function lookupTablesOf(rpc: SolanaRpc, original: Transaction, returnedBytes: Uint8Array): Promise<Map<string, string[]> | undefined> {
+  try {
+    const decode = getCompiledTransactionMessageDecoder();
+    type Lookups = { addressTableLookups?: { lookupTableAddress: Address }[] };
+    const keysOf = (bytes: Transaction['messageBytes']) => ((decode.decode(bytes) as unknown as Lookups).addressTableLookups ?? []).map(l => l.lookupTableAddress);
+    const [a, b] = [keysOf(original.messageBytes), keysOf(getTransactionDecoder().decode(returnedBytes).messageBytes)];
+    if (JSON.stringify(a) === JSON.stringify(b)) return undefined;
+    const found = await fetchAddressesForLookupTables([...new Set([...a, ...b])], rpc as never);
+    return new Map(Object.entries(found).map(([k, v]) => [k, v.map(x => x as string)]));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The wallet has signed first. Check that it signed exactly the verified message, still in its
  * lifetime, then E signs last. Without E's signature the transaction can never execute, so
  * this is the only place a Orientim transaction becomes sendable.
@@ -1428,7 +1449,10 @@ export async function countersignProtectedSwap(args: {
   const { rpc, prepared, ephemeral } = args;
   const check = await verifyWalletReturn(
     prepared.transaction, args.walletSignedBytes, prepared.policy.owner, ephemeral.address,
-    { acceptAssertions: args.acceptAssertions, maxNetworkFeeLamports: prepared.policy.maxNetworkFeeLamports },
+    {
+      acceptAssertions: args.acceptAssertions, maxNetworkFeeLamports: prepared.policy.maxNetworkFeeLamports,
+      ...(args.acceptAssertions ? { lookupTables: await lookupTablesOf(rpc, prepared.transaction, args.walletSignedBytes) } : {}),
+    },
   );
   if (!check.ok || !check.transaction) {
     throw new OrientimError('wallet-changed-transaction', 'The wallet changed the transaction, so it was stopped for your safety.', check.violations);
