@@ -351,7 +351,10 @@ function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
           kind: 'info', title: price.tolerance ? `Price moved beyond your ${price.tolerance} tolerance` : 'Price moved beyond your tolerance',
           body: `${NOTHING_SENT} ${RAISE_TOLERANCE}${price.tightHint ? ` ${TIGHT_HINT}` : ''}${price.curveHint ? ` ${CURVE_HINT}` : ''}`,
         }
-        : { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` };
+        : /first steps/.test(m)
+          ? { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` }
+          // The market itself turned the swap down in the test run: nothing the wallet holds would change that.
+          : { kind: 'error', title: "This swap can't go through right now", body: `The market for this pair turned it down in a test run, before your wallet was asked. Try a different amount, or try again later. ${NOTHING_SENT}` };
     case 'verification-failed':
       return /network fee/i.test(m)
         ? { kind: 'info', title: 'Network fees are too high right now', body: `Try again in a moment. ${NOTHING_SENT}` }
