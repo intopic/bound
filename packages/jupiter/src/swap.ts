@@ -570,6 +570,28 @@ const why = (attempts: readonly Attempt[]) =>
     ? `Tried: ${attempts.slice(-3).map(a => `${a.route.join(' + ') || 'no route'} (${a.simulation})`).join('; ')}.`
     : '';
 
+/**
+ * The failing program's own words from a simulation's logs: the last log line before a program
+ * failed, or the reason on the failure line itself. A custom error number alone ("Custom: 1") means
+ * something different in every program; the line beside it says which.
+ */
+export function failureReason(logs: readonly string[]): string | null {
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const failed = logs[i].match(/^Program \w+ failed: (.+)$/);
+    if (!failed) continue;
+    const said = logs.slice(0, i).reverse().find(l => /^Program log: |^Transfer: /.test(l));
+    const reason = said ? said.replace(/^Program log: /, '') : failed[1];
+    return reason.length > 160 ? `${reason.slice(0, 157)}...` : reason;
+  }
+  return null;
+}
+
+/** A failed simulation as an attempt's reason: the error and, when the logs say it, why. */
+const simulationReason = (sim: { error: string | null; logs: readonly string[] }) => {
+  const reason = failureReason(sim.logs);
+  return `${sim.error ?? 'failed'}${reason ? `: ${reason}` : ''}`;
+};
+
 /** A bps gap as a percentage, for a message a person reads: 137n → "1.37%". */
 const percent = (bps: bigint | null) => (bps === null ? 'far' : `${(Number(bps) / 100).toFixed(2)}%`);
 
@@ -1187,7 +1209,7 @@ export async function prepareProtectedSwap(deps: {
         }
       }
     }
-    attempts.push({ excluded, route, simulation: sim.ok ? 'ok' : sim.error ?? 'failed', blamed: sim.blame ? labels[sim.blame] ?? sim.blame : null });
+    attempts.push({ excluded, route, simulation: sim.ok ? 'ok' : simulationReason(sim), blamed: sim.blame ? labels[sim.blame] ?? sim.blame : null });
 
     if (sim.ok) {
       const chosenPolicy = policyFor(chosen.r);
@@ -1302,7 +1324,7 @@ export async function prepareProtectedSwap(deps: {
       const seenAt = (snapshot.slot ?? 0n) > sim.slot ? snapshot.slot! : sim.slot;
       const last = await simulate(rpc, final.transaction, [...underKey, ...opened], seenAt > 0n ? { minContextSlot: seenAt } : {});
       if (!last.ok) {
-        attempts.push({ excluded, route, simulation: `final transaction: ${last.error ?? 'failed'}`, blamed: null });
+        attempts.push({ excluded, route, simulation: `final transaction: ${simulationReason(last)}`, blamed: null });
         continue;
       }
       if (last.lamportsAfter.slice(0, underKey.length).some(l => l > 0n)) throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
