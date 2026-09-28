@@ -1317,6 +1317,10 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       }
       texts.minimum = `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
+      // The network fee hit its cap: said once, as a message, while the wallet is open.
+      if (prepared.priorityFeeCapped) {
+        setNotice({ kind: 'info', title: 'The network is busy', body: 'This swap may take longer to go through, or expire without executing. An expired swap costs nothing.' });
+      }
       setPhase('wallet');
       lock.refresh();
       const toSend = prepared;
