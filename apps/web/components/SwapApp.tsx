@@ -315,9 +315,6 @@ const UNEXPLAINED = 'Something went wrong';
 const NOTHING_SENT = 'Nothing was sent and no funds moved.';
 /** The button's words once the price has stopped refreshing itself; pressing it refreshes the price. */
 const REFRESH_TO_CONTINUE = 'Refresh the price to continue';
-/** How many times a swap the market turned down is built again at a fresh price, and how long apart. */
-const MARKET_RETRIES = 2;
-const MARKET_RETRY_MS = 1_500;
 
 /**
  * The words for a refusal, from the person's side: what is wrong with this swap and what to do. How
@@ -360,8 +357,8 @@ function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
         }
         : /first steps/.test(m)
           ? { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` }
-          // The market turned the swap down in the test run, again at each fresh price the page tried
-          // (prepareAccepted): the minimum is out of reach for now, as on any market that moves.
+          // The market turned the swap down in the test run: the minimum is out of reach at this price.
+          // The person decides whether to try again or to widen the tolerance, as on any swap page.
           : {
             kind: 'info', title: "Your minimum can't be reached right now",
             body: `The market moved while your swap was being prepared, so it can't deliver your minimum at the moment. ${NOTHING_SENT} ${RAISE_TOLERANCE}`,
@@ -1158,7 +1155,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     let accepted = args.acceptedMinReceived;
     let acceptedCost: bigint | undefined;
     let version = args.version;
-    let marketRetries = 0;
     for (let round = 0; ; round++) {
       try {
         return await prepareProtectedSwap(
@@ -1170,14 +1166,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           },
         );
       } catch (e) {
-        // The market turned every route down in the test run, most often because the price moved
-        // between the quote and the test: built again at a fresh price, a moment later, it often goes.
-        if (e instanceof OrientimError && e.code === 'simulation-failed' && /^Every route|price moved/i.test(e.message) && marketRetries < MARKET_RETRIES) {
-          marketRetries++;
-          await new Promise(resolve => setTimeout(resolve, MARKET_RETRY_MS));
-          continue;
-        }
-        if (!(e instanceof OrientimError) || round - marketRetries >= 2) throw e;
+        if (!(e instanceof OrientimError) || round >= 2) throw e;
         // A route too big for v0 may fit in v1, for a wallet that signs it.
         if (e.code === 'no-route' && e.message.includes('does not fit') && version === 0 && args.v1Fallback) {
           version = 1;
