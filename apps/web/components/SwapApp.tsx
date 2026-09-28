@@ -313,6 +313,8 @@ const UNEXPLAINED = 'Something went wrong';
 
 /** Said at the end of every refusal: the person's question is whether anything happened. */
 const NOTHING_SENT = 'Nothing was sent and no funds moved.';
+/** The button's words once the price has stopped refreshing itself; pressing it refreshes the price. */
+const REFRESH_TO_CONTINUE = 'Refresh the price to continue';
 /** How many times a swap the market turned down is built again at a fresh price, and how long apart. */
 const MARKET_RETRIES = 2;
 const MARKET_RETRY_MS = 1_500;
@@ -925,7 +927,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       return busyTries > 0 ? 'Prices are busy, retrying…' : 'No price for this pair right now';
     }
     if (Date.now() - quote.at > QUOTE_MAX_AGE_MS) {
-      return refreshes >= AUTO_REFRESHES ? 'Refresh the price to continue' : 'Refreshing price…';
+      return refreshes >= AUTO_REFRESHES ? REFRESH_TO_CONTINUE : 'Refreshing price…';
     }
     return null;
     // `clock` re-evaluates the age of the quote.
@@ -1488,6 +1490,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const onButton = () => {
     if (busy) return;
     if (!W) return setWalletMenu(true);
+    if (blocker === REFRESH_TO_CONTINUE) return refreshNow();
     if (!blocker) void swap();
   };
 
@@ -1525,7 +1528,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
   // A tolerance chosen very tight or very wide is said on the card, not only in the settings.
   const slipWarning = quote ? slippageWarning(slippage) : null;
-  if (slipWarning) inWarnings.unshift(slipWarning.text);
   // A token that taxes its own transfers costs more through Orientim, because the protected account
   // is one extra transfer. Said before the swap, not after it.
   if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
@@ -1726,19 +1728,16 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           </p>
         </div>
 
-        {[...inWarnings, ...outWarnings].length > 0 && (
-          <ul className="warnings">
-            {[...inWarnings, ...outWarnings].map(w => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
-        )}
-
         {quote && tokenIn && tokenOut && amountIn && inDecimals !== null && outDecimals !== null && minReceived !== null && (
           <div className="protection">
             <p className="protection-title">Your order. Your limits.</p>
             <div className="detail-row">
-              <span>Minimum received{tolerance !== null && <small className="detail-sub"> · {tolerance}% slippage</small>}</span>
+              <span>
+                Minimum received
+                {tolerance !== null && (
+                  <small className={slipWarning ? 'detail-sub warn-text' : 'detail-sub'} title={slipWarning?.text}> · {tolerance}% slippage</small>
+                )}
+              </span>
               <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
             </div>
             <ul className="protection-facts">
@@ -1747,6 +1746,11 @@ export function SwapApp({ children }: { children?: ReactNode }) {
               <li>No lasting permissions</li>
             </ul>
             <p className="protection-note">If less than the minimum would arrive, the whole swap cancels itself on-chain.</p>
+            {/* What the token itself does (a transfer tax, an issuer that can still mint, freeze or move
+                it) is said here, with the minimum it bears on: one box, not a second one. */}
+            {[...inWarnings, ...outWarnings].map(w => (
+              <p key={w} className="protection-note warn-text">{w}</p>
+            ))}
           </div>
         )}
 
@@ -1824,7 +1828,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           </div>
         )}
 
-        <button className="primary" onClick={onButton} disabled={busy || (!!W && !!blocker)}>
+        <button className="primary" onClick={onButton} disabled={busy || (!!W && !!blocker && blocker !== REFRESH_TO_CONTINUE)}>
           {buttonLabel}
         </button>
 
