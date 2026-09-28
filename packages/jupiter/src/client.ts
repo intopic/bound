@@ -41,6 +41,8 @@ export type TokenInfo = {
   isVerified?: boolean;
   usdPrice?: number;
   audit?: { mintAuthorityDisabled?: boolean; freezeAuthorityDisabled?: boolean };
+  /** When the token was created (ISO 8601), as Jupiter lists it. */
+  createdAt?: string;
 };
 
 export type JupiterClient = {

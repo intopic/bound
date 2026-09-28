@@ -80,6 +80,8 @@ const SOL_RESERVE_LAMPORTS = 10_000_000n; // fees plus temporary rent, returned 
 const OFFER_TIMEOUT_MS = 45_000;
 /** Price impact: a warning from 1%, a question before building from 5%, as swap pages usually do. */
 const IMPACT_WARN = 0.01;
+/** A token younger than this is marked as new. */
+const NEW_TOKEN_MS = 24 * 60 * 60 * 1000;
 const IMPACT_ASK = 0.05;
 const impactText = (fraction: number) => `${(fraction * 100).toFixed(fraction < 0.1 ? 2 : 1)}%`;
 /** Jupiter's price impact as a fraction (none below 0), or null when it is missing or not a number. */
@@ -545,6 +547,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   // The rate reads "1 input ≈ x output" until the user turns it around.
   const [rateInverted, setRateInverted] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Which token's warnings are open under its amount, as on other swap sites: a mark by the token, the list on a click.
+  const [warningsOpen, setWarningsOpen] = useState<'in' | 'out' | null>(null);
   const [balances, setBalances] = useState<{ sol: bigint; tokenIn: bigint } | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -1518,6 +1522,35 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
   // A tolerance chosen very tight or very wide is said on the card, not only in the settings.
   const slipWarning = quote ? slippageWarning(slippage) : null;
+  // A token Jupiter has not verified, or one created in the last day, is said by the token, with its
+  // other warnings.
+  for (const [token, list] of [[tokenIn, inWarnings], [tokenOut, outWarnings]] as const) {
+    if (!token) continue;
+    const created = token.createdAt ? Date.parse(token.createdAt) : NaN;
+    if (Date.now() - created < NEW_TOKEN_MS) {
+      list.unshift(`${token.symbol} is a new token: it was created less than 24 hours ago.`);
+    }
+    if (!token.isVerified) {
+      list.unshift(`${token.symbol} is not verified by Jupiter. Anyone can create a token with this name: check that the address ${shortAddress(token.id)} is the one you mean.`);
+    }
+  }
+  const warningBadge = (side: 'in' | 'out', list: string[]) =>
+    list.length > 0 && (
+      <button
+        type="button"
+        className={`warn-badge${warningsOpen === side ? ' open' : ''}`}
+        aria-expanded={warningsOpen === side}
+        onClick={() => setWarningsOpen(o => (o === side ? null : side))}
+      >
+        <WarnIcon /> {list.length} {list.length === 1 ? 'Warning' : 'Warnings'}
+      </button>
+    );
+  const warningList = (side: 'in' | 'out', list: string[]) =>
+    warningsOpen === side && list.length > 0 && (
+      <ul className="token-warnings">
+        {list.map(w => <li key={w}>{w}</li>)}
+      </ul>
+    );
   // A token that taxes its own transfers costs more through Orientim, because the protected account
   // is one extra transfer. Said before the swap, not after it.
   if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
@@ -1678,7 +1711,11 @@ export function SwapApp({ children }: { children?: ReactNode }) {
               <TokenIcon token={tokenIn} /> {tokenIn?.symbol ?? 'Select'} ▾
             </button>
           </div>
-          <p className="hint">{usdValue !== null ? `≈ ${formatUsd(usdValue)}` : ' '}</p>
+          <div className="hint-row">
+            <p className="hint">{usdValue !== null ? `≈ ${formatUsd(usdValue)}` : ' '}</p>
+            {warningBadge('in', inWarnings)}
+          </div>
+          {warningList('in', inWarnings)}
         </div>
 
         <div className="flip">
@@ -1699,6 +1736,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
               <TokenIcon token={tokenOut} /> {tokenOut?.symbol ?? 'Select'} ▾
             </button>
           </div>
+          <div className="hint-row">
           <p className="hint">
             {outUsd !== null ? `≈ ${formatUsd(outUsd)}` : ' '}
             {quote && !busy && (quoting || refreshIn !== null) && (
@@ -1716,45 +1754,34 @@ export function SwapApp({ children }: { children?: ReactNode }) {
               </>
             )}
           </p>
-        </div>
-
-        {quote && tokenIn && tokenOut && amountIn && inDecimals !== null && outDecimals !== null && minReceived !== null && (
-          <div className="protection">
-            <p className="protection-title">Your order. Your limits.</p>
-            <div className="detail-row">
-              <span>
-                Minimum received
-                {tolerance !== null && (
-                  <small className={slipWarning ? 'detail-sub warn-text' : 'detail-sub'} title={slipWarning?.text}> · {tolerance}% slippage</small>
-                )}
-              </span>
-              <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
-            </div>
-            <ul className="protection-facts">
-              <li>Only {formatUnits(amountIn, inDecimals, 6)} {tokenIn.symbol} can be used</li>
-              <li>No access to the rest of your wallet</li>
-              <li>No lasting permissions</li>
-            </ul>
-            <p className="protection-note">If less than the minimum would arrive, the whole swap cancels itself on-chain.</p>
-            {/* What the token itself does (a transfer tax, an issuer that can still mint, freeze or move
-                it) is said here, with the minimum it bears on: one box, not a second one. */}
-            {[...inWarnings, ...outWarnings].map(w => (
-              <p key={w} className="protection-note warn-text">{w}</p>
-            ))}
+            {warningBadge('out', outWarnings)}
           </div>
-        )}
+          {warningList('out', outWarnings)}
+        </div>
 
         <details className="details" open={detailsOpen} onToggle={e => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)}>
           <summary>
-            <span>{rate ?? 'Rate and fees'}</span>
-            <span className="summary-hint">Fees ▾</span>
+            {rate ? (
+              <span>
+                Rate{' '}
+                <button
+                  type="button"
+                  className="link rate"
+                  onClick={e => { e.preventDefault(); setRateInverted(v => !v); }}
+                  title="Turn the rate around"
+                >
+                  {rate} ⇄
+                </button>
+              </span>
+            ) : (
+              <span>Rate and fees</span>
+            )}
+            <span className="summary-hint" aria-hidden="true">▾</span>
           </summary>
-          {rate && (
+          {quote && tokenOut && outDecimals !== null && minReceived !== null && (
             <div className="detail-row">
-              <span>Rate</span>
-              <button type="button" className="link rate" onClick={() => setRateInverted(v => !v)} title="Turn the rate around">
-                {rate} ⇄
-              </button>
+              <span>Minimum received</span>
+              <span>{`${formatExact(minReceived, outDecimals)} ${tokenOut.symbol}`}</span>
             </div>
           )}
           {quote && (
@@ -1766,9 +1793,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
             </div>
           )}
           {quote && tolerance !== null && (
-            <div className="detail-row" title={quote.curve ? 'This token is still on its Pump.fun launch curve, where prices move fast.' : undefined}>
+            <div className="detail-row" title={slipWarning?.text ?? (quote.curve ? 'This token is still on its Pump.fun launch curve, where prices move fast.' : undefined)}>
               <span>Slippage tolerance</span>
-              <span>{`${tolerance}%${slippage === 'auto' ? ' · Auto' : ''}`}</span>
+              <span className={slipWarning ? 'warn-text' : undefined}>{`${tolerance}%${slippage === 'auto' ? ' · Auto' : ''}`}</span>
             </div>
           )}
           {tokenIn && swapAmount !== null && swapAmount > 0n && inDecimals !== null && (
@@ -1910,18 +1937,20 @@ export function SwapApp({ children }: { children?: ReactNode }) {
             const same = picking === 'in' ? tokenIn : tokenOut;
             if (other && t.id === other.id) flip();
             else if (!same || t.id !== same.id) (picking === 'in' ? setTokenIn : setTokenOut)(t);
-            // A token Jupiter has not verified is said once, as it is chosen, as well as on the card.
-            if (!t.isVerified && (!same || t.id !== same.id)) {
-              setNotice({
-                kind: 'info', title: `${t.symbol} is not verified`,
-                body: `Anyone can create a token with this name. Check that the address ${shortAddress(t.id)} is the one you mean before you swap.`,
-              });
-            }
             setPicking(null);
           }}
         />
       )}
     </>
+  );
+}
+
+function WarnIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3 2 20h20L12 3z" />
+      <path d="M12 10v4M12 17.5v.01" />
+    </svg>
   );
 }
 

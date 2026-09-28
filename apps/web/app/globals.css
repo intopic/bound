@@ -617,3 +617,12 @@ a.ghost { display: inline-flex; align-items: center; }
   .ct-pkt { display: none; }
   .ct-st, .ct-rule, .ct-badge, .ct-verdict p { transition: none; }
 }
+
+/* A token's warnings: a mark by the token, the list under it on a click. */
+.hint-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.hint-row .hint { min-width: 0; }
+.warn-badge { flex: none; display: inline-flex; align-items: center; gap: 5px; margin: 6px 0 0; padding: 2px 8px; border: 0; border-radius: 999px; background: var(--warn-bg); color: var(--warn); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.warn-badge:hover, .warn-badge.open { background: rgba(242, 196, 107, .16); }
+.token-warnings { margin: 8px 0 0; padding: 8px 10px 8px 26px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: 12px; line-height: 1.45; }
+.token-warnings li + li { margin-top: 4px; }
+.details summary .link.rate { color: var(--text); text-decoration: none; }
