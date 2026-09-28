@@ -599,7 +599,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       at: Date.now(), kind: n.kind, title: n.title, body: n.body, detail: n.detail,
       context: `${pair}, ${walletName}${n.link ? `, ${n.link}` : ''}`,
     });
-    if (n.kind === 'error') {
+    // A swap the market could not complete is shown as information, but its cause is still wanted in the logs.
+    if (n.kind === 'error' || n.retry) {
       reportProblem({
         kind: n.kind, title: n.title, body: n.body, detail: n.detail, wallet: walletName,
         pair: tokenIn && tokenOut ? `${tokenIn.symbol} → ${tokenOut.symbol}` : undefined,
