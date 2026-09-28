@@ -18,8 +18,11 @@ import type { PublicStatus } from '@/lib/server/config';
 import { getJupiter, getRpc } from '@/lib/client/chain';
 import { FEE_BPS, TREASURY, V1_ENABLED } from '@/lib/client/config';
 import {
-  chooseVersion, connectWallet, disconnectWallet, onAccountChange, supportedVersions, useWallets, v1Fallback, walletSign,
+  chooseVersion, connectWallet, disconnectWallet, grantedAccount, lastWallet, onAccountChange, rememberWallet, supportedVersions, useWallets,
+  v1Fallback, walletSign,
 } from '@/lib/client/wallets';
+import { readHoldings } from '@/lib/client/holdings';
+import type { Holdings } from '@/lib/client/holdings';
 import { formatExact, formatUnits, formatUsd, parseUnits, shortAddress } from '@/lib/client/format';
 import {
   amountReachingRoute, loadTokens, mintAta, POPULAR, readMint, SOL_MINT, tokenWarnings, usablePrice, USDC_MINT,
@@ -41,13 +44,17 @@ import { loadSlippage, percentText, saveSlippage, withSlippage } from '@/lib/cli
 import type { SlippageChoice } from '@/lib/client/slippage';
 import { Modal } from './Modal';
 import { SlippageSettings } from './SlippageSettings';
+import { Toast } from './Toast';
 import { TokenIcon, TokenPicker } from './TokenPicker';
 import { ShieldIcon, SiteHeader } from './site/Brand';
 import { MobileNav } from './site/MobileNav';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
-/** `detail`: the raw error behind the words, kept in this browser for when help is asked (never shown by itself). */
-type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string };
+/**
+ * A message in the corner of the page. `detail`: the raw error behind the words, kept in this browser
+ * for when help is asked (never shown by itself). `sticky`: it stays until the page takes it back.
+ */
+type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string; sticky?: boolean };
 /**
  * `curve`: the route trades on a Pump.fun bonding curve, so its tolerance is the wider one.
  * `impact`: how much this amount moves the market price, as Jupiter reports it: a fraction, so
@@ -153,6 +160,7 @@ const jupiterBusy = (e: unknown) =>
   e instanceof JupiterError && (e.status === 429 || (e.status >= 500 && !/paused/i.test(e.message)));
 const busyError = (e: unknown) => e instanceof OrientimError && (e.code === 'busy' || e.code === 'unavailable');
 const UNREACHABLE = "Couldn't reach Orientim";
+const NO_TOKEN_LIST = "Couldn't load the token list";
 
 /**
  * Why a token cannot be swapped safely, in words rather than the name of a Token-2022 extension.
@@ -274,8 +282,8 @@ const solscan = (signature: string) => `https://solscan.io/tx/${signature}`;
 /** How often a swap the wallet waits on is looked up again. */
 const SETTLE_EVERY_MS = 10_000;
 const SETTLE_BY_HAND_MS = 30_000;
-/** How long a success message stays before it goes away on its own. */
-const SUCCESS_SHOWN_MS = 6_000;
+/** Holdings older than this are read again when the token window opens. */
+const HOLDINGS_FRESH_MS = 30_000;
 
 /** Said when this browser will not keep a swap's record: without it, a swap whose answer is lost could be forgotten. */
 const NO_STORAGE: Notice = {
@@ -306,7 +314,7 @@ const NOTHING_SENT = 'Nothing was sent and no funds moved.';
 /**
  * The words for a refusal, from the person's side: what is wrong with this swap and what to do. How
  * Orientim works inside (keys, signatures, simulations, rules) stays out of them; the raw error is
- * kept for "Copy details" and the console. The pipeline's own messages are for the agent API.
+ * kept in this browser (lib/client/problems) and the console. The pipeline's own messages are for the agent API.
  */
 function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
   const m = e.message;
@@ -314,7 +322,7 @@ function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
     case 'unsupported-token':
       return { kind: 'error', title: "This token can't be swapped here", body: `A protected swap isn't available for this token. ${NOTHING_SENT}` };
     case 'token-data-mismatch':
-      return { kind: 'error', title: "Token details couldn't be confirmed", body: `Reload the page and try again. ${NOTHING_SENT}` };
+      return { kind: 'error', title: "Token details couldn't be confirmed", body: `Try again in a moment. ${NOTHING_SENT}` };
     case 'output-account-restricted':
       return /frozen/.test(m)
         ? { kind: 'error', title: 'Your account for this token is frozen', body: `The token's issuer has frozen it, so it can't receive this swap. ${NOTHING_SENT}` }
@@ -494,6 +502,19 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [account, setAccount] = useState<WalletAccount | null>(null);
   const [walletMenu, setWalletMenu] = useState(false);
+  // The wallet being asked to connect, and why the last ask failed: both shown in the wallet window.
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<Notice | null>(null);
+  // The wallet the user chose last: one that approves after its first answer was an error still connects.
+  const chosen = useRef<Wallet | null>(null);
+  const autoTried = useRef(false);
+  const walletMenuOpen = useRef(false);
+  walletMenuOpen.current = walletMenu;
+  // The wallet's tokens for the token window: null until read, or when no wallet is connected.
+  const [holdings, setHoldings] = useState<Holdings | null>(null);
+  const [holdingsAt, setHoldingsAt] = useState(0);
+  const [holdingsLoading, setHoldingsLoading] = useState(false);
+  const holdingsRequest = useRef(0);
   // The connected wallet's menu (copy the address, disconnect), as swap sites have it.
   const [accountMenu, setAccountMenu] = useState(false);
   const [addressCopied, setAddressCopied] = useState(false);
@@ -542,34 +563,37 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   // reported to Orientim's logs, with the symbols and the wallet's name but no address or amount.
   const shown = useRef<Problem | null>(null);
   useEffect(() => watchUncaught(), []);
-  useEffect(() => {
+  /** Keeps a message (not a success) with its raw error, and reports an error; `who` names the wallet it is about. */
+  function keepProblem(n: Notice, who = wallet) {
     setDetailsCopied(false);
-    if (!notice || notice.kind === 'success') return;
+    if (n.kind === 'success') return;
     const pair = tokenIn && tokenOut ? `${amountText || '?'} ${tokenIn.symbol} → ${tokenOut.symbol}` : 'no pair';
-    const who = wallet ? `${wallet.name} ${wallet.version}` : 'no wallet';
+    const walletName = who ? `${who.name} ${who.version}` : 'no wallet';
     shown.current = {
-      at: Date.now(), kind: notice.kind, title: notice.title, body: notice.body, detail: notice.detail,
-      context: `${pair}, ${who}${notice.link ? `, ${notice.link}` : ''}`,
+      at: Date.now(), kind: n.kind, title: n.title, body: n.body, detail: n.detail,
+      context: `${pair}, ${walletName}${n.link ? `, ${n.link}` : ''}`,
     };
     recordProblem(shown.current);
-    if (notice.kind === 'error') {
+    if (n.kind === 'error') {
       reportProblem({
-        kind: notice.kind, title: notice.title, body: notice.body, detail: notice.detail, wallet: who,
+        kind: n.kind, title: n.title, body: n.body, detail: n.detail, wallet: walletName,
         pair: tokenIn && tokenOut ? `${tokenIn.symbol} → ${tokenOut.symbol}` : undefined,
       });
     }
+  }
+  useEffect(() => {
+    if (notice) keepProblem(notice);
     // Recorded once per message; the pair and wallet are read as they are when it appears.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notice]);
+  // Each message is its own toast, with its own time to go away.
+  const toastKey = useMemo(() => Math.random(), [notice]);
 
-  // A success goes away on its own, as on a trading page; the swap stays in the history.
-  useEffect(() => {
-    if (notice?.kind !== 'success') return;
-    const shownNotice = notice;
-    const timer = setTimeout(() => setNotice(n => (n === shownNotice ? null : n)), SUCCESS_SHOWN_MS);
-    return () => clearTimeout(timer);
-  }, [notice]);
-
+  /**
+   * The raw error behind the last message, for someone asking for help. Offered only where the page
+   * could not explain what went wrong: every error is already kept in this browser (/diagnostic)
+   * and reported to Orientim's logs.
+   */
   function copyDetails() {
     if (!shown.current) return;
     navigator.clipboard.writeText(problemsReport([shown.current], navigator.userAgent))
@@ -595,7 +619,34 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         })
         .catch(() => {
           if (stopped) return;
-          if (attempt === 0) setNotice({ kind: 'error', title: UNREACHABLE, body: 'Check your connection. Trying again…' });
+          if (attempt === 0) setNotice({ kind: 'error', title: UNREACHABLE, body: 'Check your connection. Trying again…', sticky: true });
+          timer = setTimeout(() => load(attempt + 1), Math.min(30_000, 2_000 * 2 ** attempt));
+        });
+    };
+    load(0);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // The token list, retried like the settings above: the page recovers on its own once the
+  // connection is back, and the message goes with it.
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => {
+      loadTokens(POPULAR)
+        .then(list => {
+          if (stopped) return;
+          setPopular(list);
+          setTokenIn(t => t ?? list.find(x => x.id === USDC_MINT) ?? null);
+          setTokenOut(t => t ?? list.find(x => x.id === SOL_MINT) ?? null);
+          setNotice(n => (n?.title === NO_TOKEN_LIST ? null : n));
+        })
+        .catch(() => {
+          if (stopped) return;
+          if (attempt === 0) setNotice({ kind: 'error', title: NO_TOKEN_LIST, body: 'Check your connection. Trying again…', sticky: true });
           timer = setTimeout(() => load(attempt + 1), Math.min(30_000, 2_000 * 2 ** attempt));
         });
     };
@@ -607,13 +658,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    loadTokens(POPULAR)
-      .then(list => {
-        setPopular(list);
-        setTokenIn(list.find(t => t.id === USDC_MINT) ?? null);
-        setTokenOut(list.find(t => t.id === SOL_MINT) ?? null);
-      })
-      .catch(() => setNotice({ kind: 'error', title: "Couldn't load the token list", body: 'Check your connection and reload.' }));
     setHistory(readHistory());
     settleHistory().then(list => list && setHistory(list)).catch(() => undefined);
   }, []);
@@ -634,7 +678,12 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     return onAccountChange(wallet, accounts => {
       const next = accounts[0] ?? null;
       setAccount(next);
-      if (!next) setWallet(null);
+      // Disconnected from inside the wallet: it is not reconnected on the next visit either.
+      if (!next) {
+        setWallet(null);
+        chosen.current = null;
+        rememberWallet(null);
+      }
     });
   }, [wallet]);
 
@@ -874,31 +923,139 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   }, [waitingOn.length, onlyByHand, phase]);
 
   // --- connect
-  async function connect(w: Wallet) {
+  /** A wallet is connected, however it got there: the window closes and any message about connecting goes. */
+  function connected(w: Wallet, acc: WalletAccount) {
+    setWallet(w);
+    setAccount(acc);
     setWalletMenu(false);
+    setConnecting(null);
+    setConnectError(null);
+    setNotice(n => (n && (n.title === `${w.name} didn't connect` || n.title === 'Connection cancelled') ? null : n));
+    rememberWallet(w.name);
+  }
+
+  /**
+   * Asks the wallet to connect. A failure is said in the wallet window, with Try again, and never
+   * asks for a reload: a wallet that is still starting often shows its approval a moment after its
+   * first answer, and that approval is picked up below without one.
+   */
+  async function connect(w: Wallet) {
+    chosen.current = w;
+    setConnecting(w.name);
+    setConnectError(null);
     try {
       const acc = await connectWallet(w);
       if (!acc) throw new Error('The wallet returned no account');
-      setWallet(w);
-      setAccount(acc);
-      setNotice(null);
+      connected(w, acc);
     } catch (e) {
-      const said = explainError(e);
-      // A wallet that fails inside its own extension (locked, still starting, or another wallet
-      // extension in the way) says nothing a person can act on: name the wallet and what to try.
-      setNotice(said.title === UNEXPLAINED
-        ? { kind: 'error', title: `${w.name} didn't connect`, body: `Unlock ${w.name}, reload the page and try again. If another wallet extension is on, turn it off for this site. Nothing was signed.`, detail: said.detail }
-        : said);
+      // Approved meanwhile (the change event below), or another wallet chosen since: nothing to say.
+      if (chosen.current !== w || grantedAccount(w)) {
+        const acc = grantedAccount(w);
+        if (acc && chosen.current === w) connected(w, acc);
+        return;
+      }
+      const message = String((e as Error)?.message ?? e);
+      const said: Notice = /reject|denied|cancel|4001/i.test(message)
+        ? { kind: 'info', title: 'Connection cancelled', body: `${w.name} didn't connect. Choose a wallet to try again.` }
+        // A wallet that fails inside its own extension (locked, still starting, or another wallet
+        // extension in the way) says nothing a person can act on: name the wallet and what to try.
+        : {
+          kind: 'error', title: `${w.name} didn't connect`,
+          body: `Open ${w.name} and unlock it, then try again. If another wallet extension is on, turn it off for this site.`,
+          detail: errorDetail(e),
+        };
+      // Said in the wallet window if it is still open, otherwise in the corner (recorded there).
+      if (walletMenuOpen.current) {
+        keepProblem(said, w);
+        setConnectError(said);
+      } else setNotice(said);
+    } finally {
+      setConnecting(n => (n === w.name ? null : n));
     }
+  }
+
+  // A wallet the user chose connects when it grants an account, even after its first answer was an
+  // error: the wallet says so with a change event, or, for one that does not, when the page is back
+  // in front after its window closed.
+  useEffect(() => {
+    if (W) return;
+    const accept = (w: Wallet) => {
+      const acc = chosen.current === w ? grantedAccount(w) : null;
+      if (acc) connected(w, acc);
+    };
+    const offs = wallets.map(w => onAccountChange(w, () => accept(w)));
+    const onFocus = () => chosen.current && accept(chosen.current);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      offs.forEach(off => off());
+      window.removeEventListener('focus', onFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallets, W]);
+
+  // The wallet connected last time reconnects on its own, silently, as on other swap sites: only if
+  // it still trusts this site, so nothing pops up. Tried once per page.
+  useEffect(() => {
+    if (W || autoTried.current) return;
+    const name = lastWallet();
+    const w = name ? wallets.find(x => x.name === name) : undefined;
+    if (!w) return;
+    autoTried.current = true;
+    const granted = grantedAccount(w);
+    if (granted) return connected(w, granted);
+    connectWallet(w, true)
+      .then(acc => {
+        if (acc && !chosen.current) connected(w, acc);
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallets, W]);
+
+  // Closing the window stops nothing: a wallet that approves afterwards still connects (above).
+  function closeWalletMenu() {
+    setWalletMenu(false);
+    setConnectError(null);
   }
 
   async function disconnect() {
     setAccountMenu(false);
+    chosen.current = null;
+    rememberWallet(null);
     if (wallet) await disconnectWallet(wallet).catch(() => undefined);
     setWallet(null);
     setAccount(null);
     setBalances(null);
   }
+
+  // --- the wallet's tokens, for the token window: read on connect, after a swap, and when the window
+  // opens on a list older than HOLDINGS_FRESH_MS.
+  const refreshHoldings = useCallback(() => {
+    const request = ++holdingsRequest.current;
+    if (!W) {
+      setHoldings(null);
+      setHoldingsLoading(false);
+      return;
+    }
+    setHoldingsLoading(true);
+    readHoldings(W)
+      .then(h => {
+        if (request !== holdingsRequest.current) return;
+        setHoldings(h);
+        setHoldingsAt(Date.now());
+      })
+      .catch(() => undefined)
+      .finally(() => request === holdingsRequest.current && setHoldingsLoading(false));
+  }, [W]);
+
+  useEffect(() => {
+    setHoldings(null);
+    refreshHoldings();
+  }, [refreshHoldings]);
+
+  useEffect(() => {
+    if (picking && W && !holdingsLoading && Date.now() - holdingsAt > HOLDINGS_FRESH_MS) refreshHoldings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picking]);
 
   useEffect(() => {
     if (!accountMenu) return;
@@ -1274,6 +1431,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       setPhase('idle');
       setPending(null);
       refreshBalances().catch(() => undefined);
+      refreshHoldings();
       refreshAccounts()
         .then(r => setFeeSide(r.fee))
         .catch(() => undefined);
@@ -1390,7 +1548,19 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       />
 
       {walletMenu && !W && (
-        <Modal title="Connect a wallet" onClose={() => setWalletMenu(false)}>
+        <Modal title="Connect a wallet" onClose={closeWalletMenu}>
+          {connectError && (
+            <div className={`banner ${connectError.kind} connect-error`} role="alert">
+              <p className="banner-title">{connectError.title}</p>
+              {connectError.body && <p>{connectError.body}</p>}
+              {connectError.kind === 'error' && chosen.current && (
+                <div className="banner-actions">
+                  <button className="ghost" onClick={() => chosen.current && connect(chosen.current)}>Try again</button>
+                  <button className="link" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy error details'}</button>
+                </div>
+              )}
+            </div>
+          )}
           {wallets.length === 0 ? (
             <div className="muted">
               <p>No Solana wallet was found in this browser.</p>
@@ -1409,6 +1579,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={w.icon} alt="" width={24} height={24} />
                 {w.name}
+                {connecting === w.name && <span className="wallet-option-state">Approve in {w.name}…</span>}
               </button>
             ))
           )}
@@ -1659,22 +1830,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           </div>
         )}
 
-        {notice && (
-          <div className={`banner ${notice.kind}`} role="status">
-            <p className="banner-title">{notice.title}</p>
-            {notice.body && <p>{notice.body}</p>}
-            {notice.link && (
-              <a href={notice.link} target="_blank" rel="noreferrer">
-                View on Solscan
-              </a>
-            )}
-            {notice.kind === 'error' && (
-              <div className="banner-actions">
-                <button className="ghost" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy details'}</button>
-              </div>
-            )}
-          </div>
-        )}
       </section>
 
       {status?.maxUsdPerSwap != null && <p className="card-foot">Swaps are limited to {formatUsd(status.maxUsdPerSwap)} while we run in beta.</p>}
@@ -1704,9 +1859,31 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       {children}
       </main>
 
+      <div className="toasts">
+        {notice && (
+          <Toast key={toastKey} kind={notice.kind} title={notice.title} sticky={notice.sticky} onClose={() => setNotice(null)}>
+            {notice.body && <p>{notice.body}</p>}
+            {(notice.link || notice.title === UNEXPLAINED) && (
+              <p className="toast-links">
+                {notice.link && (
+                  <a href={notice.link} target="_blank" rel="noreferrer">
+                    View on Solscan ↗
+                  </a>
+                )}
+                {notice.title === UNEXPLAINED && (
+                  <button className="link" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy error details'}</button>
+                )}
+              </p>
+            )}
+          </Toast>
+        )}
+      </div>
+
       {picking && (
         <TokenPicker
           popular={popular}
+          holdings={W ? holdings : null}
+          holdingsLoading={!!W && holdingsLoading && !holdings}
           selected={picking === 'in' ? tokenIn?.id : tokenOut?.id}
           onClose={() => setPicking(null)}
           onPick={t => {

@@ -6,6 +6,8 @@ import { clientKey, fromAnotherSite, rateLimited } from './rateLimit';
 /** The only RPC methods the dApp needs. Everything else is refused. */
 const ALLOWED_METHODS = new Set([
   'getAccountInfo', 'getMultipleAccounts', 'getBalance', 'getTokenAccountBalance', 'getLatestBlockhash',
+  // The wallet's own tokens, listed at the top of the token window.
+  'getTokenAccountsByOwner',
   'getBlockHeight', 'getEpochInfo', 'simulateTransaction', 'sendTransaction', 'getSignatureStatuses', 'getFeeForMessage',
   'getMinimumBalanceForRentExemption', 'getTransaction', 'getRecentPrioritizationFees',
   // Helius's priority estimate (heliusPriorityFee); another provider answers "method not found".
