@@ -357,11 +357,11 @@ function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
         }
         : /first steps/.test(m)
           ? { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` }
-          // The market turned the swap down in the test run: the minimum is out of reach at this price.
-          // The person decides whether to try again or to widen the tolerance, as on any swap page.
+          // The market turned the swap down in the test run: the minimum is out of reach at this price,
+          // and the person decides whether to try again.
           : {
             kind: 'info', title: "Your minimum can't be reached right now",
-            body: `The market moved while your swap was being prepared, so it can't deliver your minimum at the moment. ${NOTHING_SENT} ${RAISE_TOLERANCE}`,
+            body: `The market moved while your swap was being prepared, so it can't deliver your minimum at the moment. ${NOTHING_SENT}`,
             retry: true, sticky: true,
           };
     case 'verification-failed':
