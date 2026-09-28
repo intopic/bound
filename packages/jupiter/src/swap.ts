@@ -1230,6 +1230,8 @@ export async function prepareProtectedSwap(deps: {
             // W_out explicitly, not only when Jupiter happens to list it.
             ...(policy.accounts.wOut ? [policy.accounts.wOut] : []),
             ...chosen.intermediates.flatMap(x => [x.ata, x.mint]), req.inputMint, req.outputMint,
+            // What is under E before the swap: an account the transaction does not name keeps it after.
+            ...underKey,
           ],
           lookupTableAddresses: req.version === 0 ? Object.keys(chosen.r.addressesByLookupTableAddress ?? {}).map(a => address(a)) : [],
           // Not older than the simulation that accepted this route: what the verifier reads (W_out's
@@ -1310,10 +1312,13 @@ export async function prepareProtectedSwap(deps: {
       if (!certification.ok) throw new OrientimError('verification-failed', 'A protected transaction cannot be produced.', certification.violations);
 
       // The exact transaction the wallet will sign, simulated once more: it must execute, and leave
-      // nothing under E. A simulation that does not report those accounts reads as failed, never as
-      // empty. Watched with them: every account the route is given that did not exist before the
-      // swap, besides the wallet's own output account and the treasury. What a market opens and
-      // leaves open may hold a claim tied to E, whichever market it is, so none may stay open.
+      // nothing under E. A simulation whose balances cannot be matched to the transaction's accounts
+      // reads as failed, never as empty. Checked with them: every account the route is given that
+      // did not exist before the swap, besides the wallet's own output account and the treasury.
+      // What a market opens and leaves open may hold a claim tied to E, whichever market it is, so
+      // none may stay open. The balances come from `postBalances`, not from `accounts.addresses`,
+      // which some providers limit to two; an account the transaction does not name holds after it
+      // what the snapshot read before it.
       const existed = (a: Address) => {
         const state = snapshot.accounts.get(a);
         return !!state && (state.lamports > 0n || state.data.length > 0);
@@ -1322,13 +1327,23 @@ export async function prepareProtectedSwap(deps: {
       const opened = [...new Set(swapAccounts)].filter(a => !existed(a) && !kept.has(a) && !underKey.includes(a));
       // On state no older than the snapshot the verifier just read (and the simulation before it).
       const seenAt = (snapshot.slot ?? 0n) > sim.slot ? snapshot.slot! : sim.slot;
-      const last = await simulate(rpc, final.transaction, [...underKey, ...opened], seenAt > 0n ? { minContextSlot: seenAt } : {});
+      const last = await simulate(rpc, final.transaction, [], {
+        ...(seenAt > 0n ? { minContextSlot: seenAt } : {}),
+        balances: { lookupTables: snapshot.lookupTables },
+      });
       if (!last.ok) {
         attempts.push({ excluded, route, simulation: `final transaction: ${simulationReason(last)}`, blamed: null });
         continue;
       }
-      if (last.lamportsAfter.slice(0, underKey.length).some(l => l > 0n)) throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
-      const leftOpen = opened.filter((_, i) => (last.lamportsAfter[underKey.length + i] ?? 0n) > 0n);
+      // Null when neither the simulation nor the snapshot says what the account holds.
+      const heldAfter = (a: Address): bigint | null => {
+        const after = last.balancesAfter.get(a);
+        if (after !== undefined) return after;
+        if (!snapshot.accounts.has(a)) return null;
+        return snapshot.accounts.get(a)?.lamports ?? 0n;
+      };
+      if (underKey.some(a => heldAfter(a) !== 0n)) throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
+      const leftOpen = opened.filter(a => heldAfter(a) !== 0n);
       if (leftOpen.length) {
         // Another route, without the markets on this one, may open nothing it leaves behind.
         attempts[attempts.length - 1].simulation = `the route leaves open ${leftOpen.length} account(s) it creates: ${leftOpen.join(', ')}`;

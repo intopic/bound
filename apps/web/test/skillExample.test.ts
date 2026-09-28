@@ -110,6 +110,40 @@ async function honestAnswer(b: Awaited<ReturnType<typeof orientim>>): Promise<Pr
 
 const sha = async (bytes: Uint8Array) => Buffer.from(await crypto.subtle.digest('SHA-256', bytes as BufferSource)).toString('hex');
 
+/** The accounts a transaction names, in order (the tests' transactions load none from tables). */
+const keysOf = (wire: string) =>
+  getCompiledTransactionMessageDecoder().decode(getTransactionDecoder().decode(Buffer.from(wire, 'base64')).messageBytes).staticAccounts as Address[];
+
+/**
+ * The agent's RPC, with a simulation that reports, like a real one, the balance after the swap of
+ * every account the transaction names (`postBalances`), as `after` gives it.
+ */
+const simulatingWith = (rpc: Rpc<SolanaRpcApi>, after: (a: Address) => bigint) => ({
+  ...rpc,
+  simulateTransaction: (wire: string, config: { accounts?: unknown }) => ({
+    send: async () => {
+      // Like a provider that limits `accounts.addresses` to two: the check must not need them.
+      expect(config.accounts).toBeUndefined();
+      return { value: { err: null, logs: [], postBalances: keysOf(wire).map(after), loadedAddresses: { writable: [], readonly: [] } } };
+    },
+  }),
+}) as unknown as Rpc<SolanaRpcApi>;
+
+/** The agent's RPC, reading `held` lamports in `at` before the swap, where the snapshot reads it. */
+const holdingBefore = (rpc: Rpc<SolanaRpcApi>, at: Address, held: bigint) => ({
+  ...rpc,
+  getMultipleAccounts: (addresses: Address[], config: unknown) => ({
+    send: async () => {
+      const answer = await (rpc as unknown as { getMultipleAccounts: (a: Address[], c: unknown) => { send: () => Promise<{ context: unknown; value: unknown[] }> } })
+        .getMultipleAccounts(addresses, config).send();
+      return {
+        ...answer,
+        value: answer.value.map((v, i) => (addresses[i] === at ? { owner: SYSTEM_PROGRAM, lamports: held, data: ['', 'base64'], executable: false, space: 0n } : v)),
+      };
+    },
+  }),
+}) as unknown as Rpc<SolanaRpcApi>;
+
 /**
  * What a lying server sends: its own instruction list, compiled for the agent's wallet, with every
  * hash and statement in the answer made to match it.
@@ -348,39 +382,41 @@ describe('what the rules cannot see, the agent checks itself', () => {
     const b = await orientim();
     const honest = await honestAnswer(b);
     const market = await routeAccountFor(address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'), honest.temporaryAuthority as Address);
-    // The agent's RPC reports the market's account under E still holding its rent after the swap.
-    const rpc = {
-      ...b.agentRpc,
-      simulateTransaction: (_tx: unknown, config: { accounts: { addresses: string[] } }) => ({
-        send: async () => ({ value: { err: null, logs: [], accounts: config.accounts.addresses.map((_, i) => (i === 1 ? { lamports: 1_346_200n } : null)) } }),
-      }),
-    } as unknown as Rpc<SolanaRpcApi>;
-    const problems = await checkPrepared(honest, intentFor(b.wallet), rpc);
+    // The transaction does not name the market's account, so it keeps after the swap the rent the
+    // snapshot read in it before.
+    const problems = await checkPrepared(honest, intentFor(b.wallet), holdingBefore(b.agentRpc, market, 1_346_200n));
     expect(problems.join()).toContain('a market account under the one-time key would keep 1346200 lamports');
-    expect(market).toBeTruthy();
+    // What E itself holds after the swap is read from the balances the simulation reports.
+    const keeps = await checkPrepared(honest, intentFor(b.wallet), simulatingWith(b.agentRpc, a => (a === honest.temporaryAuthority ? 5_000n : 0n)));
+    expect(keeps.join()).toContain('the one-time key would keep 5000 lamports after the swap');
   });
 
   it('cashback left in a token account of a Pump market account under E is refused', async () => {
     const b = await orientim();
     const honest = await honestAnswer(b);
     // E and both market accounts are empty; the curve market's WSOL account holds cashback E could claim.
-    const rpc = {
-      ...b.agentRpc,
-      simulateTransaction: (_tx: unknown, config: { accounts: { addresses: string[] } }) => ({
-        send: async () => ({ value: { err: null, logs: [], accounts: config.accounts.addresses.map((_, i) => (i === 3 ? { lamports: 2_100_000n } : null)) } }),
-      }),
-    } as unknown as Rpc<SolanaRpcApi>;
+    const market = await routeAccountFor(address('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'), honest.temporaryAuthority as Address);
+    const cashback = await ataOf(market, WSOL_MINT);
+    const rpc = holdingBefore(b.agentRpc, cashback, 2_100_000n);
     expect((await checkPrepared(honest, intentFor(b.wallet), rpc)).join()).toContain('a market account under the one-time key would keep 2100000 lamports');
   });
 
-  it('a simulation that does not report the accounts proves nothing, and is refused', async () => {
+  it('a simulation that does not report the balances proves nothing, and is refused', async () => {
     const b = await orientim();
     const honest = await honestAnswer(b);
-    const rpc = {
+    const silent = {
       ...b.agentRpc,
       simulateTransaction: () => ({ send: async () => ({ value: { err: null, logs: [] } }) }),
     } as unknown as Rpc<SolanaRpcApi>;
-    expect((await checkPrepared(honest, intentFor(b.wallet), rpc)).join()).toContain('did not report what the one-time key holds');
+    expect((await checkPrepared(honest, intentFor(b.wallet), silent)).join()).toContain('cannot show what the one-time key holds');
+    // Nor do balances for fewer accounts than the transaction names.
+    const short = {
+      ...b.agentRpc,
+      simulateTransaction: (wire: string) => ({
+        send: async () => ({ value: { err: null, logs: [], postBalances: keysOf(wire).slice(1).map(() => 0n), loadedAddresses: { writable: [], readonly: [] } } }),
+      }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    expect((await checkPrepared(honest, intentFor(b.wallet), short)).join()).toContain('cannot show what the one-time key holds');
   });
 
   it('with too few blocks left to land, the example does not finalize', async () => {
@@ -1359,22 +1395,16 @@ describe('what "no record" proves, a finalize asked again, what a route leaves o
   it('an account the route opens and leaves open is refused, whatever market it belongs to', async () => {
     const b = await orientim();
     const honest = await honestAnswer(b);
-    let watched: string[] = [];
     // E and the Pump accounts end empty; one account the transaction created (not the wallet's own
-    // output account) is still open after the swap.
-    const rpc = {
-      ...b.agentRpc,
-      simulateTransaction: (_tx: unknown, config: { accounts: { addresses: string[] } }) => ({
-        send: async () => {
-          watched = config.accounts.addresses;
-          return { value: { err: null, logs: [], accounts: watched.map((_, i) => (i === 7 ? { lamports: 2_039_280n } : null)) } };
-        },
-      }),
-    } as unknown as Rpc<SolanaRpcApi>;
+    // output account, nor E) is still open after the swap.
+    const keys = keysOf(honest.transaction);
+    const { value: before } = await (b.agentRpc as unknown as { getMultipleAccounts: (a: Address[], c: unknown) => { send: () => Promise<{ value: unknown[] }> } })
+      .getMultipleAccounts(keys, { encoding: 'base64' }).send();
+    const created = keys.filter((a, i) => before[i] === null && a !== honest.temporaryAuthority && a !== (honest.policy as { accounts: { wOut?: string | null } }).accounts.wOut && a !== TREASURY);
+    expect(created.length).toBeGreaterThan(0);
+    const rpc = simulatingWith(b.agentRpc, a => (a === created[0] ? 2_039_280n : 0n));
     const problems = await checkPrepared(honest, intentFor(b.wallet), rpc);
-    expect(watched.length).toBeGreaterThan(7);
-    expect(watched).not.toContain(TREASURY);
-    expect(problems.join()).toContain(`the route would leave open 1 account(s) it creates (${watched[7]})`);
+    expect(problems.join()).toContain(`the route would leave open 1 account(s) it creates (${created[0]})`);
     // With every account closed, the same answer passes.
     expect(await checkPrepared(honest, intentFor(b.wallet), b.agentRpc)).toEqual([]);
   });

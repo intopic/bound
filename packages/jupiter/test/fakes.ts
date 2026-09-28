@@ -158,6 +158,10 @@ export function fakeRpc(
     statusFails?: boolean;
     /** Accounts the route opens and leaves open, holding their rent after the swap. */
     leavesOpen?: readonly string[];
+    /** The RPC reports no `postBalances` (an older node). */
+    noPostBalances?: boolean;
+    /** Lamports the taker holds after the swap, in the balances a simulation reports for every account. */
+    takerKeepsAfter?: bigint;
   } = {},
 ): SolanaRpc {
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
@@ -195,6 +199,10 @@ export function fakeRpc(
       const v1 = raw[0] === 129 || raw[1 + 64 * raw[0]] === 129;
       if (raw.length > (v1 ? 4096 : 1232)) {
         throw new Error(`Invalid method parameter(s) (base64 encoded transaction too large: ${raw.length} bytes)`);
+      }
+      // Like a provider that limits `accounts.addresses` to two.
+      if ((config.accounts?.addresses.length ?? 0) > 2) {
+        throw new Error('Invalid params: too many accounts provided; max 2');
       }
       const need = opts.takerRent ?? 0n;
       if (opts.simulations) opts.simulations.count++;
@@ -237,28 +245,35 @@ export function fakeRpc(
           },
         };
       }
+      // E keeps what it was sent beyond the rent; the account the market opened for E (Pump's
+      // per-buyer account) holds the rent.
+      // A cashback coin's account also holds the cashback the trade earned.
+      // Closed, the market's account hands everything it held to E, and E sends on what the
+      // transaction says; whatever is left stays with E.
+      const after = async (a: string): Promise<{ lamports: bigint; data?: [string, 'base64'] } | null> => {
+        const held = need > 0n ? need + (opts.cashback ?? 0n) : 0n;
+        if (a === taker) {
+          const left = lamports - need + (closesRouteAccount ? held : 0n) - sentByTaker;
+          return left > 0n ? { lamports: left } : null;
+        }
+        // The market opens its account under E only when the route passes it; otherwise the rent
+        // went to an account of the market's own.
+        if (a === (await routeAccountOf(PUMP, taker as Address)) && need > 0n && !closesRouteAccount && swapAccounts.includes(a)) {
+          return { lamports: held, data: [b64(new Uint8Array(ROUTE_ACCOUNT_SIZE)), 'base64'] };
+        }
+        if (opts.leavesOpen?.includes(a) && swapAccounts.includes(a)) return { lamports: 2_039_280n, data: [b64(new Uint8Array(165)), 'base64'] };
+        // Every other account holds what getMultipleAccounts says it holds.
+        return accounts.has(a) ? { lamports: 2_000_000n } : null;
+      };
+      const keys = getCompiledTransactionMessageDecoder().decode(getTransactionDecoder().decode(raw).messageBytes).staticAccounts;
       return {
         value: {
           err: null, logs: [], unitsConsumed: 200_000n,
-          // E keeps what it was sent beyond the rent; the account the market opened for E (Pump's
-          // per-buyer account) holds the rent.
-          // A cashback coin's account also holds the cashback the trade earned.
-          // Closed, the market's account hands everything it held to E, and E sends on what the
-          // transaction says; whatever is left stays with E.
-          accounts: await Promise.all((config.accounts?.addresses ?? []).map(async a => {
-            const held = need > 0n ? need + (opts.cashback ?? 0n) : 0n;
-            if (a === taker) {
-              const left = lamports - need + (closesRouteAccount ? held : 0n) - sentByTaker;
-              return left > 0n ? { lamports: left } : null;
-            }
-            // The market opens its account under E only when the route passes it; otherwise the rent
-            // went to an account of the market's own.
-            if (a === (await routeAccountOf(PUMP, taker as Address)) && need > 0n && !closesRouteAccount && swapAccounts.includes(a)) {
-              return { lamports: held, data: [b64(new Uint8Array(ROUTE_ACCOUNT_SIZE)), 'base64'] };
-            }
-            if (opts.leavesOpen?.includes(a) && swapAccounts.includes(a)) return { lamports: 2_039_280n, data: [b64(new Uint8Array(165)), 'base64'] };
-            return null;
-          })),
+          accounts: await Promise.all((config.accounts?.addresses ?? []).map(after)),
+          // Balances after the transaction, in the order of its accounts, as a real RPC reports them.
+          postBalances: opts.noPostBalances ? null : await Promise.all(keys.map(async a =>
+            ((await after(a))?.lamports ?? 0n) + (a === taker ? opts.takerKeepsAfter ?? 0n : 0n))),
+          loadedAddresses: { writable: [], readonly: [] },
         },
       };
     }),

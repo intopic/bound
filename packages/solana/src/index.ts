@@ -4,6 +4,7 @@ import {
   fetchAddressesForLookupTables,
   generateKeyPairSigner,
   getBase64EncodedWireTransaction,
+  getCompiledTransactionMessageDecoder,
   getSignatureFromTransaction,
   isSolanaError,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
@@ -209,7 +210,78 @@ export type Simulation = {
   sizesAfter: number[];
   /** The slot the simulation ran at (0 when the RPC does not say). */
   slot: bigint;
+  /**
+   * With `balances`: the lamports every account the transaction names holds after it, from the
+   * simulation's `postBalances`, by address. Empty otherwise, or when the simulation failed.
+   */
+  balancesAfter: Map<string, bigint>;
 };
+
+/**
+ * The accounts a transaction names, in the order the runtime numbers them (and `postBalances`
+ * follows): the static accounts, then what the lookup tables load as writable, then as read-only,
+ * table by table. Null when a table it names is not in `lookupTables`, or an index is past its end.
+ */
+export function accountKeysOf(
+  transaction: Transaction, lookupTables: Readonly<Record<string, readonly Address[]>>,
+): { keys: Address[]; writable: Address[]; readonly: Address[] } | null {
+  const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes) as unknown as {
+    staticAccounts: readonly Address[];
+    addressTableLookups?: readonly { lookupTableAddress: Address; writableIndexes: readonly number[]; readonlyIndexes: readonly number[] }[];
+  };
+  const lookups = compiled.addressTableLookups ?? [];
+  const load = (pick: (l: (typeof lookups)[number]) => readonly number[]) => {
+    const out: Address[] = [];
+    for (const l of lookups) {
+      const table = lookupTables[l.lookupTableAddress];
+      if (!table) return null;
+      for (const i of pick(l)) {
+        if (i >= table.length) return null;
+        out.push(table[i]);
+      }
+    }
+    return out;
+  };
+  const writable = load(l => l.writableIndexes);
+  const readonly = load(l => l.readonlyIndexes);
+  if (!writable || !readonly) return null;
+  return { keys: [...compiled.staticAccounts, ...writable, ...readonly], writable, readonly };
+}
+
+type SimulatedBalances = {
+  postBalances?: readonly (bigint | number)[] | null;
+  loadedAddresses?: { writable: readonly string[]; readonly: readonly string[] } | null;
+};
+
+/**
+ * What each account of `transaction` holds after a successful simulation, from its `postBalances`,
+ * or why that answer cannot be relied on: no balances, a count that is not the transaction's, or
+ * addresses loaded from lookup tables that are not the ones the tables hold. Read this way, the
+ * accounts need not be named in `accounts.addresses`, which some RPC providers limit to two.
+ */
+export function balancesAfterSimulation(
+  transaction: Transaction, value: SimulatedBalances, lookupTables: Readonly<Record<string, readonly Address[]>>,
+): Map<string, bigint> | string {
+  const order = accountKeysOf(transaction, lookupTables);
+  if (!order) return 'the transaction names a lookup table entry that could not be read';
+  const post = value.postBalances;
+  if (!Array.isArray(post)) return 'the RPC did not report the balances after the transaction';
+  if (post.length !== order.keys.length) return `the RPC reported ${post.length} balances for ${order.keys.length} accounts`;
+  if (order.writable.length || order.readonly.length) {
+    const loaded = value.loadedAddresses;
+    const same = (a: readonly string[] | undefined, b: readonly string[]) => !!a && a.length === b.length && a.every((x, i) => x === b[i]);
+    if (!loaded || !same(loaded.writable, order.writable) || !same(loaded.readonly, order.readonly)) {
+      return 'the RPC loaded other accounts from the lookup tables than the tables hold';
+    }
+  }
+  const out = new Map<string, bigint>();
+  for (const [i, a] of order.keys.entries()) {
+    const b = post[i];
+    if (typeof b !== 'bigint' && typeof b !== 'number') return 'the RPC reported a balance that is not a number';
+    out.set(a, BigInt(b));
+  }
+  return out;
+}
 
 /** Bytes in a base64 string, without decoding it. */
 const base64Size = (s: string | undefined) =>
@@ -224,7 +296,11 @@ export async function simulate(
   rpc: SolanaRpc,
   transaction: Transaction,
   watch: readonly Address[] = [],
-  opts: { minContextSlot?: bigint } = {},
+  opts: {
+    minContextSlot?: bigint;
+    /** Read every account's balance after the transaction from `postBalances` (`balancesAfter`). */
+    balances?: { lookupTables: Readonly<Record<string, readonly Address[]>> };
+  } = {},
 ): Promise<Simulation> {
   const { context, value } = await notOlderThan(() => rpc
     .simulateTransaction(getBase64EncodedWireTransaction(transaction), {
@@ -240,7 +316,17 @@ export async function simulate(
   if (value.err === null && watch.length && (!Array.isArray(after) || after.length !== watch.length)) {
     return {
       ok: false, error: 'the RPC did not report the accounts it was asked to watch', units: Number(value.unitsConsumed ?? 0n),
-      logs, blame: null, failedInstruction: null, lamportsAfter: [], sizesAfter: [], slot: BigInt(context?.slot ?? 0),
+      logs, blame: null, failedInstruction: null, lamportsAfter: [], sizesAfter: [], slot: BigInt(context?.slot ?? 0), balancesAfter: new Map(),
+    };
+  }
+  // Balances that cannot be matched to the transaction's accounts say nothing either.
+  const balances = value.err === null && opts.balances
+    ? balancesAfterSimulation(transaction, value as SimulatedBalances, opts.balances.lookupTables)
+    : new Map<string, bigint>();
+  if (typeof balances === 'string') {
+    return {
+      ok: false, error: balances, units: Number(value.unitsConsumed ?? 0n),
+      logs, blame: null, failedInstruction: null, lamportsAfter: [], sizesAfter: [], slot: BigInt(context?.slot ?? 0), balancesAfter: new Map(),
     };
   }
   return {
@@ -253,6 +339,7 @@ export async function simulate(
     lamportsAfter: watch.map((_, i) => BigInt(after?.[i]?.lamports ?? 0)),
     sizesAfter: watch.map((_, i) => base64Size(after?.[i]?.data?.[0])),
     slot: BigInt(context?.slot ?? 0),
+    balancesAfter: balances,
   };
 }
 

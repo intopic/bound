@@ -48,6 +48,7 @@ async function prepare(output: Address, opts: {
   expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
   wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean; acceptedMinReceived?: bigint;
   minFee?: SwapSettings['minFee']; leavesOpen?: readonly string[]; chosenSlippageBps?: number;
+  noPostBalances?: boolean; takerKeepsAfter?: bigint;
   priorityFee?: (writable: readonly Address[]) => Promise<bigint | null>;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
@@ -61,6 +62,7 @@ async function prepare(output: Address, opts: {
         feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent, priceMoves: opts.priceMoves,
         walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations, cashback: opts.cashback,
         pumpSlippage: opts.pumpSlippage, failBeforeSwap: opts.failBeforeSwap, leavesOpen: opts.leavesOpen,
+        noPostBalances: opts.noPostBalances, takerKeepsAfter: opts.takerKeepsAfter,
       }),
       ...(opts.priorityFee ? { priorityFee: opts.priorityFee } : {}),
       jupiter: opts.jupiter ?? fakeJupiter(), settings: {
@@ -866,6 +868,26 @@ describe('an account the route opens and leaves open is refused, whatever market
     expect((refused as OrientimError).code).toBe('no-route');
     expect((refused as OrientimError).message).toBe(LEFT_UNDER_KEY_MESSAGE);
     expect(asked.some(p => p.excludeDexes?.includes('Whirlpool'))).toBe(true);
+  });
+
+  it('the final check reads every balance from postBalances, never more than two watched accounts', async () => {
+    // The fake RPC refuses more than two `accounts.addresses`, as some providers do; a Pump route
+    // with its per-buyer account under E still builds.
+    const jupiter = fakeJupiter({ label: 'Pump.fun', curveProgram: true, routeAccount: true });
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter, takerRent: 1_346_200n, expectCurve: true, version: 0 });
+    expect(prepared.policy.routeRefund).toBe(1_346_200n);
+  });
+
+  it('lamports left under E in the final simulation are refused', async () => {
+    const refused = await prepare(WSOL_MINT, { takerKeepsAfter: 5_000n }).catch((e: OrientimError) => e);
+    expect((refused as OrientimError).code).toBe('no-route');
+    expect((refused as OrientimError).message).toBe(LEFT_UNDER_KEY_MESSAGE);
+  });
+
+  it('a final simulation without balances proves nothing: nothing is built', async () => {
+    const refused = await prepare(WSOL_MINT, { noPostBalances: true }).catch((e: OrientimError) => e);
+    expect(refused).toBeInstanceOf(OrientimError);
+    expect((refused as OrientimError).message).toContain('the RPC did not report the balances after the transaction');
   });
 
   it('an account the route names that is new but ends empty, or one that already existed, is no obstacle', async () => {
