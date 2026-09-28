@@ -37,8 +37,7 @@ import { acquireSwapLock } from '@/lib/client/swapLock';
 import { costsMoreThan } from '@/lib/client/rebuild';
 import { receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
-import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
-import type { Problem } from '@/lib/client/problems';
+import { errorDetail, recordProblem, watchUncaught } from '@/lib/client/problems';
 import { reportProblem } from '@/lib/client/report';
 import { loadSlippage, percentText, saveSlippage, slippageWarning, WARN_BELOW_BPS, withSlippage } from '@/lib/client/slippage';
 import type { SlippageChoice } from '@/lib/client/slippage';
@@ -53,7 +52,7 @@ type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
 /**
  * A message in the corner of the page. `progress`: a step of a swap still under way, not a problem, so
  * it is not kept with them. `detail`: the raw error behind the words, kept in this browser
- * for when help is asked (never shown by itself). `sticky`: it stays until the page takes it back.
+ * and reported, never shown by itself. `sticky`: it stays until the page takes it back.
  */
 type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string; sticky?: boolean; progress?: boolean };
 /**
@@ -539,9 +538,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const [quoting, setQuoting] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [notice, setNotice] = useState<Notice | null>(null);
-  // Every error offers its details for now (see the toasts below).
-  const showCopy = !!notice && (notice.kind === 'error' || notice.title === UNEXPLAINED);
-  const [detailsCopied, setDetailsCopied] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [offer, setOffer] = useState<Offer | null>(null);
   // What the chain says about each selected mint: decimals and token program.
@@ -581,19 +577,16 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   // --- every message other than a success is kept in this browser with the raw error behind it, so
   // one replaced by the next click can still be read (lib/client/problems). An error is also
   // reported to Orientim's logs, with the symbols and the wallet's name but no address or amount.
-  const shown = useRef<Problem | null>(null);
   useEffect(() => watchUncaught(), []);
   /** Keeps a message (not a success) with its raw error, and reports an error; `who` names the wallet it is about. */
   function keepProblem(n: Notice, who = wallet) {
-    setDetailsCopied(false);
     if (n.kind === 'success' || n.progress) return;
     const pair = tokenIn && tokenOut ? `${amountText || '?'} ${tokenIn.symbol} → ${tokenOut.symbol}` : 'no pair';
     const walletName = who ? `${who.name} ${who.version}` : 'no wallet';
-    shown.current = {
+    recordProblem({
       at: Date.now(), kind: n.kind, title: n.title, body: n.body, detail: n.detail,
       context: `${pair}, ${walletName}${n.link ? `, ${n.link}` : ''}`,
-    };
-    recordProblem(shown.current);
+    });
     if (n.kind === 'error') {
       reportProblem({
         kind: n.kind, title: n.title, body: n.body, detail: n.detail, wallet: walletName,
@@ -608,17 +601,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   }, [notice]);
   // Each message is its own toast, with its own time to go away.
   const toastKey = useMemo(() => Math.random(), [notice]);
-
-  /**
-   * The raw error behind the last message, for someone asking for help: for now offered on every
-   * error (`showCopy`). Every error is also kept in this browser (/diagnostic) and reported to
-   * Orientim's logs.
-   */
-  function copyDetails() {
-    if (!shown.current) return;
-    navigator.clipboard.writeText(problemsReport([shown.current], navigator.userAgent))
-      .then(() => setDetailsCopied(true), () => setDetailsCopied(false));
-  }
 
   // --- bootstrap
   // The page's settings and the kill switch. Without them nothing can be swapped, so a failure is
@@ -1593,7 +1575,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
               {connectError.kind === 'error' && chosen.current && (
                 <div className="banner-actions">
                   <button className="ghost" onClick={() => chosen.current && connect(chosen.current)}>Try again</button>
-                  <button className="link" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy error details'}</button>
                 </div>
               )}
             </div>
@@ -1886,22 +1867,15 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       {children}
       </main>
 
-      {/* For now every error offers "Copy details", while wallet answers are being looked into; later
-          only the errors the page cannot explain will again. */}
       <div className="toasts">
         {notice && (
           <Toast key={toastKey} kind={notice.kind} title={notice.title} sticky={notice.sticky} onClose={() => setNotice(null)}>
             {notice.body && <p>{notice.body}</p>}
-            {(notice.link || showCopy) && (
+            {notice.link && (
               <p className="toast-links">
-                {notice.link && (
-                  <a href={notice.link} target="_blank" rel="noreferrer">
-                    View on Solscan ↗
-                  </a>
-                )}
-                {showCopy && (
-                  <button className="link" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy details'}</button>
-                )}
+                <a href={notice.link} target="_blank" rel="noreferrer">
+                  View on Solscan ↗
+                </a>
               </p>
             )}
           </Toast>

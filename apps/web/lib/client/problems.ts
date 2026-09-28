@@ -8,9 +8,8 @@ import { reportProblem } from './report';
  * The page words every failure plainly and leaves the raw error to the console, where nobody who
  * is not a developer looks. A message can also be replaced by the next click before anyone reads
  * it. So every message the page shows, other than a success, is kept here with the raw error behind
- * it: the last 20, in this browser only. The person copies them ("Copy error details" on a message
- * the page could not explain, or the list on the testing page, /diagnostic) when they want help. Errors are also reported to
- * Orientim's logs, without any address, signature or amount (report.ts).
+ * it: the last 20, in this browser only, listed on the testing page (/diagnostic). Errors are also
+ * reported to Orientim's logs, without any address, signature or amount (report.ts).
  */
 export type Problem = {
   at: number;
