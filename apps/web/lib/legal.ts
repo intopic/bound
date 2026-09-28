@@ -6,13 +6,18 @@
  * An empty field is shown on the pages as its placeholder in brackets, and the Draft banner stays.
  */
 export const LEGAL = {
-  /** The company that runs Orientim, as registered: 'Orientim SHPK'. */
-  entity: '',
-  /** Its company type and registry number: 'a limited liability company (SHPK), NUIS L12345678A'. */
+  /**
+   * Who runs Orientim: a person in their own name ('individual') until a company is registered, then
+   * the company ('company'), with `registration` filled in.
+   */
+  operator: 'individual' as 'individual' | 'company',
+  /** The person, or the company as registered: 'Orientim SHPK'. */
+  entity: 'Qazim Memeti',
+  /** A company's type and registry number: 'a limited liability company (SHPK), NUIS L12345678A'. Not used for a person. */
   registration: '',
-  /** Where it is registered: 'Albania'. Also the governing law, unless `governingLaw` says otherwise. */
-  country: '',
-  /** Its registered address. */
+  /** Where the operator lives or is registered: 'Albania'. Also the governing law, unless `governingLaw` says otherwise. */
+  country: 'North Macedonia',
+  /** The operator's address (a company's registered office). */
   address: '',
 
   /** Where people write for help. */
@@ -27,7 +32,7 @@ export const LEGAL = {
   /** The law that governs the Terms; the country's when empty. */
   governingLaw: '',
   /** Disputes: 'the Singapore International Arbitration Centre (SIAC)', or the courts of a city. */
-  disputeForum: '',
+  disputeForum: 'the competent courts of North Macedonia',
   /** Where arbitration is seated, or the courts sit: 'Singapore', 'Tirana'. */
   disputeSeat: '',
 
@@ -61,7 +66,7 @@ const PLACEHOLDER = {
 } as const;
 
 /** Whether every field the pages need is filled in. */
-export const legalComplete = [LEGAL.entity, LEGAL.registration, LEGAL.country, LEGAL.address, LEGAL.supportEmail, LEGAL.disputeForum, LEGAL.disputeSeat, LEGAL.logRetentionDays]
+export const legalComplete = [LEGAL.entity, ...(LEGAL.operator === 'company' ? [LEGAL.registration] : []), LEGAL.country, LEGAL.address, LEGAL.supportEmail, LEGAL.disputeForum, LEGAL.disputeSeat, LEGAL.logRetentionDays]
   .every(v => v.trim().length > 0);
 
 /** The Draft banner stays until the texts are complete and a lawyer has approved them. */

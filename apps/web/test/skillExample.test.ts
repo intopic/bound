@@ -28,7 +28,7 @@ import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked,
-  exitCodeOf, LockBusyError, loadPolicy, preparedData, releaseHeldLocks, stateDirFor,
+  exitCodeOf, LockBusyError, loadPolicy, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
@@ -893,6 +893,44 @@ describe('orientim-verify, the command for bots in other languages', () => {
     expect(short.code).toBe(1);
     expect(finalizes()).toBe(0);
     expect(b.sent).toHaveLength(0);
+  });
+
+  it("holds prepare and finalize to the minimum the user approved after a dry run, and uses the approval up only once it landed", async () => {
+    const { b, deps, stateDir, intent, signMessage } = await setup();
+    const key = { owner: intent.owner, inputMint: intent.inputMint, outputMint: intent.outputMint, amountIn: intent.amountIn };
+    // What the dry run would have shown: prepare's own floor, without an approval.
+    const first = viaJson((await runCli('prepare', { intent: { ...intent, id: 'cli-order-dry' } }, deps)).output) as { checked: { intent: Intent } };
+    const approved = first.checked.intent.minOut!;
+    // An approval that expired refuses until a new dry run: nothing is prepared.
+    recordApproval(stateDir, { ...key, minOut: '1', expiresAt: Date.now() - 1 });
+    const expired = await runCli('prepare', { intent }, deps);
+    expect(expired.code).toBe(1);
+    expect(expired.output.error).toMatchObject({ code: 'approval' });
+    // A live approval: prepare holds to it, and finalize refuses a checked intent lowered below it.
+    recordApproval(stateDir, { ...key, minOut: approved, expiresAt: Date.now() + 60_000 });
+    const ready = await runCli('prepare', { intent }, deps);
+    expect(ready.code).toBe(0);
+    const out = viaJson(ready.output) as { checked: { prepared: Prepared; intent: Intent }; message: string };
+    expect(BigInt(out.checked.intent.minOut!)).toBeGreaterThanOrEqual(BigInt(approved));
+    const lowered = { ...out.checked, intent: { ...out.checked.intent, minOut: String(BigInt(approved) - 1n) } };
+    const refused = await runCli('finalize', { checked: lowered, signature: await signMessage(out.message) }, deps);
+    expect(refused.code).toBe(1);
+    expect(refused.output).toMatchObject({ sent: false, error: { code: 'approval' } });
+    expect(b.sent).toHaveLength(0);
+    expect(approvalFor(stateDir, key)).not.toBeNull();
+    const done = await runCli('finalize', { checked: out.checked, signature: await signMessage(out.message) }, deps);
+    expect(done.output.outcome).toBe('confirmed');
+    expect(approvalFor(stateDir, key)).toBeNull();
+  });
+
+  it('forgets an approval a day after it expired, and keeps one that is still refusing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-approval-'));
+    const key = { owner: 'W', inputMint: 'A', outputMint: 'B', amountIn: '5' };
+    const now = Date.now();
+    recordApproval(dir, { ...key, minOut: '7', expiresAt: now - 1 });
+    expect(keptApproval(dir, key, now)?.minOut).toBe('7');
+    expect(keptApproval(dir, key, now + 24 * 60 * 60_000 + 1)).toBeNull();
+    expect(approvalFor(dir, key)).toBeNull();
   });
 
   it('nothing new is prepared while an earlier swap could still land, and recover says which', async () => {

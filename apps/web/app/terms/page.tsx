@@ -37,7 +37,9 @@ export default async function Page() {
         <h2>1. The agreement</h2>
         <p>
           These Terms of Use (the <strong>Terms</strong>) are an agreement between you and <strong>{entity}</strong>,{' '}
-          {legal('registration')}, registered in {legal('country')}, with its registered office at {legal('address')}{' '}
+          {LEGAL.operator === 'company'
+            ? <>{legal('registration')}, registered in {legal('country')}, with its registered office at {legal('address')}{' '}</>
+            : <>who operates Orientim in their own name, resident in {legal('country')}, at {legal('address')}{' '}</>}
           (<strong>Orientim</strong>, <strong>we</strong>, <strong>us</strong>). They govern your use of orientim.com, the swap
           interface on it, the Orientim API (the <strong>API</strong>), the downloadable agent skill, command line, verifier and
           example code (the <strong>Software</strong>), and any related service we provide (together, the <strong>Services</strong>).

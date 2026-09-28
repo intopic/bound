@@ -120,6 +120,13 @@ R1's address filter then only has to cover what can move **without** W's signatu
   program is refused. Tokens used only inside the route's own pools never reach W's accounts; the
   external instruction is untrusted anyway.
 
+One exception, on the page only: a Lighthouse assertion a wallet adds (see "Adversaries covered")
+may name W, and Phantom's do, since they check the wallet's own balances. The Solana runtime gives
+every instruction that names W its signer and writable role, so the Lighthouse program is handed W's
+signature. Its assertions (kinds 2 to 15) only read, so this is safe for the program as deployed
+today, which is why Lighthouse is listed in the trusted computing base below. The agent API accepts
+the exact message only, so this does not apply to agents.
+
 Anyone changing R1 or R6 must re-read this section. The same note sits above the rules in
 `packages/verifier/src/verify.ts`.
 
@@ -135,6 +142,7 @@ The guarantee holds if these are correct and unmodified:
 | Orientim's server | Serves the genuine page, and relays RPC answers and token metadata | CI compares two builds and the page uses partial SRI (details below). The server cannot change the fee or the treasury (compiled into the page); F_max from the server is capped by the verifier; decimals are checked against the mint on chain |
 | RPC | Returns true lookup tables and account state | v1 has no lookup tables, but account state (owners, balances, decimals, authorities) still comes from the RPC; v0 tables come from the same single provider (see "One RPC provider") |
 | Wallet | Signs what it is given | The returned message is re-verified before E signs: byte for byte, except that the page accepts Lighthouse assertions a wallet adds (below) |
+| Lighthouse program (`L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95`), page only | Its assertion instructions (kinds 2 to 15) only read the accounts they name, W included | Pinned by address; only assertion kinds are accepted, added accounts must be read-only, and the agent API accepts none. If the program can still be upgraded, an upgrade by its authority could act with W's signature on a transaction Phantom signed with assertions. Accepting assertions at all is a choice for Phantom users; turning it off (`acceptAssertions: false`) refuses those swaps instead |
 | Jupiter's on-chain program | Its floor measures what its route instruction delivered to the destination account | Pinned by address; only its two known route formats are accepted, and the verifier requires the floor at the account the minimum is checked on |
 
 The largest remaining risk is a modified frontend (compromised server or supply chain). Serve it
@@ -152,8 +160,9 @@ from a reproducible build, keep dependencies minimal, and review every dependenc
   On the page, one change is accepted: Lighthouse assertions (kinds 2 to 15) that a wallet such as
   Phantom adds. Every original instruction must be unchanged and in order, the signers, blockhash and
   lookup tables the same, added accounts read-only, and the compute limit raised by at most 50,000
-  units with the network fee still within F_max. An assertion can only make the transaction fail;
-  the agent API accepts the exact message only.
+  units with the network fee still within F_max. An assertion can only make the transaction fail,
+  as long as the Lighthouse program is the one deployed today (see "Trusted computing base"); the
+  agent API accepts the exact message only.
   It does not freeze the chain: state that changes between the check and the landing (a balance, a
   pool, a token's settings) is met by what the transaction enforces on chain (the exact debits, the
   minimum-output check, Jupiter's floor), or the transaction reverts.
