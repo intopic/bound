@@ -153,7 +153,8 @@ export async function searchTokens(query: string): Promise<TokenInfo[]> {
 }
 
 /**
- * Warnings about the token itself. Orientim protects the wallet, not the value of what you buy.
+ * Warnings about what the token's issuer can still do. Orientim protects the wallet, not the value of
+ * what you buy.
  *
  * For a token Jupiter has not verified, including a pasted one it does not list, the authorities
  * come from the mint account, not from metadata. For a verified token Jupiter's audit decides: the
@@ -162,7 +163,6 @@ export async function searchTokens(query: string): Promise<TokenInfo[]> {
  */
 export function tokenWarnings(t: TokenInfo, facts?: Pick<MintFacts, 'freezeAuthority' | 'mintAuthority'> | null): string[] {
   const w: string[] = [];
-  if (!t.isVerified) w.push(`${t.symbol} is not verified by Jupiter: check the address before you swap`);
   const onChain = !t.isVerified && facts ? facts : null;
   const freezes = onChain ? onChain.freezeAuthority : t.audit?.freezeAuthorityDisabled === false;
   const mints = onChain ? onChain.mintAuthority : t.audit?.mintAuthorityDisabled === false;

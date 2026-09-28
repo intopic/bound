@@ -73,8 +73,8 @@ describe('token warnings come from the chain for a token Jupiter does not vouch 
     expect(w.some(x => x.includes('can still be minted'))).toBe(true);
   });
 
-  it('a pasted mint with neither authority is warned only that it is not verified', () => {
-    expect(tokenWarnings(pasted, { freezeAuthority: false, mintAuthority: false })).toHaveLength(1);
+  it('a pasted mint with neither authority carries no warning', () => {
+    expect(tokenWarnings(pasted, { freezeAuthority: false, mintAuthority: false })).toHaveLength(0);
   });
 
   it("a verified token follows Jupiter's audit, so USDC's freeze authority is not a warning on every swap", () => {

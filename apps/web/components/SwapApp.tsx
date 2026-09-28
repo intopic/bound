@@ -1501,9 +1501,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     : null;
 
   const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
-  const impact = quote ? quote.impact : undefined;
-  if (impact === null) inWarnings.unshift('Price impact unavailable: Jupiter did not say how much this amount moves the market price.');
-  else if (impact !== undefined && impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(impact)}: this amount moves the market price.`);
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
   // A tolerance chosen very tight or very wide is said on the card, not only in the settings.
   const slipWarning = quote ? slippageWarning(slippage) : null;
@@ -1713,7 +1710,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
             {[...inWarnings, ...outWarnings].map(w => (
               <li key={w}>{w}</li>
             ))}
-            <li>Orientim protects your wallet during the swap. It can&apos;t tell you whether a token is worth buying.</li>
           </ul>
         )}
 
