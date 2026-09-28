@@ -625,4 +625,6 @@ a.ghost { display: inline-flex; align-items: center; }
 .warn-badge:hover, .warn-badge.open { background: rgba(242, 196, 107, .16); }
 .token-warnings { margin: 8px 0 0; padding: 8px 10px 8px 26px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: 12px; line-height: 1.45; }
 .token-warnings li + li { margin-top: 4px; }
-.details summary .link.rate { color: var(--text); text-decoration: none; }
+.details summary .rate { color: var(--text); font-family: var(--mono); font-size: 12.5px; }
+.details summary .rate-flip { padding: 0 4px; color: var(--muted); text-decoration: none; }
+.details summary .rate-flip:hover { color: var(--text); }

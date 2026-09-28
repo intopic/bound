@@ -1763,14 +1763,16 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           <summary>
             {rate ? (
               <span>
-                Rate{' '}
+                Rate <span className="rate">{rate}</span>{' '}
+                {/* Only the arrows turn the rate around; the rest of the line opens the details. */}
                 <button
                   type="button"
-                  className="link rate"
+                  className="link rate-flip"
                   onClick={e => { e.preventDefault(); setRateInverted(v => !v); }}
                   title="Turn the rate around"
+                  aria-label="Turn the rate around"
                 >
-                  {rate} ⇄
+                  ⇄
                 </button>
               </span>
             ) : (
