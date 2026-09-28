@@ -27,7 +27,7 @@ export function HomeSections() {
         <div className="container proof-row">
           <p className="one-key">
             <LockIcon />
-            <strong>Nothing else in your wallet is ever within the swap’s reach.</strong>
+            <strong>Your trade gets its own wallet. Your wallet never becomes the trade.</strong>
           </p>
         </div>
       </section>
