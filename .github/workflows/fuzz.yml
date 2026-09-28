@@ -10,11 +10,13 @@ name: Fuzz
 # - the owner's limits for agents and bots, the 20% floor, and a bot that edits prepare's answer;
 # - what a wallet hands back: a changed message passes only as Lighthouse assertions added;
 # - the site's server: failure reports, the RPC relay with a backup, amounts as shown;
-# - a hostile swap program running random plans in a real Solana VM (litesvm), 400,000 cases.
-# About 29,600,000 cases a run.
+# - a hostile swap program running random plans in a real Solana VM (litesvm), 400,000 cases;
+# - many clients through one API key: bursts of up to 150 swaps in the same second, and 100,000
+#   cases of up to four clients swapping at once, each with rules of its own.
+# About 29,700,000 cases a run.
 #
-# By hand only (Actions, Fuzz, Run workflow), before a release: a run is some 600 billed minutes, a
-# third of a private repository's free month. CI runs the same properties at their normal size on
+# By hand only (Actions, Fuzz, Run workflow), before a release: a run is some 1,000 billed minutes,
+# half of a private repository's free month. CI runs the same properties at their normal size on
 # every change to the code.
 on:
   workflow_dispatch:
@@ -441,6 +443,102 @@ jobs:
             file: apps/web/test/relay.property.test.ts
             runs: 200000
             proves: "reports name no wallet or amount, the RPC relay picks the right answer, a shown amount is never more than what arrived"
+          - suite: many-clients
+            shard: 1
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 2
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 3
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 4
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 5
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 6
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 7
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 8
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 9
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 10
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 11
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 12
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 13
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 14
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 15
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: many-clients
+            shard: 16
+            of: 16
+            file: apps/web/test/agents.load.property.test.ts
+            runs: 6250
+            proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
