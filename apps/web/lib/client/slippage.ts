@@ -2,9 +2,10 @@ import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
 import type { SwapSettings } from '@orientim/jupiter';
 
 /**
- * The slippage setting (⚙️ on the card). "auto" is Orientim's own tolerance: 0.5%, or 3% for a token on
- * a Pump.fun launch curve. A number is the person's own choice, in bps, for every route: the swap is
- * built at it and the verifier holds the route to it, never above 15% (MAX_CHOSEN_SLIPPAGE_BPS).
+ * The slippage setting (⚙️ on the card). "auto" follows Jupiter's own estimate for the token, from 0.5%
+ * to 3% (autoToleranceBps), and is 3% for a token on a Pump.fun launch curve. A number is the person's
+ * own choice, in bps, for every route: the swap is built at it and the verifier holds the route to it,
+ * never above 15% (MAX_CHOSEN_SLIPPAGE_BPS).
  */
 export type SlippageChoice = 'auto' | number;
 
@@ -30,6 +31,25 @@ export function slippageWarning(choice: SlippageChoice): { level: 'low' | 'high'
     return { level: 'high', text: `Slippage ${percentText(choice)} is high: you may receive much less than the quote, and trading bots can take the difference.` };
   }
   return null;
+}
+
+/** Auto never goes below 0.5%, Orientim's tolerance before it followed Jupiter's estimate. */
+export const AUTO_MIN_BPS = 50;
+/** Nor above 3%, the tolerance of a token on its launch curve: a wider one is the person's choice. */
+export const AUTO_MAX_BPS = 300;
+
+/**
+ * Auto for one quote: the tolerance Jupiter estimated for this trade (asked with `estimateSlippage`),
+ * read from its answer's threshold and held from 0.5% to 3%. A token that moves fast gets more room,
+ * as it does on Jupiter; one Jupiter would hold tighter than 0.5% keeps 0.5%.
+ */
+export function autoToleranceBps(r: { outAmount: string; otherAmountThreshold: string }): number {
+  const out = BigInt(r.outAmount);
+  const threshold = BigInt(r.otherAmountThreshold);
+  if (out <= 0n || threshold <= 0n || threshold >= out) return AUTO_MIN_BPS;
+  // Rounded to the nearest bps: the threshold itself was rounded down from the quote.
+  const bps = Number(((out - threshold) * 20_000n + out) / (2n * out));
+  return Math.min(AUTO_MAX_BPS, Math.max(AUTO_MIN_BPS, bps));
 }
 
 const KEY = 'orientim.slippage.v1';

@@ -26,6 +26,11 @@ export type BuildParams = {
   amount: bigint;
   taker: Address;
   slippageBps: number;
+  /**
+   * Ask Jupiter for its own estimate of the tolerance this trade needs (RTSE) instead of
+   * `slippageBps`. For a price only: the answer's threshold then carries Jupiter's estimate.
+   */
+  estimateSlippage?: boolean;
   maxAccounts: number;
   destinationTokenAccount?: Address;
   excludeDexes?: readonly string[];
@@ -175,7 +180,7 @@ export function createJupiterClient(opts: {
         outputMint: p.outputMint,
         amount: p.amount.toString(),
         taker: p.taker,
-        slippageBps: String(p.slippageBps),
+        slippageBps: p.estimateSlippage ? 'rtse' : String(p.slippageBps),
         maxAccounts: String(p.maxAccounts),
         // SOL is wrapped and unwrapped by Orientim's own trusted instructions, never by Jupiter.
         wrapAndUnwrapSol: 'false',

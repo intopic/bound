@@ -78,7 +78,7 @@ export function SlippageSettings(props: { choice: SlippageChoice; onChange: (cho
               <span aria-hidden="true">%</span>
             </label>
           </div>
-          {choice === 'auto' && <p className="hint">Auto is 0.5%, or 3% for a token still on its Pump.fun launch curve.</p>}
+          {choice === 'auto' && <p className="hint">Auto follows Jupiter's estimate for each token, from 0.5% to 3%.</p>}
           {typed && typedBps === null && (
             <p className="key-error">Enter {percentText(MIN_CHOSEN_BPS)} to {percentText(MAX_CHOSEN_BPS)}.</p>
           )}

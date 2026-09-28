@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '@orientim/jupiter';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
-import { isChoice, loadSlippage, parsePercent, percentText, saveSlippage, slippageWarning, withSlippage } from '../lib/client/slippage.ts';
+import { AUTO_MAX_BPS, AUTO_MIN_BPS, autoToleranceBps, isChoice, loadSlippage, parsePercent, percentText, saveSlippage, slippageWarning, withSlippage } from '../lib/client/slippage.ts';
 
 const store = () => {
   const m = new Map<string, string>();
@@ -84,5 +84,29 @@ describe('what the page says about a chosen tolerance', () => {
   });
   it('says nothing about Auto or an ordinary choice', () => {
     for (const c of ['auto', 30, 50, 100, 300, 500] as const) expect(slippageWarning(c)).toBeNull();
+  });
+});
+
+describe('Auto, from Jupiter\'s estimate for the trade', () => {
+  // Thresholds as Jupiter rounds them: floor(out × (10,000 − s) / 10,000).
+  const answer = (out: bigint, s: number) => ({ outAmount: out.toString(), otherAmountThreshold: ((out * BigInt(10_000 - s)) / 10_000n).toString() });
+
+  it('reads the tolerance Jupiter estimated back from its threshold', () => {
+    expect(autoToleranceBps(answer(53_218_410n, 80))).toBe(80);
+    expect(autoToleranceBps(answer(1_000_000_007n, 129))).toBe(129);
+    expect(autoToleranceBps({ outAmount: '53218410', otherAmountThreshold: '52792662' })).toBe(80);
+  });
+
+  it('never goes below 0.5% nor above 3%', () => {
+    expect(autoToleranceBps(answer(1_291_867n, 15))).toBe(AUTO_MIN_BPS);
+    expect(autoToleranceBps(answer(4_173_546_787n, 1_095))).toBe(AUTO_MAX_BPS);
+    expect(AUTO_MIN_BPS).toBe(DEFAULT_SETTINGS.slippageBps);
+    expect(AUTO_MAX_BPS).toBe(DEFAULT_SETTINGS.curveSlippageBps);
+  });
+
+  it('keeps 0.5% for an answer it cannot read', () => {
+    for (const [out, threshold] of [['0', '0'], ['100', '0'], ['100', '100'], ['100', '150']]) {
+      expect(autoToleranceBps({ outAmount: out, otherAmountThreshold: threshold })).toBe(AUTO_MIN_BPS);
+    }
   });
 });

@@ -8,7 +8,7 @@ import type { Address, KeyPairSigner } from '@solana/kit';
 import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@orientim/core';
 import type { FeeSide, TxVersion } from '@orientim/core';
 import {
-  OrientimError, DEFAULT_SETTINGS, finalizeProtectedSwap, heliusPriorityFee, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, priceImpactOf, quotedMinimum,
+  OrientimError, DEFAULT_SETTINGS, finalizeProtectedSwap, heliusPriorityFee, isCurveRoute, JupiterError, MIN_FEE, minimumOutput, prepareProtectedSwap, priceImpactOf, quotedMinimum,
   revertedOnPrice,
 } from '@orientim/jupiter';
 import type { PreparedSwap, TokenInfo } from '@orientim/jupiter';
@@ -39,7 +39,7 @@ import { receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
 import { errorDetail, recordProblem, watchUncaught } from '@/lib/client/problems';
 import { reportProblem } from '@/lib/client/report';
-import { loadSlippage, percentText, saveSlippage, slippageWarning, WARN_BELOW_BPS, withSlippage } from '@/lib/client/slippage';
+import { autoToleranceBps, loadSlippage, percentText, saveSlippage, slippageWarning, WARN_BELOW_BPS, withSlippage } from '@/lib/client/slippage';
 import type { SlippageChoice } from '@/lib/client/slippage';
 import { Modal } from './Modal';
 import { SlippageSettings } from './SlippageSettings';
@@ -55,14 +55,19 @@ type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
  * and reported, never shown by itself. `sticky`: it stays until the page takes it back. `retry`: it
  * offers "Try again", which builds the swap afresh at the price of that moment.
  */
-type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string; sticky?: boolean; progress?: boolean; retry?: boolean };
+/** `report`: shown as information, but its cause is wanted in the logs too (keepProblem). */
+type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string; sticky?: boolean; progress?: boolean; retry?: boolean; report?: boolean };
 /**
  * `curve`: the route trades on a Pump.fun bonding curve, so its tolerance is the wider one.
  * `impact`: how much this amount moves the market price, as Jupiter reports it: a fraction, so
  * 0.132 is 13.2% (checked 2026-09-23 against the rates of a small and a large quote).
  */
 /** `impact` is null when Jupiter did not state it in a form we can read: unknown, never shown as none. */
-type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number | null; at: number };
+/**
+ * `autoBps`: Auto's tolerance for this quote, from Jupiter's estimate (autoToleranceBps), when the
+ * person left the setting on Auto and the route is off the launch curve.
+ */
+type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number | null; at: number; autoBps?: number };
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
 /** A question the page puts to the user mid-swap, with nothing signed yet. */
 type Offer =
@@ -302,8 +307,7 @@ const NO_STORAGE: Notice = {
 type PriceContext = { tolerance?: string; curveHint?: boolean; tightHint?: boolean };
 const CURVE_HINT = 'This token is still on its launch curve and moves fast. Auto uses 3% for it.';
 /** Said when the person chose a tolerance under 0.3%: a swap that tight often cancels itself. */
-const TIGHT_HINT = 'A tolerance this tight often cancels; Auto (0.5%) usually goes through.';
-const RAISE_TOLERANCE = 'Try again, or raise your slippage tolerance (⚙️).';
+const TIGHT_HINT = 'A tolerance this tight often cancels; Auto usually goes through.';
 
 /** The words for a failure, with the raw error kept beside them (lib/client/problems). */
 function explainError(e: unknown, price: PriceContext = {}): Notice {
@@ -354,7 +358,7 @@ function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
       return /price moved|slippage/i.test(m)
         ? {
           kind: 'info', title: price.tolerance ? `Price moved beyond your ${price.tolerance} tolerance` : 'Price moved beyond your tolerance',
-          body: `${NOTHING_SENT} ${RAISE_TOLERANCE}${price.tightHint ? ` ${TIGHT_HINT}` : ''}${price.curveHint ? ` ${CURVE_HINT}` : ''}`,
+          body: `${NOTHING_SENT}${price.tightHint ? ` ${TIGHT_HINT}` : ''}${price.curveHint ? ` ${CURVE_HINT}` : ''}`,
           retry: true, sticky: true,
         }
         : /first steps/.test(m)
@@ -446,8 +450,8 @@ function outcomeNotice(
       return why.onPrice
         ? {
           kind: 'info', title: why.tolerance ? `Swap cancelled: price moved beyond your ${why.tolerance} tolerance` : 'Swap cancelled: price moved beyond your tolerance',
-          body: `Your minimum of ${t.minimum} was enforced on-chain, so nothing was swapped. Only the network fee was used. ${RAISE_TOLERANCE}${why.tightHint ? ` ${TIGHT_HINT}` : ''}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
-          link,
+          body: `Your minimum of ${t.minimum} was enforced on-chain, so nothing was swapped. Only the network fee was used. Try again.${why.tightHint ? ` ${TIGHT_HINT}` : ''}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
+          link, report: true,
         }
         : { kind: 'error', title: "The swap didn't complete", body: 'It was reverted on the network. Only the network fee was paid.', link };
     case 'expired':
@@ -459,7 +463,8 @@ function outcomeNotice(
         return {
           kind: 'info', title: why.tolerance ? `Price moved beyond your ${why.tolerance} tolerance` : 'Price moved beyond your tolerance',
           body: `The network checked the swap before sending it and less than your minimum of ${t.minimum} would have arrived, so it wasn't sent. No funds moved. `
-            + `${RAISE_TOLERANCE}${why.tightHint ? ` ${TIGHT_HINT}` : ''}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
+            + `Try again.${why.tightHint ? ` ${TIGHT_HINT}` : ''}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
+          report: true,
         };
       }
       if (why.refusal === 'paused') {
@@ -571,6 +576,11 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const [slippage, setSlippage] = useState<SlippageChoice>('auto');
   useEffect(() => setSlippage(loadSlippage()), []);
   const pageSettings = useMemo(() => withSlippage(DEFAULT_SETTINGS, slippage), [slippage]);
+  /** The settings a swap for this quote is built at: on Auto, the tolerance Jupiter estimated for it. */
+  const settingsFor = (q: Pick<Quote, 'autoBps'>) => (q.autoBps !== undefined ? { ...pageSettings, chosenSlippageBps: q.autoBps } : pageSettings);
+  /** The tolerance a swap for this quote is built at, in bps. */
+  const toleranceOf = (q: Pick<Quote, 'autoBps' | 'curve'>) =>
+    pageSettings.chosenSlippageBps ?? q.autoBps ?? (q.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps);
   // How many times in a row Jupiter refused the price as busy, and until when nothing is built ahead.
   const [busyTries, setBusyTries] = useState(0);
   const busyUntil = useRef(0);
@@ -604,7 +614,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       context: `${pair}, ${walletName}${n.link ? `, ${n.link}` : ''}`,
     });
     // A swap the market could not complete is shown as information, but its cause is still wanted in the logs.
-    if (n.kind === 'error' || n.retry) {
+    if (n.kind === 'error' || n.retry || n.report) {
       reportProblem({
         kind: n.kind, title: n.title, body: n.body, detail: n.detail, wallet: walletName,
         pair: tokenIn && tokenOut ? `${tokenIn.symbol} → ${tokenOut.symbol}` : undefined,
@@ -834,26 +844,32 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     if (!tokenIn || !tokenOut || !swapAmount || swapAmount <= 0n || tokenIn.id === tokenOut.id) return setQuote(null);
     let cancelled = false;
     setQuoting(true);
+    // On Auto, Jupiter is asked how much room this trade needs, as its own page does.
+    const auto = pageSettings.chosenSlippageBps === undefined;
     const timer = setTimeout(() => {
       getJupiter()
         .build({
           // The same amount the swap itself will route: what is left after the token's own tax.
           inputMint: address(tokenIn.id), outputMint: address(tokenOut.id),
           amount: amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts),
-          taker: address(QUOTE_TAKER), slippageBps: pageSettings.chosenSlippageBps ?? DEFAULT_SETTINGS.slippageBps, maxAccounts: 64,
+          taker: address(QUOTE_TAKER), slippageBps: pageSettings.chosenSlippageBps ?? DEFAULT_SETTINGS.slippageBps, estimateSlippage: auto, maxAccounts: 64,
           excludeDexes: status?.excludeDexes ?? DEFAULT_SETTINGS.excludeDexes,
         })
         .then(r => {
           if (cancelled) return;
           setBusyTries(0);
           // Shown only if it answers this exact trade; the minimum is computed by Orientim, with
-          // the wider tolerance when the route trades on a Pump.fun bonding curve.
+          // the wider tolerance when the route trades on a Pump.fun bonding curve, and on Auto
+          // otherwise with the tolerance Jupiter estimated, held from 0.5% to 3%.
           const routed = amountReachingRoute(swapAmount, inFacts === 'missing' ? null : inFacts);
           const answersThis = r.inputMint === tokenIn.id && r.outputMint === tokenOut.id && BigInt(r.inAmount) === routed;
+          const curve = isCurveRoute(r);
+          const autoBps = auto && !curve ? autoToleranceBps(r) : undefined;
           setQuote(answersThis
             ? {
-              out: BigInt(r.outAmount), minOut: quotedMinimum(r, pageSettings), curve: isCurveRoute(r),
-              impact: impactOf(r.priceImpactPct), at: Date.now(),
+              out: BigInt(r.outAmount), curve, impact: impactOf(r.priceImpactPct), at: Date.now(),
+              minOut: autoBps !== undefined ? minimumOutput(BigInt(r.outAmount), autoBps) : quotedMinimum(r, pageSettings),
+              ...(autoBps !== undefined ? { autoBps } : {}),
             }
             : null);
         })
@@ -1135,12 +1151,12 @@ export function SwapApp({ children }: { children?: ReactNode }) {
    * tolerance, the user sees the new minimum and decides; it is never lowered silently.
    */
   /** The pipeline's dependencies, with the fee fixed at build time and the server's limits. */
-  const swapDeps = (s: PublicStatus) => ({
+  const swapDeps = (s: PublicStatus, q: Pick<Quote, 'autoBps'>) => ({
     rpc: getRpc(),
     jupiter: getJupiter(),
     priorityFee: heliusPriorityFee(`${window.location.origin}/api/rpc`),
     settings: {
-      ...pageSettings,
+      ...settingsFor(q),
       feeBps: FEE_BPS,
       treasury: TREASURY,
       excludeDexes: s.excludeDexes,
@@ -1156,6 +1172,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     /** The minimum the user accepted, as shown: what the wallet keeps after a fee from the output. */
     inDecimals: number; outDecimals: number; acceptedMinReceived: bigint; version: TxVersion; status: PublicStatus;
     expectCurve: boolean; v1Fallback: boolean;
+    /** The quote the user accepted: Auto's tolerance for it, if any, is the one the swap is built at. */
+    quote: Pick<Quote, 'autoBps' | 'curve'>;
   }): Promise<PreparedSwap | null> {
     let accepted = args.acceptedMinReceived;
     let acceptedCost: bigint | undefined;
@@ -1163,7 +1181,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     for (let round = 0; ; round++) {
       try {
         return await prepareProtectedSwap(
-          swapDeps(args.status),
+          swapDeps(args.status, args.quote),
           {
             owner: args.owner, ephemeral: args.E, inputMint: address(args.inToken.id), outputMint: address(args.outToken.id),
             amountIn: args.amountIn, inputDecimals: args.inDecimals, outputDecimals: args.outDecimals,
@@ -1184,7 +1202,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
             kind: 'price',
             was: `${formatExact(accepted, args.outDecimals)} ${symbol}`,
             now: `${formatExact(e.priceMoved.newMinReceived, args.outDecimals)} ${symbol}`,
-            tolerance: percentText(pageSettings.chosenSlippageBps ?? (args.expectCurve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)),
+            tolerance: percentText(toleranceOf(args.quote)),
           });
           if (!accept) return null;
           accepted = e.priceMoved.newMinReceived;
@@ -1247,7 +1265,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       const entry = { key, startedAt: Date.now(), settled: false, task: null as unknown as Promise<{ prepared: PreparedSwap; E: KeyPairSigner } | null> };
       entry.task = (async () => {
         const E = await createEphemeral();
-        return { prepared: await prepareProtectedSwap(swapDeps(status), { ...request, ephemeral: E }), E };
+        return { prepared: await prepareProtectedSwap(swapDeps(status, quote), { ...request, ephemeral: E }), E };
       })().then(built => {
         setVerifiedKey(key);
         return built;
@@ -1301,7 +1319,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     const texts: SwapTexts = { paid: `${formatUnits(amountIn, inDecimals)} ${inToken.symbol}`, received: '', exposed: '', minimum: '' };
     // The tolerance this swap is built at, for the words about its price.
     const priceContext: PriceContext = {
-      tolerance: percentText(pageSettings.chosenSlippageBps ?? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)),
+      tolerance: percentText(toleranceOf(quote)),
       curveHint: quote.curve && pageSettings.chosenSlippageBps !== undefined && pageSettings.chosenSlippageBps < DEFAULT_SETTINGS.curveSlippageBps,
       tightHint: !quote.curve && pageSettings.chosenSlippageBps !== undefined && pageSettings.chosenSlippageBps < WARN_BELOW_BPS,
     };
@@ -1315,7 +1333,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       const shown = minReceived;
       const shownSolFee = feeSide === 'sol' ? solFeeEstimate : null;
       const build = (E: KeyPairSigner, acceptedMinReceived: bigint) => prepareAccepted({
-        E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinReceived, version, status, expectCurve: quote.curve,
+        E, owner: W, inToken, outToken, amountIn, inDecimals, outDecimals, acceptedMinReceived, version, status, expectCurve: quote.curve, quote,
         v1Fallback: v1Fallback(supportedVersions(wallet), V1_ENABLED),
       });
       // A large price impact is asked about before anything is built, as other swap pages do.
@@ -1447,7 +1465,13 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       // Reverted on chain, or refused by the network's preflight, because the price moved past the minimum.
       const onPrice = (result.status === 'failed' && revertedOnPrice(result.sent, result.error, JUPITER_PROGRAM))
         || (result.status === 'rejected' && !!result.transactionError && revertedOnPrice(result.sent, result.transactionError, JUPITER_PROGRAM));
-      setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice, ...priceContext }));
+      const outcome = outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice, ...priceContext });
+      // Which route missed the minimum, and the program's own error: what the logs need to tell the
+      // market from Orientim. An error code is written in hex, which the report keeps.
+      const error = (result.status === 'failed' ? result.error : result.transactionError) ?? '';
+      setNotice(onPrice
+        ? { ...outcome, detail: `route ${toSend.quote.route.join(' + ')}; ${error.replace(/"Custom":(\d+)/g, (_, n: string) => `"Custom":0x${Number(n).toString(16)}`)}` }
+        : outcome);
       if (result.status === 'confirmed') setAmountText('');
     } catch (e) {
       if (sent.signature) {
@@ -1514,9 +1538,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     const n = (x: number) => x.toLocaleString('en-US', { maximumSignificantDigits: 6 });
     return rateInverted ? `1 ${tokenOut.symbol} ≈ ${n(1 / perIn)} ${tokenIn.symbol}` : `1 ${tokenIn.symbol} ≈ ${n(perIn)} ${tokenOut.symbol}`;
   })();
-  const tolerance = quote
-    ? (pageSettings.chosenSlippageBps ?? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)) / 100
-    : null;
+  const tolerance = quote ? toleranceOf(quote) / 100 : null;
 
   const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
