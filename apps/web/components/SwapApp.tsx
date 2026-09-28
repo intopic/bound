@@ -40,7 +40,7 @@ import type { ConfirmedMeta } from '@/lib/client/received';
 import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
 import type { Problem } from '@/lib/client/problems';
 import { reportProblem } from '@/lib/client/report';
-import { loadSlippage, percentText, saveSlippage, withSlippage } from '@/lib/client/slippage';
+import { loadSlippage, percentText, saveSlippage, slippageWarning, WARN_BELOW_BPS, withSlippage } from '@/lib/client/slippage';
 import type { SlippageChoice } from '@/lib/client/slippage';
 import { Modal } from './Modal';
 import { SlippageSettings } from './SlippageSettings';
@@ -51,10 +51,11 @@ import { MobileNav } from './site/MobileNav';
 
 type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
 /**
- * A message in the corner of the page. `detail`: the raw error behind the words, kept in this browser
+ * A message in the corner of the page. `progress`: a step of a swap still under way, not a problem, so
+ * it is not kept with them. `detail`: the raw error behind the words, kept in this browser
  * for when help is asked (never shown by itself). `sticky`: it stays until the page takes it back.
  */
-type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string; sticky?: boolean };
+type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string; sticky?: boolean; progress?: boolean };
 /**
  * `curve`: the route trades on a Pump.fun bonding curve, so its tolerance is the wider one.
  * `impact`: how much this amount moves the market price, as Jupiter reports it: a fraction, so
@@ -278,6 +279,12 @@ const SETTLE_BY_HAND_MS = 30_000;
 /** Holdings older than this are read again when the token window opens. */
 const HOLDINGS_FRESH_MS = 30_000;
 
+/** Said when the wallet switched to another account mid-swap, before the old one signed. */
+const ACCOUNT_SWITCHED: Notice = {
+  kind: 'info', title: 'Your wallet switched accounts',
+  body: 'This swap was prepared for your previous account, so it was stopped before signing. Nothing was sent and no funds moved. Review it for the new account and swap again.',
+};
+
 /** Said when this browser will not keep a swap's record: without it, a swap whose answer is lost could be forgotten. */
 const NO_STORAGE: Notice = {
   kind: 'error', title: "Your browser isn't saving this site's data",
@@ -286,11 +293,14 @@ const NO_STORAGE: Notice = {
 };
 
 /**
- * What a message about the price may say about this swap: the tolerance it was built at ("1%"), and
- * whether a hint about Pump.fun's launch curve helps (a curve token, a chosen tolerance under 3%).
+ * What a message about the price may say about this swap: the tolerance it was built at ("1%"),
+ * whether a hint about Pump.fun's launch curve helps (a curve token, a chosen tolerance under 3%),
+ * and whether one about a very tight tolerance does (one chosen under 0.3%).
  */
-type PriceContext = { tolerance?: string; curveHint?: boolean };
+type PriceContext = { tolerance?: string; curveHint?: boolean; tightHint?: boolean };
 const CURVE_HINT = 'This token is still on its launch curve and moves fast. Auto uses 3% for it.';
+/** Said when the person chose a tolerance under 0.3%: a swap that tight often cancels itself. */
+const TIGHT_HINT = 'A tolerance this tight often cancels; Auto (0.5%) usually goes through.';
 const RAISE_TOLERANCE = 'Try again, or raise your slippage tolerance (⚙️).';
 
 /** The words for a failure, with the raw error kept beside them (lib/client/problems). */
@@ -340,7 +350,7 @@ function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
       return /price moved|slippage/i.test(m)
         ? {
           kind: 'info', title: price.tolerance ? `Price moved beyond your ${price.tolerance} tolerance` : 'Price moved beyond your tolerance',
-          body: `${NOTHING_SENT} ${RAISE_TOLERANCE}${price.curveHint ? ` ${CURVE_HINT}` : ''}`,
+          body: `${NOTHING_SENT} ${RAISE_TOLERANCE}${price.tightHint ? ` ${TIGHT_HINT}` : ''}${price.curveHint ? ` ${CURVE_HINT}` : ''}`,
         }
         : { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` };
     case 'verification-failed':
@@ -423,13 +433,22 @@ function outcomeNotice(
       return why.onPrice
         ? {
           kind: 'info', title: why.tolerance ? `Swap cancelled: price moved beyond your ${why.tolerance} tolerance` : 'Swap cancelled: price moved beyond your tolerance',
-          body: `Your minimum of ${t.minimum} was enforced on-chain, so nothing was swapped. Only the network fee was used. ${RAISE_TOLERANCE}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
+          body: `Your minimum of ${t.minimum} was enforced on-chain, so nothing was swapped. Only the network fee was used. ${RAISE_TOLERANCE}${why.tightHint ? ` ${TIGHT_HINT}` : ''}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
           link,
         }
         : { kind: 'error', title: "The swap didn't complete", body: 'It was reverted on the network. Only the network fee was paid.', link };
     case 'expired':
       return { kind: 'info', title: "The swap didn't land in time", body: 'It expired without executing and can no longer execute. No funds moved.', link };
     case 'rejected':
+      // The network's preflight found the market already past the minimum: the same protection, a
+      // step earlier, before anything was sent, so not even the network fee was paid.
+      if (why.onPrice) {
+        return {
+          kind: 'info', title: why.tolerance ? `Price moved beyond your ${why.tolerance} tolerance` : 'Price moved beyond your tolerance',
+          body: `The network checked the swap before sending it and less than your minimum of ${t.minimum} would have arrived, so it wasn't sent. No funds moved. `
+            + `${RAISE_TOLERANCE}${why.tightHint ? ` ${TIGHT_HINT}` : ''}${why.curveHint ? ` ${CURVE_HINT}` : ''}`,
+        };
+      }
       if (why.refusal === 'paused') {
         return { kind: 'info', title: 'Protected swaps were paused', body: "New swaps were paused before this one was sent. It wasn't sent, so no funds moved." };
       }
@@ -532,6 +551,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const [feeSide, setFeeSide] = useState<FeeSide | null>('input');
   const [clock, setClock] = useState(0);
   const [refreshes, setRefreshes] = useState(0);
+  // When the price next refreshes on its own, for the countdown under it; null when it will not.
+  const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   // The person's slippage choice (⚙️): "auto" unless they chose one. Read after the first render, since
   // the server renders without the browser's storage.
   const [slippage, setSlippage] = useState<SlippageChoice>('auto');
@@ -545,6 +567,10 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   // Ends the wait on the wallet from the page: a wallet that never answers (a popup closed without a
   // refusal, a phone that went back to the browser) would otherwise hold the page until a reload.
   const stopWaitingOnWallet = useRef<(() => void) | null>(null);
+  // The phase as the wallet's change events see it, and whether the account changed mid-swap.
+  const phaseNow = useRef<Phase>('idle');
+  phaseNow.current = phase;
+  const accountSwitched = useRef(false);
 
   const W = account ? (account.address as Address) : null;
   // The mint owner is the token program. It is part of every ATA derivation, so keep these facts
@@ -560,7 +586,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   /** Keeps a message (not a success) with its raw error, and reports an error; `who` names the wallet it is about. */
   function keepProblem(n: Notice, who = wallet) {
     setDetailsCopied(false);
-    if (n.kind === 'success') return;
+    if (n.kind === 'success' || n.progress) return;
     const pair = tokenIn && tokenOut ? `${amountText || '?'} ${tokenIn.symbol} → ${tokenOut.symbol}` : 'no pair';
     const walletName = who ? `${who.name} ${who.version}` : 'no wallet';
     shown.current = {
@@ -671,6 +697,13 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     if (!wallet) return;
     return onAccountChange(wallet, accounts => {
       const next = accounts[0] ?? null;
+      // Another account mid-swap: the swap was built for the one before, so it stops before that
+      // one is asked to sign. A question on the card is answered no; a wait on the wallet ends.
+      if (phaseNow.current !== 'idle' && phaseNow.current !== 'sending' && next?.address !== account?.address) {
+        accountSwitched.current = true;
+        decideOffer.current?.(false);
+        stopWaitingOnWallet.current?.();
+      }
       setAccount(next);
       // Disconnected from inside the wallet: it is not reconnected on the next visit either.
       if (!next) {
@@ -679,7 +712,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         rememberWallet(null);
       }
     });
-  }, [wallet]);
+  }, [wallet, account]);
 
   const refreshBalances = useCallback(async () => {
     const request = ++balanceRequest.current; // only the latest request may set balances
@@ -769,7 +802,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   // price has refreshed itself a few times. After that the page waits for the user.
   useEffect(() => {
     // Nothing to refresh until an amount is entered, so an idle visitor costs nothing at all.
-    if (phase !== 'idle' || refreshes >= AUTO_REFRESHES || !swapAmount) return;
+    if (phase !== 'idle' || refreshes >= AUTO_REFRESHES || !swapAmount) return setNextRefreshAt(null);
+    setNextRefreshAt(Date.now() + QUOTE_REFRESH_MS);
     const timer = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       setClock(c => c + 1);
@@ -777,6 +811,16 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     }, QUOTE_REFRESH_MS);
     return () => clearInterval(timer);
   }, [phase, refreshes, swapAmount]);
+
+  // The countdown ticks each second, only while a price is shown and will refresh on its own.
+  const counting = nextRefreshAt !== null && quote !== null;
+  useEffect(() => {
+    if (!counting) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [counting]);
+  const refreshIn = counting ? Math.max(0, Math.ceil((nextRefreshAt - now) / 1_000)) : null;
 
   /** Asked for by the user, so the count starts again. */
   const refreshNow = () => {
@@ -1252,6 +1296,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
 
     setNotice(null);
     setPhase('checking');
+    accountSwitched.current = false;
     const sent: { signature: string | null } = { signature: null };
     let settled = true;
     const texts: SwapTexts = { paid: `${formatUnits(amountIn, inDecimals)} ${inToken.symbol}`, received: '', exposed: '', minimum: '' };
@@ -1259,8 +1304,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     const priceContext: PriceContext = {
       tolerance: percentText(pageSettings.chosenSlippageBps ?? (quote.curve ? DEFAULT_SETTINGS.curveSlippageBps : DEFAULT_SETTINGS.slippageBps)),
       curveHint: quote.curve && pageSettings.chosenSlippageBps !== undefined && pageSettings.chosenSlippageBps < DEFAULT_SETTINGS.curveSlippageBps,
+      tightHint: !quote.curve && pageSettings.chosenSlippageBps !== undefined && pageSettings.chosenSlippageBps < WARN_BELOW_BPS,
     };
-    const cancelled = () => setNotice({ kind: 'info', title: 'Swap cancelled', body: 'Nothing was signed and no funds moved.' });
+    const cancelled = () => setNotice(accountSwitched.current ? ACCOUNT_SWITCHED : { kind: 'info', title: 'Swap cancelled', body: 'Nothing was signed and no funds moved.' });
     // A build made ahead of the click is used at most once.
     const early = ahead.current;
     ahead.current = null;
@@ -1321,6 +1367,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       if (prepared.priorityFeeCapped) {
         setNotice({ kind: 'info', title: 'The network is busy', body: 'This swap may take longer to go through, or expire without executing. An expired swap costs nothing.' });
       }
+      if (accountSwitched.current) return cancelled();
       setPhase('wallet');
       lock.refresh();
       const toSend = prepared;
@@ -1336,6 +1383,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       ]).finally(() => {
         stopWaitingOnWallet.current = null;
       });
+      if (!signed && accountSwitched.current) return cancelled();
       if (!signed) {
         setNotice({
           kind: 'info', title: 'Swap cancelled',
@@ -1369,6 +1417,13 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         // Phantom may add Lighthouse assertions before it signs; nothing else it changes is accepted.
         acceptAssertions: true,
         onStatus: (s, signature) => {
+          // The network took it: said at once, with the link, while the page waits for the outcome.
+          if (s === 'sent') {
+            setNotice({
+              kind: 'info', title: 'Swap submitted', body: 'Waiting for the network to confirm it. This usually takes a few seconds.',
+              link: solscan(signature), sticky: true, progress: true,
+            });
+          }
           if (s !== 'sending') return;
           // Recorded before anything is sent, and never sent unless recorded, so it is never lost:
           // `addHistory` throws when this browser did not keep the record, and the send stops before
@@ -1390,7 +1445,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       }
       setHistory(updateHistory(result.signature, result.status, texts.received || undefined));
       settled = result.status !== 'unknown';
-      const onPrice = result.status === 'failed' && revertedOnPrice(result.sent, result.error, JUPITER_PROGRAM);
+      // Reverted on chain, or refused by the network's preflight, because the price moved past the minimum.
+      const onPrice = (result.status === 'failed' && revertedOnPrice(result.sent, result.error, JUPITER_PROGRAM))
+        || (result.status === 'rejected' && !!result.transactionError && revertedOnPrice(result.sent, result.transactionError, JUPITER_PROGRAM));
       setNotice(outcomeNotice(result.status, result.signature, texts, { refusal: result.refusal, onPrice, ...priceContext }));
       if (result.status === 'confirmed') setAmountText('');
     } catch (e) {
@@ -1401,7 +1458,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         setNotice(outcomeNotice('unknown', sent.signature, texts));
       } else {
         if (busyError(e) || jupiterBusy(e)) busyUntil.current = Date.now() + BUSY_BACKOFF_MS;
-        setNotice(explainError(e, priceContext));
+        // A wallet refusing to sign for the account it just left is the switch, not an error.
+        setNotice(accountSwitched.current ? ACCOUNT_SWITCHED : explainError(e, priceContext));
       }
     } finally {
       lock.release(settled);
@@ -1465,6 +1523,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   if (impact === null) inWarnings.unshift('Price impact unavailable: Jupiter did not say how much this amount moves the market price.');
   else if (impact !== undefined && impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(impact)}: this amount moves the market price.`);
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
+  // A tolerance chosen very tight or very wide is said on the card, not only in the settings.
+  const slipWarning = quote ? slippageWarning(slippage) : null;
+  if (slipWarning) inWarnings.unshift(slipWarning.text);
   // A token that taxes its own transfers costs more through Orientim, because the protected account
   // is one extra transfer. Said before the swap, not after it.
   if (tokenIn && inFacts && inFacts !== 'missing' && inFacts.transferFee) {
@@ -1649,6 +1710,12 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           </div>
           <p className="hint">
             {outUsd !== null ? `≈ ${formatUsd(outUsd)}` : ' '}
+            {quote && !busy && (quoting || refreshIn !== null) && (
+              <span className="refresh-in">
+                {outUsd !== null && ' · '}
+                {quoting || refreshIn === 0 ? 'Updating price…' : `Price refreshes in ${refreshIn}s`}
+              </span>
+            )}
             {((quote && refreshes >= AUTO_REFRESHES) || (!quote && busyTries > QUOTE_BUSY_RETRIES)) && (
               <>
                 {outUsd !== null && ' · '}
@@ -1853,6 +1920,13 @@ export function SwapApp({ children }: { children?: ReactNode }) {
             const same = picking === 'in' ? tokenIn : tokenOut;
             if (other && t.id === other.id) flip();
             else if (!same || t.id !== same.id) (picking === 'in' ? setTokenIn : setTokenOut)(t);
+            // A token Jupiter has not verified is said once, as it is chosen, as well as on the card.
+            if (!t.isVerified && (!same || t.id !== same.id)) {
+              setNotice({
+                kind: 'info', title: `${t.symbol} is not verified`,
+                body: `Anyone can create a token with this name. Check that the address ${shortAddress(t.id)} is the one you mean before you swap.`,
+              });
+            }
             setPicking(null);
           }}
         />

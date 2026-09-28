@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
 import {
-  isChoice, MAX_CHOSEN_BPS, MIN_CHOSEN_BPS, parsePercent, percentText, SLIPPAGE_PRESETS, WARN_ABOVE_BPS,
+  isChoice, MAX_CHOSEN_BPS, MIN_CHOSEN_BPS, parsePercent, percentText, SLIPPAGE_PRESETS, slippageWarning, WARN_ABOVE_BPS,
 } from '@/lib/client/slippage';
 import type { SlippageChoice } from '@/lib/client/slippage';
 
@@ -26,6 +26,7 @@ export function SlippageSettings(props: { choice: SlippageChoice; onChange: (cho
   const { choice } = props;
   const custom = choice !== 'auto' && !(SLIPPAGE_PRESETS as readonly number[]).includes(choice);
   const high = choice !== 'auto' && choice > WARN_ABOVE_BPS;
+  const low = slippageWarning(choice)?.level === 'low';
   const typedBps = typed ? parsePercent(typed) : null;
   const label = choice === 'auto' ? 'Auto' : percentText(choice);
 
@@ -39,7 +40,7 @@ export function SlippageSettings(props: { choice: SlippageChoice; onChange: (cho
     <>
       <button
         type="button"
-        className={`slippage-button${high ? ' high' : ''}${choice === 'auto' ? ' auto' : ''}`}
+        className={`slippage-button${high || low ? ' high' : ''}${choice === 'auto' ? ' auto' : ''}`}
         onClick={() => setOpen(true)}
         disabled={props.disabled}
         title="Slippage tolerance"
@@ -80,6 +81,11 @@ export function SlippageSettings(props: { choice: SlippageChoice; onChange: (cho
           {choice === 'auto' && <p className="hint">Auto is 0.5%, or 3% for a token still on its Pump.fun launch curve.</p>}
           {typed && typedBps === null && (
             <p className="key-error">Enter {percentText(MIN_CHOSEN_BPS)} to {percentText(MAX_CHOSEN_BPS)}.</p>
+          )}
+          {low && (
+            <p className="warnings slippage-warning">
+              Low tolerance: if the price moves even slightly before your swap lands, it cancels itself. Nothing is swapped then, and you can try again.
+            </p>
           )}
           {high && (
             <p className="warnings slippage-warning">

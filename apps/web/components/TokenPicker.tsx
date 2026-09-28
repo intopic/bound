@@ -112,7 +112,7 @@ export function TokenPicker(props: {
           <span className="picker-text">
             <span className="picker-symbol">
               {t.symbol}
-              {t.isVerified && <span className="badge ok">Verified</span>}
+              {t.isVerified ? <span className="badge ok">Verified</span> : <span className="badge warn">Not verified</span>}
               {!supported && <span className="badge">Not supported yet</span>}
             </span>
             <span className="picker-name">

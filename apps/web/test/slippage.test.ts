@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '@orientim/jupiter';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
-import { isChoice, loadSlippage, parsePercent, percentText, saveSlippage, withSlippage } from '../lib/client/slippage.ts';
+import { isChoice, loadSlippage, parsePercent, percentText, saveSlippage, slippageWarning, withSlippage } from '../lib/client/slippage.ts';
 
 const store = () => {
   const m = new Map<string, string>();
@@ -69,5 +69,20 @@ describe("what reaches the swap's settings", () => {
     const chosen = withSlippage(DEFAULT_SETTINGS, 300);
     expect(chosen.chosenSlippageBps).toBe(300);
     expect(chosen.slippageBps).toBe(DEFAULT_SETTINGS.slippageBps);
+  });
+});
+
+describe('what the page says about a chosen tolerance', () => {
+  it('warns below 0.3% that the swap may cancel itself', () => {
+    expect(slippageWarning(10)).toMatchObject({ level: 'low' });
+    expect(slippageWarning(10)!.text).toContain('0.1%');
+    expect(slippageWarning(29)?.level).toBe('low');
+  });
+  it('warns above 5% that less may arrive', () => {
+    expect(slippageWarning(501)).toMatchObject({ level: 'high' });
+    expect(slippageWarning(1500)!.text).toContain('15%');
+  });
+  it('says nothing about Auto or an ordinary choice', () => {
+    for (const c of ['auto', 30, 50, 100, 300, 500] as const) expect(slippageWarning(c)).toBeNull();
   });
 });

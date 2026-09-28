@@ -14,6 +14,23 @@ export const MIN_CHOSEN_BPS = 10;
 export const MAX_CHOSEN_BPS = MAX_CHOSEN_SLIPPAGE_BPS;
 /** Above this the page warns, and the choice lasts for this visit only. */
 export const WARN_ABOVE_BPS = 500;
+/** Below this the page warns that the swap may cancel itself: 0.3%, under the 0.5% of Auto. */
+export const WARN_BELOW_BPS = 30;
+
+/**
+ * What the page says about a tolerance the person chose, as swap sites do: too tight, and the swap
+ * may cancel itself; too wide, and less may arrive. Auto says nothing.
+ */
+export function slippageWarning(choice: SlippageChoice): { level: 'low' | 'high'; text: string } | null {
+  if (choice === 'auto') return null;
+  if (choice < WARN_BELOW_BPS) {
+    return { level: 'low', text: `Slippage ${percentText(choice)} is very tight: your swap may cancel itself if the price moves even slightly.` };
+  }
+  if (choice > WARN_ABOVE_BPS) {
+    return { level: 'high', text: `Slippage ${percentText(choice)} is high: you may receive much less than the quote, and trading bots can take the difference.` };
+  }
+  return null;
+}
 
 const KEY = 'orientim.slippage.v1';
 
