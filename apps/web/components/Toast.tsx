@@ -4,11 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 /**
- * How long a message stays before it goes away on its own, as on other swap sites: long enough to
- * read an error twice. The time stops while the pointer or the keyboard is on the message, and
+ * How long a message stays before it goes away on its own, as on other swap sites: short, since a
+ * message that stays in the way is worse than one read once. The time stops while the pointer or the keyboard is on the message, and
  * while the tab is hidden, so nobody misses one by looking away.
  */
-export const TOAST_MS = { success: 8_000, info: 8_000, error: 10_000 } as const;
+export const TOAST_MS = { success: 4_000, info: 4_000, error: 6_000 } as const;
 
 /**
  * One message in the corner of the page, over the swap: the top right on a computer, the bottom on a
