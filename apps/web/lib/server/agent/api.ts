@@ -1,11 +1,13 @@
 import { getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
 import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
+import { TOKEN_2022_PROGRAM } from '@orientim/core/constants';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
 import type { TxVersion } from '@orientim/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
-import { fetchAccounts, fetchMints, httpStatusOf, sendOnce } from '@orientim/solana';
+import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/solana';
+import { hasPermanentDelegate } from '@orientim/verifier';
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
 import { rateLimited, secondsUntilReset } from '../rateLimit';
@@ -161,6 +163,8 @@ function explain(e: unknown): Response {
   return fail(500, 'internal', 'Something went wrong. Nothing was signed by Orientim or sent.');
 }
 
+const authoritiesOf = (m: { freezeAuthority: boolean; mintAuthority: boolean }) => ({ freezeAuthority: m.freezeAuthority, mintAuthority: m.mintAuthority });
+
 export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Response> {
   if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was built.');
   const auth = await authenticate(req, deps);
@@ -207,7 +211,13 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
 
   try {
     const [inMint, outMint] = [inputMint as Address, outputMint as Address];
-    const mints = await fetchMints(deps.rpc, [inMint, outMint]);
+    const mintStates = await fetchAccounts(deps.rpc, [inMint, outMint]);
+    const mints = new Map([inMint, outMint].map(m => [m as string, mintInfoOf(mintStates.get(m))]));
+    // A Token-2022 permanent delegate: its issuer can move or burn any holder's balance.
+    const permanentDelegate = (m: Address) => {
+      const s = mintStates.get(m);
+      return !!s && s.owner === TOKEN_2022_PROGRAM && hasPermanentDelegate(s.data);
+    };
     for (const m of [inMint, outMint]) {
       if (!mints.get(m)?.exists) return fail(422, 'unsupported-token', `${m} is not a token Orientim can swap.`);
     }
@@ -247,6 +257,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString() } : {}),
     });
     const p = prepared.policy;
+    const feeMint = p.feeSide === 'output' ? p.outputMint : p.feeSide === 'sol' ? WSOL_MINT : p.inputMint;
+    const solFee = feeMint === WSOL_MINT ? p.fee : 0n;
     // What the transaction has left to live, in blocks: 150 at most, about 40 s.
     const height = await deps.rpc.getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
     return json(200, {
@@ -262,7 +274,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         // Like Jupiter's fee: in SOL first, then USDC or USDT, on whichever side; otherwise the input;
         // and SOL from the wallet for a pair neither token of which can carry it (`policy.feeSide` sol).
         amountIn: p.amountIn, fee: p.fee,
-        feeMint: p.feeSide === 'output' ? p.outputMint : p.feeSide === 'sol' ? WSOL_MINT : p.inputMint,
+        feeMint,
         feeBps: p.fee === 0n ? 0n : p.feeBps, swapAmount: p.swapAmount,
         // What the wallet keeps at least, after a fee taken from the output.
         quotedOut: prepared.quote.outAmount, minOut: prepared.quote.minReceived, priceImpactPct: prepared.quote.priceImpactPct,
@@ -273,20 +285,33 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         routeRentLamports: prepared.oneTimeCosts.routeRent,
         // Returned to the wallet in the same transaction when Orientim closes the market's account.
         routeRefundLamports: prepared.oneTimeCosts.routeRefund,
-        // All the SOL the swap costs and does not return, in one number:
-        // the network fee, rent the route keeps, and Orientim's fee when paid in SOL. A new output
-        // account's rent is apart: it stays the wallet's own.
-        keptSolLamports: prepared.networkFeeLamports + prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund
-          + (p.feeSide === 'sol' ? p.fee : 0n),
+        // Rent the route keeps: routeRentLamports less what comes back.
+        routeKeptLamports: prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund,
+        // Orientim's fee when it is in SOL, whichever side it is taken from (SOL sold, SOL bought,
+        // or the wallet's own SOL); 0 when it is in another token.
+        orientimFeeSolLamports: solFee,
+        // All the SOL the swap costs and does not return, in one number: the network fee, rent the
+        // route keeps, and Orientim's fee when it is in SOL. The SOL the swap itself sells is not a
+        // cost, and a new output account's rent is apart: it stays the wallet's own.
+        keptSolLamports: prepared.networkFeeLamports + prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund + solFee,
+        // What the swap spends, apart: the amount swapped, Orientim's fee in its own token, and the SOL costs above.
+        breakdown: {
+          principal: { mint: p.inputMint, amount: p.swapAmount },
+          orientimFee: { mint: feeMint, amount: p.fee },
+          networkFeeLamports: prepared.networkFeeLamports,
+          rentReturnedLamports: prepared.oneTimeCosts.routeRefund,
+          rentKeptLamports: prepared.oneTimeCosts.routeRent - prepared.oneTimeCosts.routeRefund,
+        },
         tokenTax: prepared.tokenTax,
       },
       // networkBusy: the priority fee is at its limit, so the swap may land late or expire.
       notices: { ...prepared.notices, networkBusy: prepared.priorityFeeCapped },
-      // What the mint accounts say about the tokens themselves: an issuer that can freeze balances or
-      // mint more. Orientim's word; the skill reads the same on the agent's own RPC.
+      // What the mint accounts say about the tokens themselves: an issuer that can freeze balances,
+      // mint more, or move and burn anyone's balance (a permanent delegate). Orientim's word; the skill
+      // reads the same on the agent's own RPC (tokenRisk).
       tokens: {
-        input: { freezeAuthority: mints.get(inMint)!.freezeAuthority, mintAuthority: mints.get(inMint)!.mintAuthority },
-        output: { freezeAuthority: mints.get(outMint)!.freezeAuthority, mintAuthority: mints.get(outMint)!.mintAuthority },
+        input: { ...authoritiesOf(mints.get(inMint)!), permanentDelegate: permanentDelegate(inMint) },
+        output: { ...authoritiesOf(mints.get(outMint)!), permanentDelegate: permanentDelegate(outMint) },
       },
       ...(slippageBps !== undefined ? { slippageBps } : {}),
       route: prepared.quote.route,

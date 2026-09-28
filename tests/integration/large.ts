@@ -161,7 +161,7 @@ for (const [a, b] of PAIRS) {
       rows.push({
         pair: `${a}→${b}`, size, ok: true, detail: prepared.quote.route.join(' + ').slice(0, 60),
         bytes: prepared.size, legs: prepared.quote.route.length, hops: prepared.intermediates.length,
-        impactPct: prepared.quote.priceImpactPct, unitPrice,
+        impactPct: prepared.quote.priceImpactPct ?? undefined, unitPrice,
         lossVsSmallestPct: smallestUnitPrice ? (1 - unitPrice / smallestUnitPrice) * 100 : 0,
         simulated, ms: Date.now() - started,
       });

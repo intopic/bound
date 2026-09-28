@@ -158,7 +158,7 @@ export type PreparedSwap = {
   computeUnits: number;
   /** `minOut` is enforced by Orientim's own check after the swap, not only by Jupiter. */
   quote: {
-    inAmount: bigint; outAmount: bigint; minOut: bigint; route: string[]; priceImpactPct: number; baselineOut: bigint;
+    inAmount: bigint; outAmount: bigint; minOut: bigint; route: string[]; priceImpactPct: number | null; baselineOut: bigint;
     /** What the wallet keeps at least: `minOut`, less a fee taken from the output. What to show. */
     minReceived: bigint;
     /** How far below the unrestricted route this one sits, in bps: the cost of the protection. */
@@ -317,6 +317,16 @@ type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps' | 'chosen
  * must also be among the swap instruction's accounts: a label alone is Jupiter's word, unchecked,
  * and it would widen the tolerance of any route it was put on.
  */
+/**
+ * Jupiter's price impact as a fraction (negative when the route beats the reference price), or null
+ * when it is missing or not a number: unknown, never read as none.
+ */
+export function priceImpactOf(v: unknown): number | null {
+  if (typeof v === 'number' ? !Number.isFinite(v) : typeof v !== 'string' || v.trim() === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function isCurveRoute(r: Pick<BuildResponse, 'routePlan' | 'swapInstruction'>): boolean {
   return r.routePlan.some(p => p.swapInfo.label === BONDING_CURVE_LABEL)
     && r.swapInstruction.accounts.some(a => a.pubkey === CURVE_PROGRAM);
@@ -1332,7 +1342,7 @@ export async function prepareProtectedSwap(deps: {
           minOut: chosenPolicy.minOut,
           minReceived: minimumReceived(chosenPolicy),
           route,
-          priceImpactPct: Number(chosen.r.priceImpactPct ?? 0),
+          priceImpactPct: priceImpactOf(chosen.r.priceImpactPct),
           baselineOut,
           gapBps: chosenGapBps,
         },

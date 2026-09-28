@@ -174,9 +174,9 @@ export function CapsuleFlow() {
       <rect x="130" y="88" width="80" height="30" rx="15" fill="none" stroke="#7ce3b0" strokeWidth="1.5" opacity="0">
         <animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;.9;.93;.99;1" dur={DUR} repeatCount="indefinite" />
       </rect>
-      <text x="600" y="294" textAnchor="middle" className="svg-text">then the one-time key is gone</text>
+      <text x="600" y="294" textAnchor="middle" className="svg-text">then the temporary accounts are closed</text>
       <text x="600" y="294" textAnchor="middle" className="svg-text svg-good" opacity="0">
-        then the one-time key is gone
+        then the temporary accounts are closed
         <animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;.9;.94;.99;1" dur={DUR} repeatCount="indefinite" />
       </text>
     </svg>
@@ -291,8 +291,8 @@ function StationBadge() {
 }
 
 /**
- * Every swap an agent makes is checked twice, independently: by Orientim when it builds it, and by
- * the agent on its own RPC before its wallet signs; then the chain enforces the minimum. Plays once
+ * Every swap an agent makes is verified twice: by Orientim when it builds it, and again next to the
+ * signer, by the agent with the same verifier on its own RPC, before its wallet signs; then the chain enforces the minimum. Plays once
  * when it comes into view; "What if the server lies?" shows a compromised server's swap refused by
  * the agent. At rest, and for people who ask for less motion, all three checks are shown passed.
  */
@@ -369,7 +369,7 @@ export function CheckedTwice() {
       </div>
       <div className="ct-verdict">
         <p role="status" className={view.verdict ?? 'wait'}>
-          {view.verdict === 'bad' ? 'The wallet never signed. Nothing moved.' : 'Two independent checks, one on-chain guarantee.'}
+          {view.verdict === 'bad' ? 'The wallet never signed. Nothing moved.' : 'Verified when prepared, again on the agent’s own RPC, then enforced on chain.'}
         </p>
         <div className="ct-controls">
           <button type="button" className="ct-btn" onClick={() => play(false)}>Replay</button>

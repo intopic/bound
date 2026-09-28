@@ -20,6 +20,7 @@ import {
 import { getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
 import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
+import { priceImpactOf } from '@orientim/jupiter';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
@@ -35,7 +36,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ORIENTIM_TREASURY, MAX_BELOW_BPS, inputTransferFee, ownMinimum, ownQuote, tokenNotices } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
+import { ORIENTIM_TREASURY, MAX_BELOW_BPS, inputTransferFee, noticesOf, ownMinimum, ownQuote, solFeeOf, tokenNotices, tokenRisk } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
 import { jupiterRouteArgs, routeAccountFor } from '@orientim/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
@@ -1345,6 +1346,33 @@ describe('what "no record" proves, a finalize asked again, what a route leaves o
     const tight = await checkPrepared(honest, { ...intentFor(b.wallet), maxSolCostLamports: 1 }, b.agentRpc);
     expect(tight.join()).toContain('(maxSolCostLamports)');
   });
+
+  it("Orientim's fee counts in that ceiling whenever it is in SOL, from whichever side it is taken", async () => {
+    // With a treasury wallet for SOL, the fee on a swap into SOL is taken from the SOL bought.
+    const b = await orientim({ treasuryWallet: true });
+    const honest = await honestAnswer(b);
+    expect(honest.amounts.feeMint).toBe(WSOL_MINT);
+    const fee = BigInt(honest.amounts.fee);
+    expect(fee).toBeGreaterThan(0n);
+    const c = honest.costs as Prepared['costs'] & { breakdown: Record<string, unknown> };
+    expect(BigInt(c.orientimFeeSolLamports!)).toBe(fee);
+    expect(BigInt(c.keptSolLamports!)).toBe(BigInt(c.networkFeeLamports) + BigInt(c.routeKeptLamports!) + fee);
+    expect(c.breakdown).toEqual({
+      principal: { mint: USDC, amount: honest.amounts.swapAmount },
+      orientimFee: { mint: WSOL_MINT, amount: honest.amounts.fee },
+      networkFeeLamports: c.networkFeeLamports, rentReturnedLamports: c.routeRefundLamports, rentKeptLamports: c.routeKeptLamports,
+    });
+    // The fee is far above the network fee here: a ceiling below the fee alone is refused, one with
+    // room for the fee and the network fee passes.
+    expect(fee).toBeGreaterThan(1_000_000n);
+    const tooLow = await checkPrepared(honest, { ...intentFor(b.wallet), maxSolCostLamports: Number(fee - 1n) }, b.agentRpc);
+    expect(tooLow.join()).toContain('(maxSolCostLamports)');
+    expect(await checkPrepared(honest, { ...intentFor(b.wallet), maxSolCostLamports: Number(fee + 1_000_000n) }, b.agentRpc)).toEqual([]);
+    expect(solFeeOf({ feeSide: 'input', inputMint: WSOL_MINT, outputMint: USDC, fee: 5n })).toBe(5n);
+    expect(solFeeOf({ feeSide: 'output', inputMint: USDC, outputMint: WSOL_MINT, fee: 5n })).toBe(5n);
+    expect(solFeeOf({ feeSide: 'sol', inputMint: USDC, outputMint: BONK, fee: 5n })).toBe(5n);
+    expect(solFeeOf({ feeSide: 'input', inputMint: USDC, outputMint: WSOL_MINT, fee: 5n })).toBe(0n);
+  });
 });
 
 describe('orientim-verify answers even when its state directory fails', () => {
@@ -1474,7 +1502,21 @@ describe('the same as the page, for agents and bots: tolerance, price impact, to
       `${name} has a freeze authority: its issuer can freeze your balance`, `${name} can still be minted by its issuer`,
     ]);
     const failing = { getMultipleAccounts: () => ({ send: async () => { throw new Error('down'); } }) } as unknown as Rpc<SolanaRpcApi>;
-    expect(await tokenNotices(failing, [BONK])).toEqual([]);
+    // A read that fails is said as unknown, never as nothing to note.
+    expect(await tokenNotices(failing, [BONK])).toEqual(["the tokens' mint accounts could not be read on your RPC: what their issuers can do is unknown"]);
+    expect(await tokenRisk(failing, [BONK])).toEqual({ status: 'unavailable', reason: 'read-failed' });
+    // A Token-2022 permanent delegate: the issuer can move or burn any holder's balance.
+    const delegated = new Uint8Array(166 + 4 + 32);
+    delegated[44] = 6;
+    delegated[165] = 1;
+    new DataView(delegated.buffer).setUint16(166, 12, true);
+    new DataView(delegated.buffer).setUint16(168, 32, true);
+    delegated.fill(7, 170);
+    const DELEGATED = (await generateKeyPairSigner()).address;
+    b.accounts.set(DELEGATED, { owner: address('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'), data: delegated });
+    const risk = await tokenRisk(b.agentRpc, [DELEGATED, USDC]);
+    expect(risk).toMatchObject({ status: 'known', tokens: { [DELEGATED]: { permanentDelegate: true, freezeAuthority: false, mintAuthority: false, wellKnown: false }, [USDC]: { wellKnown: true } } });
+    expect(noticesOf(risk)).toEqual([`${DELEGATED.slice(0, 4)}…${DELEGATED.slice(-4)} has a permanent delegate: its issuer can move or burn your balance at any time`]);
     // And the swap carries them.
     const result = await swapOf(b, b.fetchImpl);
     expect(result.notices).toEqual([]);
@@ -1832,6 +1874,14 @@ describe('the skill holds its own limits and its state against what it is handed
     expect(err.body).toEqual({ newMinOut: '5' });
   });
 
+  it("the quickstart on the developers page holds the owner's limits, one swap per wallet and recovery", () => {
+    const page = readFileSync(join(import.meta.dirname, '../app/developers/page.tsx'), 'utf8');
+    const snippet = page.slice(page.indexOf("import { acquireLock, createFileStore"), page.indexOf('release();'));
+    for (const part of ['loadPolicy(process.env.ORIENTIM_POLICY)', 'stateDirFor(policy', 'acquireLock(dir, wallet.address)', 'recoverPending(store, rpc', 'policy, spends: store']) {
+      expect(snippet, part).toContain(part);
+    }
+  });
+
   it('a checked v1 transaction longer than any data string is kept whole', () => {
     const long = 'A'.repeat(5_000);
     expect(preparedData({ transaction: long, note: 'prose here' } as unknown as Prepared)).toEqual({ transaction: long });
@@ -1843,5 +1893,38 @@ describe('the skill holds its own limits and its state against what it is handed
       return Response.json({ inputMint: USDC, outputMint: WSOL_MINT, inAmount: amount, outAmount: '1000000' });
     }) as unknown as typeof fetch;
     await expect(ownQuote({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: WSOL_MINT, fetchImpl })).rejects.toThrow('price impact');
+    // Only the owner's word lets it through, and then it is said as unknown (null), never as none.
+    const own = await ownQuote({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: WSOL_MINT, fetchImpl, allowUnknownImpact: true });
+    expect(own.priceImpactBps).toBeNull();
+    // Orientim's server and page read it the same way.
+    for (const v of [undefined, null, '', 'n/a', Number.NaN, {}]) expect(priceImpactOf(v), String(v)).toBeNull();
+    expect(priceImpactOf('0.0123')).toBe(0.0123);
+    expect(priceImpactOf(0)).toBe(0);
+  });
+
+  it("orientim-verify refuses a swap Jupiter states no price impact for, unless the owner's policy allows it", async () => {
+    const { b, deps } = await cliSetup();
+    const noImpact = (async (url: string, init: RequestInit) => {
+      const res = await b.fetchImpl(url, init);
+      if (!url.startsWith('https://api.jup.ag/')) return res;
+      const { priceImpactPct: _gone, ...rest } = await res.json() as Record<string, unknown>;
+      return Response.json(rest);
+    }) as unknown as typeof fetch;
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'no-impact' };
+    const refused = await runCli('prepare', { intent }, { ...deps, fetchImpl: noImpact });
+    expect(refused.code).toBe(1);
+    expect(String(refused.output.problems)).toContain('price impact');
+    const policy = { maxAmountIn: { [USDC]: '1000000' }, allowUnknownPriceImpact: true };
+    const allowed = await runCli('prepare', { intent }, { ...deps, fetchImpl: noImpact, policy });
+    expect(allowed.code).toBe(0);
+    const file = join(mkdtempSync(join(tmpdir(), 'orientim-impact-')), 'policy.json');
+    writeFileSync(file, JSON.stringify({ ...policy, allowUnknownPriceImpact: 'yes' }));
+    expect(() => loadPolicy(file)).toThrow('allowUnknownPriceImpact');
+    writeFileSync(file, JSON.stringify(policy));
+    expect(loadPolicy(file).allowUnknownPriceImpact).toBe(true);
+    // Orientim's own answer says it as unknown too.
+    const jupiter = fakeJupiter();
+    const market = { ...jupiter, build: async (q: Parameters<JupiterClient['build']>[0]) => ({ ...await jupiter.build(q), priceImpactPct: undefined }) } as JupiterClient;
+    expect((await honestAnswer(await orientim({ market }))).amounts.priceImpactPct).toBeNull();
   });
 });

@@ -123,10 +123,10 @@ describe('prepare', () => {
       const res = await agentPrepare(post('prepare', swapBody(w.W.address, { slippageBps: bad })), w.deps);
       expect(res.status, String(bad)).toBe(400);
     }
-    const p = await prepared(w, { slippageBps: 300 }) as unknown as { slippageBps: number; tokens: Record<string, { freezeAuthority: boolean; mintAuthority: boolean }> };
+    const p = await prepared(w, { slippageBps: 300 }) as unknown as { slippageBps: number; tokens: Record<string, { freezeAuthority: boolean; mintAuthority: boolean; permanentDelegate: boolean }> };
     expect(p.slippageBps).toBe(300);
-    expect(p.tokens.input).toEqual({ freezeAuthority: false, mintAuthority: false });
-    expect(p.tokens.output).toEqual({ freezeAuthority: false, mintAuthority: false });
+    expect(p.tokens.input).toEqual({ freezeAuthority: false, mintAuthority: false, permanentDelegate: false });
+    expect(p.tokens.output).toEqual({ freezeAuthority: false, mintAuthority: false, permanentDelegate: false });
   });
 
   it('a 429 says in Retry-After how long until the count starts again', async () => {

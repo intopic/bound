@@ -3,14 +3,14 @@ import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
 const CAPSULE_STEPS = [
   ['The amount moves into a one-time key', 'Only what you approve leaves your wallet, into a key that exists for this one swap.'],
   ['The route trades it', 'A route across Solana’s markets is found for you. It works with the one-time key, never with your wallet.'],
-  ['The minimum is checked on chain', 'If less than the minimum would arrive, the whole swap cancels itself. Then the key is gone.'],
+  ['The minimum is checked on chain', 'If less than the minimum would arrive, the whole swap cancels itself. The temporary accounts are closed in the same transaction, and the one-time key never gets any authority over your wallet.'],
 ];
 
 const AGENT_POINTS = [
   ['Verified on its own RPC', 'The skill runs the full verifier in the agent, on the exact bytes it signs.'],
   ['Limits of its own', 'A maximum fee, a maximum SOL cost and a price floor from its own source.'],
   ['Safe across crashes', 'An id for every order, recovery after a restart, never the same swap twice.'],
-  ['Any language, any signer', 'A skill for coding agents, an API, and a CLI for Python, Rust or Go. Works with your own key setup.'],
+  ['Any language, your own signer', 'A skill for coding agents, an API, and a CLI for Python, Rust or Go. Works with wallets and signing services that hand the signed transaction back for a final check.'],
 ];
 
 const KEEPS_NOTHING = [
@@ -76,7 +76,7 @@ export function HomeSections() {
             </div>
           </div>
           <div className="checked-twice">
-            <h3>Every swap is checked twice, independently</h3>
+            <h3>Verified when prepared, and again next to the signer</h3>
             <CheckedTwice />
           </div>
         </div>

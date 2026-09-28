@@ -8,7 +8,7 @@ import type { Address, KeyPairSigner } from '@solana/kit';
 import { FEE_TOKENS, feeFor, feeSideFor, JUPITER_PROGRAM, outputFeeFor, tokenAmountOf } from '@orientim/core';
 import type { FeeSide, TxVersion } from '@orientim/core';
 import {
-  OrientimError, DEFAULT_SETTINGS, finalizeProtectedSwap, heliusPriorityFee, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, quotedMinimum,
+  OrientimError, DEFAULT_SETTINGS, finalizeProtectedSwap, heliusPriorityFee, isCurveRoute, JupiterError, MIN_FEE, prepareProtectedSwap, priceImpactOf, quotedMinimum,
   revertedOnPrice,
 } from '@orientim/jupiter';
 import type { PreparedSwap, TokenInfo } from '@orientim/jupiter';
@@ -53,7 +53,8 @@ type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string
  * `impact`: how much this amount moves the market price, as Jupiter reports it: a fraction, so
  * 0.132 is 13.2% (checked 2026-09-23 against the rates of a small and a large quote).
  */
-type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number; at: number };
+/** `impact` is null when Jupiter did not state it in a form we can read: unknown, never shown as none. */
+type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number | null; at: number };
 /** What the wallet is about to be asked to sign, shown while it is open. */
 type Pending = {
   minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
@@ -67,6 +68,7 @@ type Offer =
   | { kind: 'price'; was: string; now: string; tolerance: string }
   | { kind: 'cost'; gap: string; severe: boolean }
   | { kind: 'impact'; pct: string }
+  | { kind: 'impact-unknown' }
   | { kind: 'extras'; lines: string[] };
 /** `received`: what the chain recorded, once confirmed, every digit; empty until then. `shown`: the same, rounded for the success message. */
 type SwapTexts = { paid: string; received: string; exposed: string; minimum: string; shown?: string };
@@ -79,6 +81,11 @@ const OFFER_TIMEOUT_MS = 45_000;
 const IMPACT_WARN = 0.01;
 const IMPACT_ASK = 0.05;
 const impactText = (fraction: number) => `${(fraction * 100).toFixed(fraction < 0.1 ? 2 : 1)}%`;
+/** Jupiter's price impact as a fraction (none below 0), or null when it is missing or not a number. */
+function impactOf(v: unknown): number | null {
+  const n = priceImpactOf(v);
+  return n === null ? null : Math.max(0, n);
+}
 
 /**
  * Each question the page asks, in plain words. The protected route's distance from the best price is
@@ -102,6 +109,12 @@ function offerCopy(o: Offer): { title: string; body: ReactNode; go: string } {
       return {
         title: `Price impact is ${o.pct}`,
         body: <p>This amount moves the market price a lot, so you get less per token than a smaller swap would. Nothing has been signed.</p>,
+        go: 'Continue',
+      };
+    case 'impact-unknown':
+      return {
+        title: 'Price impact unavailable',
+        body: <p>Jupiter did not say how much this amount moves the market price, so it may move it a lot. Nothing has been signed.</p>,
         go: 'Continue',
       };
     case 'extras':
@@ -754,7 +767,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           setQuote(answersThis
             ? {
               out: BigInt(r.outAmount), minOut: quotedMinimum(r, pageSettings), curve: isCurveRoute(r),
-              impact: Number.isFinite(Number(r.priceImpactPct)) ? Math.max(0, Number(r.priceImpactPct)) : 0, at: Date.now(),
+              impact: impactOf(r.priceImpactPct), at: Date.now(),
             }
             : null);
         })
@@ -1110,8 +1123,10 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         v1Fallback: v1Fallback(supportedVersions(wallet), V1_ENABLED),
       });
       // A large price impact is asked about before anything is built, as other swap pages do.
-      if (quote.impact >= IMPACT_ASK) {
-        if (!(await askAboutOffer({ kind: 'impact', pct: impactText(quote.impact) }))) return cancelled();
+      // An impact Jupiter did not state is asked about too: unknown is not none.
+      if (quote.impact === null || quote.impact >= IMPACT_ASK) {
+        const offer: Offer = quote.impact === null ? { kind: 'impact-unknown' } : { kind: 'impact', pct: impactText(quote.impact) };
+        if (!(await askAboutOffer(offer))) return cancelled();
         setPhase('checking');
       }
       // The swap built while the user looked at this quote, if it is recent, is for exactly these
@@ -1312,7 +1327,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     : null;
 
   const inWarnings = tokenIn ? tokenWarnings(tokenIn, inFacts && inFacts !== 'missing' ? inFacts : null) : [];
-  if (quote && quote.impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(quote.impact)}: this amount moves the market price.`);
+  const impact = quote ? quote.impact : undefined;
+  if (impact === null) inWarnings.unshift('Price impact unavailable: Jupiter did not say how much this amount moves the market price.');
+  else if (impact !== undefined && impact >= IMPACT_WARN) inWarnings.unshift(`Price impact ${impactText(impact)}: this amount moves the market price.`);
   const outWarnings = tokenOut ? tokenWarnings(tokenOut, outFacts && outFacts !== 'missing' ? outFacts : null) : [];
   // A token that taxes its own transfers costs more through Orientim, because the protected account
   // is one extra transfer. Said before the swap, not after it.
@@ -1536,8 +1553,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           {quote && (
             <div className="detail-row">
               <span>Price impact</span>
-              <span className={quote.impact >= IMPACT_WARN ? 'warn-text' : undefined}>
-                {quote.impact < 0.0001 ? '<0.01%' : impactText(quote.impact)}
+              <span className={quote.impact === null || quote.impact >= IMPACT_WARN ? 'warn-text' : undefined}>
+                {quote.impact === null ? 'Unavailable' : quote.impact < 0.0001 ? '<0.01%' : impactText(quote.impact)}
               </span>
             </div>
           )}

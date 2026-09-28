@@ -18,7 +18,7 @@ other is refused with the reason (SECURITY.md, "What works and what is refused")
    owned by E, pays the Orientim fee (0.3%), and only E and that account are given to the one untrusted
    instruction (Jupiter's swap). After the swap, Orientim checks that at least the minimum output
    arrived, then closes the temporary accounts back to W.
-3. Before the wallet opens, the **verifier** checks the exact bytes against 7 rules (below).
+3. Before the wallet opens, the **verifier** checks the exact bytes the wallet is asked to sign against 7 rules (below).
 4. The wallet signs first with `signTransaction` (no send). Orientim checks that the returned message is
    byte-for-byte the verified one with a valid W signature (on the page, Lighthouse assertions a wallet
    such as Phantom adds are accepted, and nothing else). Only then does E add the last required
@@ -36,7 +36,7 @@ Trust Wallet (one swap). Solflare and Backpack are still to be tested.
 
 | Rule | Guarantee |
 | --- | --- |
-| R6 | Only W and E sign; W pays; what the wallet returns is exactly what was verified. Because W never appears in the swap, W's signature is never available to it: this is what makes the other rules sufficient |
+| R6 | Only W and E sign; W pays; what the wallet returns is what was verified, byte for byte, except that on the page it may add Lighthouse assertions (which can only make the swap fail) and raise the compute limit within the network fee limit. Because W never appears in the swap, W's signature is never available to it: this is what makes the other rules sufficient |
 | R1 | W and W's token accounts (except the output account) never reach the external program, including through lookup tables; nor do Orientim's fee accounts |
 | R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1% when taken from the input before the swap or from a SOL, USDC or USDT output after the minimum is checked. For a pair neither token of which can carry it, the fee is paid in SOL from the wallet before the swap, priced by Jupiter when it is built: the verifier pins where it goes, and the page shows it (an agent holds it to its own price) before the wallet signs |
 | R3 | E and its accounts are fresh |

@@ -70,9 +70,9 @@ const PREPARE_ANSWER: [string, string][] = [
   ['messageSha256', 'The hash of the message; the certificate and the ticket are bound to it.'],
   ['temporaryAuthority', 'The one-time key of this swap.'],
   ['lastValidBlockHeight, blocksLeft', 'The transaction’s lifetime: 150 blocks, about 40 seconds.'],
-  ['amounts', 'amountIn, fee, feeMint, feeBps, quotedOut, minOut and priceImpactPct.'],
-  ['costs', 'The network fee, rent, and keptSolLamports: all the SOL the swap costs and does not return.'],
-  ['notices, tokens', 'A busy network, and what each token’s issuer can do (freeze balances, mint more).'],
+  ['amounts', 'amountIn, fee, feeMint, feeBps, quotedOut, minOut and priceImpactPct (null when Jupiter did not state it: unknown, not none).'],
+  ['costs', 'The network fee, rent returned and kept, Orientim’s fee in SOL (orientimFeeSolLamports, from whichever side), keptSolLamports: all the SOL the swap costs and does not return, and breakdown: the amount swapped, the fee in its own token and each SOL cost apart.'],
+  ['notices, tokens', 'A busy network, and what each token’s issuer can do: freeze balances, mint more, or move and burn them (permanentDelegate).'],
   ['certificate, policy', 'What this exact transaction does, and the rules it was verified against.'],
 ];
 
@@ -210,31 +210,47 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
               <h3>4. In your own code</h3>
               <pre><code>{`import { createKeyPairSignerFromBytes, createSolanaRpc } from '@solana/kit';
 import { readFileSync } from 'node:fs';
-import { createFileStore, protectedSwap, recoverPending } from './examples/swap.ts';
+import { acquireLock, createFileStore, loadPolicy, protectedSwap, recoverPending, stateDirFor } from './examples/swap.ts';
 
 const rpc = createSolanaRpc(process.env.SOLANA_RPC_URL!);
 const wallet = await createKeyPairSignerFromBytes(
   new Uint8Array(JSON.parse(readFileSync(process.env.ORIENTIM_WALLET_KEYPAIR!, 'utf8'))));
-const store = createFileStore('.orientim-state');
 const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const SOL = 'So11111111111111111111111111111111111111112';
 
-// Settle what a stopped run left before anything new.
-const { unknown } = await recoverPending(store, rpc, { orders: store });
-if (unknown.length) throw new Error('An earlier swap may still land');
+// The owner's limits, if set: they hold only when passed to protectedSwap below.
+const policy = process.env.ORIENTIM_POLICY ? loadPolicy(process.env.ORIENTIM_POLICY) : undefined;
+// One state directory for every run of this wallet (absolute with a daily limit).
+const { dir } = stateDirFor(policy, process.env.ORIENTIM_STATE_DIR);
+const store = createFileStore(dir);
 
-const result = await protectedSwap({
-  apiUrl: process.env.ORIENTIM_API_URL!,
-  apiKey: process.env.ORIENTIM_API_KEY!,
-  jupiterApiKey: process.env.JUPITER_API_KEY,
-  rpc, wallet, pending: store, orders: store,
-  intent: { id: 'order-42', inputMint: USDC, outputMint: SOL, amountIn: '5000000' },
-});
-// result.outcome: 'confirmed' | 'failed' | 'expired' | 'unknown' | 'rejected'`}</code></pre>
+// One swap at a time per wallet: a second run waits, and retries with the same order id.
+const release = acquireLock(dir, wallet.address);
+try {
+  // Settle what a stopped run left before anything new.
+  const { unknown, bookkeepingErrors } = await recoverPending(store, rpc, { orders: store });
+  if (unknown.length || bookkeepingErrors.length) throw new Error('An earlier swap may still land');
+
+  const result = await protectedSwap({
+    apiUrl: process.env.ORIENTIM_API_URL!,
+    apiKey: process.env.ORIENTIM_API_KEY!,
+    jupiterApiKey: process.env.JUPITER_API_KEY,
+    rpc, wallet, pending: store, orders: store,
+    policy, spends: store,
+    intent: { id: 'order-42', inputMint: USDC, outputMint: SOL, amountIn: '5000000' },
+  });
+  // result.outcome: 'confirmed' | 'failed' | 'expired' | 'unknown' | 'rejected'
+} finally {
+  release();
+}`}</code></pre>
               <p>
                 <code>protectedSwap</code> asks Jupiter for its own price on every swap and takes your minimum from it when{' '}
                 <code>minOut</code> is not set (a <code>minOut</code> more than 20% below that price is refused), verifies the
-                transaction on your RPC, signs as the wallet, keeps the swap before finalize and reads the outcome on chain.
+                transaction on your RPC, signs as the wallet, keeps the swap before finalize and reads the outcome on chain. The
+                owner&apos;s limits hold only when <code>policy</code> and <code>spends</code> are passed, as above: setting{' '}
+                <code>ORIENTIM_POLICY</code> alone does nothing in your own code. The lock serializes the swaps of one wallet on one
+                machine; workers on several machines or containers need a shared store that reserves the day&apos;s budget
+                atomically, or a signing service that holds the limits itself.
               </p>
               <h3>A wallet in a signing service</h3>
               <p>
