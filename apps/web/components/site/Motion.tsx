@@ -94,7 +94,7 @@ export function CapsuleFlow() {
   return (
     <svg ref={svg} className="capsule" viewBox="0 0 960 300" role="img" aria-labelledby="capsule-title">
       <title id="capsule-title">
-        Only the amount you chose leaves your wallet and goes across the swap route. You get at least your minimum, or nothing
+        Only what you approved leaves your wallet, and only the amount goes across the swap route. You get at least your minimum, or nothing
         happens. The rest of your wallet never moves.
       </title>
       <GlassDefs p="cf" />

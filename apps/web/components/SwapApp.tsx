@@ -1568,7 +1568,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           <div className="hero-copy">
             <p className="eyebrow">Protected swaps on Solana</p>
             <h1 className="hero-title">Swap without handing over your wallet.</h1>
-            <p className="hero-sub">One bad signature. Wallet drained. With Orientim, the most a trade can ever touch is the amount you typed.</p>
+            <p className="hero-sub">One bad signature. Wallet drained. With Orientim, the most a trade can ever touch is what you approved.</p>
           </div>
 
           <div className="hero-app">

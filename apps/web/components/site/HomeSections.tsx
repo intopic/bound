@@ -1,7 +1,7 @@
 import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
 
 const CAPSULE_STEPS = [
-  ['You choose the amount.', 'Only what you type leaves your wallet. The rest of your tokens are never part of the swap.'],
+  ['You choose the amount.', 'Only what you approve leaves your wallet: the amount and the fees shown. The rest of your tokens are never part of the swap.'],
   ['Only that amount goes into the swap.', 'Orientim finds a route across Solana’s markets and trades just that amount, never your wallet.'],
   ['Get at least your minimum, or nothing happens.', 'You see the minimum before you approve. If less would arrive, the whole swap cancels and nothing is traded; at most the small network fee is paid.'],
 ];
