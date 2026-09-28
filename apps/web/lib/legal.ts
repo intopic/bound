@@ -1,5 +1,5 @@
 /**
- * Everything the Terms, the Privacy Notice, /restricted, security.txt and the footer say about who runs
+ * Everything the Terms, the Privacy Notice, security.txt and the footer say about who runs
  * Orientim, in one place. Fill these in, set `reviewedByLawyer` once a lawyer has approved the texts,
  * and the pages are final: nothing else needs to change.
  *
@@ -35,12 +35,6 @@ export const LEGAL = {
   liabilityCapUsd: 100,
   /** How many days the hosting provider keeps request logs (it depends on the hosting plan). */
   logRetentionDays: '',
-
-  /** Where Orientim is not offered. To be confirmed by a lawyer; the Terms also exclude any other territory under comprehensive sanctions. */
-  restricted: [
-    'Cuba', 'Iran', 'North Korea', 'Syria', 'Russia', 'Belarus',
-    'the Crimea, Donetsk, Luhansk, Kherson and Zaporizhzhia regions of Ukraine',
-  ],
 
   /** The date the texts take effect, as shown at the top of each page: '1 November 2026'. */
   lastUpdated: '27 September 2026',

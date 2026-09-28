@@ -62,7 +62,7 @@ export function SiteHeader({ right, menu }: { right: ReactNode; menu?: ReactNode
 const FOOTER: [string, [string, string][]][] = [
   ['Product', [['Swap', '/#swap'], ['Supported tokens', '/security#supported'], ['Fees', '/security#fees'], ['Security', '/security'], ['Status', '/status']]],
   ['Developers', [['Overview', '/developers'], ['Quickstart', '/developers#start'], ['API reference', '/developers#api'], ['API keys', '/developers#access']]],
-  ['Legal', [['Terms of Use', '/terms'], ['Privacy Notice', '/privacy'], ['Restricted territories', '/restricted'], ['Contact', '/terms#contact']]],
+  ['Legal', [['Terms of Use', '/terms'], ['Privacy Notice', '/privacy'], ['Contact', '/terms#contact']]],
 ];
 
 export function SiteFooter() {

@@ -61,8 +61,7 @@ export default async function Page() {
             (<strong>Sanctions</strong>), or listed on a Sanctions list;
           </li>
           <li>
-            you are not located, organised or resident in a territory listed on <a href="/restricted">Restricted territories</a>, or
-            in any other territory subject to comprehensive Sanctions; and
+            you are not located, organised or resident in a territory subject to comprehensive Sanctions; and
           </li>
           <li>no law that applies to you prohibits your use of the Services.</li>
         </ul>
