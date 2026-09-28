@@ -249,6 +249,45 @@ a.ghost { display: inline-flex; align-items: center; }
 .banner-actions .ghost { color: inherit; }
 .hero-app > .banner { margin: 0 0 12px; }
 
+/* ---- toasts: one message at a time in the corner, as on other swap sites. Top right under the
+   header on a computer, a card along the bottom on a phone. */
+.toasts { position: fixed; z-index: 40; top: calc(76px + env(safe-area-inset-top, 0px)); right: 20px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+.toast { position: relative; display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 12px 36px 14px 12px; overflow: hidden; pointer-events: auto;
+  background: var(--panel-2); border: 1px solid var(--line); box-shadow: 0 16px 40px rgba(0, 0, 0, .45); animation: toast-in .18s ease-out; }
+.toast.error { background: var(--panel-2); border-color: rgba(242, 139, 130, .35); }
+.toast.success { background: var(--panel-2); border-color: var(--ok-line); }
+.toast.info { background: var(--panel-2); border-color: rgba(120, 175, 235, .3); }
+.toast-icon { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; border-radius: 50%; font-size: 12px; font-weight: 700; }
+.toast.error .toast-icon { background: var(--bad-bg); box-shadow: inset 0 0 0 1px rgba(242, 139, 130, .4); }
+.toast.success .toast-icon { background: var(--ok-bg); box-shadow: inset 0 0 0 1px var(--ok-line); }
+.toast.info .toast-icon { background: var(--info-bg); box-shadow: inset 0 0 0 1px rgba(120, 175, 235, .35); }
+.toast-body { min-width: 0; }
+.toast-body p { margin: 0 0 4px; color: var(--text); }
+.toast-body .banner-title { color: inherit; }
+.toast.error .banner-title { color: var(--bad); }
+.toast.success .banner-title { color: var(--ok); }
+.toast.info .banner-title { color: var(--info); }
+.toast-body p:not(.banner-title) { color: var(--muted); font-size: 13.5px; }
+.toast-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px !important; }
+.toast-links a, .toast-links .link { font-size: 13px; }
+.toast-links .link { text-decoration: underline; }
+.toast-close { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; padding: 0; background: none; border: 0; border-radius: 6px; color: var(--muted); font-size: 12px; }
+.toast-close:hover { color: var(--text); background: var(--line-soft); }
+.toast-timer { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: currentColor; opacity: .45; transform-origin: left; animation: toast-timer linear forwards; }
+.toast-timer.paused { animation-play-state: paused; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes toast-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (max-width: 640px) {
+  .toasts { top: auto; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); right: 16px; left: 16px; width: auto; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+}
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+.connect-error { margin: 0 0 12px; }
+.connect-error .banner-actions { align-items: center; }
+.connect-error .link { color: inherit; text-decoration: underline; font-size: 13px; }
+.wallet-option-state { margin-left: auto; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+
 .history { margin-top: 14px; padding: 12px 16px; }
 .history summary { cursor: pointer; font-size: 14px; color: var(--muted); }
 .history ul { list-style: none; padding: 0; margin: 10px 0 0; }
@@ -277,6 +316,11 @@ a.ghost { display: inline-flex; align-items: center; }
 .picker-symbol { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .picker-name { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-empty { color: var(--muted); padding: 10px; font-size: 14px; }
+.picker-section { padding: 10px 8px 4px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.picker-balance { display: flex; flex-direction: column; align-items: flex-end; margin-left: auto; padding-left: 8px; font-size: 14px; white-space: nowrap; }
+.picker-balance .num { font-family: var(--mono); }
+.picker-usd { color: var(--muted); font-size: 12px; }
+.picker-more { display: block; padding: 8px; font-size: 13px; text-decoration: underline; }
 .badge { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 6px; background: var(--panel-2); color: var(--muted); }
 .badge.ok { background: var(--ok-bg); color: var(--ok); }
 

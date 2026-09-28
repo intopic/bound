@@ -46,6 +46,32 @@ export async function connectWallet(wallet: Wallet, silent = false): Promise<Wal
   return mainnetAccounts(accounts)[0] ?? null;
 }
 
+/** The wallet's mainnet account it has already granted this site, without asking: none until it has. */
+export const grantedAccount = (wallet: Wallet): WalletAccount | null => mainnetAccounts(wallet.accounts)[0] ?? null;
+
+/**
+ * The wallet this browser last connected, by name, so a reload reconnects it silently as swap sites
+ * do. Only the name is kept, never an address; a browser that keeps nothing just asks again.
+ */
+const LAST_WALLET_KEY = 'orientim.wallet.v1';
+
+export function lastWallet(): string | null {
+  try {
+    return window.localStorage.getItem(LAST_WALLET_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function rememberWallet(name: string | null): void {
+  try {
+    if (name) window.localStorage.setItem(LAST_WALLET_KEY, name);
+    else window.localStorage.removeItem(LAST_WALLET_KEY);
+  } catch {
+    // Nothing kept: the next visit asks the user to connect, as it would the first time.
+  }
+}
+
 export async function disconnectWallet(wallet: Wallet): Promise<void> {
   const f = wallet.features['standard:disconnect'] as DisconnectFeature | undefined;
   await f?.disconnect();
