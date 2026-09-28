@@ -34,7 +34,7 @@ import {
 } from '@/lib/client/history';
 import type { HistoryEntry, HistoryStatus, SignatureState } from '@/lib/client/history';
 import { acquireSwapLock } from '@/lib/client/swapLock';
-import { costsMoreThan, keptByMarket } from '@/lib/client/rebuild';
+import { costsMoreThan } from '@/lib/client/rebuild';
 import { receivedFromMeta } from '@/lib/client/received';
 import type { ConfirmedMeta } from '@/lib/client/received';
 import { errorDetail, problemsReport, recordProblem, watchUncaught } from '@/lib/client/problems';
@@ -62,13 +62,6 @@ type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string
  */
 /** `impact` is null when Jupiter did not state it in a form we can read: unknown, never shown as none. */
 type Quote = { out: bigint; minOut: bigint; curve: boolean; impact: number | null; at: number };
-/** What the wallet is about to be asked to sign, shown while it is open. */
-type Pending = {
-  minReceived: string; networkFee: string; oneTimeCost: string | null; removesDelegate: string | null;
-  tokenTax: string | null; busyNetwork: string | null;
-  /** Orientim's fee when it is paid in SOL from the wallet: its exact amount, priced when the swap was built. */
-  solFee: string | null;
-};
 /** The market moved beyond the tolerance since the user looked: the new minimum to accept or not. */
 /** A question the page puts to the user mid-swap, with nothing signed yet. */
 type Offer =
@@ -531,7 +524,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const showCopy = !!notice && (notice.kind === 'error' || notice.title === UNEXPLAINED);
   const [detailsCopied, setDetailsCopied] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [pending, setPending] = useState<Pending | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   // What the chain says about each selected mint: decimals and token program.
   const [facts, setFacts] = useState<Record<string, MintFacts | 'missing'>>({});
@@ -1325,27 +1317,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       }
       texts.minimum = `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`;
       texts.exposed = `${formatUnits(prepared.policy.swapAmount, inDecimals)} ${inToken.symbol}`;
-      // What the market keeps: the rent it takes, less what closing its account returns.
-      const routeRent = keptByMarket(prepared);
-      setPending({
-        minReceived: `${formatExact(prepared.quote.minReceived, outDecimals)} ${outToken.symbol}`,
-        networkFee: `${formatExact(prepared.networkFeeLamports, 9)} SOL`,
-        // Pump.fun charges every new buyer a small account deposit, and it does not come back.
-        oneTimeCost: routeRent > 0n ? `${formatExact(routeRent, 9)} SOL account fee charged by this market` : null,
-        busyNetwork: prepared.priorityFeeCapped
-          ? 'The network is busy and the network fee is at its limit, so this swap may take longer to land, or expire without executing. An expired swap costs nothing.'
-          : null,
-        removesDelegate: prepared.notices.removesDelegate
-          ? `It also removes an existing spending permission (delegate) on your ${outToken.symbol} account.`
-          : null,
-        tokenTax: prepared.tokenTax
-          ? `${inToken.symbol} charges ${prepared.tokenTax.inputBps / 100}% on every transfer. Moving your ${inToken.symbol} into the protected account costs `
-            + `${formatExact(prepared.tokenTax.extraOnInput, inDecimals)} ${inToken.symbol} of that tax, which goes to the token, not to Orientim.`
-          : null,
-        solFee: prepared.policy.feeSide === 'sol' && prepared.policy.fee > 0n
-          ? `${formatExact(prepared.policy.fee, 9)} SOL`
-          : null,
-      });
       setPhase('wallet');
       lock.refresh();
       const toSend = prepared;
@@ -1431,7 +1402,6 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     } finally {
       lock.release(settled);
       setPhase('idle');
-      setPending(null);
       refreshBalances().catch(() => undefined);
       refreshHoldings();
       refreshAccounts()
@@ -1785,32 +1755,15 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           </div>
         )}
 
-        {phase === 'wallet' && (
-          <div className="banner info">
-            {pending && (
-              <p>
-                Minimum received: <strong>{pending.minReceived}</strong>. Network fee: {pending.networkFee}.
-                {pending.solFee && <> Orientim fee: {pending.solFee}.</>}
-                {pending.oneTimeCost && <> Also: {pending.oneTimeCost}.</>}
-                {pending.removesDelegate && <> {pending.removesDelegate}</>}
-                {pending.tokenTax && <> {pending.tokenTax}</>}
-                {pending.busyNetwork && <> {pending.busyNetwork}</>}
-              </p>
-            )}
-            <p>
-              {wallet?.name} may show a second signer. That is normal for a protected swap.
-            </p>
-            <div className="banner-actions">
-              <button className="ghost" onClick={() => stopWaitingOnWallet.current?.()}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
         <button className="primary" onClick={onButton} disabled={busy || (!!W && !!blocker)}>
           {buttonLabel}
         </button>
+
+        {phase === 'wallet' && (
+          <button className="link-cancel" onClick={() => stopWaitingOnWallet.current?.()}>
+            Cancel
+          </button>
+        )}
 
         {waitingOn.length > 0 && !busy && notice?.link !== solscan(waitingOn[0].signature) && (
           <div className="banner info" role="status">
