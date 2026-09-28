@@ -6,7 +6,7 @@ import { MobileNav } from './MobileNav';
 export function InfoPage(props: { eyebrow: string; title: string; lead?: ReactNode; updated?: string; draft?: boolean; children: ReactNode }) {
   return (
     <div className="site">
-      <SiteHeader menu={<MobileNav />} right={<a className="ghost connect" href="/#swap">Open the app</a>} />
+      <SiteHeader menu={<MobileNav />} right={<a className="ghost connect" href="/developers#access">Get an API key</a>} />
       <main className="info-page">
         <div className="container">
           <p className="eyebrow">{props.eyebrow}</p>

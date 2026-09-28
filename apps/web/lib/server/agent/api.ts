@@ -15,8 +15,8 @@ import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openTicket, sealTicket } from './ticket';
 
 /**
- * The agent API (AGENT-API.md): the same protected swap the page builds, with E held by the
- * server instead of the browser. Orientim signs as E last, and only the exact message it built and
+ * The agent API (AGENT-API.md): the protected swap (packages/jupiter), with E held by the
+ * server. Orientim signs as E last, and only the exact message it built and
  * verified, which is what makes the fee hold for bots and agents without a program on chain.
  *
  *   POST /api/v1/prepare   build and verify → the unsigned transaction and a ticket
@@ -118,7 +118,7 @@ function amount(v: unknown): bigint | null {
   return n > 0n && n <= MAX_U64 ? n : null;
 }
 
-/** Every refusal in the words the page uses, with what an agent needs to act on it. */
+/** Every refusal in plain words, with what an agent needs to act on it. */
 function explain(e: unknown): Response {
   if (e instanceof OrientimError) {
     const violations = e.violations.length ? { violations: e.violations } : {};
@@ -201,7 +201,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (acceptCostBps === null) return fail(400, 'bad-request', 'acceptCostBps, when given, must be a whole number of bps, as a number or an integer string.');
   const version: TxVersion = body.version === 1 ? 1 : 0;
   if (body.version !== undefined && body.version !== 0 && body.version !== 1) return fail(400, 'bad-request', 'version must be 0 or 1.');
-  // The route's slippage tolerance, as a person chooses it on the page: 0.1% to 15%. The agent's own
+  // The route's slippage tolerance, as the agent chooses it: 0.1% to 15%. The agent's own
   // check holds the route to the same number, from its own intent.
   const slippageBps = body.slippageBps;
   if (slippageBps !== undefined && !(typeof slippageBps === 'number' && Number.isInteger(slippageBps) && slippageBps >= 10 && slippageBps <= MAX_CHOSEN_SLIPPAGE_BPS)) {

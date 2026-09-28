@@ -51,7 +51,7 @@ function load(page: string): [string, string][] {
 /**
  * Call first thing in a page, before its first `await`, so the preloads reach React before the tags
  * for the page's chunks are written. `page` is the page's path under `app/`: 'page',
- * 'diagnostic/page'. The preload itself is never sent: the script tag replaces it.
+ * 'developers/page'. The preload itself is never sent: the script tag replaces it.
  */
 export function signPageChunks(page: string) {
   for (const [src, integrity] of load(page)) preload(src, { as: 'script', integrity });

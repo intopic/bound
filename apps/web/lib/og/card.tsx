@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og';
 
 export const OG_SIZE = { width: 1200, height: 630 };
-export const OG_ALT = 'Orientim: swap without handing over your wallet. Protected swaps on Solana, for people and AI agents.';
+export const OG_ALT = 'Orientim: let your agent trade without handing over its wallet. Protected swaps on Solana, for AI agents and bots.';
 
 /** One block of the mark, in the image's own units. */
 function Block({ x, y, s, color, opacity = 1 }: { x: number; y: number; s: number; color: string; opacity?: number }) {
@@ -37,10 +37,10 @@ export function ogCard() {
           <div style={{ fontSize: 46, fontWeight: 700, letterSpacing: -1.5 }}>Orientim</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
-          <div style={{ fontSize: 76, fontWeight: 700, lineHeight: 1.05, letterSpacing: -2.5, maxWidth: 900 }}>
-            Swap without handing over your wallet.
+          <div style={{ fontSize: 68, fontWeight: 700, lineHeight: 1.05, letterSpacing: -2.2, maxWidth: 960 }}>
+            Let your agent trade without handing over its wallet.
           </div>
-          <div style={{ fontSize: 32, color: '#98a8a2' }}>Protected swaps on Solana, for people and AI agents.</div>
+          <div style={{ fontSize: 32, color: '#98a8a2' }}>Protected swaps on Solana, for AI agents and bots.</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 26, color: '#7ce3b0' }}>
           <div style={{ width: 14, height: 14, borderRadius: 4, background: '#4cbd85' }} />

@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 /**
- * Nonce-based CSP for every page. The frontend holds the verifier, so injected script
- * must not run: only scripts carrying this request's nonce, and what they load ('strict-dynamic').
- * Images are limited to Orientim's origin and data: URIs (token icons come through /api/token-icon),
- * which also closes images as a channel for sending data out. Styles keep 'unsafe-inline': CSS
- * cannot run code, and with img-src and connect-src closed it has no way to send anything out.
+ * Nonce-based CSP for every page. The developer page asks a wallet to sign Orientim's key message, so
+ * injected script must not run: only scripts carrying this request's nonce, and what they load
+ * ('strict-dynamic'). Images are limited to Orientim's origin and data: URIs, which also closes images
+ * as a channel for sending data out. Styles keep 'unsafe-inline': CSS cannot run code, and with img-src
+ * and connect-src closed it has no way to send anything out.
  */
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64');

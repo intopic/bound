@@ -30,7 +30,7 @@ export function MobileNav() {
     window.addEventListener('popstate', onMove);
     window.addEventListener('hashchange', onMove);
     wide.addEventListener('change', onWide);
-    // The page behind does not scroll while the menu is open, as with a window (Modal.tsx).
+    // The page behind does not scroll while the menu is open.
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {

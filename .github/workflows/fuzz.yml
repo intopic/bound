@@ -2,18 +2,17 @@ name: Fuzz
 
 # Millions of generated cases, in parallel shards, each with a seed of its own. They cover:
 # - the verifier (honest transactions, attacks, Token-2022, the tolerance rule);
-# - the page's swap at any tolerance;
+# - the swap at any tolerance;
 # - agents and bots end to end, against honest and lying servers, with any tolerance and price impact;
 # - the small functions every channel leans on;
 # - the edges: any amount, decimals, quote and balance, and any price the market may give;
 # - any change to an honest transaction, bytes or instructions, several at once;
 # - the owner's limits for agents and bots, the 20% floor, and a bot that edits prepare's answer;
 # - what a wallet hands back: a changed message passes only as Lighthouse assertions added;
-# - the site's server: failure reports, the RPC relay with a backup, amounts as shown;
 # - a hostile swap program running random plans in a real Solana VM (litesvm), 400,000 cases;
 # - many clients through one API key: bursts of up to 150 swaps in the same second, and 100,000
 #   cases of up to four clients swapping at once, each with rules of its own.
-# About 29,700,000 cases a run.
+# About 29,300,000 cases a run.
 #
 # By hand only (Actions, Fuzz, Run workflow), before a release: a run is some 1,000 billed minutes,
 # half of a private repository's free month. CI runs the same properties at their normal size on
@@ -431,18 +430,6 @@ jobs:
             file: packages/verifier/test/wallet.property.test.ts
             runs: 100000
             proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
-          - suite: site-server
-            shard: 1
-            of: 2
-            file: apps/web/test/relay.property.test.ts
-            runs: 200000
-            proves: "reports name no wallet or amount, the RPC relay picks the right answer, a shown amount is never more than what arrived"
-          - suite: site-server
-            shard: 2
-            of: 2
-            file: apps/web/test/relay.property.test.ts
-            runs: 200000
-            proves: "reports name no wallet or amount, the RPC relay picks the right answer, a shown amount is never more than what arrived"
           - suite: many-clients
             shard: 1
             of: 16

@@ -37,7 +37,7 @@ export function ShieldIcon({ size = 18 }: { size?: number }) {
 }
 
 /**
- * The header of every page: the swap page puts the wallet on the right, the other pages a way back to it.
+ * The header of every page, with a way to an API key on the right.
  * `menu` is the phone menu (MobileNav). It is passed in, not imported here, so that a server page
  * importing only the footer or the logo does not list the menu's chunk as its own: a listed chunk the
  * page never loads would be preloaded without the CSP nonce (lib/server/scriptIntegrity.ts).
@@ -60,7 +60,7 @@ export function SiteHeader({ right, menu }: { right: ReactNode; menu?: ReactNode
 }
 
 const FOOTER: [string, [string, string][]][] = [
-  ['Product', [['Swap', '/#swap'], ['Supported tokens', '/security#supported'], ['Fees', '/security#fees'], ['Security', '/security'], ['Status', '/status']]],
+  ['Product', [['How it works', '/#how'], ['Supported tokens', '/security#supported'], ['Fees', '/security#fees'], ['Security', '/security'], ['Status', '/status']]],
   ['Developers', [['Overview', '/developers'], ['Quickstart', '/developers#start'], ['API reference', '/developers#api'], ['API keys', '/developers#access']]],
   ['Legal', [['Terms of Use', '/terms'], ['Privacy Notice', '/privacy'], ['Contact', '/terms#contact']]],
 ];
@@ -71,7 +71,7 @@ export function SiteFooter() {
       <div className="container footer-grid">
         <div className="footer-brand">
           <Logo />
-          <p>Protected swaps on Solana, for people and AI agents. Orientim never holds your funds and never asks for your seed phrase.</p>
+          <p>Protected swaps on Solana, for AI agents and bots. Orientim never holds your funds and never asks for your seed phrase.</p>
         </div>
         {FOOTER.map(([title, links]) => (
           <div key={title} className="footer-col">
@@ -86,7 +86,7 @@ export function SiteFooter() {
       </div>
       <div className="container footer-bottom">
         <span>© {new Date().getFullYear()} Orientim{LEGAL.entity ? ` · Operated by ${LEGAL.entity}, ${LEGAL.country}` : ''}</span>
-        <span className="footer-note"><span className="dot" aria-hidden="true" /> Open the app only at orientim.com</span>
+        <span className="footer-note"><span className="dot" aria-hidden="true" /> Orientim is only at orientim.com</span>
       </div>
     </footer>
   );

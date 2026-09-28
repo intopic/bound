@@ -13,7 +13,7 @@ export default async function NotFound() {
   // that page never loads would be preloaded there without the CSP nonce (lib/server/scriptIntegrity.ts).
   return (
     <div className="site">
-      <SiteHeader right={<a className="ghost connect" href="/#swap">Open the app</a>} />
+      <SiteHeader right={<a className="ghost connect" href="/developers#access">Get an API key</a>} />
       <main className="info-page">
         <div className="container">
           <p className="eyebrow">404</p>
@@ -21,7 +21,7 @@ export default async function NotFound() {
           <p className="lead">The address may be mistyped, or the page has moved.</p>
           <div className="prose">
             <div className="cta-actions">
-              <a className="button primary-link" href="/#swap">Back to swap</a>
+              <a className="button primary-link" href="/">Back to the home page</a>
               <a className="button ghost-link" href="/security">How Orientim protects you</a>
             </div>
           </div>

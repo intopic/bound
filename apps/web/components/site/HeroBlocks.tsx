@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 /**
  * The wallet as a group of blocks beside the headline, on the grid behind the home page. Once, when
  * the page opens, one block (the amount) lights, leaves the group and steps along the grid into the
- * swap card; the rest of the wallet stays where it is. After that, one block of the grid lights
+ * agent's terminal; the rest of the wallet stays where it is. After that, one block of the grid lights
  * softly every 10 to 15 seconds, only in the hero's empty space and only while the hero is on
  * screen. Nothing moves for people who ask their system for less motion; phones get the grid alone.
  */
@@ -30,8 +30,8 @@ function lineBoxes(el: Element): DOMRect[] {
 }
 
 /**
- * Where the wallet fits: beside the title and level with it, between the title and the swap card (or,
- * with the card below the title, between the title and the page's edge). Null when it does not fit,
+ * Where the wallet fits: beside the title and level with it, between the title and the terminal (or,
+ * with the terminal below the title, between the title and the page's edge). Null when it does not fit,
  * or on a phone.
  */
 function placeWallet(root: HTMLElement): Wallet | null {

@@ -1,7 +1,6 @@
-/** /api/health for uptime monitors, and /api/report: failures the page showed, logged without addresses. */
+/** /api/health for uptime monitors. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkHealth } from '../lib/server/health.ts';
-import { cleanReport, receiveReport, redact } from '../lib/server/report.ts';
 
 afterEach(() => {
   delete process.env.RPC_URL;
@@ -42,60 +41,5 @@ describe('health', () => {
     expect(h.ok).toBe(true);
     expect(h.paused).toBe(true);
     expect(JSON.stringify(h)).not.toMatch(/rpc\.test|https?:/);
-  });
-});
-
-describe('problem reports', () => {
-  const W = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
-  const SIG = '5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW';
-  const post = (body: unknown, headers: Record<string, string> = {}) =>
-    new Request('http://orientim.test/api/report', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-vercel-forwarded-for': `192.0.2.${Math.floor(Math.random() * 250)}-${Math.random()}`, ...headers },
-      body: typeof body === 'string' ? body : JSON.stringify(body),
-    });
-
-  it('addresses and signatures are taken out, whatever field they are in', () => {
-    expect(redact(`Swap ${SIG} from ${W} failed`)).toBe('Swap … from … failed');
-    const r = cleanReport({ kind: 'error', title: `Failed for ${W}`, detail: `sig ${SIG}`, wallet: 'Phantom 25.1', pair: 'USDC → SOL' });
-    expect(JSON.stringify(r)).not.toContain(W);
-    expect(JSON.stringify(r)).not.toContain(SIG);
-    expect(r).toMatchObject({ wallet: 'Phantom 25.1', pair: 'USDC → SOL' });
-  });
-
-  it('every number is taken out, so no amount is logged; a hex error code and the wallet version stay', () => {
-    expect(redact('Your wallet holds 0.5 of the input token, less than the 1,000.25 this swap needs.'))
-      .toBe('Your wallet holds # of the input token, less than the # this swap needs.');
-    expect(redact('This swap needs about 0.0123 SOL in your wallet. Your wallet has 0.004 SOL.'))
-      .toBe('This swap needs about # SOL in your wallet. Your wallet has # SOL.');
-    expect(redact('amount=1e9 lamports 5000000, 1 000 000 left; HTTP 429')).toBe('amount=# lamports #, # left; HTTP #');
-    expect(redact('Program log: custom program error: 0x1771')).toBe('Program log: custom program error: 0x1771');
-    const r = cleanReport({
-      kind: 'error', title: 'Not enough SOL', body: 'Your wallet has 2.5 SOL.', detail: 'Transfer: insufficient lamports 12, need 900',
-      pair: 'USDC → SOL', wallet: 'Phantom 25.1',
-    });
-    expect(JSON.stringify(r)).not.toMatch(/2\.5|12|900/);
-    expect(r).toMatchObject({ body: 'Your wallet has # SOL.', wallet: 'Phantom 25.1' });
-  });
-
-  it('only known fields, cut to length; unknown ones (an amount, an address field) are dropped', () => {
-    const r = cleanReport({ title: 'no route '.repeat(100), amount: '1000 USDC', owner: W, detail: 42 });
-    expect(r).toEqual({ title: 'no route '.repeat(100).slice(0, 200) });
-  });
-
-  it('logs one line and stores nothing; refuses other sites, junk and floods', async () => {
-    const log = vi.fn();
-    expect((await receiveReport(post({ kind: 'error', title: "Couldn't build the swap" }), log)).status).toBe(204);
-    expect(log).toHaveBeenCalledOnce();
-    expect(JSON.parse(log.mock.calls[0][0])).toEqual({ type: 'orientim-problem', kind: 'error', title: "Couldn't build the swap" });
-
-    expect((await receiveReport(post({ title: 'x' }, { 'sec-fetch-site': 'cross-site' }), log)).status).toBe(403);
-    expect((await receiveReport(post('not json'), log)).status).toBe(400);
-    expect((await receiveReport(post({ body: 'no title' }), log)).status).toBe(400);
-    expect((await receiveReport(post({ title: 'x', detail: 'y'.repeat(5_000) }), log)).status).toBe(413);
-
-    const ip = { 'x-vercel-forwarded-for': '192.0.2.77-flood' };
-    for (let i = 0; i < 20; i++) expect((await receiveReport(post({ title: 't' }, ip), log)).status).toBe(204);
-    expect((await receiveReport(post({ title: 't' }, ip), log)).status).toBe(429);
   });
 });

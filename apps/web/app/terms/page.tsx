@@ -15,7 +15,7 @@ const RISKS: [string, string][] = [
   ['What a token’s issuer can do', 'Some issuers can freeze balances, mint more, charge on transfer, or move tokens. Orientim may warn you before the swap; it cannot change what a token can do.'],
   ['Software, including Orientim’s', 'Programs, markets, the Solana network, RPC providers, wallets and the Services themselves may contain errors or vulnerabilities, may be attacked, or may behave unexpectedly. This may cause the loss of some or all of the assets involved.'],
   ['The network', 'A transaction can be delayed, fail, expire, or land later than expected. One that does not execute moves nothing but may still cost its network fee.'],
-  ['An outcome not yet known', 'While the network has not confirmed a transaction, it may still land. In this browser, Orientim starts no new swap from the same wallet until it does; another browser or device does not know about it.'],
+  ['An outcome not yet known', 'While the network has not confirmed a transaction, it may still land. The skill starts no new swap from the same wallet until it knows the outcome, as long as it keeps its state directory; another copy without it does not know about it.'],
   ['Your wallet and device', 'A compromised wallet, device, key or seed phrase, or a malicious browser extension, can lead to loss. Orientim will never ask for your seed phrase. Keep large amounts on a hardware wallet.'],
   ['Impostor sites', 'Open Orientim only at orientim.com. A copy elsewhere is not Orientim and may steal your funds.'],
   ['Law and taxes', 'Laws on digital assets differ by country and change, and may affect your use of the Services or the value of your assets. You are responsible for those that apply to you, and for your taxes.'],
@@ -40,8 +40,8 @@ export default async function Page() {
           {LEGAL.operator === 'company'
             ? <>{legal('registration')}, registered in {legal('country')}, with its registered office at {legal('address')}{' '}</>
             : <>who operates Orientim in their own name, resident in {legal('country')}, at {legal('address')}{' '}</>}
-          (<strong>Orientim</strong>, <strong>we</strong>, <strong>us</strong>). They govern your use of orientim.com, the swap
-          interface on it, the Orientim API (the <strong>API</strong>), the downloadable agent skill, command line, verifier and
+          (<strong>Orientim</strong>, <strong>we</strong>, <strong>us</strong>). They govern your use of orientim.com, the
+          Orientim API (the <strong>API</strong>), the downloadable agent skill, command line, verifier and
           example code (the <strong>Software</strong>), and any related service we provide (together, the <strong>Services</strong>).
         </p>
         <p>

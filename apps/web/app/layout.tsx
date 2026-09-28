@@ -4,17 +4,17 @@ import './globals.css';
 
 // Served from Orientim's own origin (next/font), so the page's font-src stays 'self'.
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
-// Headings; the numbers that are a promise (minimum, fees, balances) and the small labels are set in mono.
+// Headings; code, the terminal and the small labels are set in mono.
 const display = Bricolage_Grotesque({ subsets: ['latin'], variable: '--font-bricolage', display: 'swap' });
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' });
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://orientim.com'),
   title: 'Orientim — Protected swaps on Solana',
-  description: 'Swap Solana tokens without giving the swap program authority over the rest of your wallet. For people and AI agents.',
+  description: 'Protected Solana swaps for AI agents and bots: the swap program never gets authority over the rest of the wallet, and the agent checks every transaction before it signs.',
   openGraph: {
     title: 'Orientim — Protected swaps on Solana',
-    description: 'Swap without handing over your wallet.',
+    description: 'Let your agent trade without handing over its wallet.',
     url: 'https://orientim.com',
     siteName: 'Orientim',
     type: 'website',
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'Orientim — Protected swaps on Solana',
-    description: 'Swap without handing over your wallet.',
+    description: 'Let your agent trade without handing over its wallet.',
   },
 };
 

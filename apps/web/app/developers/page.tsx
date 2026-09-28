@@ -112,7 +112,7 @@ export default async function Page() {
   await connection();
   return (
     <div className="site">
-      <SiteHeader menu={<MobileNav />} right={<a className="ghost connect" href="/#swap">Open the app</a>} />
+      <SiteHeader menu={<MobileNav />} right={<a className="ghost connect" href="#access">Get an API key</a>} />
       <main className="dev-page">
         <div className="container devdocs-grid">
           <aside className="dev-aside">
@@ -575,7 +575,7 @@ POST /api/v1/keys
             <section id="supported">
               <h2>Tokens and wallets</h2>
               <p>
-                The same tokens as the page: see <a href="/security#supported">supported tokens</a>. Wallets must be able to sign first
+                See <a href="/security#supported">supported tokens</a>. Wallets must be able to sign first
                 and hand the transaction back: local keys and signing services work; sign-and-send-only wallets and multisig vaults
                 do not.
               </p>

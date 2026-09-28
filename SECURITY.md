@@ -291,20 +291,15 @@ compare. For an automated signer that is the intended use — run the verifier n
 - Content-Security-Policy with a fresh nonce per request and `'strict-dynamic'` (no `'unsafe-inline'`
   for scripts), images only from Orientim's origin and `data:`, network connections only to Orientim's
   origin, no framing.
-- Token icons are fetched by Orientim's server from a fixed list of HTTPS hosts and served from Orientim's
-  origin, so token creators' hosts never see users' IP addresses.
-- This closes direct channels out of the page, not every channel: same-origin endpoints that relay a
-  query to Jupiter (`/api/jupiter/tokens`, `/api/token-icon`) remain. The CSP is a mitigation, not a
-  guarantee.
-- Live quotes are asked for a neutral address. The swap built ahead of the click, while the user
-  reads the quote, is asked for with the user's output account (an associated account, so the user's
-  address follows from it): Jupiter can learn who is about to swap before they click,
-  a trade made for latency.
+- The site has no swap page. The only page that asks a wallet for anything is the API-key page
+  (`/developers#access`): it asks for a signature over Orientim's key message, checked against the
+  expected text before the wallet opens, and never for a transaction.
+- The CSP is a mitigation, not a guarantee.
 
 ## Data
 
 Orientim maintains no customer database, no wallet database and no transaction history as part of its
-protection engine; a user's swap history lives only in their own browser. Requests are computed and
+protection engine; an agent's swap records live only in its own state directory (the skill). Requests are computed and
 discarded. The hosting platform and the RPC provider keep their own operational logs, so Orientim does
 not promise that nothing is logged anywhere.
 
@@ -414,8 +409,8 @@ it. Orientim does not cross-check the snapshot against a second provider.
 
 ## Operational controls
 
-- Kill switch `ORIENTIM_DISABLED=1`: enforced by the server (`/api/jupiter/build`, `sendTransaction`
-  on `/api/rpc` and both agent endpoints are refused), not only hidden in the UI. **On Vercel an
+- Kill switch `ORIENTIM_DISABLED=1`: enforced by the server (both agent endpoints, prepare and
+  finalize, are refused). **On Vercel an
   environment change reaches only new deployments**, so flipping it in the dashboard
   does nothing until a redeploy. The runbook:
   1. Keep a paused deployment ready: deploy the current release once more with `ORIENTIM_DISABLED=1`
@@ -429,7 +424,7 @@ it. Orientim does not cross-check the snapshot against a second provider.
      agent must sign again (the plugin does it by itself, a key stored by hand stops working). Moving
      the old secret to `ORIENTIM_KEY_SECRET_PREVIOUS` keeps them working while agents move over.
   4. Rehearse it once on a preview: promote, check `/api/status` says paused and a
-     `sendTransaction` is refused, promote back, and write down how long each step took.
+     prepare is refused, promote back, and write down how long each step took.
 - The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
   or a multisig (e.g. Squads). It is a hot wallet today.
 - If the treasury is compromised (it has happened once): its key can take the fees it holds and
@@ -442,11 +437,9 @@ it. Orientim does not cross-check the snapshot against a second provider.
   4. Release, redeploy and promote. Agents on an older copy of the skill refuse every swap until they
      update, so raise `ORIENTIM_MIN_SKILL_VERSION` with the new skill's version and tell them.
   5. Record the old and the new address, with the date of the change.
-- Relays: `/api/rpc` sends and simulates only transactions shaped like a Orientim swap (two signers,
-  one Jupiter route the verifier can read, otherwise only its trusted instruction shapes). That
-  narrows what Orientim's RPC account can be used for, but a shape says nothing about amounts or
-  destinations, so it does not prove a request is a paid Orientim swap; the app's rate limit is per instance. What bounds the cost: a firewall rule per path at the
-  host, spend alerts on the RPC account, and separate keys for the agent API
+- Cost: Orientim's RPC and Jupiter quota are spent only through the agent API, and the app's rate
+  limit is per instance. What bounds the cost: a firewall rule per path at the
+  host, spend alerts on the RPC account, and, if wanted, separate keys for the agent API
   (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`). Jupiter counts its limits per organisation, not per
   key: the API's Jupiter key has a quota of its own only if it comes from a separate Jupiter account.
 - Upstream changes: Jupiter, Pump.fun and Token-2022 are upgraded while Orientim runs (on 24 September
@@ -458,8 +451,8 @@ it. Orientim does not cross-check the snapshot against a second provider.
   that is no longer taken where it should be, and exits 2 when nothing could be checked at all.
   `.github/workflows/canary.yml` runs it every twelve hours once the repository variable
   `ORIENTIM_CANARY` is `1` (off by default). Until it is set, and until `ORIENTIM_SITE_URL` is set for
-  the live check, nothing watches production: the operator must switch both on. The page and the API
-  also log Jupiter refusing Orientim's key (401, 403) or an endpoint that is gone (404, 410).
+  the live check, nothing watches production: the operator must switch both on. The API
+  also logs Jupiter refusing Orientim's key (401, 403) or an endpoint that is gone (404, 410).
 - Releases: deploy only tagged commits, and only after CI is green. The release workflow runs the
   typecheck, the tests and the skill bundle's check itself before it publishes a digest. Actions are pinned by commit, and
   a second job builds on another runner image and must match the digest. A tag `v*` publishes the build's digest as a GitHub
@@ -468,12 +461,11 @@ it. Orientim does not cross-check the snapshot against a second provider.
   `ORIENTIM_SITE_URL`. The build is deterministic: CI builds every release tag twice and fails if the two
   digests differ, and a Vercel build takes its build id from the commit.
 - No limit per swap: the guarantee is the same for any amount, and nothing in Orientim holds funds.
-  `ORIENTIM_MAX_USD_PER_SWAP` exists as an operational valve and is unset by default; while it applies
-  it is enforced in the page only, and tokens without a USD price are blocked. A large swap is
+  `ORIENTIM_MAX_USD_PER_SWAP` is unset by default; when set it is published in `/api/status` only,
+  and the agent API does not enforce it: an agent's limits are its owner's (`ORIENTIM_POLICY`). A large swap is
   limited by the route, not by us: if no route fits inside one transaction, Orientim refuses to build
   it rather than splitting the swap (section "What Orientim does not protect").
-- API routes are stateless: allowlisted RPC methods and Jupiter parameters (`payer` is refused),
-  request bodies counted in bytes and capped at
+- API routes are stateless: request bodies counted in bytes and capped at
   64 KiB, 15 s timeouts upstream, and no request bodies are stored.
 - Rate limits are keyed on the one header the ingress overwrites (`ORIENTIM_CLIENT_IP_HEADER`, default
   `x-vercel-forwarded-for`); no other header is read. They are per instance: set a rate-limit rule in

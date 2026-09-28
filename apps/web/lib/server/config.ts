@@ -41,7 +41,7 @@ export function serverConfig() {
   }
   return {
     rpcUrl: process.env.RPC_URL || 'https://api.mainnet-beta.solana.com',
-    // A second provider, asked only when the first is down or rate-limited (rpcProxy.ts, rpcFailover.ts).
+    // A second provider, asked only when the first is down or rate-limited (rpcFailover.ts).
     rpcFallbackUrl: process.env.RPC_URL_FALLBACK || null,
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
     // No limit unless one is configured: the protection does not depend on the amount, and a
@@ -70,7 +70,7 @@ export function usdCap(raw: string | undefined): number | null {
 }
 let warnedBadCap = false;
 
-/** What the browser is allowed to know. */
+/** What anyone may know, at /api/status. */
 export type PublicStatus = {
   enabled: boolean;
   /** Optional operational cap per swap, in USD; null means no limit. */

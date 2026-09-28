@@ -6,7 +6,7 @@ import { checkDeploymentSettings } from './lib/settings';
 checkDeploymentSettings(process.env);
 
 // The Content-Security-Policy for pages is set per request, with a nonce, in proxy.ts.
-// API responses are JSON (or images from /api/token-icon, which set their own CSP) under nosniff.
+// API responses are JSON (and the skill's files) under nosniff.
 const config: NextConfig = {
   transpilePackages: ['@orientim/core', '@orientim/verifier', '@orientim/solana', '@orientim/jupiter'],
   poweredByHeader: false,

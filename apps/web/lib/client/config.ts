@@ -12,5 +12,3 @@ import { feeBpsSetting, treasurySetting } from '../settings';
 const treasury = treasurySetting(process.env.NEXT_PUBLIC_ORIENTIM_TREASURY);
 export const TREASURY: Address | null = treasury ? address(treasury) : null;
 export const FEE_BPS: bigint = feeBpsSetting(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS);
-/** v1 transactions only when a build says so, until one has landed on mainnet. */
-export const V1_ENABLED = process.env.NEXT_PUBLIC_ORIENTIM_ENABLE_V1 === '1';

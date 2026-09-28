@@ -19,11 +19,6 @@ const PROCESSING: [string, string, string][] = [
     'Running, securing and troubleshooting the service.',
     'Our legitimate interest in security',
   ],
-  [
-    'When the page shows an error: the message, the kind and first words of the error behind it, the two token symbols and the name of your wallet app. Never your wallet address, a transaction signature or an amount',
-    'To find and fix failures. Kept only in the request logs above.',
-    'Our legitimate interest in running the service',
-  ],
   ['For an API key: the message your wallet signed, and its SOL balance', 'To check that you control the wallet and that it meets the minimum balance. Neither is kept.', 'Providing the service you request'],
   ['What you write to us', 'To answer you.', 'Our legitimate interest, or providing the service'],
 ];
@@ -31,7 +26,7 @@ const PROCESSING: [string, string, string][] = [
 const RECIPIENTS: [string, string, string][] = [
   ['Vercel Inc.', 'Hosting; keeps the request logs', 'United States'],
   ['Helius', 'Solana RPC provider: chain reads, simulations and your signed transaction, which include your wallet address', 'United States'],
-  ['Jupiter', 'Price quotes, without your wallet address; building the route, with the tokens, the amount and your receiving token account', 'Outside the EU'],
+  ['Jupiter', 'Building the route, with the tokens, the amount and your receiving token account', 'Outside the EU'],
   ['The Solana network', 'Executes your signed transaction, which becomes public', 'Global and public'],
 ];
 
@@ -44,7 +39,7 @@ export default async function Page() {
       title="Privacy Notice"
       updated={LEGAL.lastUpdated}
       draft={legalDraft}
-      lead="Orientim has no accounts, no database of users, no cookies, no analytics and no advertising trackers. It processes as little as a swap needs, and most of it stays in your own browser."
+      lead="Orientim has no accounts, no database of users, no cookies, no analytics and no advertising trackers. It processes as little as a swap needs."
     >
       <section id="controller">
         <h2>1. Who is responsible</h2>
@@ -72,13 +67,10 @@ export default async function Page() {
       </section>
 
       <section id="browser">
-        <h2>3. What stays in your browser</h2>
+        <h2>3. Nothing in your browser</h2>
         <p>
-          The page keeps in your browser&apos;s storage: your recent swaps (their signatures, amounts and wallet address), so it can
-          follow their outcome; the last messages it showed you, so you can copy them when you ask for help; your slippage
-          setting; and a short-lived marker that stops a second swap from the same wallet while one is in flight. They never leave
-          your browser and are strictly necessary for the page to work. Clearing this site&apos;s data removes them. When an error is
-          shown, the short report described in section 2 is sent to our server; it carries none of these.
+          This site sets no cookies and keeps nothing in your browser&apos;s storage. The skill keeps its own records, such as the
+          swaps in flight and its order book, on the machine where your agent runs, never on our servers.
         </p>
       </section>
 
@@ -92,8 +84,7 @@ export default async function Page() {
           </table>
         </div>
         <p>
-          Token icons are fetched by our server, so your browser never contacts hosts chosen by token creators. We may also disclose
-          data where the law, a court or a competent authority requires it, or to protect the rights and security of Orientim, its
+          We may disclose data where the law, a court or a competent authority requires it, or to protect the rights and security of Orientim, its
           users or others.
         </p>
       </section>
@@ -113,7 +104,6 @@ export default async function Page() {
           <li>Rate-limit counts: in memory only, for at most an hour.</li>
           <li>Request logs at our hosting provider: up to {legal('logRetentionDays')} days, then deleted.</li>
           <li>What you write to us: as long as needed to answer you, and up to 12 months after.</li>
-          <li>What is in your browser: until you clear it.</li>
         </ul>
       </section>
 

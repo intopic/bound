@@ -16,7 +16,7 @@ import type { AgentDeps } from './api';
  *   ORIENTIM_API_SECRET           32 random bytes, base64: seals tickets and derives each E
  *   ORIENTIM_API_SECRET_PREVIOUS  optional, the one before it, while its tickets expire (a minute)
  *   ORIENTIM_API_KEYS             id:sha256-of-key, comma-separated; only the hashes are stored
- *   ORIENTIM_API_FEE_BPS          optional, the fee for API swaps; the page's fee otherwise
+ *   ORIENTIM_API_FEE_BPS          optional, the fee for API swaps; NEXT_PUBLIC_ORIENTIM_FEE_BPS otherwise
  *   ORIENTIM_API_PER_MINUTE       optional, requests per minute per key and endpoint (60)
  *   ORIENTIM_MIN_SKILL_VERSION    optional, the oldest skill prepare serves; older copies are asked to update
  *   ORIENTIM_KEY_SECRET           optional, 32 random bytes, base64: turns on self-serve keys (agent/keys.ts)
@@ -100,7 +100,7 @@ export function agentDeps(): AgentDeps | null {
   if (!current || (keys.size === 0 && ownKeys.length === 0)) return null;
   const previous = secretOf(process.env.ORIENTIM_API_SECRET_PREVIOUS, 'ORIENTIM_API_SECRET_PREVIOUS');
   const server = serverConfig();
-  // The API may run on keys of its own, so that agents cannot use up the page's quota.
+  // The API may run on keys of its own, apart from the rest of the site's.
   // Jupiter counts its limits per organisation, not per key: only a key from
   // a separate Jupiter account gives the API a quota of its own.
   const rpcUrl = process.env.RPC_URL_AGENTS || server.rpcUrl;
@@ -115,8 +115,8 @@ export function agentDeps(): AgentDeps | null {
   }
   // Allowed, but said: the skill refuses a fee above Orientim's own 0.3% unless the agent raises its
   // limit, and an agent calling the API without it would pay it unasked.
-  const pageFee = /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? BigInt(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS!) : 30n;
-  if (feeBps > pageFee) sayOnce(`The agent API charges ${feeBps} bps, more than the page's ${pageFee}: agents using the skill will refuse it.`, 'warn');
+  const siteFee = /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? BigInt(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS!) : 30n;
+  if (feeBps > siteFee) sayOnce(`The agent API charges ${feeBps} bps, more than the site's ${siteFee} (NEXT_PUBLIC_ORIENTIM_FEE_BPS): agents using the skill will refuse it.`, 'warn');
   // A treasury that is set but cannot be read would make every API swap fee-free: the API stays off.
   let treasury: string | null;
   try {

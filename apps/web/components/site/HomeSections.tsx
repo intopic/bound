@@ -1,9 +1,9 @@
 import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
 
 const CAPSULE_STEPS = [
-  ['You choose the amount.', 'Only what you approve leaves your wallet: the amount and the fees shown. The rest of your tokens are never part of the swap.'],
-  ['Only that amount goes into the swap.', 'Orientim finds a route across Solana’s markets and trades just that amount, never your wallet.'],
-  ['Get at least your minimum, or nothing happens.', 'You see the minimum before you approve. If less would arrive, the whole swap cancels and nothing is traded; at most the small network fee is paid.'],
+  ['Your agent chooses the amount.', 'Only what it approves leaves the wallet: the amount and the fees it was shown. The rest of the wallet is never part of the swap.'],
+  ['Only that amount goes into the swap.', 'Orientim finds a route across Solana’s markets and trades just that amount, never the wallet.'],
+  ['At least the minimum, or nothing happens.', 'Your agent sets its own minimum before it signs. If less would arrive, the whole swap cancels and nothing is traded; at most the small network fee is paid.'],
 ];
 
 const AGENT_POINTS = [
@@ -13,15 +13,39 @@ const AGENT_POINTS = [
   ['Works with your stack', 'A skill for coding agents, an API, and a command line for Python, Rust or Go. The keys stay in your own wallet or signing service.'],
 ];
 
+/** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
+const START_STEPS = [
+  ['Get an API key', 'Connect the wallet your agent swaps from and sign Orientim’s message. The key appears at once; signing moves nothing.'],
+  ['Download the skill', 'Instructions for your agent, a working example, a command line for bots, and the verifier that checks every swap.'],
+  ['Ask for a swap', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
+];
+
 const KEEPS_NOTHING = [
-  [NoDatabaseIcon, 'No account. No database.', 'No sign-up, and Orientim keeps no record of your swaps. Our host keeps standard request logs. Your history stays in your own browser.'],
-  [ShieldIcon, 'Never your keys or funds.', 'You sign in your own wallet. Orientim never holds funds or asks for a seed phrase.'],
-  [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers. Price quotes are requested without your wallet address.'],
+  [NoDatabaseIcon, 'No account. No database.', 'No sign-up, and Orientim keeps no record of your swaps or of the keys it issues. Our host keeps standard request logs.'],
+  [ShieldIcon, 'Never your keys or funds.', 'Your agent signs with its own wallet or signing service. Orientim never holds funds or asks for a seed phrase.'],
+  [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers on this site.'],
 ] as const;
 
 export function HomeSections() {
   return (
     <>
+      <section className="hero">
+        <div className="container hero-grid">
+          <div className="hero-copy">
+            <p className="eyebrow">Protected swaps on Solana, for AI agents and bots</p>
+            <h1 className="hero-title">Let your agent trade without handing over its wallet.</h1>
+            <p className="hero-sub">One bad signature can empty a wallet. With Orientim, a swap can only touch the amount your agent approved, and your agent checks that itself before it signs.</p>
+            <div className="cta-actions hero-actions">
+              <a className="button primary-link" href="/developers#access">Get an API key</a>
+              <a className="button ghost-link" href="/developers#start">Quickstart</a>
+            </div>
+          </div>
+          <div className="hero-app">
+            <AgentTerminal />
+          </div>
+        </div>
+      </section>
+
       {/* The one line under the hero: how every swap is protected. */}
       <section className="proof-strip" aria-label="How every swap is protected">
         <div className="container proof-row">
@@ -70,8 +94,16 @@ export function HomeSections() {
                 <a className="button ghost-link" href="/developers">Developer docs</a>
               </div>
             </div>
-            <div className="agent-media">
-              <AgentTerminal />
+            <div className="glass-stage">
+              <div className="ambient" aria-hidden="true" />
+              <div className="capsule-card">
+                <h3 className="start-title">Start in three steps</h3>
+                <ol className="start-steps">
+                  {START_STEPS.map(([title, text], i) => (
+                    <li key={title}><span className="step-n">{i + 1}</span><div><h3>{title}</h3><p>{text}</p></div></li>
+                  ))}
+                </ol>
+              </div>
             </div>
           </div>
           <div className="checked-twice">
@@ -103,12 +135,12 @@ export function HomeSections() {
         <div className="container">
           <div className="cta-band">
             <div>
-              <h2>Swap with your wallet out of reach.</h2>
-              <p>Choose a pair, review the minimum and the fees, and approve in your own wallet.</p>
+              <h2>Give your agent a wallet, not a blank cheque.</h2>
+              <p>Get a key with your agent’s wallet, download the skill, and let it swap within the limits you set.</p>
             </div>
             <div className="cta-actions">
-              <a className="button primary-link" href="#swap">Start swapping</a>
-              <a className="button ghost-link" href="/developers#access">Get an API key</a>
+              <a className="button primary-link" href="/developers#access">Get an API key</a>
+              <a className="button ghost-link" href="/developers">Developer docs</a>
             </div>
           </div>
         </div>

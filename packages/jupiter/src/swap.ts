@@ -1481,8 +1481,8 @@ export async function countersignProtectedSwap(args: {
    */
   landed?: boolean;
   /**
-   * Accept Lighthouse assertions the wallet added (verifyWalletReturn): the page, where Phantom may
-   * add them. The agent API signs only exactly what it built.
+   * Accept Lighthouse assertions the wallet added (verifyWalletReturn), as a browser wallet such as
+   * Phantom may. The agent API signs only exactly what it built.
    */
   acceptAssertions?: boolean;
 }): Promise<FullySignedTransaction & Transaction> {

@@ -26,8 +26,7 @@ function until(own: AbortSignal | undefined, ms: number): AbortSignal {
 }
 
 /**
- * The agent API's RPC, with the operator's backup (RPC_URL_FALLBACK) behind the main one: the same
- * rule as the page's relay (rpcProxy.ts). The backup is asked when the main RPC does not answer, is
+ * The agent API's RPC, with the operator's backup (RPC_URL_FALLBACK) behind the main one. The backup is asked when the main RPC does not answer, is
  * still rate-limited after its retries, or fails (5xx). A read takes the backup's answer; a send
  * takes it only when it is a success, since a refusal from the backup says nothing about what the
  * main RPC may already have broadcast.
