@@ -527,6 +527,8 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const [quoting, setQuoting] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [notice, setNotice] = useState<Notice | null>(null);
+  // Every error offers its details for now (see the toasts below).
+  const showCopy = !!notice && (notice.kind === 'error' || notice.title === UNEXPLAINED);
   const [detailsCopied, setDetailsCopied] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -590,9 +592,9 @@ export function SwapApp({ children }: { children?: ReactNode }) {
   const toastKey = useMemo(() => Math.random(), [notice]);
 
   /**
-   * The raw error behind the last message, for someone asking for help. Offered only where the page
-   * could not explain what went wrong: every error is already kept in this browser (/diagnostic)
-   * and reported to Orientim's logs.
+   * The raw error behind the last message, for someone asking for help: for now offered on every
+   * error (`showCopy`). Every error is also kept in this browser (/diagnostic) and reported to
+   * Orientim's logs.
    */
   function copyDetails() {
     if (!shown.current) return;
@@ -1860,19 +1862,21 @@ export function SwapApp({ children }: { children?: ReactNode }) {
       {children}
       </main>
 
+      {/* For now every error offers "Copy details", while wallet answers are being looked into; later
+          only the errors the page cannot explain will again. */}
       <div className="toasts">
         {notice && (
           <Toast key={toastKey} kind={notice.kind} title={notice.title} sticky={notice.sticky} onClose={() => setNotice(null)}>
             {notice.body && <p>{notice.body}</p>}
-            {(notice.link || notice.title === UNEXPLAINED) && (
+            {(notice.link || showCopy) && (
               <p className="toast-links">
                 {notice.link && (
                   <a href={notice.link} target="_blank" rel="noreferrer">
                     View on Solscan ↗
                   </a>
                 )}
-                {notice.title === UNEXPLAINED && (
-                  <button className="link" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy error details'}</button>
+                {showCopy && (
+                  <button className="link" onClick={copyDetails}>{detailsCopied ? 'Copied' : 'Copy details'}</button>
                 )}
               </p>
             )}
