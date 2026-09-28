@@ -52,9 +52,10 @@ type Phase = 'idle' | 'checking' | 'confirm' | 'wallet' | 'sending';
 /**
  * A message in the corner of the page. `progress`: a step of a swap still under way, not a problem, so
  * it is not kept with them. `detail`: the raw error behind the words, kept in this browser
- * and reported, never shown by itself. `sticky`: it stays until the page takes it back.
+ * and reported, never shown by itself. `sticky`: it stays until the page takes it back. `retry`: it
+ * offers "Try again", which builds the swap afresh at the price of that moment.
  */
-type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string; sticky?: boolean; progress?: boolean };
+type Notice = { kind: 'error' | 'success' | 'info'; title: string; body?: string; link?: string; detail?: string; sticky?: boolean; progress?: boolean; retry?: boolean };
 /**
  * `curve`: the route trades on a Pump.fun bonding curve, so its tolerance is the wider one.
  * `impact`: how much this amount moves the market price, as Jupiter reports it: a fraction, so
@@ -312,6 +313,9 @@ const UNEXPLAINED = 'Something went wrong';
 
 /** Said at the end of every refusal: the person's question is whether anything happened. */
 const NOTHING_SENT = 'Nothing was sent and no funds moved.';
+/** How many times a swap the market turned down is built again at a fresh price, and how long apart. */
+const MARKET_RETRIES = 2;
+const MARKET_RETRY_MS = 1_500;
 
 /**
  * The words for a refusal, from the person's side: what is wrong with this swap and what to do. How
@@ -350,11 +354,17 @@ function orientimWords(e: OrientimError, price: PriceContext = {}): Notice {
         ? {
           kind: 'info', title: price.tolerance ? `Price moved beyond your ${price.tolerance} tolerance` : 'Price moved beyond your tolerance',
           body: `${NOTHING_SENT} ${RAISE_TOLERANCE}${price.tightHint ? ` ${TIGHT_HINT}` : ''}${price.curveHint ? ` ${CURVE_HINT}` : ''}`,
+          retry: true, sticky: true,
         }
         : /first steps/.test(m)
           ? { kind: 'error', title: 'This swap would fail', body: `It was checked before sending and would not complete. Check your balance, or try a different amount. ${NOTHING_SENT}` }
-          // The market itself turned the swap down in the test run: nothing the wallet holds would change that.
-          : { kind: 'error', title: "This swap can't go through right now", body: `The market for this pair turned it down in a test run, before your wallet was asked. Try a different amount, or try again later. ${NOTHING_SENT}` };
+          // The market turned the swap down in the test run, again at each fresh price the page tried
+          // (prepareAccepted): the minimum is out of reach for now, as on any market that moves.
+          : {
+            kind: 'info', title: "Your minimum can't be reached right now",
+            body: `The market moved while your swap was being prepared, so it can't deliver your minimum at the moment. ${NOTHING_SENT} ${RAISE_TOLERANCE}`,
+            retry: true, sticky: true,
+          };
     case 'verification-failed':
       return /network fee/i.test(m)
         ? { kind: 'info', title: 'Network fees are too high right now', body: `Try again in a moment. ${NOTHING_SENT}` }
@@ -1146,6 +1156,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
     let accepted = args.acceptedMinReceived;
     let acceptedCost: bigint | undefined;
     let version = args.version;
+    let marketRetries = 0;
     for (let round = 0; ; round++) {
       try {
         return await prepareProtectedSwap(
@@ -1157,7 +1168,14 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           },
         );
       } catch (e) {
-        if (!(e instanceof OrientimError) || round >= 2) throw e;
+        // The market turned every route down in the test run, most often because the price moved
+        // between the quote and the test: built again at a fresh price, a moment later, it often goes.
+        if (e instanceof OrientimError && e.code === 'simulation-failed' && /^Every route|price moved/i.test(e.message) && marketRetries < MARKET_RETRIES) {
+          marketRetries++;
+          await new Promise(resolve => setTimeout(resolve, MARKET_RETRY_MS));
+          continue;
+        }
+        if (!(e instanceof OrientimError) || round - marketRetries >= 2) throw e;
         // A route too big for v0 may fit in v1, for a wallet that signs it.
         if (e.code === 'no-route' && e.message.includes('does not fit') && version === 0 && args.v1Fallback) {
           version = 1;
@@ -1870,11 +1888,16 @@ export function SwapApp({ children }: { children?: ReactNode }) {
         {notice && (
           <Toast key={toastKey} kind={notice.kind} title={notice.title} sticky={notice.sticky} onClose={() => setNotice(null)}>
             {notice.body && <p>{notice.body}</p>}
-            {notice.link && (
+            {(notice.link || notice.retry) && (
               <p className="toast-links">
-                <a href={notice.link} target="_blank" rel="noreferrer">
-                  View on Solscan ↗
-                </a>
+                {notice.link && (
+                  <a href={notice.link} target="_blank" rel="noreferrer">
+                    View on Solscan ↗
+                  </a>
+                )}
+                {notice.retry && (
+                  <button className="link" onClick={() => { setNotice(null); void swap(); }}>Try again</button>
+                )}
               </p>
             )}
           </Toast>
