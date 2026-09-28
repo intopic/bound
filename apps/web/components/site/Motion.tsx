@@ -94,9 +94,8 @@ export function CapsuleFlow() {
   return (
     <svg ref={svg} className="capsule" viewBox="0 0 960 300" role="img" aria-labelledby="capsule-title">
       <title id="capsule-title">
-        A one-time key is made for this swap and carries only the approved amount across the swap route. The minimum is checked
-        on chain, the key brings the token you bought back to your wallet, and then it is gone. The rest of your wallet never
-        moves.
+        Only the amount you chose leaves your wallet and goes across the swap route. You get at least your minimum, or nothing
+        happens. The rest of your wallet never moves.
       </title>
       <GlassDefs p="cf" />
       <rect x="20" y="40" width="210" height="220" rx="20" fill={url('cf', 'glass')} stroke={url('cf', 'edge')} />
@@ -132,7 +131,7 @@ export function CapsuleFlow() {
         <rect x="0" y="0" width="160" height="100" rx="16" fill={url('cf', 'green')} stroke={url('cf', 'green-edge')} filter={url('cf', 'glow')} />
         <rect x="0" y="0" width="160" height="100" rx="16" fill={url('cf', 'sheen')} />
         <text x="80" y="36" textAnchor="middle" className="svg-label">Minimum</text>
-        <text x="80" y="56" textAnchor="middle" className="svg-text">enforced on chain</text>
+        <text x="80" y="56" textAnchor="middle" className="svg-text">or nothing happens</text>
         <path d="M64 74 l10 10 l22 -22" fill="none" stroke="#7ce3b0" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
           <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.55;.62;.9;1" dur={DUR} repeatCount="indefinite" />
         </path>
@@ -174,9 +173,9 @@ export function CapsuleFlow() {
       <rect x="130" y="88" width="80" height="30" rx="15" fill="none" stroke="#7ce3b0" strokeWidth="1.5" opacity="0">
         <animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;.9;.93;.99;1" dur={DUR} repeatCount="indefinite" />
       </rect>
-      <text x="600" y="294" textAnchor="middle" className="svg-text">then the temporary accounts are closed</text>
+      <text x="600" y="294" textAnchor="middle" className="svg-text">then the tokens you bought come back to your wallet</text>
       <text x="600" y="294" textAnchor="middle" className="svg-text svg-good" opacity="0">
-        then the temporary accounts are closed
+        then the tokens you bought come back to your wallet
         <animate attributeName="opacity" values="0;0;1;0;0" keyTimes="0;.9;.94;.99;1" dur={DUR} repeatCount="indefinite" />
       </text>
     </svg>
@@ -355,7 +354,7 @@ export function CheckedTwice() {
         <div className={`ct-st ${view.st[1]}`}>
           <div className="ct-head"><span className="ct-who">Your agent or bot</span><StationBadge /></div>
           <h4>Checks it again, on its own</h4>
-          <p>The same bytes, the same 7 rules, with accounts read from its own RPC. Only then does its wallet sign.</p>
+          <p>The same transaction, the same 7 rules, on its own connection to Solana. Only then does its wallet sign.</p>
           {rules(view.r2, view.refused)}
           {view.st[1] === 'fail' && <p className="ct-tag bad">R2: an extra instruction sends your tokens elsewhere. Refused before signing.</p>}
         </div>
@@ -363,13 +362,13 @@ export function CheckedTwice() {
         <div className={`ct-st ${view.st[2]}`}>
           <div className="ct-head"><span className="ct-who">Solana</span><StationBadge /></div>
           <h4>Enforces the minimum</h4>
-          <p>If less than the minimum would arrive, the whole transaction reverts and nothing moves.</p>
+          <p>If less than the minimum would arrive, the whole swap cancels and nothing moves.</p>
           <p className="ct-floor"><span>minimum</span><span>≥ 1.215929 USDC</span></p>
         </div>
       </div>
       <div className="ct-verdict">
         <p role="status" className={view.verdict ?? 'wait'}>
-          {view.verdict === 'bad' ? 'The wallet never signed. Nothing moved.' : 'Verified when prepared, again on the agent’s own RPC, then enforced on chain.'}
+          {view.verdict === 'bad' ? 'The wallet never signed. Nothing moved.' : 'Checked by Orientim, checked again by your agent, then enforced by Solana itself.'}
         </p>
         <div className="ct-controls">
           <button type="button" className="ct-btn" onClick={() => play(false)}>Replay</button>

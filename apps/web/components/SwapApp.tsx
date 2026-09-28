@@ -1592,6 +1592,7 @@ export function SwapApp({ children }: { children?: ReactNode }) {
           <div className="hero-copy">
             <p className="eyebrow">Protected swaps on Solana</p>
             <h1 className="hero-title">Swap without handing over your wallet.</h1>
+            <p className="hero-sub">When a swap site is hacked, one signature can empty your wallet. With Orientim, the most a swap can ever touch is the amount you typed.</p>
           </div>
 
           <div className="hero-app">

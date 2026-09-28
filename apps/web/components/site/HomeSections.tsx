@@ -1,16 +1,16 @@
 import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
 
 const CAPSULE_STEPS = [
-  ['The amount moves into a one-time key', 'Only what you approve leaves your wallet, into a key that exists for this one swap.'],
-  ['The route trades it', 'A route across Solana’s markets is found for you. It works with the one-time key, never with your wallet.'],
-  ['The minimum is checked on chain', 'If less than the minimum would arrive, the whole swap cancels itself. The temporary accounts are closed in the same transaction, and the one-time key never gets any authority over your wallet.'],
+  ['You choose the amount.', 'Only what you type leaves your wallet. The rest of your tokens are never part of the swap.'],
+  ['Only that amount goes into the swap.', 'Orientim finds a route across Solana’s markets and trades just that amount, never your wallet.'],
+  ['Get at least your minimum, or nothing happens.', 'You see the minimum before you approve. If less would arrive, the whole swap cancels and nothing is traded; at most the small network fee is paid.'],
 ];
 
 const AGENT_POINTS = [
-  ['Verified on its own RPC', 'The skill runs the full verifier in the agent, on the exact bytes it signs.'],
-  ['Limits of its own', 'A maximum fee, a maximum SOL cost and a price floor from its own source.'],
-  ['Safe across crashes', 'An id for every order, recovery after a restart, never the same swap twice.'],
-  ['Any language, your own signer', 'A skill for coding agents, an API, and a CLI for Python, Rust or Go. Works with wallets and signing services that hand the signed transaction back for a final check.'],
+  ['Checks every swap itself', 'Before it signs, your agent checks the exact transaction on its own connection to Solana.'],
+  ['Limits you set', 'The most it may spend per swap and per day, a fee cap, and a price floor from its own source.'],
+  ['Never swaps twice', 'If it crashes mid-swap, it picks up where it stopped and never repeats an order.'],
+  ['Works with your stack', 'A skill for coding agents, an API, and a command line for Python, Rust or Go. The keys stay in your own wallet or signing service.'],
 ];
 
 const KEEPS_NOTHING = [
@@ -27,7 +27,7 @@ export function HomeSections() {
         <div className="container proof-row">
           <p className="one-key">
             <LockIcon />
-            <strong>The swap program reaches only the amount you approve.</strong>
+            <strong>Nothing else in your wallet is ever within the swap’s reach.</strong>
           </p>
         </div>
       </section>
@@ -59,9 +59,8 @@ export function HomeSections() {
               <p className="eyebrow eyebrow-cyan">For AI agents and bots</p>
               <h2>Your agent trades. Your wallet stays out of reach.</h2>
               <p className="lead">
-                The same one-key protection through an API, a skill for coding agents and a command line. With the skill, your agent
-                checks every transaction on its own RPC before it signs, so even a compromised server can’t make it sign more than its
-                limits.
+                Give your agent a wallet without giving it a blank cheque. It checks every transaction itself before it signs, so even
+                if a server between it and Solana is hacked, it can’t spend more than the limits you set.
               </p>
               <ul className="agent-points">
                 {AGENT_POINTS.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
@@ -76,7 +75,7 @@ export function HomeSections() {
             </div>
           </div>
           <div className="checked-twice">
-            <h3>Verified when prepared, and again next to the signer</h3>
+            <h3>Checked by Orientim, checked again by your agent</h3>
             <CheckedTwice />
           </div>
         </div>
@@ -85,7 +84,7 @@ export function HomeSections() {
       <section className="section" id="security">
         <div className="container">
           <div className="section-head">
-            <p className="eyebrow">Stateless by design</p>
+            <p className="eyebrow">Private by design</p>
             <h2>Protection that keeps nothing.</h2>
           </div>
           <div className="glass-stage">

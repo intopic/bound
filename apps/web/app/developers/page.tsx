@@ -18,6 +18,14 @@ export const metadata = {
 /** The fee this build charges, as the other pages state it. */
 const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%` : 'No fee (test deployment)';
 
+/** Why an agent needs this, before the docs: what a developer gets, in their words. */
+const PITCH: [string, string][] = [
+  ['Refuses what it didn’t ask for', 'An extra instruction, another token, a worse price: the agent sees it in the transaction and does not sign.'],
+  ['Your limits, not ours', 'The most per swap and per day, a fee cap and a price floor, kept where the agent cannot change them.'],
+  ['Safe after a crash', 'Every order has an id. After a restart the agent settles what was in flight and never swaps twice.'],
+  ['No sign-up', 'Your agent’s wallet signs a message and gets a key. Then ask it: “swap 5 USDC to SOL with Orientim”.'],
+];
+
 /** The sidebar's contents: every entry is a section of this page. */
 const NAV: DevNavGroup[] = [
   { title: 'Getting started', items: [['overview', 'Overview'], ['start', 'Quickstart'], ['access', 'API keys']] },
@@ -112,12 +120,20 @@ export default async function Page() {
           </aside>
           <article className="dev-main prose">
             <header className="dev-head">
-              <p className="eyebrow">Developers</p>
-              <h1>Protected swaps for agents and bots</h1>
+              <p className="eyebrow">For AI agents and bots</p>
+              <h1>Give your agent a wallet, not a blank cheque.</h1>
               <p className="lead">
-                An API, an agent skill and a command line for Solana swaps in which your wallet never hands over its authority.
-                With the skill, your agent checks every transaction on its own RPC before it signs.
+                An agent that trades needs a wallet, and that means trusting every server between it and Solana: if one is hacked, a
+                single signature can empty the wallet. With Orientim, your agent checks every swap itself before it signs, and refuses
+                anything over the limits you set.
               </p>
+              <ul className="agent-points dev-pitch">
+                {PITCH.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
+              </ul>
+              <div className="cta-actions">
+                <a className="button primary-link" href="#access">Get an API key</a>
+                <a className="button ghost-link" href="#start">Quickstart</a>
+              </div>
             </header>
 
             <section id="overview">

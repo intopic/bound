@@ -100,6 +100,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); }
 .hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 56px; align-items: center; max-width: 1120px; }
 .hero-title { font-size: clamp(38px, 5vw, 62px); line-height: 1.04; font-weight: 700; letter-spacing: -0.03em; }
+.hero-sub { color: var(--muted); font-size: 18px; line-height: 1.5; max-width: 34ch; margin: 18px 0 0; text-wrap: pretty; }
 /* The card on a soft green light, inside a thin border that is green at the top and fades down. */
 .hero-app { position: relative; isolation: isolate; min-width: 0; }
 .hero-app::before { content: ''; position: absolute; inset: 6% -10% 0; z-index: -1; pointer-events: none;
@@ -462,6 +463,11 @@ a.ghost { display: inline-flex; align-items: center; }
 .dev-head { padding-bottom: 12px; }
 .dev-head h1 { font-size: clamp(32px, 4vw, 44px); line-height: 1.1; font-weight: 700; }
 .dev-head .lead { margin-bottom: 8px; }
+.dev-head .dev-pitch { padding: 0; margin: 24px 0 26px; }
+.dev-head .dev-pitch li { margin: 0; line-height: 1.5; }
+.dev-head .dev-pitch b { color: var(--text); }
+.dev-head .dev-pitch span { font-size: 14px; }
+.dev-head .cta-actions { margin-bottom: 20px; }
 .dev-nav-toggle { display: none; }
 .dev-nav-group + .dev-nav-group { margin-top: 22px; }
 .dev-nav-title { margin: 0 0 8px; color: var(--text); font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
@@ -529,6 +535,7 @@ a.ghost { display: inline-flex; align-items: center; }
   .mobile-nav { display: block; }
   .header-row { height: 58px; gap: 12px; }
   .hero-title { font-size: 34px; }
+  .hero-sub { font-size: 16px; margin-top: 12px; }
   .page-grid { opacity: .7; }
   .section { padding-top: 64px; }
   .cta-band { padding: 26px 22px; }
