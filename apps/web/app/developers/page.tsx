@@ -53,7 +53,7 @@ const ERRORS: [string, string, string][] = [
   ['409', 'costs-more', 'The protected route is gapBps below the open market. With the user’s approval, prepare again with acceptCostBps.'],
   ['409', 'output-balance-changed', 'Your balance of the output token moved since prepare. Check the signature, then prepare again.'],
   ['410', 'expired', 'The transaction’s lifetime passed before finalize. Check the signature, then prepare again.'],
-  ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about $1. Selling the whole balance of a token is allowed at any size.'],
+  ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about 0.0034 SOL, or $0.84 of USDC or USDT (for a swap between two other tokens, its value in SOL). Selling the whole balance of a token is allowed at any size.'],
   ['422', 'unsupported-token, no-route, insufficient-sol, insufficient-balance, simulation-failed, …', 'This swap cannot be built safely right now; message says why.'],
   ['426', 'skill-outdated', 'This copy of the skill is older than Orientim serves. Download the current one; a swap already signed still finalizes.'],
   ['429', 'rate-limited', 'Too many requests for this key (per wallet for a self-serve key). Wait Retry-After seconds.'],
@@ -101,7 +101,7 @@ const ENV: [string, string][] = [
   ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check is worth what the chain state it reads is worth.'],
   ['JUPITER_API_KEY', 'For the agent’s own price floor (free at developers.jup.ag).'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
-  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours. Base units, as strings. stateDir, optional, pins the state directory to one absolute path.'],
+  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. stateDir, optional, pins the state directory to one absolute path.'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system; with a daily limit it must be absolute.'],
   ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
 ];
@@ -200,7 +200,8 @@ curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                           <a href={SKILL_ARCHIVE} download>skill</a> folder:
                         </p>
                         <pre><code>{`echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
-# sign "messageBase64" with the agent's key, then:
+# sign the bytes of "message" (the same bytes as "messageBase64", decoded) with the agent's key, then
+# send "message" as it came, in plain text, not base64:
 echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bin/orientim-verify.mjs key`}</code></pre>
                         <p>
                           In code, <code>requestApiKey</code> from the skill does both steps. It signs only Orientim&apos;s key message
@@ -521,7 +522,10 @@ POST /api/v1/keys
 { "message": "<the message, unchanged>", "challenge": "...", "signature": "<base58 or base64>" }
 → { "key": "ori_...", "wallet": "<address>", "expiresAt": "..." }`}</code></pre>
               <ul>
-                <li>Sign the challenge within 10 minutes.</li>
+                <li>
+                  Sign the challenge within 10 minutes. Within those minutes the same signed challenge can be exchanged again, for
+                  another key of the same wallet, which gives nothing more.
+                </li>
                 <li>
                   Sign only Orientim&apos;s key message for your own wallet: a signature over bytes someone else chose could be a
                   signature for a transaction. The skill checks the message before anything is signed.
@@ -578,7 +582,7 @@ POST /api/v1/keys
               <ul>
                 <li>
                   {feeText}, inside the transaction you sign, in SOL, USDC or USDT when the swap has one of them, otherwise in the
-                  input token or in SOL. A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
+                  input token or in SOL from the wallet, which then needs that SOL besides the token. A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
                 </li>
                 <li>
                   The public deployment, agent API and shipped skill refuse an Orientim fee above 0.3%. The core verifier has a
@@ -600,7 +604,10 @@ POST /api/v1/keys
                   The owner&apos;s own limits, per swap and per day for each input mint, in a file (<code>ORIENTIM_POLICY</code>):
                   a swap outside them is refused before anything is prepared and again before finalize.
                 </li>
-                <li>Swaps smaller than about $1 are not taken.</li>
+                <li>
+                  Swaps smaller than about 0.0034 SOL, or $0.84 of USDC or USDT, are not taken, except the sale of a token&apos;s
+                  whole balance.
+                </li>
               </ul>
             </section>
 

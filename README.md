@@ -88,8 +88,8 @@ logs.
 
 ```bash
 npm install
-npm test                  # unit, mutation (M1–M16), audit regression, proxy and property tests
-npm run test:fuzz         # every property at full size; the Fuzz workflow runs about 22 million cases in 43 shards
+npm test                  # unit, mutation (M1–M17), audit regression, proxy and property tests
+npm run test:fuzz         # every property at full size; the Fuzz workflow runs about 29 million cases in 81 jobs
 npm run typecheck
 npm run integration       # mainnet simulation: T4 + T1 + T5 (nothing is signed or sent)
 npm run cpi               # T6: build the malicious program and run it (Linux or macOS)

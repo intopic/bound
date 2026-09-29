@@ -856,7 +856,7 @@ describe('the smallest swap, about $1, so that none costs more to build than it 
     const feeAccount: [Address, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
     const small = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n, minFee: MIN_FEE }).catch((e: OrientimError) => e);
     expect((small as OrientimError).code).toBe('amount-too-small');
-    expect((small as OrientimError).message).toContain('about $1');
+    expect((small as OrientimError).message).toContain('about 0.0034 SOL, or $0.84 of USDC or USDT');
     // settings.feeBps is the test default (20): $1.5 carries 3,000 units, above the floor.
     const enough = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 1_500_000n, minFee: MIN_FEE });
     expect(enough.policy.fee).toBeGreaterThanOrEqual(MIN_FEE.stableUnits);

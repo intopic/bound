@@ -2,7 +2,7 @@ name: Release
 
 # A tag v* publishes the digest of what the browser loads for that commit, with the public build
 # settings compiled into it, so the live site can be checked against it (live-check.yml) and
-# anyone with the source can rebuild and compare (SECURITY.md, "Verifying the code you are running").
+# anyone with the source can rebuild and compare (docs/OPERATORS.md, "Verifying the code you are running").
 on:
   push:
     tags: ['v*']

@@ -71,7 +71,7 @@ export type SwapSettings = OrientimConfig & {
  * $1 refused swaps of $1 that the page had let through (debugging pass, 25 September 2026).
  */
 export const MIN_FEE = { lamports: 10_000n, stableUnits: 2_500n } as const;
-export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes, about $1. Swap a larger amount. Selling the whole balance of a token is allowed at any size.";
+export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes: about 0.0034 SOL, or $0.84 of USDC or USDT (for two other tokens, their value in SOL). Swap a larger amount. Selling the whole balance of a token is allowed at any size.";
 
 /** Is a fee of `fee` in `feeMint` below the smallest one `minFee` allows? */
 function belowMinFee(fee: bigint, feeMint: Address, minFee: SwapSettings['minFee']): boolean {
@@ -908,7 +908,7 @@ export async function prepareProtectedSwap(deps: {
   firstRouteTask.catch(() => undefined);
   firstLifetimeTask.catch(() => undefined);
   const baseline = await baselineTask;
-  if (!baseline) throw new OrientimError('no-route', 'Jupiter could not quote this pair right now. Try again in a moment.');
+  if (!baseline) throw new OrientimError('no-route', 'Jupiter found no route for this pair and amount, asked four times. The token may have no liquidity left, or too little for this amount: try a smaller amount or once more later, and stop if it is refused again.');
   if (!answersThisRequest(baseline)) throw new OrientimError('bad-quote', 'Jupiter answered for a different trade. Nothing was built.');
   const baselineOut = BigInt(baseline.outAmount);
   const labels = await labelsTask;

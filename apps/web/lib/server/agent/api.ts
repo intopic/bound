@@ -1,4 +1,7 @@
-import { getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress } from '@solana/kit';
+import {
+  getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress, isSolanaError,
+  SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY,
+} from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
 import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
 import { TOKEN_2022_PROGRAM } from '@orientim/core/constants';
@@ -166,6 +169,11 @@ function explain(e: unknown): Response {
   if (http === 429) return fail(503, 'busy', "Orientim's Solana RPC is rate limited right now. Wait a few seconds and try again. Nothing was sent.", {}, { 'retry-after': '5' });
   if ((http !== null && http >= 500) || unanswered(e)) {
     return fail(503, 'unavailable', "Orientim's Solana RPC didn't answer. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
+  }
+  // The RPC answered but could not serve the request: its own fault or its plan's, not the swap's.
+  if (isSolanaError(e, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY)) {
+    console.error("Orientim's Solana RPC could not serve a request:", e);
+    return fail(503, 'unavailable', "Orientim's Solana RPC couldn't serve this request. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
   }
   console.error(e);
   return fail(500, 'internal', 'Something went wrong. Nothing was signed by Orientim or sent.');

@@ -1,13 +1,14 @@
 name: CI
 
-# The tests run on each change to the code; a change only to the docs runs nothing. The reproducible
+# The tests run on each change to the code; a change only to the docs runs nothing. AGENT-API.md is
+# not a doc here: the skill bundle carries a copy of it, which the tests check. The reproducible
 # build (three full builds) runs on a release tag and by hand, not on every push: on a private
 # repository each billed minute counts against the plan.
 on:
   push:
-    paths-ignore: ['*.md', 'docs/**']
+    paths-ignore: ['README.md', 'SECURITY.md', 'docs/**']
   pull_request:
-    paths-ignore: ['*.md', 'docs/**']
+    paths-ignore: ['README.md', 'SECURITY.md', 'docs/**']
   workflow_dispatch:
 
 jobs:

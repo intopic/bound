@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   address, compileTransaction, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
-  SolanaError, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
+  SolanaError, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
@@ -602,6 +602,19 @@ describe('the skill says its version, and an old copy is asked to update', () =>
     headers.set('x-orientim-skill', '1.0.0');
     const res = await agentFinalize(new Request(req.url, { method: 'POST', headers, body: await req.text() }), w.deps);
     expect(res.status).toBe(200);
+  });
+});
+
+describe("an RPC that answers but cannot serve the request is unavailable, not an internal error", () => {
+  it('prepare answers 503 unavailable with a Retry-After when the RPC has no such method', async () => {
+    const w = await world();
+    const missing = new SolanaError(SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, { __serverMessage: 'Method not found' } as never);
+    w.deps.rpc = new Proxy({}, { get: () => () => ({ send: async () => { throw missing; } }) }) as AgentDeps['rpc'];
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBe('5');
+    expect((await res.json()).error.code).toBe('unavailable');
+    expect(w.sent).toHaveLength(0);
   });
 });
 

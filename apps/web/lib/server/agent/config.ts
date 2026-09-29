@@ -11,7 +11,7 @@ import type { AgentDeps } from './api';
 /**
  * The agent API is off unless the deployment sets both of these (tools/agent-key.ts makes them).
  * They are read when a deployment starts: on Vercel a change needs a redeploy, so
- * revoking a key or pausing follows the runbook in SECURITY.md, not an edit in the dashboard.
+ * revoking a key or pausing follows the runbook in docs/OPERATORS.md, not an edit in the dashboard.
  *
  *   ORIENTIM_API_SECRET           32 random bytes, base64: seals tickets and derives each E
  *   ORIENTIM_API_SECRET_PREVIOUS  optional, the one before it, while its tickets expire (a minute)
@@ -82,7 +82,7 @@ export function keysOf(value: string | undefined): Map<string, string> {
 }
 
 // The clients are kept per instance. The settings are read on every request, but a host may fix the
-// environment per deployment (Vercel does): see the runbook for pausing and revoking.
+// environment per deployment (Vercel does): see the runbook in docs/OPERATORS.md for pausing and revoking.
 let clients: { rpc: SolanaRpc; jupiter: JupiterClient; priorityFee: PriorityFeeLevel; for: string } | null = null;
 
 /** The self-serve key secrets, the current one first; none when self-serve keys are off. */

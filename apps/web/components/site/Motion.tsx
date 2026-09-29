@@ -183,6 +183,7 @@ export function CapsuleFlow() {
 }
 
 const TERMINAL: [string, string][] = [
+  ['dim', '# example run'],
   ['dim', '$ swap 0.01 SOL → USDC   # protected'],
   ['ok', '✓ checked on the agent’s own RPC · only 0.01 SOL can move'],
   ['ok', '✓ signed by the agent · finished with a one-time key'],
@@ -193,7 +194,7 @@ const TERMINAL: [string, string][] = [
   ['ok', '✓ nothing was signed'],
 ];
 
-/** An agent's real run on mainnet, then the same agent refusing a tampered swap. */
+/** An example agent run on mainnet, then the same agent refusing a tampered swap. */
 export function AgentTerminal() {
   const reduce = useReducedMotion();
   const box = useRef<HTMLDivElement>(null);
