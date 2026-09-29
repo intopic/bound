@@ -515,6 +515,12 @@ describe('API keys from the environment', () => {
     process.env.ORIENTIM_API_FEE_BPS = '31';
     try {
       expect(agentDeps()).toBeNull();
+      // Above the site's own fee, 25 bps when it is unset, the API is off too.
+      process.env.ORIENTIM_API_FEE_BPS = '30';
+      expect(agentDeps()).toBeNull();
+      delete process.env.ORIENTIM_API_FEE_BPS;
+      expect(agentDeps()?.feeBps).toBe(25n);
+      process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS = '30';
       process.env.ORIENTIM_API_FEE_BPS = '30';
       expect(agentDeps()?.feeBps).toBe(30n);
       process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS = '20';

@@ -57,7 +57,7 @@ export type SwapSettings = OrientimConfig & {
   priorityFeeLamports: bigint;
   /**
    * The smallest fee a swap may carry, so that every swap pays for what building it costs (about $1
-   * of swap at 0.3%): in lamports when it is paid in SOL, in base units when in USDC or USDT. A fee
+   * of swap at 0.25%): in lamports when it is paid in SOL, in base units when in USDC or USDT. A fee
    * in another token has no price here and is not held to it. None when unset (tests, test mode).
    */
   minFee?: { lamports: bigint; stableUnits: bigint };
@@ -71,7 +71,7 @@ export type SwapSettings = OrientimConfig & {
  * $1 refused swaps of $1 that the page had let through (debugging pass, 25 September 2026).
  */
 export const MIN_FEE = { lamports: 10_000n, stableUnits: 2_500n } as const;
-export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes: about 0.0034 SOL, or $0.84 of USDC or USDT (for two other tokens, their value in SOL). Swap a larger amount. Selling the whole balance of a token is allowed at any size.";
+export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes: about 0.004 SOL, or $1 of USDC or USDT (for two other tokens, their value in SOL). Swap a larger amount. Selling the whole balance of a token is allowed at any size.";
 
 /** Is a fee of `fee` in `feeMint` below the smallest one `minFee` allows? */
 function belowMinFee(fee: bigint, feeMint: Address, minFee: SwapSettings['minFee']): boolean {

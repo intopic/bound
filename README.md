@@ -17,7 +17,7 @@ transaction and pass verification and simulation; otherwise the API refuses them
 1. The agent asks the API for a swap (`/api/v1/prepare`). Orientim's server makes a one-time key **E** for this
    swap alone, derived from a server secret and the swap's ticket.
 2. In a single transaction, the wallet **W** moves exactly the amount to swap into a temporary account
-   owned by E, pays the Orientim fee (0.3%), and only E and that account are given to the one untrusted
+   owned by E, pays the Orientim fee (0.25%), and only E and that account are given to the one untrusted
    instruction (Jupiter's swap). After the swap, Orientim checks that at least the minimum output
    arrived, then closes the temporary accounts back to W.
 3. The **verifier** checks the exact bytes the wallet is asked to sign against 7 rules (below): on Orientim's
@@ -114,7 +114,7 @@ Fixed at build time (compiled into the build, so they cannot change without a ne
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `NEXT_PUBLIC_ORIENTIM_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then every swap pays, memecoin sales included; a pair neither token of which the treasury can receive pays in SOL from the wallet, at the swap's value. With a treasury set, a swap whose fee cannot be collected (the wallet not funded yet, a pair that cannot be priced in SOL, an amount too small to carry it) is refused, never built free |
-| `NEXT_PUBLIC_ORIENTIM_FEE_BPS` | 30 | 0.3%. Production configuration and the shipped agent skill refuse more than 30 bps. The agent API also refuses an `ORIENTIM_API_FEE_BPS` above 30 bps. |
+| `NEXT_PUBLIC_ORIENTIM_FEE_BPS` | 25 | 0.25%. Production configuration and the shipped agent skill refuse more than 30 bps. The agent API also refuses an `ORIENTIM_API_FEE_BPS` above 30 bps. |
 | `NEXT_PUBLIC_ORIENTIM_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Orientim v1 swap has landed on mainnet |
 | `ORIENTIM_ENABLE_FAST_ROUTING` | — | `1` allows agent requests with `routingMode: "fast"`. Off by default. Jupiter fast routing is beta and can worsen price or priority fee; the bot must still opt in, and the standard baseline, simulation, and verifier remain mandatory. |
 

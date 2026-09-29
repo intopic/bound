@@ -7,10 +7,10 @@ import { isAddress } from '@solana/kit';
  * "too small", and a mistyped treasury would silently run a fee-free deployment.
  */
 
-/** NEXT_PUBLIC_ORIENTIM_FEE_BPS: whole basis points, 0 to 30 (30 = 0.3%); 30 when unset or empty. */
+/** NEXT_PUBLIC_ORIENTIM_FEE_BPS: whole basis points, 0 to 30 (25 = 0.25%, the product's fee); 25 when unset or empty. */
 export function feeBpsSetting(raw: string | undefined): bigint {
   const value = raw?.trim() ?? '';
-  if (value === '') return 30n;
+  if (value === '') return 25n;
   if (!/^\d{1,2}$/.test(value) || BigInt(value) > 30n) {
     throw new Error(`NEXT_PUBLIC_ORIENTIM_FEE_BPS must be a whole number of basis points from 0 to 30 (30 means 0.3%), not "${raw}".`);
   }
@@ -48,6 +48,6 @@ export function checkDeploymentSettings(env: Record<string, string | undefined>)
   const treasury = treasurySetting(env.NEXT_PUBLIC_ORIENTIM_TREASURY);
   maxNetworkFeeSetting(env.ORIENTIM_MAX_NETWORK_FEE_LAMPORTS);
   if (treasury && fee === 0n) {
-    throw new Error('NEXT_PUBLIC_ORIENTIM_FEE_BPS is 0 while NEXT_PUBLIC_ORIENTIM_TREASURY is set: every swap would be refused. Set the fee (30 = 0.3%), or empty the treasury for test mode.');
+    throw new Error('NEXT_PUBLIC_ORIENTIM_FEE_BPS is 0 while NEXT_PUBLIC_ORIENTIM_TREASURY is set: every swap would be refused. Set the fee (25 = 0.25%), or empty the treasury for test mode.');
   }
 }

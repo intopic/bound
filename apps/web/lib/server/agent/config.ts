@@ -106,14 +106,14 @@ export function agentDeps(): AgentDeps | null {
   const rpcUrl = process.env.RPC_URL_AGENTS || server.rpcUrl;
   const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
   const feeBps = BigInt(/^\d{1,3}$/.test(process.env.ORIENTIM_API_FEE_BPS ?? '') ? process.env.ORIENTIM_API_FEE_BPS!
-    : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS! : '30');
+    : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS! : '25');
   // The shipped skill and the public offer both cap Orientim's fee at 0.3%. A
   // deployment configured above that must fail closed, including for direct API clients.
   if (feeBps > 30n) {
     console.error(`The agent API is off: its fee is ${feeBps} bps, above the shipped skill's ceiling of 30.`);
     return null;
   }
-  const siteFee = /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? BigInt(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS!) : 30n;
+  const siteFee = /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? BigInt(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS!) : 25n;
   if (feeBps > siteFee) {
     console.error(`The agent API is off: its fee is ${feeBps} bps, above the site's ${siteFee} (NEXT_PUBLIC_ORIENTIM_FEE_BPS).`);
     return null;

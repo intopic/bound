@@ -9,9 +9,9 @@ import { checkDeploymentSettings, feeBpsSetting, maxNetworkFeeSetting, treasuryS
 const TREASURY = 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE';
 
 describe('deployment settings', () => {
-  it('the fee is whole basis points, 30 when unset or empty', () => {
-    expect(feeBpsSetting(undefined)).toBe(30n);
-    expect(feeBpsSetting('')).toBe(30n);
+  it('the fee is whole basis points, 25 when unset or empty', () => {
+    expect(feeBpsSetting(undefined)).toBe(25n);
+    expect(feeBpsSetting('')).toBe(25n);
     expect(feeBpsSetting(' 30 ')).toBe(30n);
     expect(feeBpsSetting('29')).toBe(29n);
     for (const wrong of ['0.3', '0,3', '0.3%', '30bps', '31', '100', '-5', 'abc']) expect(() => feeBpsSetting(wrong)).toThrow('NEXT_PUBLIC_ORIENTIM_FEE_BPS');
