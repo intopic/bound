@@ -707,7 +707,7 @@ export async function prepareProtectedSwap(deps: {
     : 0n;
   if (epoch === null) {
     throw new OrientimError(
-      'token-data-mismatch',
+      'unavailable',
       "Orientim could not read the epoch that decides this token's transfer fee, so the amount could not be priced. Nothing was built; try again in a moment.",
     );
   }
@@ -727,7 +727,7 @@ export async function prepareProtectedSwap(deps: {
   // wallet would be asked for a different amount than the one shown.
   for (const [m, shown] of [[req.inputMint, req.inputDecimals], [req.outputMint, req.outputDecimals]] as const) {
     if (mints.get(m)!.decimals !== shown) {
-      throw new OrientimError('token-data-mismatch', `The token data for ${m} does not match the chain. Nothing was built; reload and try again.`);
+      throw new OrientimError('token-data-mismatch', `Two reads of the chain disagree on the decimals of ${m}. Nothing was built; try again in a moment.`);
     }
   }
 
@@ -873,10 +873,10 @@ export async function prepareProtectedSwap(deps: {
           throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
         }
         if (e.status < 500) return null;
-        // The kill switch answers 503 with its own words, which the page shows as they are.
-        if (!/paused/i.test(e.message)) throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
+      } else {
+        console.error('Jupiter could not be reached:', e);
       }
-      throw e;
+      throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
     } finally {
       jupiterBuildMs += performance.now() - at;
     }
@@ -937,8 +937,8 @@ export async function prepareProtectedSwap(deps: {
   // Pump's per-buyer account under E, closed after the swap and returned to W.
   let routeRefund: RouteRefund | null = null;
   const policyFor = (r: BuildResponse) => withRouteRefund(withTakerRent(withMinOut(policy, floorOf(r)), takerRent), routeRefund);
-  const priceMoved = (r: BuildResponse) =>
-    new OrientimError('price-moved', 'The price moved beyond the slippage tolerance since you looked. Nothing was signed.', [], {
+  const priceMoved = (r: BuildResponse, message = 'The best route now gives less than your minOut: the price moved beyond the slippage tolerance. Nothing was signed.') =>
+    new OrientimError('price-moved', message, [], {
       newMinOut: routeFloor(r, slippageFor(r, settings)),
       newOutAmount: BigInt(r.outAmount),
       newMinReceived: keeps(routeFloor(r, slippageFor(r, settings))),
@@ -1073,13 +1073,18 @@ export async function prepareProtectedSwap(deps: {
 
     let chosen: { r: BuildResponse; intermediates: IntermediateAta[]; level: number } | null = null;
     let chosenGapBps = 0n;
+    /** Jupiter answered for another trade, or its instruction disagreed with its own answer. */
     let sawBadQuote = false;
+    /** A route was priced so far below the unrestricted one that it cannot be a real price. */
+    let sawFarBelow = false;
     /** Jupiter answered with an instruction Orientim cannot read: its format changed. */
     let sawUnknownFormat = false;
     // A route priced right but too big for one transaction is the usual outcome for a large
     // amount: Solana allows 64 accounts per transaction, and Orientim's own instructions need a
     // dozen of them. That is a different failure from a broken quote, and it is reported as such.
     let sawTooBig = false;
+    /** A route too big for one transaction would have met the user's minimum. */
+    let tooBigMetMinimum = false;
     /** A route was priced and fitted, but one of its hops is a mint Orientim cannot isolate. */
     let sawUnsupportedHop: string | null = null;
     /** How far the best route offered was below the unrestricted price, in bps. */
@@ -1109,7 +1114,7 @@ export async function prepareProtectedSwap(deps: {
       const out = BigInt(r.outAmount);
       const gap = baselineOut > 0n ? ((baselineOut - out) * 10_000n) / baselineOut : 0n;
       if (bestGapBps === null || gap < bestGapBps) bestGapBps = gap;
-      if (gap > settings.badQuoteBps) { sawBadQuote = true; continue; }
+      if (gap > settings.badQuoteBps) { sawFarBelow = true; continue; }
       if (BigInt(r.otherAmountThreshold) <= 0n) continue; // no floor to enforce
       const intermediates = await withTransferFees(intermediatesFromSetup(r.setupInstructions, policy));
       const badHop = intermediates.map(x => cannotIsolate.get(x.mint)).find(Boolean);
@@ -1117,6 +1122,7 @@ export async function prepareProtectedSwap(deps: {
       const c = timed(() => compileIfFits(() => compile(r, lifetime, intermediates, MAX_COMPUTE_UNITS)));
       if (c && fits(c.size, c.staticAccounts, req.version)) { chosen = { r, intermediates, level }; chosenGapBps = gap; break; }
       sawTooBig = true;
+      if (out >= accepted) tooBigMetMinimum = true;
     }
     // The levels run from the widest route to the narrowest, so the first one that fits is the best
     // price available to a protected swap. When it costs noticeably more than the unrestricted
@@ -1135,14 +1141,19 @@ export async function prepareProtectedSwap(deps: {
       }
     }
     // The best route that fits cannot deliver what the user accepted: ask, never lower it silently.
-    if (chosen && BigInt(chosen.r.outAmount) < accepted) throw priceMoved(chosen.r);
+    // When a wider route would have met it but does not fit, that is the reason, not the price.
+    if (chosen && BigInt(chosen.r.outAmount) < accepted) {
+      throw priceMoved(chosen.r, tooBigMetMinimum
+        ? 'The route that meets your minOut does not fit in one protected transaction, and the best route that fits gives less. A smaller amount, or the swap split in parts, may meet it. Nothing was signed.'
+        : undefined);
+    }
     if (!chosen) {
       // After a repair, the routes we could still use are the ones nothing has blamed yet. If none
       // of them works, the honest reason is the simulations that got us here, not the price.
       if (learned.length) {
         throw new OrientimError(
           'simulation-failed',
-          `Every route that fits failed in simulation, and what is left is far below the market price. No funds were moved. ${why(attempts)}`,
+          `Every route that fits failed in simulation, and no other route could be used. No funds were moved. ${why(attempts)}`,
         );
       }
       if (sawUnknownFormat) {
@@ -1156,9 +1167,11 @@ export async function prepareProtectedSwap(deps: {
         )
         : sawTooBig
         ? new OrientimError('no-route', 'The best route for this amount does not fit in a single protected transaction. Try a smaller amount, or split the swap.')
-        : sawBadQuote
-          ? new OrientimError('bad-quote', `Every route offered is at least ${percent(bestGapBps)} below the best unprotected route Jupiter found. That is not a price, it is a broken answer, so nothing was built. Try again in a moment.`)
-          : new OrientimError('no-route', 'No route fits in a single protected transaction. Try a different amount or token.');
+        : sawFarBelow && bestGapBps !== null
+          ? new OrientimError('bad-quote', `Every route offered is at least ${percent(bestGapBps)} below the best unprotected route Jupiter found, more than a real price can differ. Nothing was built. Try again in a moment.`)
+          : sawBadQuote
+            ? new OrientimError('bad-quote', "Jupiter's answers did not match this swap: another trade, or an instruction that disagreed with its own quote. Nothing was built. Try again in a moment.")
+            : new OrientimError('no-route', 'Jupiter found no usable route for this pair and amount. Try a different amount or token.');
     }
 
     const route = chosen.r.routePlan.map(p => p.swapInfo.label);
@@ -1323,9 +1336,7 @@ export async function prepareProtectedSwap(deps: {
         .catch(() => null);
       const clusterFee = (await priceMessage()) ?? (await priceMessage());
       if (clusterFee === null) {
-        throw new OrientimError('verification-failed', "The network fee couldn't be confirmed. Nothing was signed; try again.", [
-          { rule: 'R4', detail: 'the cluster did not price the final message' },
-        ]);
+        throw new OrientimError('unavailable', "Orientim's RPC did not price the transaction's network fee, so nothing was signed. Try again in a moment.");
       }
       if (BigInt(clusterFee) > feeLimit) {
         throw new OrientimError('verification-failed', 'The network fee would be above the limit.', [
@@ -1425,8 +1436,12 @@ export async function prepareProtectedSwap(deps: {
     ) {
       attempts[attempts.length - 1].simulation = 'output below the minimum';
       if (++floorMisses >= 2) {
-        if (accepted > 0n) throw priceMoved(chosen.r);
-        throw new OrientimError('simulation-failed', 'The price moved beyond the slippage tolerance. No funds were moved; try again.');
+        // A lower minimum is worth the user's approval only when this route would still be built
+        // at one; otherwise the market or the output account moved while Orientim checked.
+        if (accepted > 0n && routeFloor(chosen.r, slippageFor(chosen.r, settings)) < accepted) {
+          throw priceMoved(chosen.r, 'In simulation the route delivered less than your minOut twice: the price moved beyond the slippage tolerance. Nothing was signed.');
+        }
+        throw new OrientimError('simulation-failed', "In simulation the route delivered less than its minimum twice: the price moved, or the output account's balance changed while Orientim checked. No funds were moved; try again.");
       }
       if (policy.accounts.wOut) {
         const state = (await fetchAccounts(rpc, [policy.accounts.wOut])).get(policy.accounts.wOut);

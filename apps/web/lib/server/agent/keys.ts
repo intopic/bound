@@ -85,9 +85,9 @@ function signatureBytes(text: string): Uint8Array | null {
 export async function acceptChallenge(
   secrets: readonly Uint8Array[],
   o: { message: unknown; challenge: unknown; signature: unknown; now: number; domain?: string },
-): Promise<{ wallet: string } | { error: string }> {
+): Promise<{ wallet: string } | { error: string; malformed?: true }> {
   if (typeof o.message !== 'string' || typeof o.challenge !== 'string' || typeof o.signature !== 'string' || o.message.length > 2_000) {
-    return { error: 'Send the message, the challenge and the signature, as strings.' };
+    return { error: 'Send the message, the challenge and the signature, as strings.', malformed: true };
   }
   const mac = macOf(o.challenge);
   let issued = false;
@@ -101,7 +101,7 @@ export async function acceptChallenge(
   const wallet = o.message.split('\n')[1] ?? '';
   if (!isAddress(wallet)) return { error: 'The message names no wallet.' };
   const signature = signatureBytes(o.signature);
-  if (!signature) return { error: 'The signature must be 64 bytes, in base58 or base64.' };
+  if (!signature) return { error: 'The signature must be 64 bytes, in base58 or base64.', malformed: true };
   if (!await verifySignature(await getPublicKeyFromAddress(address(wallet)), signature as SignatureBytes, enc.encode(o.message))) {
     return { error: 'The signature is not this wallet’s signature of this message.' };
   }

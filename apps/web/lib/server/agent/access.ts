@@ -34,7 +34,7 @@ const seconds = (deps: AccessDeps) => Math.floor((deps.now?.() ?? Date.now()) / 
 export async function keyChallenge(req: Request, deps: AccessDeps): Promise<Response> {
   const bucket = `keys-challenge:${clientKey(req)}`;
   if (rateLimited(bucket, 30, 3_600_000)) {
-    return fail(429, 'rate-limited', 'Too many requests. Try again later.', { 'retry-after': String(secondsUntilReset(bucket)) });
+    return fail(429, 'rate-limited', 'Too many key challenges from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(bucket)) });
   }
   const url = new URL(req.url);
   const wallet = url.searchParams.get('wallet') ?? '';
@@ -47,7 +47,7 @@ export async function keyChallenge(req: Request, deps: AccessDeps): Promise<Resp
 export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response> {
   const bucket = `keys-issue:${clientKey(req)}`;
   if (rateLimited(bucket, 10, 3_600_000)) {
-    return fail(429, 'rate-limited', 'Too many keys requested from here. Try again later.', { 'retry-after': String(secondsUntilReset(bucket)) });
+    return fail(429, 'rate-limited', 'Too many keys requested from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(bucket)) });
   }
   const text = await readBodyLimited(req, 4_096);
   let body: Record<string, unknown> | null = null;
@@ -61,7 +61,7 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
     message: body.message, challenge: body.challenge, signature: body.signature, now: seconds(deps),
     ...(deps.origin ? { domain: new URL(deps.origin).host } : {}),
   });
-  if ('error' in accepted) return fail(400, 'bad-signature', accepted.error);
+  if ('error' in accepted) return fail(400, accepted.malformed ? 'bad-request' : 'bad-signature', accepted.error);
   let lamports: bigint;
   try {
     lamports = BigInt((await deps.rpc.getBalance(address(accepted.wallet), { commitment: 'confirmed' }).send()).value);

@@ -94,7 +94,7 @@ async function authenticate(req: Request, deps: AgentDeps): Promise<{ id: string
     ? await openKey(deps.keySecrets, key, Math.floor(Date.now() / 1000), deps.revokedWallets)
     : null;
   const auth = manual ? { id: manual, wallet: null } : own;
-  if (!auth) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>.');
+  if (!auth) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>. This one is missing, unknown, expired or revoked; a wallet gets a new key by signing a new key challenge.');
   const bucket = `agent:${new URL(req.url).pathname}:${auth.id}`;
   if (rateLimited(bucket, deps.perMinute)) {
     return fail(429, 'rate-limited', 'Too many requests for this API key. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(secondsUntilReset(bucket)) });
@@ -119,6 +119,10 @@ function amount(v: unknown): bigint | null {
   const n = BigInt(v);
   return n > 0n && n <= MAX_U64 ? n : null;
 }
+
+/** A request that ended without an answer: timed out, aborted, or the connection failed. */
+const unanswered = (e: unknown) => e instanceof Error
+  && (e.name === 'TimeoutError' || e.name === 'AbortError' || (e instanceof TypeError && /fetch failed/i.test(e.message)));
 
 /** Every refusal in plain words, with what an agent needs to act on it. */
 function explain(e: unknown): Response {
@@ -159,8 +163,10 @@ function explain(e: unknown): Response {
     }
   }
   const http = httpStatusOf(e);
-  if (http === 429) return fail(503, 'busy', 'The network is busy. Wait a few seconds and try again. Nothing was sent.', {}, { 'retry-after': '5' });
-  if (http !== null && http >= 500) return fail(503, 'unavailable', "The network didn't answer. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
+  if (http === 429) return fail(503, 'busy', "Orientim's Solana RPC is rate limited right now. Wait a few seconds and try again. Nothing was sent.", {}, { 'retry-after': '5' });
+  if ((http !== null && http >= 500) || unanswered(e)) {
+    return fail(503, 'unavailable', "Orientim's Solana RPC didn't answer. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
+  }
   console.error(e);
   return fail(500, 'internal', 'Something went wrong. Nothing was signed by Orientim or sent.');
 }
@@ -350,7 +356,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
  * transaction can no longer land.
  */
 const EARLIER =
-  'If an earlier finalize of this ticket went out, that transaction can still land until lastValidBlockHeight: check its signature on your own RPC before preparing again.';
+  'If an earlier finalize of this ticket went out, that transaction may have landed, or may still land until lastValidBlockHeight: check its signature on your own RPC before preparing again.';
 
 export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Response> {
   const auth = await authenticate(req, deps);
@@ -422,7 +428,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     if (ticket.wOut) {
       const now = tokenAmountOf((await fetchAccounts(deps.rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
       if (now !== BigInt(ticket.b0!)) {
-        return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (another swap or a transfer arrived), so this request signed and sent nothing.', {
+        return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (a transfer in or out, another swap, or the account was closed), so this request signed and sent nothing.', {
           balanceAtPrepare: ticket.b0, balanceNow: now,
         });
       }
@@ -447,8 +453,10 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       return refuse(400, e.code, 'Your wallet\'s signature does not match the transaction Orientim built; this request signed and sent nothing.', e.violations.length ? { violations: e.violations } : {});
     }
     const http = httpStatusOf(e);
-    if (http === 429) return refuse(503, 'busy', 'The network is busy, so this request sent nothing. Wait a few seconds and try finalize again.', {}, { 'retry-after': '5' });
-    if (http !== null && http >= 500) return refuse(503, 'unavailable', "The network didn't answer, so this request sent nothing. Try finalize again in a moment.", {}, { 'retry-after': '5' });
+    if (http === 429) return refuse(503, 'busy', "Orientim's Solana RPC is rate limited right now, so this request sent nothing. Wait a few seconds and try finalize again.", {}, { 'retry-after': '5' });
+    if ((http !== null && http >= 500) || unanswered(e)) {
+      return refuse(503, 'unavailable', "Orientim's Solana RPC didn't answer, so this request sent nothing. Try finalize again in a moment.", {}, { 'retry-after': '5' });
+    }
     console.error(e);
     return refuse(500, 'internal', 'Something went wrong, and this request sent nothing.');
   }

@@ -160,6 +160,17 @@ describe('Orientim computes the minimum itself', () => {
     expect(error?.code).toBe('no-route');
     expect(error?.message).toMatch(/does not fit in a single protected transaction/);
   });
+
+  it('when only a route too big to fit meets the minimum, the size is the reason named, not the price', async () => {
+    const extra = await Promise.all(Array.from({ length: 60 }, async () => (await generateKeyPairSigner()).address));
+    const wide = fakeJupiter({ extraAccounts: extra });
+    const narrow = fakeJupiter({ out: OUT - OUT / 1_000n });
+    const jupiter: JupiterClient = { ...wide, build: (q: BuildParams) => ((q.maxAccounts ?? 64) >= 64 ? wide.build(q) : narrow.build(q)) };
+    const error = await prepare(WSOL_MINT, { jupiter, acceptedMinOut: OUT }).then(() => null, (e: unknown) => e as OrientimError);
+    expect(error?.code).toBe('price-moved');
+    expect(error?.message).toMatch(/does not fit in one protected transaction/);
+    expect(error?.message).not.toMatch(/price moved/);
+  });
 });
 
 describe('a protected route that costs more than the open market', () => {
@@ -214,7 +225,7 @@ describe('a token that taxes its own transfers', () => {
   });
 
   it('without the epoch the tax cannot be priced, so nothing is built', async () => {
-    expect(await codeOf(prepare(WSOL_MINT, { inputFeeBps: 300, epochFails: true }))).toBe('token-data-mismatch');
+    expect(await codeOf(prepare(WSOL_MINT, { inputFeeBps: 300, epochFails: true }))).toBe('unavailable');
   });
 
   it('a token that charges nothing needs no epoch at all', async () => {
@@ -244,7 +255,7 @@ describe('transient Jupiter refusals', () => {
 
 describe('the network fee check fails closed', () => {
   it('without a price from the cluster, nothing goes to the wallet', async () => {
-    expect(await codeOf(prepare(WSOL_MINT, { feeFails: true }))).toBe('verification-failed');
+    expect(await codeOf(prepare(WSOL_MINT, { feeFails: true }))).toBe('unavailable');
   });
 
   it('the exact fee is returned for display', async () => {
@@ -534,8 +545,8 @@ describe('a Jupiter that is overloaded or silent', () => {
     expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(400, '{"error":"No routes found"}') }))).toBe('no-route');
   });
 
-  it("the kill switch's own answer is passed on as it is", async () => {
-    expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(503, '{"error":"Protected swaps are paused"}') }))).toMatch(/paused/);
+  it('a Jupiter that answers 503 is unavailable, whatever its words', async () => {
+    expect(await codeOf(prepare(WSOL_MINT, { jupiter: refusing(503, '{"error":"Protected swaps are paused"}') }))).toBe('unavailable');
   });
 });
 

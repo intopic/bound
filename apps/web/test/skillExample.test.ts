@@ -644,7 +644,7 @@ describe('a fee in SOL for a pair neither token of which can carry it (every swa
     const b = await solFeeWorld();
     const answer = await prepareFor(b);
     const problems = await checkPrepared(answer, { owner: b.wallet.address, ...pair, minOut: '1' }, b.agentRpc);
-    expect(problems.join()).toContain('set maxSolFeeLamports');
+    expect(problems.join()).toContain('hold it with maxSolFeeLamports');
   });
 
   it('a server that charges more SOL than the swap is worth to the agent is refused', async () => {
@@ -1617,6 +1617,7 @@ describe('the same as the page, for agents and bots: tolerance, price impact, to
     expect(await receivedFor({} as Rpc<SolanaRpcApi>, 'sig', swap(USDC))).toBeNull();
     expect(fillAgainstQuote(1_004_000n, 1_000_000n, '1%')).toBe('0.40% better than quoted.');
     expect(fillAgainstQuote(959_000n, 1_000_000n, '10%')).toBe('Filled 4.1% below the quote, within your 10% tolerance.');
+    expect(fillAgainstQuote(900_000n, 1_000_000n, '5%')).toBe('Filled 10.0% below the quote.');
   });
 });
 
@@ -1644,7 +1645,7 @@ describe('an agent that is misled cannot loosen its own protection', () => {
     const b = await orientim();
     expect(String(await run(b, { ...swapIntent, maxBelowBps: 9_999 }))).toContain('maxBelowBps must be');
     expect(String(await run(b, { ...swapIntent, maxPriceImpactBps: 10_000 }))).toContain('maxPriceImpactBps must be');
-    expect(String(await run(b, { ...swapIntent, maxFeeBps: 10_000 }))).toContain('maxFeeBps may be at most 30');
+    expect(String(await run(b, { ...swapIntent, maxFeeBps: 10_000 }))).toContain('maxFeeBps must be a whole number of bps from 0 to 30');
     expect(b.sent).toHaveLength(0);
     // The check itself never accepts a fee above Orientim's, whatever limit it is handed.
     const honest = await honestAnswer(b);
@@ -1752,8 +1753,8 @@ describe('the skill holds its own limits and its state against what it is handed
     expect(String(refused.output.problems)).toContain('above your limit');
     // The honest fee still passes, the intent's limit or not.
     expect((await runCli('check', { prepared: honest, intent }, deps)).code).toBe(0);
-    // A limit that is not a number of lamports is refused, not read as none.
-    expect((await runCli('check', { prepared: honest, intent: { ...intent, maxSolFeeLamports: -1 } }, deps)).code).toBe(1);
+    // A limit that is not a number of lamports is a usage error, not read as none.
+    expect((await runCli('check', { prepared: honest, intent: { ...intent, maxSolFeeLamports: -1 } }, deps)).code).toBe(2);
   });
 
   it("orientim-verify never takes Orientim's treasury from its JSON", async () => {
@@ -1865,6 +1866,23 @@ describe('the skill holds its own limits and its state against what it is handed
     expect(r.output.error).toMatchObject({ code: 'unavailable', retryAfter: 5 });
     const checked = await runCli('check', { prepared: await honestAnswer(b), intent }, { ...deps, fetchImpl: busy });
     expect(checked.output.error).toMatchObject({ code: 'unavailable' });
+  });
+
+  it("an RPC that does not answer during the check is unavailable, not a refusal of the transaction", async () => {
+    const { b, deps } = await cliSetup();
+    // The floor's own read answers; the check's read of the transaction's accounts does not.
+    let reads = 0;
+    const blind = {
+      ...b.agentRpc,
+      getMultipleAccounts: (...args: unknown[]) => (reads++ === 0
+        ? (b.agentRpc.getMultipleAccounts as (...a: unknown[]) => unknown)(...args)
+        : { send: async () => { throw new Error('RPC unavailable'); } }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'blind-rpc' };
+    const checked = await runCli('check', { prepared: await honestAnswer(b), intent }, { ...deps, rpc: blind });
+    expect(checked.code).toBe(1);
+    expect(checked.output.error).toMatchObject({ code: 'unavailable', retryAfter: 5 });
+    expect(String(checked.output.problems)).toContain('could not be read from your RPC');
   });
 
   it('an order recorded pending whose swap record is gone can be settled by hand once it can no longer land', async () => {
