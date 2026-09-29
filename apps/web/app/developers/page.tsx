@@ -3,6 +3,7 @@ import { SiteFooter, SiteHeader } from '@/components/site/Brand';
 import { MobileNav } from '@/components/site/MobileNav';
 import { DevNav, type DevNavGroup } from '@/components/site/DevNav';
 import { GetApiKey } from '@/components/site/GetApiKey';
+import { KeyAccess } from '@/components/site/KeyAccess';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 import { SKILL_ARCHIVE, SKILL_VERSION } from '@/lib/server/skillSums';
@@ -186,15 +187,40 @@ curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                 Get a key at once, with no form: the wallet your agent swaps from signs a message, and the key is bound to that
                 wallet. Signing moves nothing. The wallet needs at least 0.01 SOL. A key lasts 90 days; sign again for a new one.
               </p>
-              <GetApiKey skill={{ href: SKILL_ARCHIVE, version: SKILL_VERSION }} />
-              <h3>From the command line, with the agent&apos;s own wallet</h3>
-              <pre><code>{`echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
+              <KeyAccess
+                ways={[
+                  {
+                    id: 'agent',
+                    label: 'Agent or bot wallet',
+                    content: (
+                      <>
+                        <p>
+                          For a wallet in a key file or a signing service (Turnkey, Privy and others). The agent signs with its
+                          own key; the key file never leaves the machine. In the unzipped{' '}
+                          <a href={SKILL_ARCHIVE} download>skill</a> folder:
+                        </p>
+                        <pre><code>{`echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
 # sign "messageBase64" with the agent's key, then:
 echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bin/orientim-verify.mjs key`}</code></pre>
-              <p>
-                In code, <code>requestApiKey</code> from the skill does both steps. It signs only Orientim&apos;s key message for that
-                wallet, and refuses anything else. The HTTP calls are in <a href="#keys">Keys</a>.
-              </p>
+                        <p>
+                          In code, <code>requestApiKey</code> from the skill does both steps. It signs only Orientim&apos;s key message
+                          for that wallet, and refuses anything else. The HTTP calls are in <a href="#keys">Keys</a>.
+                        </p>
+                      </>
+                    ),
+                  },
+                  {
+                    id: 'browser',
+                    label: 'Wallet in the browser',
+                    content: (
+                      <>
+                        <p>For a wallet in a browser extension (Phantom, Solflare, Backpack): connect it and sign.</p>
+                        <GetApiKey skill={{ href: SKILL_ARCHIVE, version: SKILL_VERSION }} />
+                      </>
+                    ),
+                  },
+                ]}
+              />
             </section>
 
             <section id="skill">

@@ -98,7 +98,7 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
             ))}
           </div>
         ) : (
-          <p className="hint">No wallet here can sign a message. Use the command line below instead.</p>
+          <p className="hint">No wallet in this browser can sign a message. Use the Agent or bot wallet tab instead.</p>
         )
       ) : (
         <button className="button primary-link key-button" onClick={() => setChoosing(true)} disabled={busy !== null}>

@@ -293,6 +293,12 @@ a.ghost { display: inline-flex; align-items: center; }
 .status-ok { color: var(--accent); font-weight: 600; }
 .status-bad { color: var(--bad); font-weight: 600; }
 
+.key-access { margin-top: 16px; }
+.key-tabs { display: flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.key-tab { flex: 1 1 0; min-height: 44px; padding: 8px 12px; background: transparent; border: none; border-radius: 9px; color: var(--muted); font-size: 14px; font-weight: 600; cursor: pointer; }
+.key-tab:hover { color: var(--text); }
+.key-tab[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.key-panel { padding-top: 4px; }
 .key-box { margin-top: 16px; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
 .key-box .codebox pre { white-space: pre-wrap; word-break: break-all; }
 .key-button { border: none; cursor: pointer; }
