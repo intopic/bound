@@ -7,10 +7,10 @@ const CAPSULE_STEPS = [
 ];
 
 const AGENT_POINTS = [
-  ['Checks every swap itself', 'Before it signs, your agent checks the exact transaction on its own connection to Solana.'],
-  ['Limits you set', 'The most it may spend per swap and per day, a fee cap, and a price floor from its own source.'],
-  ['Never swaps twice', 'If it crashes mid-swap, it picks up where it stopped and never repeats an order.'],
-  ['Works with your stack', 'A skill for coding agents, an API, and a command line for Python, Rust or Go. The keys stay in your own wallet or signing service.'],
+  ['Checks before signing', 'With the skill or command line, the exact transaction is checked on your own connection to Solana. Direct API integrations must run the same check.'],
+  ['Limits you set', 'Set an amount per swap, a daily budget, a fee cap and your own price floor. Keep unattended limits at the signer.'],
+  ['Recovers an interrupted order', 'The skill keeps an order record across restarts. Direct bots need durable, shared order records to avoid a second swap.'],
+  ['Works with your stack', 'A skill for coding agents, an API and a command line for bots. Keep the signing key outside the agent to enforce your own limits.'],
 ];
 
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
@@ -33,8 +33,8 @@ export function HomeSections() {
         <div className="container hero-grid">
           <div className="hero-copy">
             <p className="eyebrow">Protected swaps on Solana, for AI agents and bots</p>
-            <h1 className="hero-title">Let your agent trade without handing over its wallet.</h1>
-            <p className="hero-sub">One bad signature can empty a wallet. With Orientim, a swap can only touch the amount your agent approved, and your agent checks that itself before it signs.</p>
+            <h1 className="hero-title">Give your agent a safer way to swap.</h1>
+            <p className="hero-sub">Orientim isolates the amount being traded. With the skill or verifier and a signer you control, each transaction is checked against your limits before it is signed.</p>
             <div className="cta-actions hero-actions">
               <a className="button primary-link" href="/developers#access">Get an API key</a>
               <a className="button ghost-link" href="/developers#start">Quickstart</a>
@@ -81,10 +81,10 @@ export function HomeSections() {
           <div className="dev-grid">
             <div>
               <p className="eyebrow eyebrow-cyan">For AI agents and bots</p>
-              <h2>Your agent trades. Your wallet stays out of reach.</h2>
+              <h2>Your agent trades within the limits you set.</h2>
               <p className="lead">
-                Give your agent a wallet without giving it a blank cheque. It checks every transaction itself before it signs, so even
-                if a server between it and Solana is hacked, it can’t spend more than the limits you set.
+                The skill checks each transaction before signing. For bots using the API directly, run the same verification and
+                keep the signing key and spending policy outside the agent’s control.
               </p>
               <ul className="agent-points">
                 {AGENT_POINTS.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}

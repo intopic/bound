@@ -21,8 +21,8 @@ const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { 
 /** Why an agent needs this, before the docs: what a developer gets, in their words. */
 const PITCH: [string, string][] = [
   ['Refuses what it didn’t ask for', 'An extra instruction, another token, a worse price: the agent sees it in the transaction and does not sign.'],
-  ['Your limits, not ours', 'The most per swap and per day, a fee cap and a price floor, kept where the agent cannot change them.'],
-  ['Safe after a crash', 'Every order has an id. After a restart the agent settles what was in flight and never swaps twice.'],
+  ['Your limits, not ours', 'Set an amount per swap, a daily budget, a fee cap and a price floor. Enforce unattended limits at a separate signer.'],
+  ['Safe after a crash', 'The skill records each order and settles it after a restart. Direct API bots must provide their own durable order book.'],
   ['No sign-up', 'Your agent’s wallet signs a message and gets a key. Then ask it: “swap 5 USDC to SOL with Orientim”.'],
 ];
 
@@ -67,7 +67,7 @@ const PREPARE_FIELDS: [string, string, string][] = [
   ['owner', 'required', 'The wallet that pays and receives. It signs first.'],
   ['inputMint, outputMint', 'required', 'Mint addresses. SOL is So11111111111111111111111111111111111111112.'],
   ['amountIn', 'required', 'Base units, as a string ("5000000" is 5 USDC). It includes the fee when the fee is taken in the input token.'],
-  ['minOut', 'optional', 'Your own floor, in base units of the output: what your wallet must keep. Orientim never enforces less. The skill’s check refuses to sign without a floor of your own.'],
+  ['minOut', 'required', 'Your own positive floor, as an integer string in output base units: what your wallet must keep. Get a price independently. This field alone does not replace checking the transaction before signing.'],
   ['slippageBps', 'optional', 'How far below the quote the swap may fill: 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun launch curve.'],
   ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the open market (see costs-more): a whole number, as a number or a string.'],
 ];
@@ -123,9 +123,9 @@ export default async function Page() {
               <p className="eyebrow">For AI agents and bots</p>
               <h1>Give your agent a wallet, not a blank cheque.</h1>
               <p className="lead">
-                An agent that trades needs a wallet, and that means trusting every server between it and Solana: if one is hacked, a
-                single signature can empty the wallet. With Orientim, your agent checks every swap itself before it signs, and refuses
-                anything over the limits you set.
+                An agent that trades needs a wallet. The skill checks each transaction against your limits on your own RPC before
+                signing; direct API bots must run the same check. Keep the signing key and unattended spending limits outside the
+                agent when it must not be able to spend independently.
               </p>
               <ul className="agent-points dev-pitch">
                 {PITCH.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
@@ -220,7 +220,7 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
               <h3>3. Swap</h3>
               <pre><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 --id order-42`}</code></pre>
               <p>
-                The same order id on every retry: an order that swapped, or may still land, is never swapped again. Or ask your agent,
+                The same order id on every retry: the skill&apos;s order book stops an order that swapped or may still land from being swapped again. Or ask your agent,
                 in plain words: <em>&ldquo;swap 5 USDC to SOL with Orientim&rdquo;</em>.
               </p>
               <h3>4. In your own code</h3>
@@ -382,6 +382,11 @@ if code == 0:
                 <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>orientim-verify check</code> exits 0 only when it is safe
                 to sign.
               </p>
+              <p>
+                An API key or version header does not prove that this check ran. A direct integration must verify before its signer
+                accepts the transaction; the signer should hold its own spending limits. Keep the signing key outside the agent
+                for funds the agent must not be able to spend independently.
+              </p>
             </section>
 
             <section id="recovery">
@@ -408,6 +413,7 @@ if code == 0:
               </p>
               <ul>
                 <li>Finalizing the same ticket again is safe: it answers for the same transaction, which can land only once.</li>
+                <li>Two prepares for one trading decision are two different transactions. A direct bot must assign a stable order id, store the signed transaction and signature durably before finalize, and serialize work per wallet across all workers.</li>
                 <li>
                   Before preparing the same swap again, make sure the one you signed can no longer land: no record of its signature,
                   and the network past its last valid block.
@@ -549,8 +555,8 @@ POST /api/v1/keys
                   input token or in SOL. A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
                 </li>
                 <li>
-                  The verifier refuses any fee above 1% and any network fee above 0.001 SOL. The skill is stricter: it refuses Orientim&apos;s
-                  fee above 0.3%.
+                  The public deployment, agent API and shipped skill refuse an Orientim fee above 0.3%. The core verifier has a
+                  separate 1% safety ceiling; the network-fee ceiling is 0.001 SOL.
                 </li>
                 <li>
                   A slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to 15%); 0.5% by default, 3% on a Pump.fun launch

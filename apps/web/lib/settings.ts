@@ -7,12 +7,12 @@ import { isAddress } from '@solana/kit';
  * "too small", and a mistyped treasury would silently run a fee-free deployment.
  */
 
-/** NEXT_PUBLIC_ORIENTIM_FEE_BPS: whole basis points, 0 to 100 (30 = 0.3%); 30 when unset or empty. */
+/** NEXT_PUBLIC_ORIENTIM_FEE_BPS: whole basis points, 0 to 30 (30 = 0.3%); 30 when unset or empty. */
 export function feeBpsSetting(raw: string | undefined): bigint {
   const value = raw?.trim() ?? '';
   if (value === '') return 30n;
-  if (!/^\d{1,3}$/.test(value) || BigInt(value) > 100n) {
-    throw new Error(`NEXT_PUBLIC_ORIENTIM_FEE_BPS must be a whole number of basis points from 0 to 100 (30 means 0.3%), not "${raw}".`);
+  if (!/^\d{1,2}$/.test(value) || BigInt(value) > 30n) {
+    throw new Error(`NEXT_PUBLIC_ORIENTIM_FEE_BPS must be a whole number of basis points from 0 to 30 (30 means 0.3%), not "${raw}".`);
   }
   return BigInt(value);
 }

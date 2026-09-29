@@ -68,7 +68,7 @@ const post = (path: string, body: unknown, key: string | null = KEY) =>
   });
 
 const swapBody = (W: Address, extra: Record<string, unknown> = {}) =>
-  ({ owner: W, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', ...extra });
+  ({ owner: W, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1', ...extra });
 
 type Prepared = { ticket: string; transaction: string; messageSha256: string; temporaryAuthority: string; amounts: { fee: string; feeBps: string } };
 
@@ -179,7 +179,7 @@ describe('prepare', () => {
     const w = await world();
     for (const bad of [
       { owner: 'not-an-address' }, { amountIn: '0' }, { amountIn: 1_000_000 }, { amountIn: '1.5' }, { outputMint: USDC },
-      { minOut: '-1' }, { version: 2 }, { version: 1 },
+      { minOut: undefined }, { minOut: '0' }, { minOut: '-1' }, { version: 2 }, { version: 1 },
     ]) {
       const res = await agentPrepare(post('prepare', swapBody(w.W.address, bad)), w.deps);
       expect(res.status, JSON.stringify(bad)).toBe(400);
@@ -487,19 +487,22 @@ describe('further safeguards on the API', () => {
 });
 
 describe('API keys from the environment', () => {
-  it('a fee above the verifier\'s ceiling turns the API off instead of charging another', async () => {
+  it('a fee above the shipped skill and public 30 bps ceiling turns the API off', async () => {
     const { agentDeps } = await import('../lib/server/agent/config.ts');
     process.env.ORIENTIM_API_SECRET = Buffer.alloc(32, 1).toString('base64');
     process.env.ORIENTIM_API_KEYS = `a:${sha('key-one')}`;
-    process.env.ORIENTIM_API_FEE_BPS = '150';
+    process.env.ORIENTIM_API_FEE_BPS = '31';
     try {
       expect(agentDeps()).toBeNull();
       process.env.ORIENTIM_API_FEE_BPS = '30';
       expect(agentDeps()?.feeBps).toBe(30n);
+      process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS = '20';
+      expect(agentDeps()).toBeNull();
     } finally {
       delete process.env.ORIENTIM_API_SECRET;
       delete process.env.ORIENTIM_API_KEYS;
       delete process.env.ORIENTIM_API_FEE_BPS;
+      delete process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS;
     }
   });
 

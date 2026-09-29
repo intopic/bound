@@ -13,6 +13,8 @@ Optional: `ORIENTIM_API_SECRET_PREVIOUS` while rotating the secret, `ORIENTIM_AP
 `ORIENTIM_API_PER_MINUTE` (60 by default). The kill switch `ORIENTIM_DISABLED=1` stops both
 endpoints. A prepare with `version: 1` is served only where `NEXT_PUBLIC_ORIENTIM_ENABLE_V1=1`.
 Every setting is listed in `apps/web/lib/server/agent/config.ts`.
+Keep `ORIENTIM_API_FEE_BPS` at or below 30 and no higher than `NEXT_PUBLIC_ORIENTIM_FEE_BPS`;
+the API fails closed otherwise. The public fee setting also has a 30 bps maximum.
 
 ## Self-serve keys
 

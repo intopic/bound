@@ -18,7 +18,7 @@ const SUPPORTED: [string, string][] = [
   ['Token-2022 tokens with a transfer tax', 'Supported; the tax is stated before your agent signs'],
   ['Stablecoins whose issuer can move balances with its own key (PYUSD, USDG, AUSD, CASH)', 'Supported, with a warning'],
   ['Tokens whose issuer can move balances through a program', 'Refused, with the reason: Orientim cannot isolate them'],
-  ['Pump.fun tokens, on the launch curve and on PumpSwap', 'Supported'],
+  ['Pump.fun launch curve and PumpSwap routes', 'Supported when the route fits and passes verification; otherwise refused'],
   ['Tokens with an active transfer hook, frozen by default, pausable, non-transferable or interest-bearing', 'Refused, with the reason: Orientim cannot isolate them'],
   ['Routes through a market that would leave an account open', 'Refused: its deposit would be lost'],
   ['Routes too large for one transaction', 'Refused: Orientim never splits a swap'],
@@ -43,8 +43,8 @@ export default async function Page() {
         <ol>
           <li>Your agent asks Orientim for a swap. Orientim finds a route across Solana&apos;s markets, builds one transaction around it and checks it against its rules.</li>
           <li>
-            Before it signs, your agent checks every instruction of that exact transaction again, with the same rules, on its own
-            connection to Solana. If it contains anything else, nothing is signed.
+            With the skill or command line, the exact transaction is checked again on your own connection to Solana before signing.
+            A direct API client must run the same independent check before handing bytes to its signer.
           </li>
           <li>Your agent&apos;s wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature, with the one-time key.</li>
           <li>The swap runs. If less than your agent&apos;s minimum would arrive, the whole transaction is cancelled.</li>
@@ -73,7 +73,8 @@ export default async function Page() {
             Tokens Orientim cannot isolate are refused, with the reason: those whose issuer can run code on every transfer or
             move balances through a program.
           </li>
-          <li>It cannot protect a wallet, a key or a device that is already compromised.</li>
+          <li>It cannot stop an agent that can read the signing key from using it outside Orientim. For unattended funds, keep the key in a separate signer with its own limits and use a wallet funded only for the agent&apos;s job.</li>
+          <li>The API key permits access; it does not prove that a bot verified a transaction. A version header does not prove that either.</li>
           <li>
             Your agent&apos;s own check is worth what the chain state it reads is worth: give it your own RPC, never Orientim&apos;s,
             and use the skill as published (its hashes are at <a href="/skill/SHA256SUMS">/skill/SHA256SUMS</a>).
@@ -105,8 +106,8 @@ export default async function Page() {
       <section id="supported">
         <h2>Supported tokens and wallets</h2>
         <p>
-          Orientim works with any token pair that has a route on Solana&apos;s markets and that Orientim can isolate safely. A token
-          Orientim cannot swap safely is refused, and the answer says why.
+          Orientim attempts token pairs with a Solana route that fits one protected transaction and passes its checks. A route
+          it cannot build or verify safely is refused, and the answer says why.
         </p>
         <div className="table-wrap">
           <table>

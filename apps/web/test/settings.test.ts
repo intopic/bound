@@ -13,8 +13,8 @@ describe('deployment settings', () => {
     expect(feeBpsSetting(undefined)).toBe(30n);
     expect(feeBpsSetting('')).toBe(30n);
     expect(feeBpsSetting(' 30 ')).toBe(30n);
-    expect(feeBpsSetting('100')).toBe(100n);
-    for (const wrong of ['0.3', '0,3', '0.3%', '30bps', '101', '-5', 'abc']) expect(() => feeBpsSetting(wrong)).toThrow('NEXT_PUBLIC_ORIENTIM_FEE_BPS');
+    expect(feeBpsSetting('29')).toBe(29n);
+    for (const wrong of ['0.3', '0,3', '0.3%', '30bps', '31', '100', '-5', 'abc']) expect(() => feeBpsSetting(wrong)).toThrow('NEXT_PUBLIC_ORIENTIM_FEE_BPS');
   });
 
   it('the treasury is an address, or empty for test mode', () => {

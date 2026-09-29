@@ -11,10 +11,10 @@ const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', displ
 export const metadata: Metadata = {
   metadataBase: new URL('https://orientim.com'),
   title: 'Orientim — Protected swaps on Solana',
-  description: 'Protected Solana swaps for AI agents and bots: the swap program never gets authority over the rest of the wallet, and the agent checks every transaction before it signs.',
+  description: 'Protected Solana swaps for AI agents and bots. The skill checks each transaction on your own RPC before signing; direct API bots must do the same.',
   openGraph: {
     title: 'Orientim — Protected swaps on Solana',
-    description: 'Let your agent trade without handing over its wallet.',
+    description: 'Give your agent a safer way to swap with independent verification before signing.',
     url: 'https://orientim.com',
     siteName: 'Orientim',
     type: 'website',

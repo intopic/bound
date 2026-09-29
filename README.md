@@ -1,15 +1,16 @@
 # Orientim — Protected Swap (v0.1)
 
 Protected swaps on Solana for AI agents and bots: swap SOL and SPL or Token-2022 tokens without giving
-the swap program authority over the rest of the wallet. Every token whose setup Orientim can prove harmless to the swap is supported; any
-other is refused with the reason (SECURITY.md, "What works and what is refused").
+the swap program authority over the rest of the wallet. A token and route must fit one protected
+transaction and pass verification and simulation; otherwise the API refuses them with a reason
+([security model](SECURITY.md)).
 
 > **What the agent approves is all the swap can touch.** The external swap program can move at most
 > the amount approved, plus a market's one-time account fee when one is stated before the agent
 > signs. It gets no spending authority over your other tokens, your NFTs or your SOL, no permission
 > outlives the transaction, and the minimum output shown is enforced on successful execution: if
 > less would arrive, the whole swap reverts. For a token output that check relies on the RPC's
-> report of your balance of that token (SECURITY.md, "One RPC provider").
+> report of your balance of that token (see [security model](SECURITY.md)).
 
 ## How it works
 
@@ -20,12 +21,15 @@ other is refused with the reason (SECURITY.md, "What works and what is refused")
    instruction (Jupiter's swap). After the swap, Orientim checks that at least the minimum output
    arrived, then closes the temporary accounts back to W.
 3. The **verifier** checks the exact bytes the wallet is asked to sign against 7 rules (below): on Orientim's
-   server when it builds them, and again by the agent, with the same verifier on its own RPC, before it signs.
+   server when it builds them, and again by the skill or command line on the client's own RPC before signing.
+   A direct API client must run that independent check itself; its API key does not prove it happened.
 4. The agent's wallet signs first (no send) and hands it to `/api/v1/finalize`. Orientim checks that the
    returned message is byte-for-byte the verified one with a valid W signature. Only then does E add the
    last required signature and Orientim sends it.
 
-If anything fails, nothing is signed or the whole transaction reverts. There is no "continue anyway".
+If the check refuses, the client must not sign. If an on-chain assertion fails, the swap reverts;
+the network fee may still be charged. An agent with direct access to its key can sign outside this
+flow, so unattended funds need a separate signer that enforces the owner's limits.
 
 Signers: any key file or signing service that signs a transaction and hands it back unsent, with a
 second signer left empty. Orientim builds v0 transactions; with v1 enabled, only a route too big for
@@ -36,12 +40,12 @@ so they cannot use Orientim. The API key itself is signed for with any wallet th
 
 | Rule | Guarantee |
 | --- | --- |
-| R6 | Only W and E sign; W pays; what the wallet returns is what was verified, byte for byte, except that, where the caller allows it (a browser wallet such as Phantom), it may add Lighthouse assertions (which can only make the swap fail while the Lighthouse program is the one deployed today: it is in the trusted computing base, see SECURITY.md) and raise the compute limit within the network fee limit. Because W never appears in the swap, W's signature is never available to it: this is what makes the other rules sufficient |
+| R6 | Only W and E sign; W pays; the agent API accepts the wallet's signature over the exact verified message. Because W never appears in the external swap instruction, W's signature is unavailable to that program. Historical browser-wallet assertion handling is documented in [docs/LEGACY_BROWSER_SECURITY.md](docs/LEGACY_BROWSER_SECURITY.md) |
 | R1 | W and W's token accounts (except the output account) never reach the external program, including through lookup tables; nor do Orientim's fee accounts |
 | R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1% when taken from the input before the swap or from a SOL, USDC or USDT output after the minimum is checked. For a pair neither token of which can carry it, the fee is paid in SOL from the wallet before the swap, priced by Jupiter when it is built: the verifier pins where it goes, and the agent holds it to its own price before the wallet signs |
 | R3 | E and its accounts are fresh |
 | R4 | The network fee paid by W is capped (never above 0.001 SOL) |
-| R5 | One transaction within size limits; every temporary account is closed. Before the wallet opens, the exact transaction is simulated: nothing may stay under E, and no account the route opens may stay open |
+| R5 | One transaction within size limits; every temporary account is closed. Before signing, the exact transaction is simulated: nothing may stay under E, and no account the route opens may stay open |
 | R7 | Input, output and intermediate mints are classic SPL, or Token-2022 carrying only extensions that cannot touch the swap (metadata, groups, close authority, confidential transfers and their fee, an unset transfer hook, accounts initialized by default, a permanent delegate that is an ordinary key, and a transfer fee on the swap's own mints) |
 
 ## Repository
@@ -110,14 +114,14 @@ Fixed at build time (compiled into the build, so they cannot change without a ne
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `NEXT_PUBLIC_ORIENTIM_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then every swap pays, memecoin sales included; a pair neither token of which the treasury can receive pays in SOL from the wallet, at the swap's value. With a treasury set, a swap whose fee cannot be collected (the wallet not funded yet, a pair that cannot be priced in SOL, an amount too small to carry it) is refused, never built free |
-| `NEXT_PUBLIC_ORIENTIM_FEE_BPS` | 30 | 0.3%. The verifier refuses more than 100 (1%) |
+| `NEXT_PUBLIC_ORIENTIM_FEE_BPS` | 30 | 0.3%. Production configuration and the shipped agent skill refuse more than 30 bps. The agent API also refuses an `ORIENTIM_API_FEE_BPS` above 30 bps. |
 | `NEXT_PUBLIC_ORIENTIM_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Orientim v1 swap has landed on mainnet |
 
 Server only (never sent to the browser):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RPC_URL` | public mainnet RPC | Solana RPC. The public one rate-limits and refuses browser sends; run on a provider (Helius is the chosen one, see SECURITY.md) |
+| `RPC_URL` | public mainnet RPC | Solana RPC for the server. Use a reliable provider; clients must use their own trusted RPC for independent verification |
 | `RPC_URL_FALLBACK` | none | A backup RPC from another provider, asked only when `RPC_URL` does not answer, is rate-limited or fails. A send takes its answer only when it is a success |
 | `JUPITER_API_KEY` | — | Required for any real use (free at developers.jup.ag/portal): Jupiter asks for a key on every endpoint and throttles keyless requests after one or two, so quotes fail as "busy". `/api/status` says whether it is set |
 | `ORIENTIM_MAX_USD_PER_SWAP` | unset | Unset means no limit, the intended setting: the guarantee does not depend on the amount. When set it is only published in `/api/status`; the agent API does not enforce it (an agent's limits are its owner's `ORIENTIM_POLICY`) |
@@ -144,10 +148,10 @@ abnormal consumption is seen the day it starts.
 ## Scope of v0.1
 
 Protected: authority over the wallet and everything in it except the approved amount, and the
-minimum output the user accepted (never below the quote minus 0.5% slippage, 3% on a Pump.fun
-bonding curve, or the tolerance the agent asked for, at most 15%), which Orientim checks on
-chain. If the price moves further before signing, Orientim asks
-instead of lowering it.
+positive `minOut` the caller supplied, which the transaction enforces on chain. The skill obtains
+that floor from its own quote and holds its price and slippage limits; direct API clients must
+do those checks themselves. If the market cannot meet the supplied floor, the API answers
+`price-moved` rather than lowering it.
 Every router must compile its quote to this same exact on-chain balance floor. A router-only or
 off-chain minimum is not accepted as protection; a route that cannot express the floor is refused.
 Not in scope: price movement and MEV within that tolerance, the value of the token you buy,

@@ -103,7 +103,7 @@ const intentFor = (wallet: KeyPairSigner): Intent => ({ owner: wallet.address, i
 async function honestAnswer(b: Awaited<ReturnType<typeof orientim>>): Promise<Prepared> {
   const res = await b.fetchImpl('http://orientim.test/api/v1/prepare', {
     method: 'POST', headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' }),
+    body: JSON.stringify({ owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', minOut: '1' }),
   });
   return (await res.json()) as Prepared;
 }
@@ -621,7 +621,7 @@ describe('a fee in SOL for a pair neither token of which can carry it (every swa
   const prepareFor = async (b: Awaited<ReturnType<typeof orientim>>) => {
     const res = await b.fetchImpl('http://orientim.test/api/v1/prepare', {
       method: 'POST', headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ owner: b.wallet.address, ...pair }),
+      body: JSON.stringify({ owner: b.wallet.address, ...pair, minOut: '1' }),
     });
     return (await res.json()) as Prepared;
   };
@@ -1729,7 +1729,7 @@ describe('the skill holds its own limits and its state against what it is handed
     const pair = { inputMint: USDC, outputMint: BONK, amountIn: '1000000' };
     const res = await b.fetchImpl('http://orientim.test/api/v1/prepare', {
       method: 'POST', headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ owner: b.wallet.address, ...pair }),
+      body: JSON.stringify({ owner: b.wallet.address, ...pair, minOut: '1' }),
     });
     const honest = (await res.json()) as Prepared;
     const fee = BigInt(honest.amounts.fee);

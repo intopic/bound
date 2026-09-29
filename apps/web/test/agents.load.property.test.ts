@@ -103,7 +103,7 @@ describe('many clients through one API key', () => {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${s.key}` },
             body: JSON.stringify({
-              owner: s.wallets[i % clients].address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: amounts[i % amounts.length].toString(),
+              owner: s.wallets[i % clients].address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: amounts[i % amounts.length].toString(), minOut: '1',
             }),
           } as RequestInit)));
           const waited = answers.filter(r => r.status === 429);

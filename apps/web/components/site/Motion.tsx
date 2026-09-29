@@ -290,8 +290,8 @@ function StationBadge() {
 }
 
 /**
- * Every swap an agent makes is verified twice: by Orientim when it builds it, and again next to the
- * signer, by the agent with the same verifier on its own RPC, before its wallet signs; then the chain enforces the minimum. Plays once
+ * The skill flow verifies twice: by Orientim when it builds the swap, and again next to the
+ * signer on the client's own RPC before the wallet signs; then the chain enforces the minimum. Plays once
  * when it comes into view; "What if the server lies?" shows a compromised server's swap refused by
  * the agent. At rest, and for people who ask for less motion, all three checks are shown passed.
  */
@@ -352,7 +352,7 @@ export function CheckedTwice() {
         </div>
         {link(1)}
         <div className={`ct-st ${view.st[1]}`}>
-          <div className="ct-head"><span className="ct-who">Your agent or bot</span><StationBadge /></div>
+          <div className="ct-head"><span className="ct-who">Your skill or verifying bot</span><StationBadge /></div>
           <h4>Checks it again, on its own</h4>
           <p>The same transaction, the same 7 rules, on its own connection to Solana. Only then does its wallet sign.</p>
           {rules(view.r2, view.refused)}
@@ -368,7 +368,7 @@ export function CheckedTwice() {
       </div>
       <div className="ct-verdict">
         <p role="status" className={view.verdict ?? 'wait'}>
-          {view.verdict === 'bad' ? 'The wallet never signed. Nothing moved.' : 'Checked by Orientim, checked again by your agent, then enforced by Solana itself.'}
+          {view.verdict === 'bad' ? 'The wallet never signed. Nothing moved.' : 'With the skill or verifier: checked twice before Solana enforces the minimum.'}
         </p>
         <div className="ct-controls">
           <button type="button" className="ct-btn" onClick={() => play(false)}>Replay</button>

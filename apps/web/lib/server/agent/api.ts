@@ -191,8 +191,10 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   }
   const amountIn = amount(body.amountIn);
   if (amountIn === null) return fail(400, 'bad-request', 'amountIn must be a positive integer in base units, as a string.');
-  const minOut = body.minOut === undefined ? undefined : amount(body.minOut);
-  if (minOut === null) return fail(400, 'bad-request', 'minOut, when given, must be a positive integer in base units, as a string.');
+  // Every client, including one calling the API without the skill, must supply its own
+  // minimum. This does not prove that the client priced or verified the transaction.
+  const minOut = amount(body.minOut);
+  if (minOut === null) return fail(400, 'bad-request', 'minOut is required and must be a positive integer in base units, as a string. Get a price independently before preparing.');
   // A whole number of bps, as a number (like slippageBps) or as an integer string (like the amounts).
   const cost = body.acceptCostBps;
   const acceptCostBps = cost === undefined ? undefined

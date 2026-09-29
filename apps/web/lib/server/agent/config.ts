@@ -107,16 +107,17 @@ export function agentDeps(): AgentDeps | null {
   const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
   const feeBps = BigInt(/^\d{1,3}$/.test(process.env.ORIENTIM_API_FEE_BPS ?? '') ? process.env.ORIENTIM_API_FEE_BPS!
     : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS! : '30');
-  // A fee the verifier would refuse is a configuration error: the API stays off, rather than charge
-  // a fee nobody chose.
-  if (feeBps > 100n) {
-    console.error(`The agent API is off: its fee is ${feeBps} bps, above the verifier's ceiling of 100.`);
+  // The shipped skill and the public offer both cap Orientim's fee at 0.3%. A
+  // deployment configured above that must fail closed, including for direct API clients.
+  if (feeBps > 30n) {
+    console.error(`The agent API is off: its fee is ${feeBps} bps, above the shipped skill's ceiling of 30.`);
     return null;
   }
-  // Allowed, but said: the skill refuses a fee above Orientim's own 0.3% unless the agent raises its
-  // limit, and an agent calling the API without it would pay it unasked.
   const siteFee = /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? BigInt(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS!) : 30n;
-  if (feeBps > siteFee) sayOnce(`The agent API charges ${feeBps} bps, more than the site's ${siteFee} (NEXT_PUBLIC_ORIENTIM_FEE_BPS): agents using the skill will refuse it.`, 'warn');
+  if (feeBps > siteFee) {
+    console.error(`The agent API is off: its fee is ${feeBps} bps, above the site's ${siteFee} (NEXT_PUBLIC_ORIENTIM_FEE_BPS).`);
+    return null;
+  }
   // A treasury that is set but cannot be read would make every API swap fee-free: the API stays off.
   let treasury: string | null;
   try {
@@ -150,7 +151,7 @@ export function agentDeps(): AgentDeps | null {
     keys,
     keySecrets: ownKeys,
     revokedWallets: new Set((process.env.ORIENTIM_API_REVOKED ?? '').split(',').map(s => s.trim()).filter(Boolean)),
-    // The verifier refuses anything above 1% whatever is configured here.
+    // The API rejects fees above the shipped skill's 30 bps cap before reaching here.
     feeBps,
     treasury: treasury ? address(treasury) : null,
     excludeDexes: server.excludeDexes,
