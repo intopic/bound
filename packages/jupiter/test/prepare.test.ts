@@ -45,7 +45,7 @@ async function prepare(output: Address, opts: {
   acceptedMinOut?: bigint; memo?: boolean; inputFeeBps?: number; epochFails?: boolean; acceptedCostBps?: bigint;
   chain?: Iterable<[string, Account]>; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
   input?: Address; treasury?: Address; amountIn?: bigint; feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
-  expectCurve?: boolean; version?: 0 | 1; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
+  expectCurve?: boolean; version?: 0 | 1; routingMode?: 'fast'; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
   wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean; acceptedMinReceived?: bigint;
   minFee?: SwapSettings['minFee']; leavesOpen?: readonly string[]; chosenSlippageBps?: number;
   noPostBalances?: boolean; takerKeepsAfter?: bigint;
@@ -75,6 +75,7 @@ async function prepare(output: Address, opts: {
       amountIn: opts.amountIn ?? 1_000_000n,
       inputDecimals: opts.inputDecimals ?? DECIMALS[opts.input ?? USDC], outputDecimals: DECIMALS[output], version: opts.version ?? 1,
       acceptedMinOut: opts.acceptedMinOut, acceptedMinReceived: opts.acceptedMinReceived, acceptedCostBps: opts.acceptedCostBps, expectCurve: opts.expectCurve,
+      ...(opts.routingMode ? { routingMode: opts.routingMode } : {}),
     },
   );
 }
@@ -92,6 +93,12 @@ describe('the amount the user typed is converted with on-chain decimals', () => 
 });
 
 describe('the prepared swap carries its certificate and timings (ideas 35, 20)', () => {
+  it('keeps the market baseline standard when the protected route opts into fast mode', async () => {
+    const asked: BuildParams[] = [];
+    await prepare(WSOL_MINT, { jupiter: fakeJupiter({ asked }), routingMode: 'fast' });
+    expect(asked.some(p => p.mode === undefined && !p.excludeDexes?.length)).toBe(true);
+    expect(asked.some(p => p.mode === 'fast' && !!p.excludeDexes?.length)).toBe(true);
+  });
   it('the certificate states the approved debit and the enforced minimum of this exact transaction', async () => {
     const prepared = await prepare(WSOL_MINT);
     const c = prepared.certificate;
@@ -99,6 +106,9 @@ describe('the prepared swap carries its certificate and timings (ideas 35, 20)',
     expect(c.output.minimumOutput).toBe(prepared.policy.minOut);
     expect(c.messageSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(prepared.timings.localMs).toBeLessThanOrEqual(prepared.timings.totalMs);
+    expect(prepared.timings.jupiterBuildCalls).toBeGreaterThan(0);
+    expect(prepared.timings.simulationCalls).toBeGreaterThan(0);
+    expect(prepared.timings.verificationMs).toBeGreaterThanOrEqual(0);
   });
 });
 

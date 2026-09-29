@@ -32,6 +32,8 @@ export type BuildParams = {
    */
   estimateSlippage?: boolean;
   maxAccounts: number;
+  /** Opt-in Jupiter beta router. Omitted for the standard route. */
+  mode?: 'fast';
   destinationTokenAccount?: Address;
   excludeDexes?: readonly string[];
 };
@@ -188,6 +190,7 @@ export function createJupiterClient(opts: {
       // Never `payer`: with payer = W, W appeared inside the swap instruction.
       if (p.destinationTokenAccount) qs.set('destinationTokenAccount', p.destinationTokenAccount);
       if (p.excludeDexes?.length) qs.set('excludeDexes', p.excludeDexes.join(','));
+      if (p.mode) qs.set('mode', p.mode);
       return get<unknown>(`${opts.buildUrl}?${qs}`).then(checkBuildResponse);
     },
     async searchTokens(query) {

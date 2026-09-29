@@ -143,6 +143,8 @@ export type SwapRequest = {
    */
   acceptedCostBps?: bigint;
   version: TxVersion;
+  /** Opt-in beta route search; the market-price baseline stays on standard routing. */
+  routingMode?: 'fast';
 };
 
 export type Attempt = { excluded: string[]; route: string[]; simulation: 'ok' | string; blamed: string | null };
@@ -196,8 +198,12 @@ export type PreparedSwap = {
   intermediates: IntermediateAta[];
   /** What the verified transaction does, bound to its exact bytes (idea 35). */
   certificate: Certificate;
-  /** Wall-clock time of prepare, and the part spent computing locally (compile and verify). */
-  timings: { totalMs: number; localMs: number };
+  /** Diagnostic durations; Jupiter calls may overlap, so their sum is not wall-clock time. */
+  timings: {
+    totalMs: number; localMs: number; initialMs: number;
+    jupiterBuildMs: number; jupiterBuildCalls: number;
+    simulationMs: number; simulationCalls: number; verificationMs: number;
+  };
   attempts: Attempt[];
 };
 
@@ -626,6 +632,17 @@ export async function prepareProtectedSwap(deps: {
   const E = req.ephemeral.address;
   const started = performance.now();
   let localMs = 0;
+  let jupiterBuildMs = 0;
+  let jupiterBuildCalls = 0;
+  let simulationMs = 0;
+  let simulationCalls = 0;
+  let verificationMs = 0;
+  const measuredSimulation: typeof simulate = async (...args) => {
+    const at = performance.now();
+    simulationCalls++;
+    try { return await simulate(...args); }
+    finally { simulationMs += performance.now() - at; }
+  };
   const timed = <T>(work: () => T): T => {
     const t = performance.now();
     try {
@@ -825,6 +842,7 @@ export async function prepareProtectedSwap(deps: {
     wOutBefore = { exists: !!state, balance: tokenAmountOf(state?.data) };
   }
 
+  const initialMs = performance.now() - started;
   const buildBase = {
     inputMint: req.inputMint,
     outputMint: req.outputMint,
@@ -840,9 +858,11 @@ export async function prepareProtectedSwap(deps: {
   // retry the baseline once and skip a failing maxAccounts level instead of giving up.
   // A 429 or a Jupiter that does not answer is not a missing route: it ends the attempt with that
   // reason, instead of reading as "no route fits, try another token".
-  const buildOrNull = async (maxAccounts: number, excludeDexes?: readonly string[], slippageBps = buildBase.slippageBps) => {
+  const buildOrNull = async (maxAccounts: number, excludeDexes?: readonly string[], slippageBps = buildBase.slippageBps, mode: 'standard' | 'fast' = req.routingMode ?? 'standard') => {
+    const at = performance.now();
+    jupiterBuildCalls++;
     try {
-      return await jupiter.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps });
+      return await jupiter.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps, ...(mode === 'fast' ? { mode } : {}) });
     } catch (e) {
       if (e instanceof JupiterError) {
         if (e.status === 429) throw new OrientimError('busy', BUSY_MESSAGE);
@@ -857,6 +877,8 @@ export async function prepareProtectedSwap(deps: {
         if (!/paused/i.test(e.message)) throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
       }
       throw e;
+    } finally {
+      jupiterBuildMs += performance.now() - at;
     }
   };
   // Jupiter is untrusted: an answer for another pair or another amount is not a quote for this swap.
@@ -869,7 +891,9 @@ export async function prepareProtectedSwap(deps: {
   const baselineTask = (async () => {
     for (const [i, maxAccounts] of [64, 64, 48, 32].entries()) {
       if (i > 0) await new Promise(r => setTimeout(r, 700));
-      const r = await buildOrNull(maxAccounts);
+      // The baseline must remain standard even when the protected route uses fast mode:
+      // otherwise a worse fast quote could make the protected-route price check look good.
+      const r = await buildOrNull(maxAccounts, undefined, buildBase.slippageBps, 'standard');
       if (r) return r;
     }
     return null;
@@ -945,7 +969,7 @@ export async function prepareProtectedSwap(deps: {
     };
     const probe = attempt(MAX_TAKER_RENT_LAMPORTS);
     if (!probe) { set(0n); return null; }
-    const probed = await simulate(rpc, probe.transaction, [E, ...watch]);
+    const probed = await measuredSimulation(rpc, probe.transaction, [E, ...watch]);
     // With the lamports it lacked, the route failed for another reason, usually a price that moved.
     // That reason is the one to act on; nothing is built on this probe, so it carries no rent.
     if (!probed.ok) { set(0n); return { trial: probe, sim: probed }; }
@@ -953,7 +977,7 @@ export async function prepareProtectedSwap(deps: {
     if (spent <= 0n) { set(0n); return null; }
     const exact = attempt(spent);
     if (!exact) { set(0n); return null; }
-    const sim = await simulate(rpc, exact.transaction, [E, ...watch]);
+    const sim = await measuredSimulation(rpc, exact.transaction, [E, ...watch]);
     // Funded with exactly what it spends, E must end with nothing: no SOL stays behind under a key
     // that is about to be discarded.
     if (!sim.ok || sim.lamportsAfter[0] !== 0n) { set(0n); return null; }
@@ -1145,7 +1169,7 @@ export async function prepareProtectedSwap(deps: {
     const watchOpened = opened ? [opened.account] : [];
     const early = knownRent ? await measureTakerRent(buildTrial, rent => { takerRent = rent; }, watchOpened) : null;
     let trial = early ? early.trial : timed(buildTrial);
-    let sim = early ? early.sim : await simulate(rpc, trial.transaction);
+    let sim = early ? early.sim : await measuredSimulation(rpc, trial.transaction);
     // Some routes open an account in the taker's name and make the taker pay its rent — both of
     // Pump.fun's markets do, once per buyer. E holds no SOL on purpose, so such a route fails for
     // want of lamports.
@@ -1192,7 +1216,7 @@ export async function prepareProtectedSwap(deps: {
           withClose = null; // the two instructions pushed it over the 64 accounts a transaction may name
           closeSize = 'over 64 accounts';
         }
-        const closed = withClose ? await simulate(rpc, withClose.transaction, [E]) : null;
+        const closed = withClose ? await measuredSimulation(rpc, withClose.transaction, [E]) : null;
         if (withClose && closed?.ok && closed.lamportsAfter[0] === 0n) {
           trial = withClose;
           sim = closed;
@@ -1272,6 +1296,7 @@ export async function prepareProtectedSwap(deps: {
       // A tolerance the person chose is the only one the route may carry; unset, the verifier's own.
       const certification = await certify(final.transaction, chosenPolicy, snapshot, { maxSlippageBps: settings.chosenSlippageBps });
       localMs += performance.now() - verifyStarted;
+      verificationMs += performance.now() - verifyStarted;
       const verdict = certification.ok ? { ok: true, violations: [] as Violation[] } : { ok: false, violations: certification.violations };
       // A route through a Token-2022 hop with a transfer hook or permanent delegate is not
       // an error of the pair: exclude that route's DEXes and look for another one.
@@ -1327,7 +1352,7 @@ export async function prepareProtectedSwap(deps: {
       const opened = [...new Set(swapAccounts)].filter(a => !existed(a) && !kept.has(a) && !underKey.includes(a));
       // On state no older than the snapshot the verifier just read (and the simulation before it).
       const seenAt = (snapshot.slot ?? 0n) > sim.slot ? snapshot.slot! : sim.slot;
-      const last = await simulate(rpc, final.transaction, [], {
+      const last = await measuredSimulation(rpc, final.transaction, [], {
         ...(seenAt > 0n ? { minContextSlot: seenAt } : {}),
         balances: { lookupTables: snapshot.lookupTables },
       });
@@ -1358,7 +1383,11 @@ export async function prepareProtectedSwap(deps: {
           outputAccountRent: createsOutputAccount ? newAccountRent : 0n, routeRent: chosenPolicy.takerRent, routeRefund: chosenPolicy.routeRefund,
         },
         certificate: certification.certificate,
-        timings: { totalMs: Math.round(performance.now() - started), localMs: Math.round(localMs) },
+        timings: {
+          totalMs: Math.round(performance.now() - started), localMs: Math.round(localMs), initialMs: Math.round(initialMs),
+          jupiterBuildMs: Math.round(jupiterBuildMs), jupiterBuildCalls,
+          simulationMs: Math.round(simulationMs), simulationCalls, verificationMs: Math.round(verificationMs),
+        },
         networkFeeLamports: BigInt(clusterFee),
         outputBalanceBefore,
         priorityFeeLamports,

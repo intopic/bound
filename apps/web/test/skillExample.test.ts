@@ -173,11 +173,14 @@ function honestInstructions(honest: Prepared): Instruction[] {
 describe("the skill's example", () => {
   it('prepares, verifies on its own RPC, signs as the wallet, finalizes and confirms', async () => {
     const b = await orientim();
+    const phases: string[] = [];
     const result = await protectedSwap({
       apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
       intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+      onTiming: (phase, ms) => { expect(ms).toBeGreaterThanOrEqual(0); phases.push(phase); },
     });
     expect(result.outcome).toBe('confirmed');
+    expect(phases).toEqual(['ownFloor', 'apiPrepare', 'localVerification', 'tokenRisk', 'sign', 'finalize']);
     expect(result.prepared.amounts.fee).toBe('2000');
     expect(b.sent).toHaveLength(1);
   });

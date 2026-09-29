@@ -22,6 +22,21 @@ const good = {
 };
 
 describe('Jupiter /build responses are validated', () => {
+  it('adds mode=fast only for an explicit fast request', async () => {
+    const urls: string[] = [];
+    const client = createJupiterClient({
+      buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels',
+      fetchImpl: (async (url: string) => { urls.push(url); return Response.json(good); }) as typeof fetch,
+    });
+    const params = {
+      inputMint: address(good.inputMint), outputMint: address(good.outputMint), amount: 100_000_000n,
+      taker: address('11111111111111111111111111111111'), slippageBps: 50, maxAccounts: 64,
+    };
+    await client.build(params);
+    await client.build({ ...params, mode: 'fast' });
+    expect(new URL(urls[0]).searchParams.has('mode')).toBe(false);
+    expect(new URL(urls[1]).searchParams.get('mode')).toBe('fast');
+  });
   it('a well-formed quote passes unchanged', () => {
     expect(checkBuildResponse(good)).toBe(good);
   });

@@ -45,6 +45,8 @@ export type AgentDeps = {
   disabled: boolean;
   /** v1 transactions, only when the deployment enables them. */
   v1: boolean;
+  /** Jupiter beta fast routing, opt-in per request and off unless enabled by the operator. */
+  fastRouting?: boolean;
   /** Requests per minute per API key, for each endpoint. */
   perMinute: number;
   /** The smallest fee a swap may carry (about $1 of swap); none when unset. */
@@ -203,6 +205,12 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (acceptCostBps === null) return fail(400, 'bad-request', 'acceptCostBps, when given, must be a whole number of bps, as a number or an integer string.');
   const version: TxVersion = body.version === 1 ? 1 : 0;
   if (body.version !== undefined && body.version !== 0 && body.version !== 1) return fail(400, 'bad-request', 'version must be 0 or 1.');
+  if (body.routingMode !== undefined && body.routingMode !== 'standard' && body.routingMode !== 'fast') {
+    return fail(400, 'bad-request', 'routingMode must be standard or fast.');
+  }
+  if (body.routingMode === 'fast' && !deps.fastRouting) {
+    return fail(400, 'bad-request', 'Fast routing is not enabled on this deployment; use standard.');
+  }
   // The route's slippage tolerance, as the agent chooses it: 0.1% to 15%. The agent's own
   // check holds the route to the same number, from its own intent.
   const slippageBps = body.slippageBps;
@@ -247,6 +255,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         inputDecimals: mints.get(inMint)!.decimals, outputDecimals: mints.get(outMint)!.decimals,
         // The agent's floor is what its wallet keeps; with a fee on the output, Orientim enforces more.
         acceptedMinReceived: minOut, acceptedCostBps: acceptCostBps, version,
+        ...(body.routingMode === 'fast' ? { routingMode: 'fast' as const } : {}),
       },
     );
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
@@ -319,6 +328,16 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       route: prepared.quote.route,
       certificate: prepared.certificate,
       policy: p,
+    }, {
+      // Durations only: no wallet, token, route, or transaction data in telemetry.
+      'server-timing': [
+        `prepare;dur=${prepared.timings.totalMs}`,
+        `initial;dur=${prepared.timings.initialMs}`,
+        `jupiter-build;dur=${prepared.timings.jupiterBuildMs}`,
+        `simulation;dur=${prepared.timings.simulationMs}`,
+        `verification;dur=${prepared.timings.verificationMs}`,
+        `local;dur=${prepared.timings.localMs}`,
+      ].join(', '),
     });
   } catch (e) {
     return explain(e);

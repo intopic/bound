@@ -15,6 +15,7 @@ import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
+import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
 import { agentFinalize, agentPrepare, olderThan } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
@@ -102,6 +103,26 @@ const finalize = (w: Awaited<ReturnType<typeof world>>, ticket: string, signedTr
 const signatureOf = (wire: string) => getSignatureFromTransaction(getTransactionDecoder().decode(Buffer.from(wire, 'base64')));
 
 describe('prepare', () => {
+  it('keeps fast routing off unless enabled and requested, while allowing a standard-price baseline', async () => {
+    const asked: BuildParams[] = [];
+    const w = await world({ jupiter: fakeJupiter({ asked }) });
+    expect((await agentPrepare(post('prepare', swapBody(w.W.address, { routingMode: 'fast' })), w.deps)).status).toBe(400);
+    expect(asked).toHaveLength(0);
+    w.deps.fastRouting = true;
+    const response = await agentPrepare(post('prepare', swapBody(w.W.address, { routingMode: 'fast' })), w.deps);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('server-timing')).toMatch(/prepare;dur=\d+, initial;dur=\d+, jupiter-build;dur=\d+, simulation;dur=\d+, verification;dur=\d+, local;dur=\d+/);
+    expect(asked.some(p => p.mode === undefined && !p.excludeDexes?.length)).toBe(true);
+    expect(asked.some(p => p.mode === 'fast' && !!p.excludeDexes?.length)).toBe(true);
+  });
+
+  it('builds v1 only when the deployment enables it', async () => {
+    const w = await world();
+    expect((await agentPrepare(post('prepare', swapBody(w.W.address, { version: 1 })), w.deps)).status).toBe(400);
+    w.deps.v1 = true;
+    const p = await prepared(w, { version: 1 });
+    expect(getTransactionDecoder().decode(Buffer.from(p.transaction, 'base64')).messageBytes[0]).toBe(0x81);
+  });
   it('builds the protected swap with the fee in it, and a ticket bound to the exact message', async () => {
     const w = await world();
     const p = await prepared(w);
