@@ -191,13 +191,28 @@ else report('warn', 'USDC → BONK (fee in SOL)', 'no wallet found to stand in f
 
 // Pump.fun tokens: the newest still on their bonding curve, the trending ones mostly on PumpSwap.
 type Listed = { id: string; symbol: string };
-const list = (url: string) => fetch(url, { headers: process.env.JUPITER_API_KEY ? { 'x-api-key': process.env.JUPITER_API_KEY } : {} }).then(r => r.json() as Promise<Listed[]>).catch(() => [] as Listed[]);
+// A list that cannot be read (no key, rate limit, an error body) is a warning with its cause, not a crash.
+const list = async (url: string): Promise<Listed[] | string> => {
+  try {
+    const r = await fetch(url, { headers: process.env.JUPITER_API_KEY ? { 'x-api-key': process.env.JUPITER_API_KEY } : {} });
+    if (!r.ok) return `HTTP ${r.status}${r.status === 401 || r.status === 403 ? ', JUPITER_API_KEY missing or refused' : ''}`;
+    const body: unknown = await r.json();
+    return Array.isArray(body) ? body.filter((x): x is Listed => typeof x?.id === 'string' && typeof x?.symbol === 'string') : 'the answer is not a list';
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+};
 for (const [market, want, url] of [
   ['Pump.fun curve', 'Pump.fun', 'https://api.jup.ag/tokens/v2/recent'],
   ['PumpSwap', 'Pump.fun Amm', 'https://api.jup.ag/tokens/v2/toptrending/1h?limit=100'],
 ] as const) {
+  const listed = await list(url);
+  if (typeof listed === 'string') {
+    report('warn', market, `the Jupiter token list could not be read (${listed})`);
+    continue;
+  }
   let outcome: 'done' | 'elsewhere' | 'failed' = 'elsewhere';
-  for (const t of (await list(url)).filter(x => x.id.endsWith('pump')).slice(0, 8)) {
+  for (const t of listed.filter(x => x.id.endsWith('pump')).slice(0, 8)) {
     outcome = await swap(`SOL → ${t.symbol} (${market})`, WSOL_MINT, address(t.id), 20_000_000n, { want, feeSide: 'input' });
     if (outcome !== 'elsewhere') break;
   }
