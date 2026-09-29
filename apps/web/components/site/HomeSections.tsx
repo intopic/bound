@@ -20,6 +20,16 @@ const START_STEPS = [
   ['Ask for a swap', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
 ];
 
+
+const THREATS: [string, string, string][] = [
+  ['prompt', 'A message tells your agent to “swap everything”.', 'The skill stops at your limits: the most per swap, per day, and only from the tokens you allow.'],
+  ['drain', 'A server hands your agent a transaction that drains the wallet.', 'With the skill or verifier, every instruction is checked on your own RPC. Approvals, authority changes and stray transfers are refused.'],
+  ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys, and a changed transaction is refused before it is signed.'],
+  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: the most it can take is your tolerance, 0.5% by default.'],
+  ['token', 'A token that can be frozen or taken back.', 'Refused before anything is signed, with the reason.'],
+  ['crash', 'The agent crashes mid-swap and tries again.', 'The skill keeps every order by id: after a restart it settles what was in flight and never swaps it twice.'],
+];
+
 const KEEPS_NOTHING = [
   [NoDatabaseIcon, 'No account. No database.', 'No sign-up, and Orientim keeps no record of your swaps or of the keys it issues. Our host keeps standard request logs.'],
   [ShieldIcon, 'Never your keys or funds.', 'Your agent signs with its own wallet or signing service. Orientim never holds funds or asks for a seed phrase.'],
@@ -110,6 +120,53 @@ export function HomeSections() {
             <h3>Checked by Orientim, checked again by your agent</h3>
             <CheckedTwice />
           </div>
+        </div>
+      </section>
+
+
+      <section className="section" id="protects">
+        <div className="container">
+          <div className="section-head">
+            <p className="eyebrow">What it protects against</p>
+            <h2>What your agent can’t be tricked into.</h2>
+            <p className="lead">The attacks that have emptied trading agents and bots, and what happens when the swap goes through Orientim.</p>
+          </div>
+          <div className="glass-stage">
+            <div className="ambient" aria-hidden="true" />
+            <ul className="threats">
+              {THREATS.map(([k, attack, answer]) => (
+                <li key={k}>
+                  <p className="threat-tag"><span className="x">✕</span> The attack</p>
+                  <h3>{attack}</h3>
+                  <div className="threat-answer"><span className="ok-dot">✓</span><p>{answer}</p></div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="limits-band">
+            <div>
+              <p className="eyebrow eyebrow-cyan">Limits you set</p>
+              <h3>Rules in a file only you edit.</h3>
+              <ul className="limit-list">
+                <li><b>Per swap</b><span>The most one swap may spend, for each token.</span></li>
+                <li><b>Per day</b><span>The most all swaps may spend in 24 hours.</span></li>
+                <li><b>Only these tokens</b><span>A token not on the list is never spent.</span></li>
+                <li><b>A price floor</b><span>From your agent’s own quote, never more than 20% below the market.</span></li>
+              </ul>
+            </div>
+            <div className="terminal policy">
+              <div className="terminal-bar"><span /><span /><span /><em>orientim-policy.json</em></div>
+              <pre>{`{
+  "maxAmountIn": {
+    "EPjF…Dt1v": "50000000"`}<span className="dim">{`      // 50 USDC a swap`}</span>{`
+  },
+  "maxAmountInPerDay": {
+    "EPjF…Dt1v": "200000000"`}<span className="dim">{`     // 200 USDC a day`}</span>{`
+  }
+}`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ refused: over your limit of 50 USDC a swap`}</span></pre>
+            </div>
+          </div>
+          <p className="not-covered"><b>Not covered:</b> an agent that can read its own signing key and use it elsewhere, transfers made outside Orientim, a key stolen from your machine, and the value of the token you buy. Keep the key in a separate signer with its own limits.</p>
         </div>
       </section>
 
