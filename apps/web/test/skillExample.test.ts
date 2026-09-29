@@ -28,7 +28,7 @@ import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked,
-  exitCodeOf, LockBusyError, loadPolicy, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval,
+  exitCodeOf, outcomeMeaning, LockBusyError, loadPolicy, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
@@ -1931,6 +1931,19 @@ describe('the skill holds its own limits and its state against what it is handed
     for (const outcome of ['failed', 'rejected', 'expired'] as const) expect(exitCodeOf({ outcome })).toBe(1);
     expect(exitCodeOf({ outcome: 'unknown' })).toBe(3);
     expect(exitCodeOf({ outcome: 'confirmed', bookkeepingError: 'disk full' })).toBe(3);
+  });
+
+  it('every outcome is said in words, with the cause a refusal names and what to do next', () => {
+    expect(outcomeMeaning('rejected', 'network')).toMatch(/network refused the transaction when it was sent.*price moved.*Nothing moved and no fee was paid.*same id/);
+    expect(outcomeMeaning('rejected', 'busy')).toMatch(/did not send this one.*Wait a few seconds/);
+    expect(outcomeMeaning('rejected', 'paused')).toMatch(/paused swaps.*Try later/);
+    expect(outcomeMeaning('rejected', 'output-balance-changed')).toContain('Your balance of the output token changed');
+    // A refusal the skill does not know, or one named like an object's own property, adds no words of its own.
+    for (const code of ['something-new', 'constructor', '__proto__']) expect(outcomeMeaning('rejected', code)).toBe('Orientim did not send the transaction, and it can no longer land. Nothing moved and no fee was paid. The order may be tried again with the same id.');
+    expect(outcomeMeaning('expired')).toMatch(/did not land before it expired.*no fee was paid/);
+    expect(outcomeMeaning('failed')).toMatch(/failed on chain.*only the network fee was paid/);
+    expect(outcomeMeaning('unknown')).toMatch(/may still land.*Look up the signature/);
+    expect(outcomeMeaning('confirmed')).toContain('`received`');
   });
 
   it("the example's dry run holds the owner's policy, and a key file is never repeated in an error", () => {
