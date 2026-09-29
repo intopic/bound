@@ -8,9 +8,9 @@ const CAPSULE_STEPS = [
 
 const AGENT_POINTS = [
   ['Checks before signing', 'With the skill or command line, the exact transaction is checked on your own connection to Solana. Direct API integrations must run the same check.'],
-  ['Limits you set', 'Set an amount per swap, a daily budget, a fee cap and your own price floor. Keep unattended limits at the signer.'],
-  ['Recovers an interrupted order', 'The skill keeps an order record across restarts. Direct bots need durable, shared order records to avoid a second swap.'],
-  ['Works with your stack', 'A skill for coding agents, an API and a command line for bots. Keep the signing key outside the agent to enforce your own limits.'],
+  ['Limits you set', 'Set an amount per swap, a daily budget, a fee cap, your own price floor and the most slippage a swap may take. Keep unattended limits at the signer.'],
+  ['Recovers an interrupted order', 'The skill keeps an order record across restarts and settles what was in flight before anything new, so an unattended bot never swaps an order twice. Direct bots need durable, shared order records.'],
+  ['Works with your stack', 'For coding agents, a skill that checks every swap and asks before a worse price. For bots in any language, a command line: JSON in, JSON out, clear exit codes. Keep the signing key outside the agent.'],
 ];
 
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
@@ -22,10 +22,10 @@ const START_STEPS = [
 
 
 const THREATS: [string, string, string][] = [
-  ['prompt', 'A message tells your agent to “swap everything”.', 'The skill stops at your limits: the most per swap, per day, and only from the tokens you allow.'],
+  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'The skill stops at your limits: the most per swap, per day, only from the tokens you allow, and never more slippage than you set.'],
   ['drain', 'A server hands your agent a transaction that drains the wallet.', 'With the skill or verifier, every instruction is checked on your own RPC. Approvals, authority changes and stray transfers are refused.'],
   ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys, and a changed transaction is refused before it is signed.'],
-  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: the most it can take is your tolerance, 0.5% by default (3% on a Pump.fun launch curve).'],
+  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: the most it can take is your tolerance, 0.5% by default (3% on a Pump.fun launch curve), never above the ceiling you set.'],
   ['token', 'A token built to trap you.', 'Tokens whose extensions Orientim can’t isolate are refused before anything is signed, with the reason. Powers the issuer keeps, such as a freeze authority (USDC and USDT have one), are shown before your agent signs, not removed.'],
   ['crash', 'The agent crashes mid-swap and tries again.', 'The skill keeps every order by id: after a restart it settles what was in flight and never swaps it twice.'],
 ];
@@ -155,6 +155,8 @@ export function HomeSections() {
                 <li><b>Per day</b><span>The most all swaps may spend in 24 hours.</span></li>
                 <li><b>Only these tokens</b><span>A token not on the list is never spent.</span></li>
                 <li><b>A price floor</b><span>From your agent’s own quote, never more than 20% below the market.</span></li>
+                <li><b>Max slippage</b><span>The most the price may move against a swap. Your agent can’t raise it.</span></li>
+                <li><b>Max price impact</b><span>A swap that would move a thin market too far is refused.</span></li>
               </ul>
             </div>
             <div className="terminal policy">
@@ -165,8 +167,9 @@ export function HomeSections() {
   },
   "maxAmountInPerDay": {
     "EPjF…Dt1v": "200000000"`}<span className="dim">{`     // 200 USDC a day`}</span>{`
-  }
-}`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ refused: over your limit of 50 USDC a swap`}</span></pre>
+  },
+  "maxSlippageBps": 300`}<span className="dim">{`          // never more than 3%`}</span>{`
+}`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ refused: over your limit of 50 USDC a swap`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ refused: above your limit of 3%`}</span></pre>
             </div>
           </div>
           <p className="not-covered"><b>Not covered:</b> an agent that can read its own signing key and use it elsewhere, transfers made outside Orientim, a key stolen from your machine, and the value of the token you buy. Keep the key in a separate signer with its own limits.</p>
