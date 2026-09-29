@@ -87,22 +87,12 @@ describe('the public status and the settings behind it', () => {
     process.env.JUPITER_API_KEY = 'test-key';
     try {
       expect(Object.keys(publicStatus())).not.toContain('jupiterKey');
+      // No per-swap USD cap: nothing enforced it, so nothing publishes one.
+      expect(Object.keys(publicStatus()).sort()).toEqual(['enabled', 'excludeDexes', 'maxNetworkFeeLamports']);
       expect(JSON.stringify(publicStatus())).not.toContain('test-key');
     } finally {
       delete process.env.JUPITER_API_KEY;
     }
-  });
-
-  it('a mistyped USD cap refuses every swap instead of lifting the cap', async () => {
-    const { usdCap } = await import('../lib/server/config.ts');
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(usdCap(undefined)).toBeNull();
-    expect(usdCap('')).toBeNull();
-    expect(usdCap('250')).toBe(250);
-    expect(usdCap('1,000')).toBe(0);
-    expect(usdCap('abc')).toBe(0);
-    expect(usdCap('-5')).toBe(0);
-    error.mockRestore();
   });
 });
 

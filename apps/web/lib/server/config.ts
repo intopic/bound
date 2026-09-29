@@ -44,9 +44,6 @@ export function serverConfig() {
     // A second provider, asked only when the first is down or rate-limited (rpcFailover.ts).
     rpcFallbackUrl: process.env.RPC_URL_FALLBACK || null,
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
-    // No limit unless one is configured: the protection does not depend on the amount, and a
-    // limit would also block every token that has no USD price.
-    maxUsdPerSwap: usdCap(process.env.ORIENTIM_MAX_USD_PER_SWAP),
     disabled: process.env.ORIENTIM_DISABLED === '1',
     excludeDexes: (process.env.ORIENTIM_EXCLUDE_DEXES ?? 'HumidiFi').split(',').map(s => s.trim()).filter(Boolean),
     // Clamped to the verifier's absolute ceiling; the verifier enforces it anyway.
@@ -54,27 +51,9 @@ export function serverConfig() {
   };
 }
 
-/**
- * The operator's cap per swap, in USD, or null for none. A value that is set but is not a number
- * ("1,000") becomes 0, which refuses every swap: a mistyped cap fails closed, never open.
- */
-export function usdCap(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const n = Number(raw);
-  if (Number.isFinite(n) && n >= 0) return n;
-  if (!warnedBadCap) {
-    warnedBadCap = true;
-    console.error(`ORIENTIM_MAX_USD_PER_SWAP is not a number (${JSON.stringify(raw)}): every swap is refused until it is fixed.`);
-  }
-  return 0;
-}
-let warnedBadCap = false;
-
 /** What anyone may know, at /api/status. */
 export type PublicStatus = {
   enabled: boolean;
-  /** Optional operational cap per swap, in USD; null means no limit. */
-  maxUsdPerSwap: number | null;
   excludeDexes: string[];
   maxNetworkFeeLamports: string;
 };
@@ -83,7 +62,6 @@ export function publicStatus(): PublicStatus {
   const c = serverConfig();
   return {
     enabled: !c.disabled,
-    maxUsdPerSwap: c.maxUsdPerSwap,
     excludeDexes: c.excludeDexes,
     maxNetworkFeeLamports: c.maxNetworkFeeLamports.toString(),
   };

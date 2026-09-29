@@ -2,7 +2,8 @@
  * A wallet that changes the message after Orientim verified it (AUDIT section 10, section 0h).
  * Phantom documents that it may add Lighthouse assertions; wallets may also raise the priority fee.
  * The real pipeline prepares a swap against the fakes, a simulated wallet alters and signs it, and
- * the page's own finalize step runs: it must stop before E signs, and send nothing.
+ * the countersign step runs (as a browser wallet's flow would, with assertions accepted): it must
+ * stop before E signs, and send nothing.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -12,7 +13,9 @@ import {
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { LIGHTHOUSE_PROGRAM } from '@orientim/verifier';
-import { DEFAULT_SETTINGS, finalizeProtectedSwap, OrientimError, prepareProtectedSwap } from '../src/swap.ts';
+import { sendAndConfirm } from '@orientim/solana';
+import { countersignProtectedSwap, DEFAULT_SETTINGS, OrientimError, prepareProtectedSwap } from '../src/swap.ts';
+import type { Countersignable } from '../src/swap.ts';
 import { BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, USDC } from './fakes.ts';
 import type { Account } from './fakes.ts';
 
@@ -89,6 +92,12 @@ const encode = (tx: Transaction) => new Uint8Array(getTransactionEncoder().encod
 /** The wallet signs whatever message it chose to sign, leaving E's slot empty. */
 async function walletSigns(owner: KeyPairSigner, tx: Transaction) {
   return encode(await partiallySignTransaction([owner.keyPair], tx));
+}
+
+/** Signs last as E, then sends and settles: a wallet-return flow (the agent API itself accepts no assertions). */
+async function finalizeProtectedSwap(args: { rpc: Parameters<typeof countersignProtectedSwap>[0]['rpc']; prepared: Countersignable; walletSignedBytes: Uint8Array; ephemeral: KeyPairSigner; acceptAssertions?: boolean }) {
+  const signed = await countersignProtectedSwap(args);
+  return { ...await sendAndConfirm({ rpc: args.rpc, transaction: signed, lastValidBlockHeight: args.prepared.lifetime.lastValidBlockHeight }), sent: signed };
 }
 
 async function finalize(p: Awaited<ReturnType<typeof prepared>>, walletSignedBytes: Uint8Array, acceptAssertions = false) {

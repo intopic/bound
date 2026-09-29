@@ -13,7 +13,7 @@ export const VERIFIER_VERSION = '0.9.0';
  * every rule passed on these exact bytes, and it is bound to them by the SHA-256 of the message: it
  * says nothing about any other message.
  *
- * A certificate is as trustworthy as the verifier that issued it. Whoever does not trust the page
+ * A certificate is as trustworthy as the verifier that issued it. Whoever does not trust the server
  * that produced it (a wallet, an auditor) should run the verifier on the same bytes, policy and
  * chain state and compare.
  */

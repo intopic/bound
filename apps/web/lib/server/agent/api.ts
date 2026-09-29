@@ -284,7 +284,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const p = prepared.policy;
     const feeMint = p.feeSide === 'output' ? p.outputMint : p.feeSide === 'sol' ? WSOL_MINT : p.inputMint;
     const solFee = feeMint === WSOL_MINT ? p.fee : 0n;
-    // What the transaction has left to live, in blocks: 150 at most, about 40 s.
+    // What the transaction has left to live, in blocks: 150 at most, about a minute.
     const height = await deps.rpc.getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
     return json(200, {
       ticket,

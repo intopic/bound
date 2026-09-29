@@ -3,6 +3,12 @@ import { InfoPage } from '@/components/site/InfoPage';
 import { LEGAL, legal, legalDraft } from '@/lib/legal';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 
+/** The data protection authority of the operator's country (LEGAL.country). */
+const AUTHORITY: Record<string, string> = {
+  'North Macedonia': 'the Personal Data Protection Agency',
+  Albania: 'the Information and Data Protection Commissioner',
+};
+
 export const metadata = { title: 'Privacy Notice — Orientim', description: 'What Orientim processes, why, who receives it, and your rights.' };
 
 /** What passes through Orientim, as the code does it (lib/server, lib/client), and on which basis. */
@@ -92,7 +98,7 @@ export default async function Page() {
       <section id="transfers">
         <h2>5. Transfers outside your country</h2>
         <p>
-          Some recipients are outside Albania and the European Economic Area, including in the United States. Where the law requires
+          Some recipients are outside {LEGAL.country} and the European Economic Area, including in the United States. Where the law requires
           it, transfers rely on an adequacy decision, including the EU–US Data Privacy Framework for certified recipients, or on the
           European Commission&apos;s standard contractual clauses. Write to us for a copy of the safeguards.
         </p>
@@ -125,7 +131,7 @@ export default async function Page() {
           Write to {legal('privacyEmail')}; we answer within one month.
         </p>
         <p>
-          You may also complain to a data protection authority: in Albania, the Information and Data Protection Commissioner; in the
+          You may also complain to a data protection authority: in {LEGAL.country}, {AUTHORITY[LEGAL.country] ?? 'its data protection authority'}; in the
           European Union, the authority of the country where you live.
         </p>
       </section>

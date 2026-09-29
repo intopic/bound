@@ -28,7 +28,7 @@ import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked,
-  exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval,
+  exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
@@ -36,7 +36,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ORIENTIM_TREASURY, MAX_BELOW_BPS, inputTransferFee, noticesOf, ownMinimum, ownQuote, solFeeOf, tokenNotices, tokenRisk } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
+import { ORIENTIM_TREASURY, MAX_BELOW_BPS, autoSlippageBps, inputTransferFee, noticesOf, ownMinimum, ownQuote, solFeeOf, tokenNotices, tokenRisk } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
 import { jupiterRouteArgs, routeAccountFor } from '@orientim/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
@@ -2025,6 +2025,39 @@ describe('the skill holds its own limits and its state against what it is handed
     expect(run.stderr).not.toContain('Nx8Tk');
   });
 
+  it("the example's command line refuses a tolerance outside the range, or above the owner's ceiling, before anything is asked", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-cmd-slip-'));
+    const policy = join(dir, 'policy.json');
+    writeFileSync(policy, JSON.stringify({ maxAmountIn: { [USDC]: '1000000' }, maxSlippageBps: 100 }));
+    const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j', ORIENTIM_STATE_DIR: join(dir, 'state') };
+    const example = 'skills/orientim-protected-swap/examples/swap.ts';
+    const cwd = join(import.meta.dirname, '../../..');
+    const dry = (slippage: string, extra: Record<string, string> = {}) => spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run', '--slippage-bps', slippage], {
+      encoding: 'utf8', cwd, env: { ...env, ...extra },
+    });
+    const outOfRange = dry('5');
+    expect(outOfRange.status).toBe(2);
+    expect(outOfRange.stderr).toContain('slippageBps must be "auto" or a whole number');
+    const over = dry('300', { ORIENTIM_POLICY: policy });
+    expect(over.status).toBe(1);
+    expect(over.stderr).toContain('slippage-over-limit');
+  });
+
+  it('orientim-verify: a policy it cannot read stops prepare (exit 2), never recover', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-cli-main-'));
+    const policy = join(dir, 'policy.json');
+    writeFileSync(policy, '{"maxAmountIn": {}, "maxSlippageBps": "wide"}');
+    const cwd = join(import.meta.dirname, '../../..');
+    const env = { ...process.env, SOLANA_RPC_URL: 'http://127.0.0.1:1', ORIENTIM_POLICY: policy, ORIENTIM_STATE_DIR: join(dir, 'state'), ORIENTIM_ARCHIVE_RPC_URL: 'http://127.0.0.1:1' };
+    const cli = 'skills/orientim-protected-swap/bin/orientim-verify.mjs';
+    const prepare = spawnSync(process.execPath, [cli, 'prepare'], { encoding: 'utf8', cwd, env, input: '{}' });
+    expect(prepare.status).toBe(2);
+    expect(JSON.parse(prepare.stdout).error).toContain('maxSlippageBps');
+    const recover = spawnSync(process.execPath, [cli, 'recover'], { encoding: 'utf8', cwd, env });
+    expect(recover.status).toBe(0);
+    expect(JSON.parse(recover.stdout)).toMatchObject({ ok: true, settled: [], unknown: [] });
+  });
+
   it('prose in a policy or in an error never reaches the agent', async () => {
     const b = await orientim();
     const honest = await honestAnswer(b);
@@ -2091,5 +2124,213 @@ describe('the skill holds its own limits and its state against what it is handed
     const jupiter = fakeJupiter();
     const market = { ...jupiter, build: async (q: Parameters<JupiterClient['build']>[0]) => ({ ...await jupiter.build(q), priceImpactPct: undefined }) } as JupiterClient;
     expect((await honestAnswer(await orientim({ market }))).amounts.priceImpactPct).toBeNull();
+  });
+});
+
+describe("the owner's ceilings on tolerance, floor and price impact, and the automatic tolerance", () => {
+  const swapWith = (b: Awaited<ReturnType<typeof orientim>>, fetchImpl: typeof fetch, extra: Partial<Intent> = {}, policy?: Parameters<typeof protectedSwap>[0]['policy']) => protectedSwap({
+    apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1,
+    intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY, ...extra },
+    ...(policy ? { policy } : {}),
+  });
+  const routeTolerance = (wire: string) => {
+    const compiled = getCompiledTransactionMessageDecoder().decode(getTransactionDecoder().decode(Buffer.from(wire, 'base64')).messageBytes) as unknown as Compiled;
+    const ix = compiled.instructions.find(i => compiled.staticAccounts[i.programAddressIndex] === JUPITER_PROGRAM);
+    return jupiterRouteArgs(ix!.data!)!.slippageBps;
+  };
+  /** Jupiter as the agent reaches it, estimating `bps` of tolerance when asked (`slippageBps=rtse`); what Orientim was asked, kept. */
+  const estimating = (b: Awaited<ReturnType<typeof orientim>>, bps: number) => {
+    const asked: string[] = [];
+    const prepares: Record<string, unknown>[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (url.startsWith('https://api.jup.ag/')) {
+        const u = new URL(url);
+        asked.push(u.searchParams.get('slippageBps')!);
+        if (u.searchParams.get('slippageBps') === 'rtse') u.searchParams.set('slippageBps', String(bps));
+        return b.fetchImpl(u.toString(), init);
+      }
+      if (url.endsWith('/api/v1/prepare')) prepares.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    return { fetchImpl, asked, prepares };
+  };
+  const policyFor = (extra: Record<string, unknown> = {}) => ({ maxAmountIn: { [USDC]: '1000000' }, ...extra });
+
+  it('Jupiter\'s estimate on "auto", held from 0.5% to 3%', () => {
+    expect(autoSlippageBps({ outAmount: '1000000', otherAmountThreshold: '988000' })).toBe(120);
+    expect(autoSlippageBps({ outAmount: '1000000', otherAmountThreshold: '999000' })).toBe(50);
+    expect(autoSlippageBps({ outAmount: '1000000', otherAmountThreshold: '900000' })).toBe(300);
+    for (const r of [{}, { outAmount: '1000000' }, { outAmount: '0', otherAmountThreshold: '0' }, { outAmount: '10', otherAmountThreshold: '11' }, { outAmount: 'x', otherAmountThreshold: '1' }]) {
+      expect(autoSlippageBps(r), JSON.stringify(r)).toBe(50);
+    }
+  });
+
+  it('"auto" builds the route at the tolerance Jupiter estimates for the trade, and the check holds it there', async () => {
+    const b = await orientim();
+    const jup = estimating(b, 120);
+    const result = await swapWith(b, jup.fetchImpl, { slippageBps: 'auto' });
+    expect(result.outcome).toBe('confirmed');
+    expect(jup.asked[0]).toBe('rtse');
+    expect(jup.prepares[0].slippageBps).toBe(120);
+    expect(routeTolerance(b.sent[0])).toBe(120);
+    // An estimate above 3% is held to 3%.
+    const wide = await orientim();
+    const far = estimating(wide, 900);
+    await swapWith(wide, far.fetchImpl, { slippageBps: 'auto' });
+    expect(routeTolerance(wide.sent[0])).toBe(300);
+  });
+
+  it("the owner's ceiling lowers an estimate above it; a tolerance chosen above it is refused before anything is prepared", async () => {
+    const b = await orientim();
+    const jup = estimating(b, 250);
+    await swapWith(b, jup.fetchImpl, { slippageBps: 'auto' }, policyFor({ maxSlippageBps: 100 }));
+    expect(routeTolerance(b.sent[0])).toBe(100);
+    const c = await orientim();
+    const other = estimating(c, 50);
+    const refused = swapWith(c, other.fetchImpl, { slippageBps: 300 }, policyFor({ maxSlippageBps: 200 }));
+    await expect(refused).rejects.toBeInstanceOf(PolicyError);
+    await expect(refused).rejects.toMatchObject({ code: 'slippage-over-limit', limit: '200' });
+    expect(other.prepares).toHaveLength(0);
+    expect(c.sent).toHaveLength(0);
+    // Within it, the agent's own choice stands.
+    const d = await orientim();
+    await swapWith(d, d.fetchImpl, { slippageBps: 150 }, policyFor({ maxSlippageBps: 200 }));
+    expect(routeTolerance(d.sent[0])).toBe(150);
+  });
+
+  it("a floor further below the market, or a higher price impact limit, than the owner allows is refused", async () => {
+    const b = await orientim();
+    const tries: [() => Promise<unknown>, string][] = [
+      [() => swapWith(b, b.fetchImpl, { maxBelowBps: 1_000 }, policyFor({ maxBelowBps: 500 })), 'floor-over-limit'],
+      [() => swapWith(b, b.fetchImpl, { minOut: '1' }, policyFor({ maxBelowBps: 500 })), 'floor-over-limit'],
+      [() => swapWith(b, b.fetchImpl, { maxPriceImpactBps: 1_000 }, policyFor({ maxPriceImpactBps: 600 })), 'impact-over-limit'],
+    ];
+    for (const [swap, code] of tries) await expect(swap()).rejects.toMatchObject({ code });
+    expect(b.sent).toHaveLength(0);
+    // The default price impact limit (5%) is lowered to the owner's.
+    const thin = (async (url: string, init: RequestInit) => {
+      const res = await b.fetchImpl(url, init);
+      if (!url.startsWith('https://api.jup.ag/')) return res;
+      return Response.json({ ...(await res.json() as Record<string, unknown>), priceImpactPct: '0.04' });
+    }) as unknown as typeof fetch;
+    await expect(swapWith(b, thin, {}, policyFor({ maxPriceImpactBps: 300 }))).rejects.toMatchObject({ impactBps: 400, limitBps: 300 });
+    // Within the owner's limits the swap goes through.
+    expect((await swapWith(b, b.fetchImpl, { maxBelowBps: 400 }, policyFor({ maxBelowBps: 500, maxSlippageBps: 100, maxPriceImpactBps: 600 }))).outcome).toBe('confirmed');
+  });
+
+  it('the policy file takes the ceilings as whole bps within the hard limits, and nothing else', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'orientim-ceil-')), 'policy.json');
+    const write = (extra: Record<string, unknown>) => writeFileSync(file, JSON.stringify(policyFor(extra)));
+    write({ maxSlippageBps: 200, maxBelowBps: 500, maxPriceImpactBps: 300 });
+    expect(loadPolicy(file)).toMatchObject({ maxSlippageBps: 200, maxBelowBps: 500, maxPriceImpactBps: 300 });
+    for (const bad of [{ maxSlippageBps: 5 }, { maxSlippageBps: 1_501 }, { maxSlippageBps: '200' }, { maxBelowBps: 2_001 }, { maxPriceImpactBps: 1.5 }]) {
+      write(bad);
+      expect(() => loadPolicy(file), JSON.stringify(bad)).toThrow(Object.keys(bad)[0]);
+    }
+  });
+
+  it('orientim-verify: "auto" in prepare, a checked answer carries the number, and check asks for the number', async () => {
+    const b = await orientim();
+    const jup = estimating(b, 120);
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-auto-'));
+    const deps = { rpc: b.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: jup.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60 };
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'auto-1', slippageBps: 'auto' };
+    const prepared = await runCli('prepare', { intent }, deps);
+    expect(prepared.code).toBe(0);
+    const checked = prepared.output.checked as { intent: Intent; prepared: Prepared };
+    expect(checked.intent.slippageBps).toBe(120);
+    const refused = await runCli('check', { prepared: checked.prepared, intent: { ...intent, slippageBps: 'auto' } }, deps);
+    expect(refused.code).toBe(2);
+    const over = await runCli('prepare', { intent: { ...intent, id: 'auto-2', slippageBps: 300 } }, { ...deps, policy: policyFor({ maxSlippageBps: 200 }) });
+    expect(over.code).toBe(1);
+    expect(JSON.stringify(over.output)).toContain('slippage-over-limit');
+  });
+});
+
+describe('a second proof of expiry, locks kept fresh, approvals by amount, no marker left behind', () => {
+  const down = () => {
+    const fail = () => ({ send: async () => { throw new Error('rpc down'); } });
+    return { getSignatureStatuses: fail, getBlockHeight: fail, getEpochInfo: fail, sendTransaction: fail } as unknown as Rpc<SolanaRpcApi>;
+  };
+  const archiveOf = (opts: { height: bigint; listed?: string[]; status?: { confirmationStatus: string; err: unknown } | null }) => {
+    const asked: string[] = [];
+    const rpc = {
+      getSignatureStatuses: () => ({ send: async () => ({ context: { slot: 5_000n }, value: [opts.status ?? null] }) }),
+      getEpochInfo: () => ({ send: async () => ({ absoluteSlot: 5_000n, blockHeight: opts.height, epoch: 1n }) }),
+      getSignaturesForAddress: (a: string, c: { minContextSlot?: bigint; commitment?: string }) => ({
+        send: async () => {
+          asked.push(`${a}@${c.minContextSlot}:${c.commitment}`);
+          return (opts.listed ?? []).map(signature => ({ signature }));
+        },
+      }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    return { rpc, asked };
+  };
+  const E = 'E1111111111111111111111111111111111111111';
+
+  it("with the owner's archive, a swap your RPC could not settle is proven expired, twice, by E's own history", async () => {
+    const archive = archiveOf({ height: 1_100n });
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 2_000, earliestHeight: 900n, archive: archive.rpc, temporaryAuthority: E })).toBe('expired');
+    expect(archive.asked.length).toBeGreaterThanOrEqual(2);
+    expect(archive.asked[0]).toBe(`${E}@5000:finalized`);
+    // Without the archive, the same outage leaves it unknown.
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 60, earliestHeight: 900n })).toBe('unknown');
+  });
+
+  it('the archive proves nothing while the swap can still land, when E lists it, or when the list may be cut', async () => {
+    const still = archiveOf({ height: 1_075n });
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 60, earliestHeight: 900n, archive: still.rpc, temporaryAuthority: E })).toBe('unknown');
+    const listed = archiveOf({ height: 1_100n, listed: ['other', 'sig-1'] });
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 60, earliestHeight: 900n, archive: listed.rpc, temporaryAuthority: E })).toBe('unknown');
+    const full = archiveOf({ height: 1_100n, listed: Array.from({ length: 1_000 }, (_, i) => `s${i}`) });
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 60, earliestHeight: 900n, archive: full.rpc, temporaryAuthority: E })).toBe('unknown');
+    // A status the archive holds is the outcome.
+    const landed = archiveOf({ height: 1_100n, status: { confirmationStatus: 'finalized', err: null } });
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 2_000, archive: landed.rpc, temporaryAuthority: E })).toBe('confirmed');
+    const failedOn = archiveOf({ height: 1_100n, status: { confirmationStatus: 'confirmed', err: { InstructionError: [3, { Custom: 1 }] } } });
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 2_000, archive: failedOn.rpc, temporaryAuthority: E })).toBe('failed');
+  });
+
+  it('E is read from the transaction the wallet signed: the one other signer', async () => {
+    const b = await orientim();
+    const honest = await honestAnswer(b);
+    expect(temporaryAuthorityOf(honest.transaction)).toBe(honest.temporaryAuthority);
+    expect(temporaryAuthorityOf('not a transaction')).toBeUndefined();
+  });
+
+  it('a lock held through a long wait is kept fresh, so another worker does not take it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-beat-'));
+    const wallet = (await generateKeyPairSigner()).address;
+    const release = acquireLock(dir, wallet, 3_000);
+    try {
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(join(dir, `lock-${wallet}`), old, old);
+      await new Promise(r => setTimeout(r, 1_300));
+      expect(Date.now() - statSync(join(dir, `lock-${wallet}`)).mtimeMs).toBeLessThan(3_000);
+      expect(() => acquireLock(dir, wallet, 3_000)).toThrow('Another swap');
+    } finally {
+      release();
+    }
+    acquireLock(dir, wallet, 3_000)();
+  });
+
+  it('an approval is found for the same amount however it is written', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-appr-'));
+    const key = { owner: 'W', inputMint: USDC, outputMint: WSOL_MINT, amountIn: '5000000' };
+    recordApproval(dir, { ...key, minOut: '10', expiresAt: Date.now() + 60_000 });
+    expect(approvalFor(dir, { ...key, amountIn: '05000000' })?.minOut).toBe('10');
+    expect(approvalFor(dir, { ...key, amountIn: '5000001' })).toBeNull();
+  });
+
+  it('a retry takes the order once, and leaves no marker behind', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-marker-'));
+    const store = createFileStore(dir);
+    const prior = { signature: 'first', state: 'expired' as const };
+    await store.claimOrder('o-1', prior);
+    expect(await store.reclaimOrder!('o-1', prior, { signature: 'second', state: 'pending' })).toBe(true);
+    expect(readdirSync(dir).filter(f => f.includes('.retry-'))).toEqual([]);
+    // A worker still holding the earlier attempt stands down.
+    expect(await store.reclaimOrder!('o-1', prior, { signature: 'third', state: 'pending' })).toBe(false);
+    expect(await store.order('o-1')).toEqual({ signature: 'second', state: 'pending' });
   });
 });

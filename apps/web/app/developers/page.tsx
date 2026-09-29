@@ -69,8 +69,10 @@ const PREPARE_FIELDS: [string, string, string][] = [
   ['inputMint, outputMint', 'required', 'Mint addresses. SOL is So11111111111111111111111111111111111111112.'],
   ['amountIn', 'required', 'Base units, as a string ("5000000" is 5 USDC). It includes the fee when the fee is taken in the input token.'],
   ['minOut', 'required', 'Your own positive floor, as an integer string in output base units: what your wallet must keep. Get a price independently. This field alone does not replace checking the transaction before signing.'],
-  ['slippageBps', 'optional', 'How far below the quote the swap may fill: 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun launch curve.'],
+  ['slippageBps', 'optional', 'How far below the quote the swap may fill: 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun launch curve. The skill’s "auto" asks Jupiter for the trade’s own tolerance (0.5% to 3%) and sends that number; the owner’s policy may cap it (maxSlippageBps).'],
   ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the open market (see costs-more): a whole number, as a number or a string.'],
+  ['routingMode', 'optional', 'standard (default) or fast: Jupiter’s beta fast route search, only where the deployment enables it. Every check still applies.'],
+  ['version', 'optional', '0 (default). 1 only where the deployment enables v1 transactions.'],
 ];
 
 const PREPARE_ANSWER: [string, string][] = [
@@ -78,7 +80,7 @@ const PREPARE_ANSWER: [string, string][] = [
   ['transaction', 'The unsigned transaction, base64. Verify it, then sign it as your wallet.'],
   ['messageSha256', 'The hash of the message; the certificate and the ticket are bound to it.'],
   ['temporaryAuthority', 'The one-time key of this swap.'],
-  ['lastValidBlockHeight, blocksLeft', 'The transaction’s lifetime: 150 blocks, about 40 seconds.'],
+  ['lastValidBlockHeight, blocksLeft', 'The transaction’s lifetime: 150 blocks, about a minute.'],
   ['amounts', 'amountIn, fee, feeMint, feeBps, quotedOut, minOut and priceImpactPct (null when Jupiter did not state it: unknown, not none).'],
   ['costs', 'The network fee, rent returned and kept, Orientim’s fee in SOL (orientimFeeSolLamports, from whichever side), keptSolLamports: all the SOL the swap costs and does not return, and breakdown: the amount swapped, the fee in its own token and each SOL cost apart.'],
   ['notices, tokens', 'A busy network, and what each token’s issuer can do: freeze balances, mint more, or move and burn them (permanentDelegate).'],
@@ -101,7 +103,8 @@ const ENV: [string, string][] = [
   ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check is worth what the chain state it reads is worth.'],
   ['JUPITER_API_KEY', 'For the agent’s own price floor (free at developers.jup.ag).'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
-  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. stateDir, optional, pins the state directory to one absolute path.'],
+  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. stateDir, optional, pins the state directory to one absolute path. maxSlippageBps, maxBelowBps and maxPriceImpactBps, optional, are the owner’s ceilings on the tolerance, the floor’s distance below the market and the price impact the agent may choose.'],
+  ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system; with a daily limit it must be absolute.'],
   ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
 ];
@@ -171,7 +174,7 @@ export default async function Page() {
                 <li>
                   <strong>Check it</strong>: in the unzipped folder, every file against the list this site serves (on macOS,{' '}
                   <code>shasum -a 256 -c</code>).
-                  <pre><code>{`cd orientim-protected-swap
+                  <pre tabIndex={0}><code>{`cd orientim-protected-swap
 curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                 </li>
                 <li>
@@ -199,7 +202,7 @@ curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                           own key; the key file never leaves the machine. In the unzipped{' '}
                           <a href={SKILL_ARCHIVE} download>skill</a> folder:
                         </p>
-                        <pre><code>{`echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
+                        <pre tabIndex={0}><code>{`echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
 # sign the bytes of "message" (the same bytes as "messageBase64", decoded) with the agent's key, then
 # send "message" as it came, in plain text, not base64:
 echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bin/orientim-verify.mjs key`}</code></pre>
@@ -241,17 +244,17 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
                 <li>Then, in that folder: check it (see <a href="#start">Quickstart</a>) and run <code>npm ci</code>.</li>
               </ul>
               <h3>2. Try it without signing</h3>
-              <pre><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 \\
+              <pre tabIndex={0}><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 \\
   --owner <wallet> --dry-run`}</code></pre>
               <p>This prepares and verifies a swap on your RPC and prints what it would cost. Nothing is signed.</p>
               <h3>3. Swap</h3>
-              <pre><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 --id order-42`}</code></pre>
+              <pre tabIndex={0}><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 --id order-42`}</code></pre>
               <p>
                 The same order id on every retry: the skill&apos;s order book stops an order that swapped or may still land from being swapped again. Or ask your agent,
                 in plain words: <em>&ldquo;swap 5 USDC to SOL with Orientim&rdquo;</em>.
               </p>
               <h3>4. In your own code</h3>
-              <pre><code>{`import { createKeyPairSignerFromBytes, createSolanaRpc } from '@solana/kit';
+              <pre tabIndex={0}><code>{`import { createKeyPairSignerFromBytes, createSolanaRpc } from '@solana/kit';
 import { readFileSync } from 'node:fs';
 import { acquireLock, createFileStore, loadPolicy, protectedSwap, recoverPending, stateDirFor } from './examples/swap.ts';
 
@@ -330,7 +333,7 @@ try {
                 </li>
               </ol>
               <h3>In Python</h3>
-              <pre><code>{`import base64, json, subprocess
+              <pre tabIndex={0}><code>{`import base64, json, subprocess
 
 def orientim(command, payload=None):
     # No short timeout: finalize waits for the chain. If it is stopped anyway, run recover first.
@@ -375,7 +378,7 @@ if code == 0:
                 <li><strong>Finalize</strong>: Orientim adds the last signature, with the one-time key, and sends it once.</li>
               </ol>
               <p>
-                The transaction lives 150 blocks, about 40 seconds. Verify, sign and finalize promptly; with fewer than 30 blocks
+                The transaction lives 150 blocks, about a minute. Verify, sign and finalize promptly; with fewer than 30 blocks
                 left, prepare again instead.
               </p>
             </section>
@@ -455,7 +458,7 @@ if code == 0:
             <section id="api">
               <h2>Authentication</h2>
               <p>Base URL <code>https://orientim.com</code>. Every request carries an API key:</p>
-              <pre><code>Authorization: Bearer ori_...</code></pre>
+              <pre tabIndex={0}><code>Authorization: Bearer ori_...</code></pre>
               <p>
                 A key prepares swaps for its own wallet only; another <code>owner</code> is refused with{' '}
                 <code>403 wrong-wallet</code>. Calls may carry <code>x-orientim-skill: &lt;version&gt;</code>, as the skill does.
@@ -464,7 +467,7 @@ if code == 0:
 
             <section id="prepare">
               <h2>Prepare</h2>
-              <pre><code>{`POST /api/v1/prepare
+              <pre tabIndex={0}><code>{`POST /api/v1/prepare
 Authorization: Bearer ori_...
 Content-Type: application/json
 
@@ -494,7 +497,7 @@ Content-Type: application/json
 
             <section id="finalize">
               <h2>Finalize</h2>
-              <pre><code>{`POST /api/v1/finalize
+              <pre tabIndex={0}><code>{`POST /api/v1/finalize
 Authorization: Bearer ori_...
 Content-Type: application/json
 
@@ -504,7 +507,7 @@ Content-Type: application/json
                 the transaction has not expired, then adds the last signature and sends it once. If an earlier finalize of this
                 ticket already sent it, the answer is that same transaction and nothing is sent again.
               </p>
-              <pre><code>{`{
+              <pre tabIndex={0}><code>{`{
   "signature": "5h...",
   "status": "sent",
   "signedTransaction": "<base64, fully signed>",
@@ -515,7 +518,7 @@ Content-Type: application/json
 
             <section id="keys">
               <h2>Keys</h2>
-              <pre><code>{`GET /api/v1/keys/challenge?wallet=<address>
+              <pre tabIndex={0}><code>{`GET /api/v1/keys/challenge?wallet=<address>
 → { "message": "...", "challenge": "...", "expiresAt": "..." }
 
 POST /api/v1/keys

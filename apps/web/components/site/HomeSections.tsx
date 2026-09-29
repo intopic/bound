@@ -75,7 +75,10 @@ export function HomeSections() {
           <div className="glass-stage">
             <div className="ambient" aria-hidden="true" />
             <div className="capsule-card">
-              <CapsuleFlow />
+              {/* On a phone the diagram keeps a readable size and scrolls sideways. */}
+              <div className="capsule-scroll" role="region" aria-label="How protection works, as a diagram" tabIndex={0}>
+                <CapsuleFlow />
+              </div>
               <ol className="capsule-steps">
                 {CAPSULE_STEPS.map(([title, text], i) => (
                   <li key={title}><span className="step-n">{i + 1}</span><div><h3>{title}</h3><p>{text}</p></div></li>
@@ -156,7 +159,7 @@ export function HomeSections() {
             </div>
             <div className="terminal policy">
               <div className="terminal-bar"><span /><span /><span /><em>orientim-policy.json</em></div>
-              <pre>{`{
+              <pre tabIndex={0}>{`{
   "maxAmountIn": {
     "EPjF…Dt1v": "50000000"`}<span className="dim">{`      // 50 USDC a swap`}</span>{`
   },

@@ -26,11 +26,6 @@ export type BuildParams = {
   amount: bigint;
   taker: Address;
   slippageBps: number;
-  /**
-   * Ask Jupiter for its own estimate of the tolerance this trade needs (RTSE) instead of
-   * `slippageBps`. For a price only: the answer's threshold then carries Jupiter's estimate.
-   */
-  estimateSlippage?: boolean;
   maxAccounts: number;
   /** Opt-in Jupiter beta router. Omitted for the standard route. */
   mode?: 'fast';
@@ -132,8 +127,8 @@ export function createJupiterClient(opts: {
   /** The first retry's wait; each later one doubles it. */
   retryBaseMs?: number;
   /**
-   * Gives up on a request after this long. The page's relay has its own timeout; a
-   * server calling Jupiter directly needs one, or a silent Jupiter holds the request to its limit.
+   * Gives up on a request after this long: a server calling Jupiter directly needs one, or a silent
+   * Jupiter holds the request to its limit.
    */
   timeoutMs?: number;
 }): JupiterClient {
@@ -182,7 +177,7 @@ export function createJupiterClient(opts: {
         outputMint: p.outputMint,
         amount: p.amount.toString(),
         taker: p.taker,
-        slippageBps: p.estimateSlippage ? 'rtse' : String(p.slippageBps),
+        slippageBps: String(p.slippageBps),
         maxAccounts: String(p.maxAccounts),
         // SOL is wrapped and unwrapped by Orientim's own trusted instructions, never by Jupiter.
         wrapAndUnwrapSol: 'false',

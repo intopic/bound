@@ -27,6 +27,22 @@ jobs:
       - run: node tools/build-skill.ts --check
       - run: npm run build
 
+  public-skill:
+    # The skill Orientim serves must be the one in the public repository, byte for byte: the
+    # public "check your copy" (git checkout, npm run check, compare with /skill/SHA256SUMS) is worth
+    # nothing if the two drift. Red here means one side was changed without the other.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: orientimhq/orientim-protected-swap
+          path: public-repo
+      - name: The served skill is the public one
+        run: |
+          diff -r --exclude=node_modules skills/orientim-protected-swap public-repo/skills/orientim-protected-swap
+          diff skills/orientim-protected-swap/SHA256SUMS public-repo/skills/orientim-protected-swap/SHA256SUMS
+
   reproducible:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     # The digest of the built client assets is what a user can check against the audited source,

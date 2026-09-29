@@ -254,6 +254,8 @@ a.ghost { display: inline-flex; align-items: center; }
 .prose ul, .prose ol { padding-left: 20px; margin: 8px 0 0; }
 .prose li { margin: 6px 0; }
 .prose strong { color: var(--text); font-weight: 600; }
+/* A link inside running text is told apart by more than its colour (WCAG 1.4.1). */
+.prose :is(p, li, td) a:not([class]) { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .prose code { font: 13px ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: #d9e6df; }
 .prose pre { margin: 12px 0 0; padding: 14px 16px; overflow-x: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; font: 13px/1.6 ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; color: #d9e6df; }
 .prose pre code { background: none; border: none; padding: 0; }
@@ -347,6 +349,8 @@ a.ghost { display: inline-flex; align-items: center; }
   .agent-points { grid-template-columns: minmax(0, 1fr); }
   .dev-aside { top: 58px; margin-inline: -16px; padding-inline: 16px; }
   .capsule-card { padding: 14px; }
+  .capsule-scroll { overflow-x: auto; margin: 0 -14px; padding: 0 14px; }
+  .capsule-scroll .capsule { min-width: 620px; }
 }
 /* The narrowest phones (320 px): the logo, the header button and the menu on one line. */
 @media (max-width: 360px) {

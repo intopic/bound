@@ -15,7 +15,10 @@ export const LEGAL = {
   entity: 'Qazim Memeti',
   /** A company's type and registry number: 'a limited liability company (SHPK), NUIS L12345678A'. Not used for a person. */
   registration: '',
-  /** Where the operator lives or is registered: 'Albania'. Also the governing law, unless `governingLaw` says otherwise. */
+  /**
+   * Where the operator lives or is registered: 'North Macedonia'. Also the governing law, unless
+   * `governingLaw` says otherwise, and the data protection authority the Privacy Notice names.
+   */
   country: 'North Macedonia',
   /** The operator's address (a company's registered office). */
   address: '',

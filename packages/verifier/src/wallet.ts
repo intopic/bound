@@ -109,8 +109,8 @@ function networkFee(signers: number, instructions: Resolved[]): bigint {
  * and every added one is read-only. Without them, the lookup tables must be the same.
  *
  * An added assertion may name W (Phantom's check the wallet's own balances), and the runtime then
- * hands the Lighthouse program W's signer and writable role: Lighthouse is in the trusted computing
- * base on the page (SECURITY.md, "Why it holds: R6 first").
+ * hands the Lighthouse program W's signer and writable role: Lighthouse is then in the trusted
+ * computing base (SECURITY.md, "Why it holds: R6 first"). The agent API accepts no assertions.
  */
 function onlyAssertionsAdded(original: Compiled, returned: Compiled, maxFee: bigint, tables?: ReadonlyMap<string, readonly string[]>): string | null {
   if (original.version !== returned.version || original.version === 1) return 'the message version or format changed';

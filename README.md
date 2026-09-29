@@ -125,7 +125,6 @@ Server only (never sent to the browser):
 | `RPC_URL` | public mainnet RPC | Solana RPC for the server. Use a reliable provider; clients must use their own trusted RPC for independent verification |
 | `RPC_URL_FALLBACK` | none | A backup RPC from another provider, asked only when `RPC_URL` does not answer, is rate-limited or fails. A send takes its answer only when it is a success |
 | `JUPITER_API_KEY` | — | Required for any real use (free at developers.jup.ag/portal): Jupiter asks for a key on every endpoint and throttles keyless requests after one or two, so quotes fail as "busy". `/api/status` says whether it is set |
-| `ORIENTIM_MAX_USD_PER_SWAP` | unset | Unset means no limit, the intended setting: the guarantee does not depend on the amount. When set it is only published in `/api/status`; the agent API does not enforce it (an agent's limits are its owner's `ORIENTIM_POLICY`) |
 | `ORIENTIM_DISABLED` | 0 | Kill switch: `1` makes the server refuse new swaps |
 | `ORIENTIM_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limit is per instance; add a rule in the hosting firewall too |
 | `ORIENTIM_EXCLUDE_DEXES` | `HumidiFi` | DEXes whose per-taker rent is too high to pay on every swap |

@@ -17,7 +17,7 @@ export default async function Page() {
           <span className={enabled ? 'status-ok' : 'status-bad'}>{enabled ? 'Running' : 'Paused: no new swaps start. Your funds are not affected.'}</span>
         </div>
         <p>
-          When something is wrong, Orientim stops new swaps first, and a page left open cannot go around it. A swap already
+          When something is wrong, Orientim stops new swaps first: the agent API prepares and signs nothing while paused. A swap already
           sent is settled by the Solana network.
         </p>
       </section>

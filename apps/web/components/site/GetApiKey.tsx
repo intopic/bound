@@ -31,7 +31,8 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
       if (!account) throw new Error('The wallet returned no account.');
       setBusy('Preparing the message…');
       const c = await fetch(`/api/v1/keys/challenge?wallet=${encodeURIComponent(account.address)}`);
-      if (c.status === 404) throw new Error('API access opens with the public launch.');
+      // 404 is this deployment's API being off (not-enabled): before launch, or while it is paused.
+      if (c.status === 404) throw new Error('API keys are not available on this site right now. Try again later.');
       const challenge = await c.json() as { message?: unknown; challenge?: string; error?: { message: string } };
       if (!c.ok) throw new Error(challenge.error?.message ?? 'Orientim could not prepare the message. Try again.');
       if (!isKeyMessage(challenge.message, window.location.host, account.address)) throw new Error('The message was not the expected one, so nothing was signed.');
@@ -64,7 +65,7 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
       <div className="key-box">
         <p><strong>Your API key.</strong> It is shown once.</p>
         <div className="codebox">
-          <pre><code>{issued.key}</code></pre>
+          <pre tabIndex={0}><code>{issued.key}</code></pre>
           <button className="copy-btn" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
         <p className="hint">

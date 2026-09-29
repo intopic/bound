@@ -466,8 +466,7 @@ it. Orientim does not cross-check the snapshot against a second provider.
   `ORIENTIM_SITE_URL`. The build is deterministic: CI builds every release tag twice and fails if the two
   digests differ, and a Vercel build takes its build id from the commit.
 - No limit per swap: the guarantee is the same for any amount, and nothing in Orientim holds funds.
-  `ORIENTIM_MAX_USD_PER_SWAP` is unset by default; when set it is published in `/api/status` only,
-  and the agent API does not enforce it: an agent's limits are its owner's (`ORIENTIM_POLICY`). A large swap is
+  An agent's limits are its owner's (`ORIENTIM_POLICY`). A large swap is
   limited by the route, not by us: if no route fits inside one transaction, Orientim refuses to build
   it rather than splitting the swap (section "What Orientim does not protect").
 - API routes are stateless: request bodies counted in bytes and capped at

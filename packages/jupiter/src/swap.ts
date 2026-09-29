@@ -12,7 +12,7 @@ import {
   PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor,
 } from '@orientim/core';
 import type { OrientimConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@orientim/core';
-import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, sendAndConfirm, simulate } from '@orientim/solana';
+import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, simulate } from '@orientim/solana';
 import {
   certify, hasTransferFee, jupiterFloor, jupiterRouteArgs, MAX_ADDED_COMPUTE_UNITS, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension,
   verifyWalletReturn,
@@ -34,9 +34,9 @@ export type SwapSettings = OrientimConfig & {
    */
   curveSlippageBps: number;
   /**
-   * A tolerance the person chose on the page, or the agent in `slippageBps`, for every route, curve or
-   * not: the route is built at it and the verifier holds it to it, never above 15%
-   * (MAX_CHOSEN_SLIPPAGE_BPS). Unset (the default, "Auto"): `slippageBps`, or `curveSlippageBps` on a curve.
+   * A tolerance the agent chose in `slippageBps` (its own, Jupiter's estimate on "auto", or its owner's
+   * ceiling), for every route, curve or not: the route is built at it and the verifier holds it to it,
+   * never above 15% (MAX_CHOSEN_SLIPPAGE_BPS). Unset: `slippageBps`, or `curveSlippageBps` on a curve.
    */
   chosenSlippageBps?: number;
   /**
@@ -64,11 +64,11 @@ export type SwapSettings = OrientimConfig & {
 };
 
 /**
- * The floor under the page's rule of $1 (MIN_SWAP_USD), and the rule itself for agents: 2,500 base
+ * The smallest fee Orientim takes, and so the smallest swap it builds: 2,500 base
  * units of USDC or USDT (the fee of about $0.83), 10,000 lamports of SOL (the fee of $0.50 to $1 while
  * SOL is worth $150 to $300). It sits below the fee of $1 on purpose: a fee on the output is taken
  * from the minimum, after the tolerance, and a fee in SOL follows SOL's price, so a floor at exactly
- * $1 refused swaps of $1 that the page had let through (debugging pass, 25 September 2026).
+ * $1 refused swaps of about $1 (debugging pass, 25 September 2026).
  */
 export const MIN_FEE = { lamports: 10_000n, stableUnits: 2_500n } as const;
 export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes: about 0.004 SOL, or $1 of USDC or USDT (for two other tokens, their value in SOL). Swap a larger amount. Selling the whole balance of a token is allowed at any size.";
@@ -131,7 +131,7 @@ export type SwapRequest = {
    */
   acceptedMinReceived?: bigint;
   /**
-   * The page's quote already showed a route through a Pump.fun bonding curve. Jupiter is then asked
+   * A quote already showed a route through a Pump.fun bonding curve. Jupiter is then asked
    * at the curve tolerance first, which saves the second request (latency). Only a hint: a route
    * that turns out not to be a curve route is asked for again at the usual tolerance.
    */
@@ -139,7 +139,7 @@ export type SwapRequest = {
   /**
    * How much worse than the unrestricted market price the user has agreed the protected route may
    * be, in bps. Without it, a route more than `askAboveBps` below the market stops with
-   * `costs-more` and the page asks.
+   * `costs-more`, and the agent asks its user.
    */
   acceptedCostBps?: bigint;
   version: TxVersion;
@@ -219,9 +219,7 @@ export type OrientimErrorCode =
   // Jupiter answered with an instruction Orientim cannot read: its format changed.
   | 'route-format'
   // Orientim's fee cannot be collected on this swap, so it is not built.
-  | 'fee-unavailable' | 'amount-too-small'
-  // The network could not say how long the swap stays valid, so the wallet is not opened.
-  | 'network-unavailable';
+  | 'fee-unavailable' | 'amount-too-small';
 
 /** The treasury wallet does not exist yet (or cannot receive): Orientim's to fix, not the user's. */
 export const FEE_UNAVAILABLE_MESSAGE = "Orientim's fee can't be collected right now, so nothing was built. Your funds are not affected; try again later.";
@@ -921,7 +919,7 @@ export async function prepareProtectedSwap(deps: {
   let minLevel = 0;
   // What is left under E after the swap, watched in the final simulation: E, the
   // account each Pump market opens in E's name, and the token accounts those hold cashback in. The
-  // agent's check watches the same (skill, leftUnderKey); the page and the API now hold to it too.
+  // agent's check watches the same (skill, leftUnderKey); the API holds to it too.
   const underKey: Address[] = await (async () => {
     const markets = await Promise.all([CURVE_PROGRAM, PUMP_AMM_PROGRAM].map(program => routeAccountOf(program, E)));
     const cashback = await Promise.all(markets.flatMap(m => [WSOL_MINT, USDC_MINT].map(mint => ataOf(m, mint))));
@@ -1551,23 +1549,4 @@ export async function countersignProtectedSwap(args: {
   const signed = await partiallySignTransaction([ephemeral.keyPair], check.transaction);
   assertIsFullySignedTransaction(signed);
   return signed;
-}
-
-/**
- * Signs last and sends, then settles the outcome (the page's flow). `sent` is the transaction as
- * sent: with assertions a wallet added, its instruction indexes are not the prepared ones.
- */
-export async function finalizeProtectedSwap(args: {
-  rpc: SolanaRpc;
-  prepared: Countersignable;
-  walletSignedBytes: Uint8Array;
-  ephemeral: KeyPairSigner;
-  onStatus?: (status: SendStatus, signature: string) => void;
-  acceptAssertions?: boolean;
-}): Promise<SendResult & { sent: Transaction }> {
-  const signed = await countersignProtectedSwap(args);
-  const result = await sendAndConfirm({
-    rpc: args.rpc, transaction: signed, lastValidBlockHeight: args.prepared.lifetime.lastValidBlockHeight, onStatus: args.onStatus,
-  });
-  return { ...result, sent: signed };
 }

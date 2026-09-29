@@ -655,3 +655,19 @@ describe('a self-serve key, end to end (API access)', () => {
     expect(w.sent).toHaveLength(1);
   });
 });
+
+describe('a route below the open market is put to the user, in fields a program can read', () => {
+  it('prepare answers 409 costs-more with the gap; with acceptCostBps at that gap it is built', async () => {
+    const w = await world({ jupiter: fakeJupiter({ worseByBps: 1_000n }) });
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(409);
+    const { error } = await res.json() as { error: { code: string; gapBps: string; outAmount: string; baselineOut: string; requiresApproval: boolean; retry: string } };
+    expect(error).toMatchObject({ code: 'costs-more', requiresApproval: true });
+    expect(Number(error.gapBps)).toBeGreaterThanOrEqual(1_000);
+    expect(BigInt(error.outAmount)).toBeLessThan(BigInt(error.baselineOut));
+    expect(error.retry).toContain('acceptCostBps');
+    const accepted = await agentPrepare(post('prepare', swapBody(w.W.address, { acceptCostBps: error.gapBps })), w.deps);
+    expect(accepted.status).toBe(200);
+    expect(w.sent).toHaveLength(0);
+  });
+});
