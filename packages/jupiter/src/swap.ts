@@ -71,7 +71,7 @@ export type SwapSettings = OrientimConfig & {
  * $1 refused swaps of $1 that the page had let through (debugging pass, 25 September 2026).
  */
 export const MIN_FEE = { lamports: 10_000n, stableUnits: 2_500n } as const;
-export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes, about $1. Swap a larger amount.";
+export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes, about $1. Swap a larger amount. Selling the whole balance of a token is allowed at any size.";
 
 /** Is a fee of `fee` in `feeMint` below the smallest one `minFee` allows? */
 function belowMinFee(fee: bigint, feeMint: Address, minFee: SwapSettings['minFee']): boolean {
@@ -781,8 +781,11 @@ export async function prepareProtectedSwap(deps: {
     throw new OrientimError('fee-unavailable', treasuryWalletReady ? FEE_UNPRICED_MESSAGE : FEE_UNAVAILABLE_MESSAGE);
   }
   if (settings.treasury && policy.feeSide !== 'output' && policy.fee <= 0n) throw new OrientimError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
+  // The whole balance of a token, sold: however little it is now worth, the holder must be able to leave it.
+  // Only a token account counts (never SOL), and a fee that cannot be collected at all is still refused.
+  const sellsWholeBalance = !!policy.accounts.wIn && req.amountIn > 0n && tokenAmountOf(firstReads.get(policy.accounts.wIn)?.data) === req.amountIn;
   // The smallest swap, so that none costs more to build than its fee brings.
-  if (settings.treasury && policy.feeSide !== 'output' && belowMinFee(policy.fee, feeMintOf(policy), settings.minFee)) {
+  if (settings.treasury && !sellsWholeBalance && policy.feeSide !== 'output' && belowMinFee(policy.fee, feeMintOf(policy), settings.minFee)) {
     throw new OrientimError('amount-too-small', MIN_SWAP_MESSAGE);
   }
 
@@ -1253,7 +1256,7 @@ export async function prepareProtectedSwap(deps: {
       // A fee on the output is a share of the minimum, known only now: a swap too small to carry it
       // is refused like any other swap whose fee cannot be collected.
       if (settings.treasury && chosenPolicy.fee <= 0n) throw new OrientimError('amount-too-small', AMOUNT_TOO_SMALL_MESSAGE);
-      if (settings.treasury && belowMinFee(chosenPolicy.fee, feeMintOf(chosenPolicy), settings.minFee)) {
+      if (settings.treasury && !sellsWholeBalance && belowMinFee(chosenPolicy.fee, feeMintOf(chosenPolicy), settings.minFee)) {
         throw new OrientimError('amount-too-small', MIN_SWAP_MESSAGE);
       }
       const swapAccounts = chosen.r.swapInstruction.accounts.map(a => address(a.pubkey));

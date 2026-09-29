@@ -481,7 +481,7 @@ export function pastProof(view: Pick<StatusView, 'coveredHeight'>, earliest: big
  * `sent`: the RPC accepted it, so it may land; confirm it on chain. `unknown`: the connection failed
  * after the request left, so it may have been forwarded. `rejected`: provably never broadcast.
  */
-export type FirstSend = { signature: string; status: 'sent' | 'unknown' | 'rejected'; error: string | null; refusal?: SendRefusal };
+export type FirstSend = { signature: string; status: 'sent' | 'unknown' | 'rejected'; error: string | null; refusal?: SendRefusal; transactionError?: string };
 
 /**
  * One send with preflight, for a caller that confirms and re-broadcasts on its own (the agent API,
@@ -507,9 +507,11 @@ export async function sendOnce(rpc: SolanaRpc, transaction: Transaction): Promis
       // cannot be read does not say it is not, so the outcome is unknown.
       if (known === null) return { signature, status: 'unknown', error: String((e as Error)?.message ?? e) };
     }
+    const simulated = preflightError(e);
     return {
       signature, status: 'rejected', error: String((e as Error)?.message ?? e),
       refusal: http === 403 ? 'paused' : http === 429 ? 'busy' : 'network',
+      ...(simulated === null ? {} : { transactionError: stringify(simulated) }),
     };
   }
 }

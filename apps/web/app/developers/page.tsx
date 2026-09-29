@@ -53,7 +53,7 @@ const ERRORS: [string, string, string][] = [
   ['409', 'costs-more', 'The protected route is gapBps below the open market. With the user’s approval, prepare again with acceptCostBps.'],
   ['409', 'output-balance-changed', 'Your balance of the output token moved since prepare. Check the signature, then prepare again.'],
   ['410', 'expired', 'The transaction’s lifetime passed before finalize. Check the signature, then prepare again.'],
-  ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about $1.'],
+  ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about $1. Selling the whole balance of a token is allowed at any size.'],
   ['422', 'unsupported-token, no-route, insufficient-sol, insufficient-balance, simulation-failed, …', 'This swap cannot be built safely right now; message says why.'],
   ['426', 'skill-outdated', 'This copy of the skill is older than Orientim serves. Download the current one; a swap already signed still finalizes.'],
   ['429', 'rate-limited', 'Too many requests for this key (per wallet for a self-serve key). Wait Retry-After seconds.'],

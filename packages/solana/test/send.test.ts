@@ -253,6 +253,18 @@ describe('one send, for a caller that confirms on its own (the agent API)', () =
     expect(r.refusal).toBe('network');
   });
 
+  it('keeps why the preflight refused, for the caller to pass on', async () => {
+    const slippage = getSolanaErrorFromJsonRpcError({
+      code: SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+      message: 'Transaction simulation failed',
+      data: { err: { InstructionError: [3, { Custom: 6001 }] }, logs: [] },
+    });
+    const r = await once({ firstSend: slippage, statuses: [null] });
+    expect(r.status).toBe('rejected');
+    expect(JSON.parse(r.transactionError!)).toEqual({ InstructionError: [3, { Custom: 6001 }] });
+    expect((await once({ firstSend: preflight(), statuses: [null] })).transactionError).toBeUndefined();
+  });
+
   it('a preflight refusal of a signature the cluster already has is a second send, not a rejection', async () => {
     expect((await once({ firstSend: preflight(), statuses: [confirmed] })).status).toBe('sent');
   });

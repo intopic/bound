@@ -862,6 +862,17 @@ describe('the smallest swap, about $1, so that none costs more to build than it 
     expect(enough.policy.fee).toBeGreaterThanOrEqual(MIN_FEE.stableUnits);
   });
 
+  it('the whole balance of a token can always be sold, however little it is worth; a part of it below the minimum cannot', async () => {
+    const feeAccount: [Address, Account] = [await ataOf(TREASURY, USDC), tokenAccount(TREASURY, USDC)];
+    // 500,000 base units (about $0.50) is the wallet's whole balance: the sale is built.
+    const all = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n, minFee: MIN_FEE, wIn: { amount: 500_000n } });
+    expect(all.policy.fee).toBeGreaterThan(0n);
+    // The same amount out of a larger balance is a small swap like any other.
+    const part = await prepare(BONK, { treasury: TREASURY, chain: [feeAccount], amountIn: 500_000n, minFee: MIN_FEE, wIn: { amount: 900_000n } }).catch((e: OrientimError) => e);
+    expect((part as OrientimError).code).toBe('amount-too-small');
+    expect((part as OrientimError).message).toContain('whole balance');
+  });
+
   it('a swap of $1 into SOL is built: its fee in SOL comes off the minimum, below the fee of exactly $1 (debugging pass)', async () => {
     // 1 USDC for 6,666,666 lamports (SOL at $150). The fee is taken from the minimum, after the 0.5%
     // tolerance, so it is a little under the fee of $1: a floor of exactly that refused this swap.

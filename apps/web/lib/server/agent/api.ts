@@ -439,6 +439,8 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       signature: sent.signature,
       status: sent.status,
       ...(sent.refusal ? { refusal: sent.refusal } : {}),
+      // Why the network's own check refused it (a preflight refusal only): the simulation's error, as JSON.
+      ...(sent.transactionError ? { transactionError: sent.transactionError } : {}),
       // Fully signed, so the agent can re-broadcast it and confirm it with its own RPC until it
       // expires. Not when it was refused: an agent that prepares again must not land both.
       ...(sent.status === 'rejected' ? {} : { signedTransaction: getBase64EncodedWireTransaction(signed) }),
