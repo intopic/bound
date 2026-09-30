@@ -25,6 +25,7 @@
  *   SIM_JUPITER_INTERVAL_MS  the least time between two Jupiter requests (default 1100: a free key)
  *   SIM_OFFLINE=1            a few cases against the test fakes, to check the matrix itself without a network
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -105,6 +106,10 @@ type Case = {
   expect?: string[];
   /** Also through orientim-verify, as a bot: both must decide alike. */
   bot?: boolean;
+  /** Run this many copies of the case at once (a busy agent, several workers). */
+  parallel?: number;
+  /** An explicit minimum for the agent, as a fraction of Jupiter's quote (1.05 = 5% above it). */
+  minOutOfQuote?: number;
   version?: 0 | 1;
   fast?: boolean;
 };
@@ -199,6 +204,44 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     ...(pump.curve[0] ? [{ input: 'SOL', output: pump.curve[0], usd: 20 }] : []),
     ...(pump.amm[0] ? [{ input: 'SOL', output: pump.amm[0], usd: 50, slippage: 'auto' as const }] : []),
   ] as Omit<Case, 'group'>[]) cases.push({ group: 'parity', bot: true, ...c });
+  // Hard cases: boundaries, nonsense a misled agent may send, extremes, several at once.
+  const RANDOM_MINT = 'Hq7dYVVc2S3mtDuLyYy6oF4rUUqzmVZqQ8dvKq1WgN6A';
+  cases.push(
+    // At the smallest swap Orientim takes (about $1), just under and just over it.
+    { group: 'hard', input: 'USDC', output: 'SOL', usd: 0.9, expect: ['amount-too-small'] },
+    { group: 'hard', input: 'USDC', output: 'SOL', usd: 1.05 },
+    { group: 'hard', input: 'SOL', output: 'USDC', usd: 0.9, expect: ['amount-too-small'] },
+    { group: 'hard', input: 'SOL', output: 'USDC', usd: 1.1 },
+    // Nonsense: the same token on both sides, a mint that is no token at all.
+    { group: 'hard', input: 'USDC', output: 'USDC', usd: 100, expect: ['any-refusal'] },
+    { group: 'hard', input: 'SOL', output: 'SOL', usd: 100, expect: ['any-refusal'] },
+    { group: 'hard', input: 'SOL', output: RANDOM_MINT, usd: 100, expect: ['any-refusal'] },
+    // A minimum above the market (the agent asks for more than exists), and exactly at it.
+    { group: 'hard', input: 'SOL', output: 'USDC', usd: 1_000, minOutOfQuote: 1.05, expect: ['any-refusal'] },
+    { group: 'hard', input: 'SOL', output: 'USDC', usd: 1_000, minOutOfQuote: 1.0 },
+    { group: 'hard', input: 'USDC', output: 'BONK', usd: 1_000, minOutOfQuote: 0.995 },
+    // The floor at the quote itself, set by the owner.
+    { group: 'hard', input: 'USDC', output: 'SOL', usd: 500, rule: r('floor at the quote (maxBelowBps 0)', { maxBelowBps: 0 }) },
+    // The extremes of tolerance on thin and deep markets.
+    { group: 'hard', input: 'USDC', output: 'WIF', usd: 20_000, slippage: 10 },
+    { group: 'hard', input: 'USDC', output: 'WIF', usd: 20_000, slippage: 1_500 },
+    { group: 'hard', input: 'SOL', output: 'HNT', usd: 10_000, slippage: 'auto', rule: r('thin market, owner allows 20% impact', { maxPriceImpactBps: 2_000 }, { maxPriceImpactBps: 2_000 }) },
+    { group: 'hard', input: 'SOL', output: 'W', usd: 50_000, rule: r('owner allows 20% impact', { maxPriceImpactBps: 2_000 }, { maxPriceImpactBps: 2_000 }) },
+    // Stablecoin to stablecoin, deep.
+    { group: 'hard', input: 'USDC', output: 'USDT', usd: 1_000_000 },
+    { group: 'hard', input: 'USDT', output: 'USDC', usd: 500_000 },
+    { group: 'hard', input: 'PYUSD', output: 'USDC', usd: 100_000 },
+    // Token-2022 and LSTs at size, as a bot too.
+    { group: 'hard', input: 'SOL', output: 'JitoSOL', usd: 500_000, bot: true },
+    { group: 'hard', input: 'mSOL', output: 'SOL', usd: 200_000, bot: true },
+    // v1 and fast routing together, on a memecoin.
+    { group: 'hard', input: 'SOL', output: 'BONK', usd: 2_000, version: 1, fast: true, slippage: 'auto' },
+    // A busy agent: the same swap ten times at once, and five different swaps at once.
+    { group: 'hard', input: 'USDC', output: 'SOL', usd: 250, parallel: 10 },
+    { group: 'hard', input: 'SOL', output: 'JUP', usd: 3_000, parallel: 5, slippage: 'auto' },
+  );
+  if (pump.curve[0]) cases.push({ group: 'hard', input: 'SOL', output: pump.curve[0], usd: 1_000, slippage: 'auto', rule: r('curve token at size, ceiling 5%', { maxSlippageBps: 500 }) });
+
   // v1 transactions and Jupiter's fast routing, where the deployment offers them.
   cases.push(
     { group: 'modes', input: 'USDC', output: 'SOL', usd: 100, version: 1 },
@@ -221,6 +264,11 @@ type World = {
 
 let nextJupiterAt = 0;
 /** Every request to Jupiter, the agent's and Orientim's, spaced as the key allows; a 429 is asked again twice. */
+/** The case each request belongs to, so that Jupiter's answers are kept with it even when cases run at once. */
+const caseOf = new AsyncLocalStorage<number>();
+/** Every answer from Jupiter that was not a success, by case: status, endpoint and body, for the report. */
+const jupiterAnswers = new Map<number, string[]>();
+
 async function jupiterFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     const now = Date.now();
@@ -228,6 +276,14 @@ async function jupiterFetch(input: string | URL | Request, init?: RequestInit): 
     nextJupiterAt = at + JUPITER_INTERVAL_MS;
     if (at > now) await sleep(at - now);
     const res = await fetch(input, init);
+    if (!res.ok) {
+      const n = caseOf.getStore() ?? 0;
+      const url = new URL(String(input instanceof Request ? input.url : input));
+      const body = await res.clone().text().catch(() => '(unreadable)');
+      const note = `${res.status} ${url.pathname} slippage=${url.searchParams.get('slippageBps') ?? '-'} amount=${url.searchParams.get('amount') ?? '-'}: ${body.replace(/\s+/g, ' ').slice(0, 300)}`;
+      jupiterAnswers.set(n, [...(jupiterAnswers.get(n) ?? []), note]);
+      console.log(`    jupiter #${n}: ${note}`);
+    }
     if (res.status !== 429 || attempt >= 2) return res;
     await sleep(2_000 * 2 ** attempt);
   }
@@ -368,6 +424,8 @@ type Result = {
   n: number; group: string; pair: string; usd: string; rule: string; asked: string; built: string;
   kind: 'PASS' | 'REFUSED' | 'UNTESTED' | 'BUG'; code: string; detail: string;
   route: string; impact: string; fee: string; floor: string; ms: number; bot?: string;
+  /** Jupiter's answers that were not a success during this case. */
+  jupiter?: string[];
 };
 
 const ABOVE_CEILING = /above the owner's limit of \d+ \(maxSlippageBps\)/;
@@ -446,8 +504,18 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     const policy: OwnerPolicy | undefined = c.rule?.policy
       ? { maxAmountIn: c.rule.policy.maxAmountIn ?? { [input]: '100000000000000000000' }, ...c.rule.policy } as OwnerPolicy
       : undefined;
+    let minOut: string | undefined;
+    if (c.minOutOfQuote !== undefined) {
+      // Jupiter's own quote for the amount, then the minimum the agent asks relative to it.
+      const q = await w.fetchImpl(`https://api.jup.ag/swap/v2/build?${new URLSearchParams({
+        inputMint: input, outputMint: output, amount: amount.toString(), taker: owner, slippageBps: '50', maxAccounts: '64',
+      })}`, { headers: JUPITER_API_KEY ? { 'x-api-key': JUPITER_API_KEY } : {} });
+      const out = q.ok ? (await q.json() as { outAmount?: string }).outAmount : undefined;
+      if (!out) return { ...base, kind: 'UNTESTED', code: 'no-quote', detail: 'Jupiter gave no quote to set the minimum from', ms: Date.now() - started };
+      minOut = BigInt(Math.floor(Number(out) * c.minOutOfQuote)).toString();
+    }
     const intent: Omit<Intent, 'owner'> = {
-      inputMint: input, outputMint: output, amountIn: amount.toString(),
+      inputMint: input, outputMint: output, amountIn: amount.toString(), ...(minOut ? { minOut } : {}),
       ...(c.slippage !== undefined ? { slippageBps: c.slippage } : {}),
       ...(c.version ? { version: c.version } : {}), ...(c.fast ? { routingMode: 'fast' as const } : {}),
       ...(c.rule?.intent ?? {}),
@@ -500,10 +568,15 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
         outcome = { ...outcome, kind: 'BUG', code: 'agent-bot-differ', detail: `agent ${agent}, bot ${bot}` };
       }
     }
-    // An expectation the case carries.
-    if (c.expect && outcome.kind !== 'UNTESTED' && outcome.kind !== 'BUG') {
+    // An expectation the case carries. "any-refusal": any honest refusal, Jupiter's own included;
+    // a refusal the case names is honest there, whatever it would mean elsewhere.
+    if (c.expect && outcome.kind !== 'UNTESTED') {
       const got = outcome.kind === 'PASS' ? 'PASS' : outcome.code;
-      if (!c.expect.includes(got)) outcome = { ...outcome, kind: 'BUG', code: 'unexpected', detail: `expected ${c.expect.join(' or ')}, got ${got}: ${outcome.detail}` };
+      const jupiterRefused = /^Jupiter answered 4\d\d/.test(outcome.detail);
+      const accepted = c.expect.includes(got)
+        || (c.expect.includes('any-refusal') && (outcome.kind === 'REFUSED' || (outcome.kind === 'BUG' && (jupiterRefused || got === 'bad-request' || got === 'intent'))));
+      if (accepted && outcome.kind === 'BUG') outcome = { ...outcome, kind: 'REFUSED' };
+      else if (!accepted && outcome.kind !== 'BUG') outcome = { ...outcome, kind: 'BUG', code: 'unexpected', detail: `expected ${c.expect.join(' or ')}, got ${got}: ${outcome.detail}` };
     }
     return { ...outcome, ms: Date.now() - started };
   } catch (e) {
@@ -537,6 +610,11 @@ function report(results: Result[], started: number): string {
   for (const r of results) {
     lines.push(`| ${r.n} | ${r.group} | ${esc(r.pair)} | ${esc(r.usd)} | ${esc(r.rule)} | ${r.asked} | ${r.built} | ${r.kind} | ${esc(r.code)} | ${esc(r.route)} | ${r.impact} | ${esc(r.fee)} | ${esc(r.floor)} | ${r.ms} | ${r.bot ?? ''} |`);
   }
+  const answered = results.filter(r => r.jupiter?.length);
+  if (answered.length) {
+    lines.push('', "## Jupiter's answers that were not a success", '');
+    for (const r of answered) for (const a of r.jupiter!) lines.push(`- #${r.n} ${esc(r.pair)} ${esc(r.usd)} (${r.kind} ${esc(r.code)}): ${esc(a)}`);
+  }
   const details = results.filter(r => r.kind !== 'PASS' && r.detail);
   if (details.length) {
     lines.push('', '## Why each case was not a pass', '');
@@ -557,14 +635,25 @@ it('the mainnet simulation matrix', async () => {
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, rule: { label: 'per swap $10', policy: { maxAmountIn: { [T.USDC]: '10000000' } } }, expect: ['amount-over-limit'] },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, bot: true },
       { group: 'offline', input: 'SOL', output: 'USDC', usd: 100 },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, parallel: 3 },
+      { group: 'offline', input: 'USDC', output: 'USDC', usd: 100, expect: ['any-refusal'] },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, minOutOfQuote: 1.05, expect: ['any-refusal'] },
     ] as Case[]
     : buildCases(pump);
   console.log(`${cases.length} cases${pump.curve.length || pump.amm.length ? `; Pump.fun curve ${pump.curve.map(nameOf).join(', ')}; PumpSwap ${pump.amm.map(nameOf).join(', ')}` : ''}`);
   const results: Result[] = [];
-  for (const [i, c] of cases.entries()) {
-    const r = await runCase(w, c, i + 1);
-    results.push(r);
-    console.log(`${String(r.n).padStart(3)} ${r.kind.padEnd(8)} ${r.group.padEnd(9)} ${r.pair} ${r.usd} ${r.rule} slippage ${r.asked}${r.built ? ` built ${r.built}` : ''}: ${r.code} ${r.route} ${r.detail.slice(0, 120)}`);
+  let n = 0;
+  const say = (r: Result) => console.log(`${String(r.n).padStart(3)} ${r.kind.padEnd(8)} ${r.group.padEnd(9)} ${r.pair} ${r.usd} ${r.rule} slippage ${r.asked}${r.built ? ` built ${r.built}` : ''}: ${r.code} ${r.route} ${r.detail.slice(0, 120)}`);
+  const withAnswers = (r: Result) => (jupiterAnswers.has(r.n) ? { ...r, jupiter: jupiterAnswers.get(r.n) } : r);
+  for (const c of cases) {
+    // Copies of one case at once: each its own number, all started together.
+    const copies = Array.from({ length: c.parallel ?? 1 }, () => ++n);
+    const rs = await Promise.all(copies.map(k => caseOf.run(k, () => runCase(w, c, k))));
+    for (const r of rs) {
+      const kept = withAnswers(c.parallel ? { ...r, group: `${r.group} (×${c.parallel})` } : r);
+      results.push(kept);
+      say(kept);
+    }
   }
   const md = report(results, started);
   mkdirSync(OUT, { recursive: true });
