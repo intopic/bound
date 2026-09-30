@@ -20,7 +20,7 @@
  * The run fails on any BUG. The report goes to the job summary and to $SIM_OUT (report.md, report.json).
  *
  *   RPC_URL=<mainnet RPC> JUPITER_API_KEY=<key> npx vitest run --config tools/sim/vitest.config.ts
- *   SIM_GROUPS=sizes,pairs   only those groups (sizes, pairs, majors, pump, tolerance, rules, parity, modes)
+ *   SIM_GROUPS=sizes,pairs   only those groups (sizes, pairs, majors, whales, personas, pump, tolerance, rules, parity, modes)
  *   SIM_LIMIT=20             at most this many cases
  *   SIM_JUPITER_INTERVAL_MS  the least time between two Jupiter requests (default 1100: a free key)
  *   SIM_OFFLINE=1            a few cases against the test fakes, to check the matrix itself without a network
@@ -71,6 +71,15 @@ const T = {
   JitoSOL: address('J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn'),
   mSOL: address('mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So'),
   PYUSD: address('2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo'),
+  bSOL: address('bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1'),
+  JTO: address('jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL'),
+  PYTH: address('HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3'),
+  W: address('85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ'),
+  RENDER: address('rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof'),
+  HNT: address('hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux'),
+  PENGU: address('2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv'),
+  FARTCOIN: address('9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump'),
+  MEW: address('MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5'),
 } as const;
 type Sym = keyof typeof T | string;
 const symbols = new Map<string, string>(Object.entries(T).map(([s, m]) => [m, s]));
@@ -117,6 +126,32 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
   for (const token of ['JUP', 'BONK', 'WIF', 'POPCAT', 'TRUMP', 'RAY', 'JitoSOL', 'PYUSD', 'USDT'] as const) {
     for (const usd of [50, 2_000]) {
       cases.push({ group: 'majors', input: 'SOL', output: token, usd }, { group: 'majors', input: token, output: 'USDC', usd });
+    }
+  }
+  // Large swaps against SOL, both ways, token by token: $5k to $200k, where each token's liquidity ends.
+  const whaleTokens = ['JUP', 'BONK', 'WIF', 'POPCAT', 'TRUMP', 'RAY', 'JitoSOL', 'mSOL', 'bSOL', 'JTO', 'PYTH', 'W', 'RENDER', 'HNT', 'PENGU', 'FARTCOIN', 'MEW', 'PYUSD', 'USDT'];
+  for (const token of whaleTokens) {
+    for (const usd of [5_000, 8_000, 20_000, 50_000, 100_000, 200_000]) {
+      cases.push({ group: 'whales', input: 'SOL', output: token, usd }, { group: 'whales', input: token, output: 'SOL', usd });
+    }
+  }
+  // Large swaps where neither side is SOL.
+  for (const [input, output] of [['BONK', 'WIF'], ['JUP', 'USDT'], ['WIF', 'POPCAT'], ['JitoSOL', 'mSOL'], ['PENGU', 'JUP']] as const) {
+    for (const usd of [20_000, 100_000, 200_000]) cases.push({ group: 'whales', input, output, usd });
+  }
+  // Kinds of users: each owner sets their own rules and tolerance, on the same tokens.
+  const personas: { label: string; policy?: Rule['policy']; slippage?: number | 'auto'; intent?: Rule['intent'] }[] = [
+    { label: 'careful: ceiling 0.5%, auto', policy: { maxSlippageBps: 50 }, slippage: 'auto' },
+    { label: 'meme trader: ceiling 3%, impact 5%, auto', policy: { maxSlippageBps: 300, maxPriceImpactBps: 500 }, slippage: 'auto' },
+    { label: 'whale: impact at most 1%, 0.3%', policy: { maxPriceImpactBps: 100 }, slippage: 30 },
+    { label: 'bot with defaults' },
+    { label: 'tight: floor 1%, ceiling 1%', policy: { maxBelowBps: 100, maxSlippageBps: 100 } },
+  ];
+  for (const token of ['JUP', 'BONK', 'WIF', 'POPCAT', 'TRUMP', 'JTO', 'PYTH', 'PENGU', 'FARTCOIN', 'RENDER']) {
+    for (const p of personas) {
+      const rule: Rule = { label: p.label, ...(p.policy ? { policy: p.policy } : {}), ...(p.intent ? { intent: p.intent } : {}) };
+      cases.push({ group: 'personas', input: 'SOL', output: token, usd: 5_000, rule, ...(p.slippage !== undefined ? { slippage: p.slippage } : {}) });
+      cases.push({ group: 'personas', input: token, output: 'SOL', usd: 50_000, rule, ...(p.slippage !== undefined ? { slippage: p.slippage } : {}) });
     }
   }
   // Pump.fun: tokens still on the bonding curve, and graduated ones trading on PumpSwap.
@@ -361,6 +396,10 @@ function classify(e: unknown): Pick<Result, 'kind' | 'code' | 'detail'> {
     // Orientim's own honest answer, refused by the skill's check: the two disagree.
     return { kind: 'BUG', code: 'check-refused-honest-answer', detail: message.slice(13, 400) };
   }
+  // Jupiter still busy after the skill asked it again, or a refusal of its own with its code.
+  if (/^Jupiter answered 400 \(busy\)/.test(message)) return { kind: 'UNTESTED', code: 'jupiter-busy', detail: message.slice(0, 200) };
+  const jupiterCode = /^Jupiter answered 4\d\d \(([A-Za-z0-9_]+)\)/.exec(message)?.[1];
+  if (jupiterCode) return { kind: 'REFUSED', code: `jupiter-${jupiterCode.toLowerCase()}`, detail: message.slice(0, 200) };
   if (UNAVAILABLE.test(message) || /\b429\b/.test(message)) return { kind: 'UNTESTED', code: 'service', detail: message.slice(0, 200) };
   if (/without a price impact/.test(message)) return { kind: 'REFUSED', code: 'impact-unknown', detail: message.slice(0, 160) };
   return { kind: 'BUG', code: 'error', detail: message.slice(0, 400) };
@@ -422,7 +461,8 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
         requestTimeoutMs: 30_000, ...(policy ? { policy } : {}),
       });
       const p = checked.prepared;
-      const built = builtTolerance(p.transaction);
+      // A v1 message is not read by the v0 decoder here: the answer states it then (the check held it).
+      const built = builtTolerance(p.transaction) ?? (typeof p.slippageBps === 'number' ? p.slippageBps : null);
       const quoted = BigInt(p.amounts.quotedOut);
       const floorBps = quoted > 0n ? Number(((quoted - BigInt(p.amounts.minOut)) * 10_000n) / quoted) : 0;
       outcome = {
@@ -448,9 +488,11 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
       };
       const r = await runCli('prepare', { intent: { owner, id: `sim-${n}`, ...intent } }, deps);
       const out = JSON.parse(JSON.stringify(r.output)) as { error?: { code?: string; message?: string }; problems?: string[] };
+      const jupiterCode = out.problems?.map(x => /^Jupiter answered 4\d\d \(([A-Za-z0-9_]+)\)/.exec(x)?.[1]).find(Boolean);
       const bot = r.code === 0 ? 'PASS'
         : out.problems?.some(x => ABOVE_CEILING.test(x)) ? 'route-above-ceiling'
-          : out.error?.code ?? (out.problems ? `problems: ${out.problems.join('; ').slice(0, 120)}` : `exit ${r.code}`);
+          : jupiterCode && out.error?.code !== 'unavailable' ? `jupiter-${jupiterCode.toLowerCase()}`
+            : out.error?.code ?? (out.problems ? `problems: ${out.problems.join('; ').slice(0, 120)}` : `exit ${r.code}`);
       const agent = outcome.kind === 'PASS' ? 'PASS' : outcome.code;
       outcome.bot = bot;
       const eitherUnavailable = outcome.kind === 'UNTESTED' || ['unavailable', 'busy', 'rate-limited'].includes(bot);
