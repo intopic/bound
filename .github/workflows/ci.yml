@@ -42,6 +42,16 @@ jobs:
         run: |
           diff -r --exclude=node_modules skills/orientim-protected-swap public-repo/skills/orientim-protected-swap
           diff skills/orientim-protected-swap/SHA256SUMS public-repo/skills/orientim-protected-swap/SHA256SUMS
+      # The same bytes must also come out of the public repository's own source: a change to the
+      # packages the bundle is built from, made here and not there, shows only when it builds.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - name: The public source builds the served skill
+        working-directory: public-repo
+        run: |
+          npm ci
+          npm run check
 
   reproducible:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'

@@ -6,7 +6,8 @@ name: Simulation matrix
 # or USDC, every tolerance, the owner's ceilings and limits; swaps up to $5M, a dishonest server's
 # changes to real transactions, the owner's approvals, bursts of swaps at once. Public wallets that hold each input stand
 # in for the agent's: no key is used, nothing is signed or sent, no funds move. The report is the
-# job's summary. Red when a case needs a look, or when fewer than half the cases could be tested.
+# job's summary. Red when a case needs a look, when a dishonest server's change could not be tried
+# (incomplete, not a pass), or when fewer than half the cases could be tested.
 #
 # By hand only. It uses the secrets CANARY_RPC_URL and CANARY_JUPITER_API_KEY: keys of test accounts,
 # apart from production's, so that the matrix never spends the site's quota.

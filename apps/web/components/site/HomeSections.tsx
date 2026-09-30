@@ -25,7 +25,7 @@ const THREATS: [string, string, string][] = [
   ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'The skill stops at your limits: the most per swap, per day, only from the tokens you allow, and never more slippage than you set.'],
   ['drain', 'A server hands your agent a transaction that drains the wallet.', 'With the skill or verifier, every instruction is checked on your own RPC. Approvals, authority changes and stray transfers are refused.'],
   ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys, and a changed transaction is refused before it is signed.'],
-  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: the most it can take is your tolerance, 0.5% by default (3% on a Pump.fun launch curve), never above the ceiling you set.'],
+  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: the most it can take is your tolerance below the quoted price, 0.5% by default (3% on a Pump.fun launch curve), never above the ceiling you set. A swap that would fill below it reverts; only the network fee is paid.'],
   ['token', 'A token built to trap you.', 'Tokens whose extensions Orientim can’t isolate are refused before anything is signed, with the reason. Powers the issuer keeps, such as a freeze authority (USDC and USDT have one), are shown before your agent signs, not removed.'],
   ['crash', 'The agent crashes mid-swap and tries again.', 'The skill keeps every order by id: after a restart it settles what was in flight and never swaps it twice.'],
 ];

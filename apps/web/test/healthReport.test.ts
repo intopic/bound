@@ -1,31 +1,44 @@
 /** /api/health for uptime monitors. */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkHealth } from '../lib/server/health.ts';
 
 afterEach(() => {
   delete process.env.RPC_URL;
   delete process.env.RPC_URL_FALLBACK;
   delete process.env.ORIENTIM_DISABLED;
+  for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'RPC_URL_AGENTS', 'JUPITER_API_KEY_AGENTS']) delete process.env[k];
 });
 
 const height = () => Response.json({ jsonrpc: '2.0', id: 1, result: 312_000_000 });
 const tokens = () => Response.json([{ id: 'So11111111111111111111111111111111111111112' }]);
+const built = () => Response.json({ outAmount: '1500000', swapInstruction: { programId: 'x', accounts: [], data: '' } });
 const down = () => { throw new TypeError('fetch failed'); };
 
-/** fetch by host: the main RPC, the backup, Jupiter. */
+/** The agent API on, with the site's RPC and Jupiter key. */
+const apiOn = () => {
+  process.env.ORIENTIM_API_SECRET = Buffer.alloc(32, 1).toString('base64');
+  process.env.ORIENTIM_API_KEYS = `a:${'0'.repeat(64)}`;
+};
+
+/** fetch by host: the main RPC, the backup, Jupiter (its search, and a swap it builds when it answers). */
 function hosts(main: () => Response, backup: () => Response, jupiter: () => Response) {
   process.env.RPC_URL = 'https://main.rpc.test/';
   process.env.RPC_URL_FALLBACK = 'https://backup.rpc.test/';
   return vi.fn(async (url: string | URL | Request) => {
     const u = String(url);
-    return u.startsWith('https://main.') ? main() : u.startsWith('https://backup.') ? backup() : jupiter();
+    if (u.startsWith('https://main.')) return main();
+    if (u.startsWith('https://backup.')) return backup();
+    const answer = jupiter();
+    return u.includes('/swap/v2/build') && answer.ok ? built() : answer;
   }) as unknown as typeof fetch;
 }
 
 describe('health', () => {
+  beforeEach(apiOn);
+
   it('up when an RPC and Jupiter answer', async () => {
     const h = await checkHealth(hosts(height, height, tokens));
-    expect(h).toMatchObject({ ok: true, paused: false, rpc: { ok: true }, rpcFallback: { ok: true }, jupiter: { ok: true } });
+    expect(h).toMatchObject({ ok: true, paused: false, rpc: { ok: true }, rpcFallback: { ok: true }, jupiter: { ok: true }, agentApi: 'on' });
   });
 
   it('the backup keeps it up while the main RPC is down; both down, or Jupiter down, is down', async () => {
@@ -46,15 +59,10 @@ describe('health', () => {
 
 describe('health of the agent API, as it runs', () => {
   const on = () => {
-    process.env.ORIENTIM_API_SECRET = Buffer.alloc(32, 1).toString('base64');
-    process.env.ORIENTIM_API_KEYS = `a:${'0'.repeat(64)}`;
+    apiOn();
     process.env.RPC_URL_AGENTS = 'https://agents.rpc.test/';
     process.env.JUPITER_API_KEY_AGENTS = 'agents-key';
   };
-  afterEach(() => {
-    for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'RPC_URL_AGENTS', 'JUPITER_API_KEY_AGENTS']) delete process.env[k];
-  });
-  const built = () => Response.json({ outAmount: '1500000', swapInstruction: { programId: 'x', accounts: [], data: '' } });
   /** fetch by host and path: the site's RPCs, the agent API's RPC, Jupiter's search and its build. */
   function world(agentsRpc: () => Response, build: () => Response, seen: string[] = []) {
     process.env.RPC_URL = 'https://main.rpc.test/';
@@ -67,10 +75,20 @@ describe('health of the agent API, as it runs', () => {
     }) as unknown as typeof fetch;
   }
 
-  it("with the API off, it is not checked and not counted", async () => {
+  it('with the API off, it is down and says so, while the site\'s services answer', async () => {
     const h = await checkHealth(world(down, down));
-    expect(h.ok).toBe(true);
-    expect(h.agents).toBeNull();
+    expect(h).toMatchObject({ ok: false, agentApi: 'off', agents: null, rpc: { ok: true }, jupiter: { ok: true } });
+  });
+
+  it('with a setting the API refuses (a fee above 30 bps), it is off, so down', async () => {
+    on();
+    process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS = '31';
+    try {
+      const h = await checkHealth(world(height, built));
+      expect(h).toMatchObject({ ok: false, agentApi: 'off' });
+    } finally {
+      delete process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS;
+    }
   });
 
   it("checks the API's own RPC and a swap Jupiter builds with the API's own key", async () => {

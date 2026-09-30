@@ -74,10 +74,12 @@ is compromised, the key can take the fees it holds and nothing else. Then:
   the repository variable `ORIENTIM_CANARY` is `1` and the secrets `CANARY_RPC_URL` and
   `CANARY_JUPITER_API_KEY` are set. Until then, and until `ORIENTIM_SITE_URL` is set for the live
   check, nothing watches production.
-- `/api/status` shows the kill switch only; `/api/health` checks the RPC and Jupiter, and, with the
-  agent API on, the API's own RPC (`RPC_URL_AGENTS`, or the site's) and a small swap Jupiter builds
-  with the API's own key (`JUPITER_API_KEY_AGENTS`, or the site's). An uptime monitor on
-  `/api/health` every few minutes, alerting on 503, covers outages.
+- `/api/status` shows the kill switch only; `/api/health` checks the RPC and Jupiter, that the
+  agent API is on (`agentApi`), the API's own RPC (`RPC_URL_AGENTS`, or the site's) and a small swap
+  Jupiter builds with the API's own key (`JUPITER_API_KEY_AGENTS`, or the site's). An agent API left
+  off by the settings (a missing secret or keys, a fee above 30 bps) is `agentApi: "off"` and 503; a
+  pause by the kill switch is `paused: true` and stays 200. An uptime monitor on `/api/health` every
+  few minutes, alerting on 503, covers outages.
 
 ## Verifying the code you are running
 

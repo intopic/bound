@@ -2344,9 +2344,12 @@ describe('a second proof of expiry, locks kept fresh, approvals by amount, no ma
     const fail = () => ({ send: async () => { throw new Error('rpc down'); } });
     return { getSignatureStatuses: fail, getBlockHeight: fail, getEpochInfo: fail, sendTransaction: fail } as unknown as Rpc<SolanaRpcApi>;
   };
-  const archiveOf = (opts: { height: bigint; listed?: string[]; status?: { confirmationStatus: string; err: unknown } | null }) => {
+  const archiveOf = (opts: { height: bigint; listed?: string[]; status?: { confirmationStatus: string; err: unknown } | null; oldestHeight?: bigint | null }) => {
     const asked: string[] = [];
     const rpc = {
+      // By default, a history that reaches back to the start of the chain.
+      getFirstAvailableBlock: () => ({ send: async () => 7n }),
+      getBlock: (slot: bigint) => ({ send: async () => (slot === 7n ? { blockHeight: opts.oldestHeight === undefined ? 1n : opts.oldestHeight } : null) }),
       getSignatureStatuses: () => ({ send: async () => ({ context: { slot: 5_000n }, value: [opts.status ?? null] }) }),
       getEpochInfo: () => ({ send: async () => ({ absoluteSlot: 5_000n, blockHeight: opts.height, epoch: 1n }) }),
       getSignaturesForAddress: (a: string, c: { minContextSlot?: bigint; commitment?: string }) => ({
@@ -2376,6 +2379,11 @@ describe('a second proof of expiry, locks kept fresh, approvals by amount, no ma
     expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 60, earliestHeight: 900n, archive: listed.rpc, temporaryAuthority: E })).toBe('unknown');
     const full = archiveOf({ height: 1_100n, listed: Array.from({ length: 1_000 }, (_, i) => `s${i}`) });
     expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 60, earliestHeight: 900n, archive: full.rpc, temporaryAuthority: E })).toBe('unknown');
+    // An RPC that trims its history, or does not say how far back it reaches, proves nothing either.
+    const trimmed = archiveOf({ height: 1_100n, oldestHeight: 1_000n });
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 60, earliestHeight: 900n, archive: trimmed.rpc, temporaryAuthority: E })).toBe('unknown');
+    const vague = archiveOf({ height: 1_100n, oldestHeight: null });
+    expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 60, earliestHeight: 900n, archive: vague.rpc, temporaryAuthority: E })).toBe('unknown');
     // A status the archive holds is the outcome.
     const landed = archiveOf({ height: 1_100n, status: { confirmationStatus: 'finalized', err: null } });
     expect(await confirm(down(), 'sig-1', 1_075n, { pollMs: 1, maxWaitMs: 2_000, archive: landed.rpc, temporaryAuthority: E })).toBe('confirmed');

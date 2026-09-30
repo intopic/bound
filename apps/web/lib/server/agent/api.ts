@@ -128,6 +128,26 @@ function amount(v: unknown): bigint | null {
 const unanswered = (e: unknown) => e instanceof Error
   && (e.name === 'TimeoutError' || e.name === 'AbortError' || (e instanceof TypeError && /fetch failed/i.test(e.message)));
 
+/**
+ * A prepare answers within this: before the function's own limit (maxDuration, 60 s) and within the
+ * skill's wait for it (60 s), so that retries to a slow Jupiter or RPC end in an answer the agent
+ * still reads, never a transaction built for no one.
+ */
+export const PREPARE_DEADLINE_MS = 45_000;
+
+/** `work`, or `unavailable` once `ms` have passed. */
+export async function withinDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new OrientimError('unavailable', 'Building this swap took too long: Jupiter or the Solana RPC is slow right now. Nothing was signed; prepare again in a moment.')), ms);
+  });
+  try {
+    return await Promise.race([work, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Every refusal in plain words, with what an agent needs to act on it. */
 function explain(e: unknown): Response {
   if (e instanceof OrientimError) {
@@ -251,7 +271,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const nonce = newNonce();
     const [secret] = deps.secrets;
     const E = await ephemeralFor(secret, nonce);
-    const prepared = await prepareProtectedSwap(
+    const prepared = await withinDeadline(prepareProtectedSwap(
       {
         rpc: deps.rpc,
         jupiter: deps.jupiter,
@@ -274,7 +294,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         acceptedMinReceived: minOut, acceptedCostBps: acceptCostBps, version,
         ...(body.routingMode === 'fast' ? { routingMode: 'fast' as const } : {}),
       },
-    );
+    ), PREPARE_DEADLINE_MS);
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
     // the certificate: it is the one value the fee depends on.
     const messageSha256 = await sha256Hex(prepared.transaction.messageBytes);

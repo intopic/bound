@@ -16,7 +16,7 @@ import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
-import { agentFinalize, agentPrepare, olderThan } from '../lib/server/agent/api.ts';
+import { agentFinalize, agentPrepare, olderThan, PREPARE_DEADLINE_MS, withinDeadline } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { issueKey } from '../lib/server/agent/keys.ts';
@@ -679,5 +679,14 @@ describe('a route below the open market is put to the user, in fields a program 
     const accepted = await agentPrepare(post('prepare', swapBody(w.W.address, { acceptCostBps: error.gapBps })), w.deps);
     expect(accepted.status).toBe(200);
     expect(w.sent).toHaveLength(0);
+  });
+});
+
+describe('a prepare that takes too long', () => {
+  it('ends in unavailable within its deadline, before the function limit and the skill stop waiting', async () => {
+    expect(PREPARE_DEADLINE_MS).toBeLessThan(60_000);
+    const slow = new Promise<string>(resolve => setTimeout(() => resolve('late'), 200));
+    await expect(withinDeadline(slow, 20)).rejects.toMatchObject({ code: 'unavailable' });
+    await expect(withinDeadline(Promise.resolve('on time'), 20)).resolves.toBe('on time');
   });
 });

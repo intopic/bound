@@ -827,7 +827,10 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
         const tampered = await tamperWith(w, checked, owner, ceiling);
         outcome.tampered = tampered;
         const missed = tampered.filter(t => t.verdict === 'missed');
+        const untried = tampered.filter(t => t.verdict === 'untested');
         if (missed.length) outcome = { ...outcome, kind: 'BUG', code: 'tamper-missed', detail: missed.map(t => t.name).join('; ') };
+        // A change the check could not be asked about proves nothing: the case is not a pass.
+        else if (untried.length) outcome = { ...outcome, kind: 'UNTESTED', code: 'tamper-incomplete', detail: `not tested: ${untried.map(t => t.name).join('; ')}` };
         else outcome.detail = `${tampered.filter(t => t.verdict === 'caught').length} of ${tampered.length} changes refused ${outcome.detail}`.trim();
       }
     } catch (e) {
@@ -1049,6 +1052,10 @@ it('the mainnet simulation matrix', async () => {
   console.log(`\n===== SUMMARY =====\n${report(results, started, true)}===== END OF SUMMARY =====`);
   const bugs = results.filter(r => r.kind === 'BUG');
   expect(bugs.map(b => `#${b.n} ${b.pair} ${b.usd}: ${b.code}: ${b.detail}`)).toEqual([]);
+  // A dishonest server's change that could not be tried leaves the run incomplete, not a pass: every
+  // one must be refused by the check.
+  const incomplete = results.filter(r => r.code === 'tamper-incomplete');
+  expect(incomplete.map(r => `#${r.n} ${r.pair} ${r.usd}: ${r.detail}`), 'incomplete: a dishonest server\'s changes were not all tested').toEqual([]);
   // A run that could test little (a wrong key, a busy RPC) is not a pass either.
   const tested = results.filter(r => r.kind !== 'UNTESTED').length;
   expect(tested, `only ${tested} of ${results.length} cases could be tested: see UNTESTED in the report`).toBeGreaterThanOrEqual(Math.ceil(results.length / 2));

@@ -16,6 +16,12 @@ export type Health = {
    * while the API is off.
    */
   agents: { rpc: Check; build: Check } | null;
+  /**
+   * The agent API: `on`, or `off` when this deployment's settings leave it off (no API secret or
+   * keys, or a setting it refuses, such as a fee above 30 bps). Off is down: agents are the product.
+   * A pause by the kill switch is `paused` above, not this.
+   */
+  agentApi: 'on' | 'off';
 };
 
 /** A small swap Jupiter is asked to build: 0.01 SOL to USDC, for a public wallet. Nothing is signed. */
@@ -47,8 +53,8 @@ const rpcCheck = (url: string, fetchImpl: typeof fetch) =>
   );
 
 /**
- * Whether a swap could go through right now: the RPC answers, and Jupiter answers with Orientim's
- * key; with the agent API on, its own RPC answers and Jupiter builds a swap with its own key. For an
+ * Whether a swap could go through right now: the RPC answers, Jupiter answers with Orientim's key,
+ * the agent API is on, its own RPC answers and Jupiter builds a swap with its own key. For an
  * uptime monitor (every few minutes); it names no URL and no key. Swaps paused by the kill switch
  * are reported, not counted as down.
  */
@@ -68,8 +74,8 @@ export async function checkHealth(fetchImpl: typeof fetch = (...a) => fetch(...a
   // With a backup, the RPC side is up while either of them answers.
   const rpcUp = rpc.ok || rpcFallback?.ok === true;
   const agents = await agentsCheck(fetchImpl, rpcUrl, rpc);
-  const agentsUp = !agents || ((agents.rpc.ok || rpcFallback?.ok === true) && agents.build.ok);
-  return { ok: rpcUp && jupiter.ok && agentsUp, paused: disabled, rpc, rpcFallback, jupiter, agents };
+  const agentsUp = !!agents && (agents.rpc.ok || rpcFallback?.ok === true) && agents.build.ok;
+  return { ok: rpcUp && jupiter.ok && agentsUp, paused: disabled, rpc, rpcFallback, jupiter, agents, agentApi: agents ? 'on' : 'off' };
 }
 
 /** The agent API's own RPC and a swap built with its own Jupiter key; null while the API is off. */
