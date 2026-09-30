@@ -3,8 +3,8 @@ name: Canary
 # Does a protected swap still build and execute? tools/canary.ts builds seven swaps on mainnet state,
 # each with its fee where it belongs, one as v1, and Pump.fun buys on both markets (nothing is signed
 # or sent). It fails when Jupiter's format, a Pump.fun program or a token program changed under
-# Orientim, or a fee is no longer taken where it should be, and exits 2 when nothing could be
-# checked. A failed run makes GitHub notify the maintainers of this workflow. Off until the repository
+# Orientim, or a fee is no longer taken where it should be, and exits 2 when anything could not be
+# proven this run (a market that answered 429, say): incomplete is not a pass. A failed run makes GitHub notify the maintainers of this workflow. Off until the repository
 # variable ORIENTIM_CANARY is set to 1.
 on:
   schedule:

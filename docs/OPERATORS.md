@@ -69,12 +69,15 @@ is compromised, the key can take the fees it holds and nothing else. Then:
 - Upstream programs (Jupiter, Pump.fun, Token-2022) are upgraded while Orientim runs, and a Jupiter
   instruction the verifier cannot read stops every swap with `route-format`. `node tools/canary.ts`
   builds and simulates swaps on mainnet state and fails on such a change or on a fee that is no
-  longer taken where it should be. `.github/workflows/canary.yml` runs it every twelve hours once
+  longer taken where it should be, and exits 2 (incomplete, not a pass) when a market it promises,
+  such as a Pump.fun curve or PumpSwap, could not be proven that run. `.github/workflows/canary.yml` runs it every twelve hours once
   the repository variable `ORIENTIM_CANARY` is `1` and the secrets `CANARY_RPC_URL` and
   `CANARY_JUPITER_API_KEY` are set. Until then, and until `ORIENTIM_SITE_URL` is set for the live
   check, nothing watches production.
-- `/api/status` shows the kill switch only; `/api/health` checks the RPC and Jupiter. An uptime
-  monitor on `/api/health` every few minutes, alerting on 503, covers outages.
+- `/api/status` shows the kill switch only; `/api/health` checks the RPC and Jupiter, and, with the
+  agent API on, the API's own RPC (`RPC_URL_AGENTS`, or the site's) and a small swap Jupiter builds
+  with the API's own key (`JUPITER_API_KEY_AGENTS`, or the site's). An uptime monitor on
+  `/api/health` every few minutes, alerting on 503, covers outages.
 
 ## Verifying the code you are running
 

@@ -80,7 +80,7 @@ const PREPARE_ANSWER: [string, string][] = [
   ['transaction', 'The unsigned transaction, base64. Verify it, then sign it as your wallet.'],
   ['messageSha256', 'The hash of the message; the certificate and the ticket are bound to it.'],
   ['temporaryAuthority', 'The one-time key of this swap.'],
-  ['lastValidBlockHeight, blocksLeft', 'The transaction’s lifetime: 150 blocks, about a minute.'],
+  ['lastValidBlockHeight, blocksLeft', 'The transaction’s lifetime: 150 blocks, about 40 seconds.'],
   ['amounts', 'amountIn, fee, feeMint, feeBps, quotedOut, minOut and priceImpactPct (null when Jupiter did not state it: unknown, not none).'],
   ['costs', 'The network fee, rent returned and kept, Orientim’s fee in SOL (orientimFeeSolLamports, from whichever side), keptSolLamports: all the SOL the swap costs and does not return, and breakdown: the amount swapped, the fee in its own token and each SOL cost apart.'],
   ['notices, tokens', 'A busy network, and what each token’s issuer can do: freeze balances, mint more, or move and burn them (permanentDelegate).'],
@@ -378,7 +378,7 @@ if code == 0:
                 <li><strong>Finalize</strong>: Orientim adds the last signature, with the one-time key, and sends it once.</li>
               </ol>
               <p>
-                The transaction lives 150 blocks, about a minute. Verify, sign and finalize promptly; with fewer than 30 blocks
+                The transaction lives 150 blocks, about 40 seconds. Verify, sign and finalize promptly; with fewer than 30 blocks
                 left, prepare again instead.
               </p>
             </section>

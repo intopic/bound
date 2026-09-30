@@ -1,4 +1,5 @@
 import { serverConfig } from './config';
+import { agentEndpoints } from './agent/config';
 
 export type Check = { ok: boolean; ms: number };
 export type Health = {
@@ -9,7 +10,19 @@ export type Health = {
   /** The backup RPC (RPC_URL_FALLBACK), null when none is set. */
   rpcFallback: Check | null;
   jupiter: Check;
+  /**
+   * The agent API as it runs: its own RPC (RPC_URL_AGENTS, or the site's) and a swap Jupiter builds
+   * with its own key (JUPITER_API_KEY_AGENTS, or the site's), not only an answer to a search. Null
+   * while the API is off.
+   */
+  agents: { rpc: Check; build: Check } | null;
 };
+
+/** A small swap Jupiter is asked to build: 0.01 SOL to USDC, for a public wallet. Nothing is signed. */
+const BUILD_CHECK = new URLSearchParams({
+  inputMint: 'So11111111111111111111111111111111111111112', outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  amount: '10000000', taker: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', slippageBps: '50', maxAccounts: '64', wrapAndUnwrapSol: 'false',
+});
 
 const TIMEOUT_MS = 5_000;
 
@@ -35,8 +48,9 @@ const rpcCheck = (url: string, fetchImpl: typeof fetch) =>
 
 /**
  * Whether a swap could go through right now: the RPC answers, and Jupiter answers with Orientim's
- * key. For an uptime monitor (every few minutes); it names no URL and no key. Swaps paused by the
- * kill switch are reported, not counted as down.
+ * key; with the agent API on, its own RPC answers and Jupiter builds a swap with its own key. For an
+ * uptime monitor (every few minutes); it names no URL and no key. Swaps paused by the kill switch
+ * are reported, not counted as down.
  */
 export async function checkHealth(fetchImpl: typeof fetch = (...a) => fetch(...a)): Promise<Health> {
   const { rpcUrl, rpcFallbackUrl, jupiterApiKey, disabled } = serverConfig();
@@ -53,5 +67,28 @@ export async function checkHealth(fetchImpl: typeof fetch = (...a) => fetch(...a
   ]);
   // With a backup, the RPC side is up while either of them answers.
   const rpcUp = rpc.ok || rpcFallback?.ok === true;
-  return { ok: rpcUp && jupiter.ok, paused: disabled, rpc, rpcFallback, jupiter };
+  const agents = await agentsCheck(fetchImpl, rpcUrl, rpc);
+  const agentsUp = !agents || ((agents.rpc.ok || rpcFallback?.ok === true) && agents.build.ok);
+  return { ok: rpcUp && jupiter.ok && agentsUp, paused: disabled, rpc, rpcFallback, jupiter, agents };
+}
+
+/** The agent API's own RPC and a swap built with its own Jupiter key; null while the API is off. */
+async function agentsCheck(fetchImpl: typeof fetch, siteRpcUrl: string, siteRpc: Check): Promise<Health['agents']> {
+  const endpoints = agentEndpoints();
+  if (!endpoints) return null;
+  // The same RPC as the site's is asked once; the backup serves the agent API too.
+  const [rpc, build] = await Promise.all([
+    endpoints.rpcUrl === siteRpcUrl ? Promise.resolve(siteRpc) : rpcCheck(endpoints.rpcUrl, fetchImpl),
+    timed(
+      () => fetchImpl(`https://api.jup.ag/swap/v2/build?${BUILD_CHECK}`, {
+        headers: endpoints.jupiterApiKey ? { 'x-api-key': endpoints.jupiterApiKey } : {}, cache: 'no-store',
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }),
+      async r => {
+        const body = (await r.json()) as { outAmount?: unknown; swapInstruction?: unknown };
+        return typeof body?.outAmount === 'string' && !!body.swapInstruction;
+      },
+    ),
+  ]);
+  return { rpc, build };
 }

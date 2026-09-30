@@ -166,6 +166,16 @@ export function agentDeps(): AgentDeps | null {
   };
 }
 
+/**
+ * Where the agent API reads the chain and asks Jupiter (RPC_URL_AGENTS, JUPITER_API_KEY_AGENTS, or
+ * the site's own), or null while the API is off: what /api/health checks for it.
+ */
+export function agentEndpoints(): { rpcUrl: string; jupiterApiKey: string | null } | null {
+  if (!agentDeps()) return null;
+  const server = serverConfig();
+  return { rpcUrl: process.env.RPC_URL_AGENTS || server.rpcUrl, jupiterApiKey: process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey };
+}
+
 /** The least ORIENTIM_KEY_MIN_LAMPORTS may ask: 0.001 SOL. */
 const KEY_MIN_LAMPORTS_FLOOR = 1_000_000n;
 

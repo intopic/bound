@@ -1605,6 +1605,42 @@ describe('the same as the page, for agents and bots: tolerance, price impact, to
     expect(b.sent).toHaveLength(0);
   });
 
+  it("the owner's slippage ceiling holds on the signed bytes: an ordinary quote, then a route on a Pump.fun curve", async () => {
+    // The agent's own quote is an ordinary route; the route Orientim builds trades on the curve (3% by default).
+    const curve = () => fakeJupiter({ curveProgram: true, label: 'Pump.fun' });
+    const policy = { maxAmountIn: { [USDC]: '1000000' }, maxSlippageBps: 100 };
+    const b = await orientim({ market: curve() });
+    const agent = protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, policy,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    });
+    await expect(agent).rejects.toThrow(/tolerates \d+ bps, above the owner's limit of 100 \(maxSlippageBps\)/);
+    expect(b.sent).toHaveLength(0);
+    // A bot through orientim-verify: refused the same way, at prepare.
+    const c = await orientim({ market: curve() });
+    const stateDir = mkdtempSync(join(tmpdir(), 'orientim-ceiling-curve-'));
+    const deps = { rpc: c.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: c.fetchImpl, stateDir, treasury: TREASURY, pollMs: 1, maxWaitMs: 60, policy };
+    const bot = await runCli('prepare', { intent: { owner: c.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'curve-1' } }, deps);
+    expect(bot.code).toBe(1);
+    expect(String(bot.output.problems)).toContain("above the owner's limit of 100");
+    expect(c.sent).toHaveLength(0);
+    // Asked for within the ceiling, the curve route is built at it and goes through.
+    const d = await orientim({ market: curve() });
+    const within = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: d.agentRpc, wallet: d.wallet, fetchImpl: d.fetchImpl, pollMs: 1, policy,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY, slippageBps: 100 },
+    });
+    expect(within.outcome).toBe('confirmed');
+    expect(routeTolerance(d.sent[0])).toBeLessThanOrEqual(100);
+    // Without a ceiling, the curve's own default holds, as before.
+    const e = await orientim({ market: curve() });
+    const open = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: e.agentRpc, wallet: e.wallet, fetchImpl: e.fetchImpl, pollMs: 1,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    });
+    expect(open.outcome).toBe('confirmed');
+  });
+
   it('a price impact above the limit is refused before anything is prepared; the owner may allow more', async () => {
     const b = await orientim();
     let prepares = 0;

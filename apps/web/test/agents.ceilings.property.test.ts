@@ -4,8 +4,9 @@
  *
  * 1. Any policy (maxSlippageBps, maxBelowBps, maxPriceImpactBps, each set or not), any intent
  *    (slippageBps unset, "auto" or a number; maxBelowBps; maxPriceImpactBps), any estimate Jupiter
- *    gives for "auto", any price impact, on a Pump.fun curve or not: the agent and the bot decide
- *    alike, a choice beyond a ceiling is refused with its code before anything is prepared, and a
+ *    gives for "auto", any price impact, with the agent's own quote and Orientim's final route each on
+ *    a Pump.fun curve or not, independently (an ordinary quote may still end in a curve route): the
+ *    agent and the bot decide alike, a choice beyond a ceiling is refused with its code before anything is prepared, and a
  *    swap that goes out is built at a tolerance never above the owner's ceiling, at Jupiter's
  *    estimate held from 0.5% to 3% on "auto", with a floor never further below the market than the
  *    owner allows.
@@ -54,8 +55,14 @@ const TIMEOUT = 60_000 + RUNS * 3_000;
 const KEY = 'ori_fuzz_ceiling_key_000000000001';
 const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 
-/** What Jupiter tells the agent when it asks for its own price: its estimate on "auto", and the price impact. */
-type Market = { out: bigint; curve: boolean; estimateBps: number; impactBps: number };
+/**
+ * What Jupiter tells the agent when it asks for its own price (`curve`: on a Pump.fun curve), its
+ * estimate on "auto" and the price impact; `finalCurve`: whether the route Orientim builds trades on
+ * the curve, which the agent's quote need not match. Orientim's server takes a route for a curve
+ * only when it names the curve program and Jupiter labels it "Pump.fun", as Jupiter does.
+ */
+type Market = { out: bigint; curve: boolean; finalCurve?: boolean; estimateBps: number; impactBps: number };
+const curveMarket = (out: bigint, curve: boolean) => fakeJupiter({ out, curveProgram: curve, ...(curve ? { label: 'Pump.fun' } : {}) });
 
 async function world(m: Market) {
   const wallet = await generateKeyPairSigner();
@@ -68,7 +75,9 @@ async function world(m: Market) {
   ]);
   const sent: string[] = [];
   const rpc = fakeRpc(accounts, { sent });
-  const jupiter = fakeJupiter({ out: m.out, curveProgram: m.curve });
+  // Orientim's market and the one the agent asks itself: the same price, each curve or not.
+  const jupiter = curveMarket(m.out, m.finalCurve ?? m.curve);
+  const ownJupiter = curveMarket(m.out, m.curve);
   const deps: AgentDeps = {
     rpc, jupiter, secrets: [new Uint8Array(32).fill(5)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'fuzz']]),
@@ -81,7 +90,7 @@ async function world(m: Market) {
       asked.push(q.get('slippageBps')!);
       // On "auto" Jupiter answers with its estimate in the threshold (RTSE).
       const slippage = q.get('slippageBps') === 'rtse' ? m.estimateBps : Number(q.get('slippageBps'));
-      const r = await jupiter.build({
+      const r = await ownJupiter.build({
         inputMint: address(q.get('inputMint')!), outputMint: address(q.get('outputMint')!), amount: BigInt(q.get('amount')!),
         taker: address(q.get('taker')!), slippageBps: slippage, maxAccounts: Number(q.get('maxAccounts')),
       });
@@ -109,6 +118,9 @@ const routeOf = (wire: string) => {
   return { slippageBps: args.slippageBps, floor: jupiterFloor(args) };
 };
 
+/** The check refused a route above the owner's slippage ceiling, on the signed bytes. */
+const ABOVE_CEILING = /above the owner's limit of \d+ \(maxSlippageBps\)/;
+
 /** What happened, in one word both channels share: sent, or the refusal's code. */
 async function asAgent(w: World, intent: Omit<Intent, 'owner'>, policy: OwnerPolicy): Promise<string> {
   try {
@@ -120,6 +132,7 @@ async function asAgent(w: World, intent: Omit<Intent, 'owner'>, policy: OwnerPol
     if (e instanceof PolicyError) return e.code;
     if (e instanceof PriceImpactError) return 'price-impact-high';
     if (e instanceof FloorError) return 'floor-too-low';
+    if (ABOVE_CEILING.test((e as Error).message)) return 'route-above-ceiling';
     return `error: ${(e as Error).message}`;
   }
 }
@@ -130,7 +143,8 @@ async function asBot(w: World, intent: Omit<Intent, 'owner'>, policy: OwnerPolic
     stateDir: mkdtempSync(join(tmpdir(), 'orientim-ceil-')), treasury: TREASURY, policy,
   };
   const ready = await runCli('prepare', { intent: { owner: w.wallet.address, id: 'order-1', ...intent } }, deps);
-  const out = JSON.parse(JSON.stringify(ready.output)) as { checked?: unknown; message?: string; error?: { code?: string } | string };
+  const out = JSON.parse(JSON.stringify(ready.output)) as { checked?: unknown; message?: string; error?: { code?: string } | string; problems?: string[] };
+  if (ready.code === 1 && out.problems?.some(x => ABOVE_CEILING.test(x))) return 'route-above-ceiling';
   if (ready.code !== 0 || !out.message) return typeof out.error === 'object' && out.error?.code ? out.error.code : `error: ${JSON.stringify(out.error)}`;
   const signature = getBase58Decoder().decode(await signBytes(w.wallet.keyPair.privateKey, Buffer.from(out.message, 'base64')));
   const done = await runCli('finalize', { checked: out.checked, signature }, deps);
@@ -150,7 +164,7 @@ describe("the owner's ceilings and the automatic tolerance, for agents and bots"
           maxPriceImpactBps: fc.option(fc.integer({ min: 0, max: 2_000 }), { nil: undefined }),
         }),
         fc.record({
-          out: fc.bigInt({ min: 10_000_000n, max: 10n ** 13n }), curve: fc.boolean(),
+          out: fc.bigInt({ min: 10_000_000n, max: 10n ** 13n }), curve: fc.boolean(), finalCurve: fc.boolean(),
           estimateBps: fc.integer({ min: 0, max: 1_500 }), impactBps: fc.integer({ min: 0, max: 2_500 }),
         }),
         async (ceilings, asked, market) => {
@@ -179,6 +193,16 @@ describe("the owner's ceilings and the automatic tolerance, for agents and bots"
                     : null;
           if (expected) {
             expect(agent).toBe(expected);
+            expect(a.sent).toEqual([]);
+            expect(b.sent).toEqual([]);
+            return;
+          }
+          // The one other refusal: the agent's own quote was an ordinary route, left the tolerance to
+          // Orientim's default, and the route built trades on a curve (3% by default) above the owner's
+          // ceiling. It is refused on the signed bytes, before the wallet signs.
+          if (agent === 'route-above-ceiling') {
+            expect(ceilings.maxSlippageBps).toBeDefined();
+            expect(market.finalCurve && !market.curve && asked.slippageBps === undefined).toBe(true);
             expect(a.sent).toEqual([]);
             expect(b.sent).toEqual([]);
             return;

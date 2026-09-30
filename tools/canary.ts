@@ -23,8 +23,9 @@
  *
  * Exit 1 when a swap cannot be built or executed for a reason that is not load: Jupiter's format
  * changed, a rule no longer holds, a major pair has no route, the fee is not where it belongs, or
- * the final transaction fails. A busy or silent service, or a price that keeps moving, only warns;
- * a run in which nothing at all could be checked exits 2, which is not a pass either.
+ * the final transaction fails. A busy or silent service, or a price that keeps moving, warns; a run
+ * with any warning exits 2, incomplete: a market Orientim promises (a Pump.fun curve, PumpSwap, a fee
+ * path) that could not be proven this run is not a pass, even when every other swap went through.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
@@ -221,6 +222,8 @@ for (const [market, want, url] of [
 
 const ok = verdicts.filter(v => v === 'ok').length;
 const failed = verdicts.filter(v => v === 'fail').length;
-console.log(`\n${ok} ok, ${verdicts.filter(v => v === 'warn').length} warnings, ${failed} failures.`);
+const warned = verdicts.filter(v => v === 'warn').length;
+console.log(`\n${ok} ok, ${warned} warnings, ${failed} failures.`);
 if (!failed && !ok) console.log('Nothing could be checked this run (load or silence): that is not a pass.');
-process.exitCode = failed ? 1 : ok ? 0 : 2;
+else if (!failed && warned) console.log(`Incomplete: ${warned} check(s) above (WARN) could not be proven this run. What Orientim promises and this run did not prove is not a pass; run it again, with CANARY_JUPITER_API_KEY set if Jupiter answered 429.`);
+process.exitCode = failed ? 1 : ok && !warned ? 0 : 2;
