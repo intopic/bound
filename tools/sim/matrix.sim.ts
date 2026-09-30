@@ -451,6 +451,10 @@ function classify(e: unknown): Pick<Result, 'kind' | 'code' | 'detail'> {
     if (ABOVE_CEILING.test(message)) return { kind: 'REFUSED', code: 'route-above-ceiling', detail: message.slice(13, 200) };
     // The price moved between Orientim's build and the check's own simulation (Jupiter's 6001).
     if (/fails in simulation/.test(message) && /6001|"Custom":6001/.test(message)) return { kind: 'UNTESTED', code: 'price-moved-in-check', detail: message.slice(13, 200) };
+    // Orientim's own simulation passed, and the check's failed twice, 1.2 s apart: the market changed
+    // between them (a market whose maker sets its price each slot). The route would fail on chain
+    // too; the program and its code are kept, so that a program failing in every run shows.
+    if (/fails in simulation on your RPC, twice/.test(message)) return { kind: 'UNTESTED', code: 'route-failed-in-check', detail: message.slice(13, 300) };
     if (UNAVAILABLE.test(message)) return { kind: 'UNTESTED', code: 'rpc', detail: message.slice(13, 200) };
     // Orientim's own honest answer, refused by the skill's check: the two disagree.
     return { kind: 'BUG', code: 'check-refused-honest-answer', detail: message.slice(13, 400) };
@@ -585,8 +589,11 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
   }
 }
 
+/** Outcomes that depend on the market of the moment, not on the code that checks it. */
+const MARKET_DECIDES = /costs-more|price-moved|price-impact-high|route-failed-in-check|check-refused-honest-answer|problems: .*fails in simulation/;
+
 // --- the report
-function report(results: Result[], started: number): string {
+function report(results: Result[], started: number, summaryOnly = false): string {
   const count = (k: Result['kind']) => results.filter(r => r.kind === k).length;
   const lines: string[] = [];
   lines.push(`# Orientim mainnet simulation matrix`, '');
@@ -607,19 +614,30 @@ function report(results: Result[], started: number): string {
     for (const b of bugs) lines.push(`- #${b.n} ${b.group}: ${b.pair}, ${b.usd}${b.rule ? `, ${b.rule}` : ''}, slippage ${b.asked}: **${b.code}**: ${b.detail.replace(/\|/g, '/')}`);
   }
   const esc = (s: string) => s.replace(/\|/g, '/').replace(/\n/g, ' ');
-  lines.push('', '## Every case', '', '| # | group | pair | amount | owner\'s rule | slippage asked | built at (bps) | result | code | route | impact | fee | floor | ms | bot |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
-  for (const r of results) {
-    lines.push(`| ${r.n} | ${r.group} | ${esc(r.pair)} | ${esc(r.usd)} | ${esc(r.rule)} | ${r.asked} | ${r.built} | ${r.kind} | ${esc(r.code)} | ${esc(r.route)} | ${r.impact} | ${esc(r.fee)} | ${esc(r.floor)} | ${r.ms} | ${r.bot ?? ''} |`);
-  }
-  const answered = results.filter(r => r.jupiter?.length);
-  if (answered.length) {
-    lines.push('', "## Jupiter's answers that were not a success", '');
-    for (const r of answered) for (const a of r.jupiter!) lines.push(`- #${r.n} ${esc(r.pair)} ${esc(r.usd)} (${r.kind} ${esc(r.code)}): ${esc(a)}`);
+  const failed = results.filter(r => r.code === 'route-failed-in-check');
+  if (failed.length) {
+    const programs = new Map<string, number>();
+    for (const r of failed) {
+      const program = /\(program ([1-9A-HJ-NP-Za-km-z]{32,44}), error (\d+)\)/.exec(r.detail);
+      const key = program ? `${program[1]} error ${program[2]}` : 'no program in the logs';
+      programs.set(key, (programs.get(key) ?? 0) + 1);
+    }
+    lines.push('', '## Routes that failed in the check twice', '', ...[...programs].map(([k, v]) => `- ${k}: ${v}`));
   }
   const details = results.filter(r => r.kind !== 'PASS' && r.detail);
   if (details.length) {
     lines.push('', '## Why each case was not a pass', '');
-    for (const r of details) lines.push(`- #${r.n} ${esc(r.pair)} ${esc(r.usd)}: ${r.kind} ${esc(r.code)}: ${esc(r.detail)}`);
+    for (const r of details) lines.push(`- #${r.n} ${r.group} ${esc(r.pair)} ${esc(r.usd)}${r.rule ? ` ${esc(r.rule)}` : ''} slippage ${r.asked}: ${r.kind} ${esc(r.code)}: ${esc(r.detail)}${r.bot ? ` (bot ${esc(r.bot)})` : ''}`);
+  }
+  const answered = results.filter(r => r.jupiter?.length);
+  if (answered.length) {
+    lines.push('', "## Jupiter's answers that were not a success", '');
+    for (const r of answered) for (const a of r.jupiter!) lines.push(`- #${r.n} ${esc(r.pair)} ${esc(r.usd)} (${r.kind} ${esc(r.code)}): ${esc(a).slice(0, 240)}`);
+  }
+  if (summaryOnly) return `${lines.join('\n')}\n`;
+  lines.push('', '## Every case', '', '| # | group | pair | amount | owner\'s rule | slippage asked | built at (bps) | result | code | route | impact | fee | floor | ms | bot |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const r of results) {
+    lines.push(`| ${r.n} | ${r.group} | ${esc(r.pair)} | ${esc(r.usd)} | ${esc(r.rule)} | ${r.asked} | ${r.built} | ${r.kind} | ${esc(r.code)} | ${esc(r.route)} | ${r.impact} | ${esc(r.fee)} | ${esc(r.floor)} | ${r.ms} | ${r.bot ?? ''} |`);
   }
   return `${lines.join('\n')}\n`;
 }
@@ -649,7 +667,15 @@ it('the mainnet simulation matrix', async () => {
   for (const c of cases) {
     // Copies of one case at once: each its own number, all started together.
     const copies = Array.from({ length: c.parallel ?? 1 }, () => ++n);
-    const rs = await Promise.all(copies.map(k => caseOf.run(k, () => runCase(w, c, k))));
+    let rs = await Promise.all(copies.map(k => caseOf.run(k, () => runCase(w, c, k))));
+    // Agent and bot run seconds apart: when they differ on an answer the market decides (a cost, a
+    // price, a route that fails in simulation), the case runs once more, and only a second
+    // difference counts.
+    rs = await Promise.all(rs.map(async r => {
+      if (r.code !== 'agent-bot-differ' || !MARKET_DECIDES.test(r.detail)) return r;
+      const again = await caseOf.run(r.n, () => runCase(w, c, r.n));
+      return { ...again, detail: `${again.detail} (first try: ${r.detail})`.slice(0, 400) };
+    }));
     for (const r of rs) {
       const kept = withAnswers(c.parallel ? { ...r, group: `${r.group} (×${c.parallel})` } : r);
       results.push(kept);
@@ -662,6 +688,9 @@ it('the mainnet simulation matrix', async () => {
   writeFileSync(join(OUT, 'report.json'), JSON.stringify(results, null, 2));
   if (process.env.GITHUB_STEP_SUMMARY) writeFileSync(process.env.GITHUB_STEP_SUMMARY, md, { flag: 'a' });
   console.log(`\nReport: ${join(OUT, 'report.md')}`);
+  // The summary again, last in the log: counts, every case that was not a pass and why, and
+  // Jupiter's refusals, where a reader of the log's tail finds them without the artifact.
+  console.log(`\n===== SUMMARY =====\n${report(results, started, true)}===== END OF SUMMARY =====`);
   const bugs = results.filter(r => r.kind === 'BUG');
   expect(bugs.map(b => `#${b.n} ${b.pair} ${b.usd}: ${b.code}: ${b.detail}`)).toEqual([]);
   // A run that could test little (a wrong key, a busy RPC) is not a pass either.

@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   address, compileTransaction, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
-  SolanaError, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
+  SolanaError, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
@@ -619,6 +619,16 @@ describe("an RPC that answers but cannot serve the request is unavailable, not a
     const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
     expect(res.status).toBe(503);
     expect(res.headers.get('retry-after')).toBe('5');
+    expect((await res.json()).error.code).toBe('unavailable');
+    expect(w.sent).toHaveLength(0);
+  });
+
+  it('prepare answers unavailable, not internal, when a node stays behind the slot of an earlier read', async () => {
+    const w = await world();
+    const behind = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, { contextSlot: 1n });
+    w.deps.rpc = new Proxy({}, { get: () => () => ({ send: async () => { throw behind; } }) }) as AgentDeps['rpc'];
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(503);
     expect((await res.json()).error.code).toBe('unavailable');
     expect(w.sent).toHaveLength(0);
   });

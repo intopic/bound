@@ -1,6 +1,7 @@
 import {
   getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress, isSolanaError,
   SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
 } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
 import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
@@ -171,7 +172,9 @@ function explain(e: unknown): Response {
     return fail(503, 'unavailable', "Orientim's Solana RPC didn't answer. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
   }
   // The RPC answered but could not serve the request: its own fault or its plan's, not the swap's.
-  if (isSolanaError(e, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY)) {
+  if (isSolanaError(e, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY)
+    // A node still behind the slot of an earlier read, after the reads asked it again for a few seconds.
+    || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) {
     console.error("Orientim's Solana RPC could not serve a request:", e);
     return fail(503, 'unavailable', "Orientim's Solana RPC couldn't serve this request. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
   }
@@ -464,7 +467,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     }
     const http = httpStatusOf(e);
     if (http === 429) return refuse(503, 'busy', "Orientim's Solana RPC is rate limited right now, so this request sent nothing. Wait a few seconds and try finalize again.", {}, { 'retry-after': '5' });
-    if ((http !== null && http >= 500) || unanswered(e)) {
+    if ((http !== null && http >= 500) || unanswered(e) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) {
       return refuse(503, 'unavailable', "Orientim's Solana RPC didn't answer, so this request sent nothing. Try finalize again in a moment.", {}, { 'retry-after': '5' });
     }
     console.error(e);

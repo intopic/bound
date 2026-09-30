@@ -360,9 +360,17 @@ describe('reads that must not be older than a slot', () => {
   });
 
   it('a node that stays behind fails the read instead of answering from older state', async () => {
-    const { rpc } = lagging(99);
+    const { rpc, calls } = lagging(99);
     await expect(readAccounts(rpc, ['11111111111111111111111111111111' as never], { minContextSlot: 110n })).rejects.toThrow();
-  });
+    // Asked six times over about four and a half seconds: a node of a load-balanced RPC can lag that long.
+    expect(calls()).toBe(6);
+  }, 20_000);
+
+  it('a node that catches up after four seconds is still waited for', async () => {
+    const { rpc, calls } = lagging(5);
+    expect((await readAccounts(rpc, ['11111111111111111111111111111111' as never], { minContextSlot: 110n })).slot).toBe(120n);
+    expect(calls()).toBe(6);
+  }, 20_000);
 });
 
 describe('nothing waits without end', () => {
