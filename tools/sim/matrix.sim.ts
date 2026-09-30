@@ -17,10 +17,17 @@
  *   UNTESTED  a service was busy (429), silent, or the price moved during the check: not a verdict
  *   BUG       anything else: Orientim's own honest answer refused by the skill's check, an internal
  *             error, an expectation not met, the agent and the bot deciding differently
+ * Beyond each verdict: every pass is read again apart from the skill (nine rules, from the bytes);
+ * passed swaps are changed in eight ways a dishonest server could (hash restated), and the check
+ * must refuse each; costlier routes and moved prices are approved as the owner would; fourteen
+ * swaps run at the same moment; six run at the start, middle and end. The analysis (impact, floor,
+ * cost and time by size, markets, the largest passes) closes the report.
+ *
  * The run fails on any BUG. The report goes to the job summary and to $SIM_OUT (report.md, report.json).
  *
  *   RPC_URL=<mainnet RPC> JUPITER_API_KEY=<key> npx vitest run --config tools/sim/vitest.config.ts
- *   SIM_GROUPS=sizes,pairs   only those groups (sizes, pairs, majors, whales, personas, pump, tolerance, rules, parity, modes)
+ *   SIM_GROUPS=sizes,pairs   only those groups (repeat, sizes, pairs, majors, whales, personas, pump, tolerance, rules,
+ *                            parity, hard, giants, more-tokens, tamper, approve, burst, modes)
  *   SIM_LIMIT=20             at most this many cases
  *   SIM_JUPITER_INTERVAL_MS  the least time between two Jupiter requests (default 1100: a free key)
  *   SIM_OFFLINE=1            a few cases against the test fakes, to check the matrix itself without a network
@@ -31,18 +38,20 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { address, getCompiledTransactionMessageDecoder, getTransactionDecoder } from '@solana/kit';
+import {
+  address, getAddressDecoder, getCompiledTransactionMessageDecoder, getCompiledTransactionMessageEncoder, getTransactionDecoder, getTransactionEncoder,
+} from '@solana/kit';
 import type { Address, Rpc, SolanaRpcApi } from '@solana/kit';
 import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientim/core';
-import { jupiterRouteArgs } from '@orientim/verifier';
+import { jupiterDestination, jupiterRouteArgs } from '@orientim/verifier';
 import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
 import { createRetryingRpc } from '@orientim/solana';
 import { agentPrepare } from '../../apps/web/lib/server/agent/api.ts';
 import type { AgentDeps } from '../../apps/web/lib/server/agent/api.ts';
 import {
-  checkPolicy, FloorError, IntentError, OrientimApiError, PolicyError, prepareChecked, PriceImpactError,
+  checkPolicy, checkPrepared, FloorError, IntentError, OrientimApiError, PolicyError, prepareChecked, PriceImpactError,
 } from '../../skills/orientim-protected-swap/examples/swap.ts';
-import type { Checked, Intent, OwnerPolicy } from '../../skills/orientim-protected-swap/examples/swap.ts';
+import type { Checked, Intent, OwnerPolicy, Prepared } from '../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../skills/orientim-protected-swap/src/cli.ts';
 import { ORIENTIM_TREASURY } from '../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
 
@@ -81,6 +90,9 @@ const T = {
   PENGU: address('2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv'),
   FARTCOIN: address('9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump'),
   MEW: address('MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5'),
+  JupSOL: address('jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v'),
+  INF: address('5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm'),
+  ORCA: address('orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE'),
 } as const;
 type Sym = keyof typeof T | string;
 const symbols = new Map<string, string>(Object.entries(T).map(([s, m]) => [m, s]));
@@ -112,10 +124,26 @@ type Case = {
   minOutOfQuote?: number;
   version?: 0 | 1;
   fast?: boolean;
+  /** After a pass, change the built transaction in each way a dishonest server could, and expect the check to refuse every one. */
+  tamper?: boolean;
+  /** Refused as costing more or as a moved price: approve it as the owner would (acceptCostBps, or the new minimum), once. */
+  approve?: boolean;
+  /** Cases with the same wave run all at once: many agents, different swaps, the same moment. */
+  wave?: string;
 };
 
 function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
   const cases: Case[] = [];
+  const r = (label: string, policy: Rule['policy'], intent: Rule['intent'] = {}): Rule => ({ label, policy, intent });
+  // The same six swaps at the start, in the middle and at the end of the run, some 25 minutes apart:
+  // the same answer each time, on a market that moved in between.
+  const repeat = (round: number) => {
+    for (const c of [
+      { input: 'SOL', output: 'USDC', usd: 10_000 }, { input: 'USDC', output: 'BONK', usd: 5_000 }, { input: 'JitoSOL', output: 'SOL', usd: 50_000 },
+      { input: 'SOL', output: 'WIF', usd: 20_000 }, { input: 'PYUSD', output: 'USDC', usd: 10_000 }, { input: 'USDT', output: 'SOL', usd: 100_000, slippage: 'auto' as const },
+    ] as Omit<Case, 'group'>[]) cases.push({ group: 'repeat', rule: { label: `round ${round} of 3` }, ...c });
+  };
+  repeat(1);
   // Amounts from $1 to $1M: where the price impact grows, where the route costs more, where it stops.
   for (const [input, output] of [['USDC', 'SOL'], ['SOL', 'USDC'], ['USDC', 'JUP'], ['USDT', 'BONK']] as const) {
     for (const usd of [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]) cases.push({ group: 'sizes', input, output, usd });
@@ -144,6 +172,7 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
   for (const [input, output] of [['BONK', 'WIF'], ['JUP', 'USDT'], ['WIF', 'POPCAT'], ['JitoSOL', 'mSOL'], ['PENGU', 'JUP']] as const) {
     for (const usd of [20_000, 100_000, 200_000]) cases.push({ group: 'whales', input, output, usd });
   }
+  repeat(2);
   // Kinds of users: each owner sets their own rules and tolerance, on the same tokens.
   const personas: { label: string; policy?: Rule['policy']; slippage?: number | 'auto'; intent?: Rule['intent'] }[] = [
     { label: 'careful: ceiling 0.5%, auto', policy: { maxSlippageBps: 50 }, slippage: 'auto' },
@@ -176,7 +205,6 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     for (const slippage of [undefined, 'auto', 10, 50, 100, 300, 1_000] as const) cases.push({ group: 'tolerance', input, output, usd, slippage });
   }
   // The owner's rules, as an unattended agent's owner would set them.
-  const r = (label: string, policy: Rule['policy'], intent: Rule['intent'] = {}): Rule => ({ label, policy, intent });
   cases.push(
     { group: 'rules', input: 'SOL', output: 'USDC', usd: 500, slippage: 100, rule: r('ceiling 0.5%, asks 1%', { maxSlippageBps: 50 }), expect: ['slippage-over-limit'] },
     { group: 'rules', input: 'SOL', output: 'USDC', usd: 500, slippage: 'auto', rule: r('ceiling 0.5%, auto', { maxSlippageBps: 50 }), expect: ['PASS'] },
@@ -242,6 +270,60 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     { group: 'hard', input: 'SOL', output: 'JUP', usd: 3_000, parallel: 5, slippage: 'auto' },
   );
   if (pump.curve[0]) cases.push({ group: 'hard', input: 'SOL', output: pump.curve[0], usd: 1_000, slippage: 'auto', rule: r('curve token at size, ceiling 5%', { maxSlippageBps: 500 }) });
+
+  // Giants: $250k to $5M on the deepest markets, as far as each goes before its price impact limit.
+  for (const [input, output] of [
+    ['SOL', 'USDC'], ['USDC', 'SOL'], ['USDT', 'USDC'], ['USDC', 'USDT'], ['SOL', 'USDT'], ['USDT', 'SOL'],
+    ['JitoSOL', 'SOL'], ['SOL', 'JitoSOL'], ['mSOL', 'SOL'], ['SOL', 'JupSOL'], ['USDC', 'JUP'],
+  ] as const) {
+    for (const usd of [250_000, 500_000, 1_000_000, 2_000_000, 5_000_000]) cases.push({ group: 'giants', input, output, usd, ...(usd === 1_000_000 ? { bot: true } : {}) });
+  }
+  cases.push(
+    { group: 'giants', input: 'USDC', output: 'JUP', usd: 1_000_000, rule: r('owner and agent allow 10% impact', { maxPriceImpactBps: 1_000 }, { maxPriceImpactBps: 1_000 }) },
+    { group: 'giants', input: 'SOL', output: 'USDC', usd: 2_000_000, slippage: 'auto', rule: r('ceiling 0.3%, auto', { maxSlippageBps: 30 }) },
+    { group: 'giants', input: 'USDC', output: 'SOL', usd: 1_000_000, slippage: 10, rule: r('whale: impact at most 0.5%', { maxPriceImpactBps: 50 }) },
+  );
+  // LSTs and more tokens, against SOL and each other.
+  for (const [input, output] of [
+    ['SOL', 'INF'], ['INF', 'SOL'], ['JupSOL', 'SOL'], ['bSOL', 'JitoSOL'], ['mSOL', 'JupSOL'], ['SOL', 'ORCA'], ['ORCA', 'USDC'], ['JupSOL', 'USDC'],
+  ] as const) {
+    for (const usd of [1_000, 50_000]) cases.push({ group: 'more-tokens', input, output, usd });
+  }
+  // A dishonest server, on real mainnet transactions: each passed swap is changed in seven ways
+  // (tolerance, quote, amount in, fee payer, a transfer added, the network fee, where the output
+  // goes, the program), and the check must refuse every change.
+  cases.push(
+    { group: 'tamper', input: 'USDC', output: 'SOL', usd: 100, tamper: true },
+    { group: 'tamper', input: 'SOL', output: 'USDC', usd: 10_000, tamper: true },
+    { group: 'tamper', input: 'SOL', output: 'BONK', usd: 2_000, tamper: true, slippage: 'auto' },
+    { group: 'tamper', input: 'BONK', output: 'WIF', usd: 500, tamper: true },
+    { group: 'tamper', input: 'PYUSD', output: 'USDC', usd: 1_000, tamper: true },
+    { group: 'tamper', input: 'JitoSOL', output: 'mSOL', usd: 5_000, tamper: true },
+    { group: 'tamper', input: 'SOL', output: 'JUP', usd: 50_000, tamper: true },
+    { group: 'tamper', input: 'USDT', output: 'BONK', usd: 1_000, tamper: true },
+    { group: 'tamper', input: 'WIF', output: 'SOL', usd: 20_000, tamper: true },
+    { group: 'tamper', input: 'SOL', output: 'USDC', usd: 1_000_000, tamper: true },
+    { group: 'tamper', input: 'SOL', output: 'TRUMP', usd: 5_000, tamper: true, rule: r('ceiling 1%', { maxSlippageBps: 100 }) },
+    { group: 'tamper', input: 'USDC', output: 'SOL', usd: 100, tamper: true, fast: true },
+    ...(pump.curve[0] ? [{ group: 'tamper', input: 'SOL', output: pump.curve[0], usd: 20, tamper: true }] : []),
+    ...(pump.amm[0] ? [{ group: 'tamper', input: 'SOL', output: pump.amm[0], usd: 50, tamper: true }] : []),
+  );
+  // The owner's approval: a costlier protected route, or a moved price, accepted as the skill says
+  // (acceptCostBps set to the gap, or the new minimum), and the swap then goes through the full check.
+  for (const [input, output, usd] of [
+    ['SOL', 'BONK', 50_000], ['JTO', 'SOL', 100_000], ['SOL', 'W', 8_000], ['SOL', 'RENDER', 100_000],
+    ['TRUMP', 'SOL', 200_000], ['BONK', 'SOL', 50_000], ['SOL', 'JTO', 50_000], ['RENDER', 'SOL', 100_000],
+  ] as const) cases.push({ group: 'approve', input, output, usd, approve: true });
+  cases.push({ group: 'approve', input: 'SOL', output: 'USDC', usd: 1_000, minOutOfQuote: 1.0, approve: true });
+  // A burst: fourteen different agents and bots, different swaps, all at the same moment.
+  for (const c of [
+    { input: 'USDC', output: 'SOL', usd: 500 }, { input: 'SOL', output: 'USDC', usd: 20_000 }, { input: 'SOL', output: 'BONK', usd: 1_000 },
+    { input: 'WIF', output: 'JUP', usd: 800 }, { input: 'JitoSOL', output: 'SOL', usd: 30_000 }, { input: 'USDT', output: 'USDC', usd: 250_000 },
+    { input: 'PYUSD', output: 'USDC', usd: 2_000 }, { input: 'SOL', output: 'TRUMP', usd: 3_000, slippage: 'auto' as const },
+    { input: 'POPCAT', output: 'SOL', usd: 1_500 }, { input: 'SOL', output: 'PENGU', usd: 4_000 }, { input: 'USDC', output: 'JUP', usd: 10_000, bot: true },
+    { input: 'mSOL', output: 'JitoSOL', usd: 5_000, bot: true }, { input: 'SOL', output: 'JTO', usd: 2_500 }, { input: 'RAY', output: 'USDC', usd: 700 },
+  ] as Omit<Case, 'group'>[]) cases.push({ group: 'burst', wave: 'burst', ...c });
+  repeat(3);
 
   // v1 transactions and Jupiter's fast routing, where the deployment offers them.
   cases.push(
@@ -427,6 +509,14 @@ type Result = {
   route: string; impact: string; fee: string; floor: string; ms: number; bot?: string;
   /** Jupiter's answers that were not a success during this case. */
   jupiter?: string[];
+  /** For the analysis: the amount in USD, the price impact and the floor in bps, a costlier route's gap. */
+  usdValue?: number; impactBps?: number | null; floorBps?: number; gapBps?: number;
+  /** Rules held on a pass, checked here apart from the skill (fee payer, signers, size, fee, impact, tolerance). */
+  invariants?: number;
+  /** Each change made to a passed transaction, and whether the check refused it. */
+  tampered?: { name: string; verdict: 'caught' | 'missed' | 'untested'; why: string }[];
+  /** What the owner approved before the swap passed: a gap, or a new minimum. */
+  approved?: string;
 };
 
 const ABOVE_CEILING = /above the owner's limit of \d+ \(maxSlippageBps\)/;
@@ -481,6 +571,166 @@ function builtTolerance(wire: string): number | null {
   }
 }
 
+// --- a dishonest server, on real transactions
+const SYSTEM = '11111111111111111111111111111111';
+const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111';
+type Compiled = {
+  version: number | 'legacy'; header: { numSignerAccounts: number; numReadonlySignerAccounts: number; numReadonlyNonSignerAccounts: number };
+  staticAccounts: string[]; lifetimeToken: string;
+  instructions: { programAddressIndex: number; accountIndices?: number[]; data?: Uint8Array }[];
+  addressTableLookups?: unknown[];
+};
+const randomAddress = () => getAddressDecoder().decode(randomBytes(32));
+
+/**
+ * The changes a dishonest server could make to a transaction it built, each as a new wire
+ * transaction, or null where it does not apply (a v1 message, no such instruction).
+ */
+function tamperings(wire: string, owner: string): { name: string; wire: string | null }[] {
+  const tx = getTransactionDecoder().decode(Buffer.from(wire, 'base64'));
+  let base: Compiled;
+  try {
+    base = getCompiledTransactionMessageDecoder().decode(tx.messageBytes) as unknown as Compiled;
+  } catch {
+    return [];
+  }
+  const clone = (): Compiled => ({
+    ...base, header: { ...base.header }, staticAccounts: [...base.staticAccounts],
+    instructions: base.instructions.map(i => ({ ...i, accountIndices: i.accountIndices ? [...i.accountIndices] : undefined, data: i.data ? Uint8Array.from(i.data) : undefined })),
+  });
+  const encode = (m: Compiled): string => {
+    const messageBytes = getCompiledTransactionMessageEncoder().encode(m as never);
+    const signatures = Object.fromEntries(m.staticAccounts.slice(0, m.header.numSignerAccounts).map(a => [a, null]));
+    return Buffer.from(getTransactionEncoder().encode({ messageBytes, signatures } as never)).toString('base64');
+  };
+  const jupiterIx = (m: Compiled) => m.instructions.find(i => m.staticAccounts[i.programAddressIndex] === JUPITER_PROGRAM && i.data && jupiterRouteArgs(i.data));
+  const out: { name: string; wire: string | null }[] = [];
+  const change = (name: string, f: (m: Compiled) => boolean) => {
+    const m = clone();
+    out.push({ name, wire: f(m) ? encode(m) : null });
+  };
+  change('route tolerance raised to 90%', m => {
+    const ix = jupiterIx(m);
+    const args = ix?.data && jupiterRouteArgs(ix.data);
+    if (!ix?.data || !args) return false;
+    new DataView(ix.data.buffer, ix.data.byteOffset).setUint16(args.slippageOffset, 9_000, true);
+    return true;
+  });
+  change('quote halved (a lower floor)', m => {
+    const ix = jupiterIx(m);
+    const args = ix?.data && jupiterRouteArgs(ix.data);
+    if (!ix?.data || !args) return false;
+    new DataView(ix.data.buffer, ix.data.byteOffset).setBigUint64(args.slippageOffset - 8, args.quotedOutAmount / 2n, true);
+    return true;
+  });
+  change('amount in doubled', m => {
+    const ix = jupiterIx(m);
+    const args = ix?.data && jupiterRouteArgs(ix.data);
+    if (!ix?.data || !args) return false;
+    new DataView(ix.data.buffer, ix.data.byteOffset).setBigUint64(args.slippageOffset - 16, args.inAmount * 2n, true);
+    return true;
+  });
+  change('fee payer replaced', m => {
+    if (m.staticAccounts[0] !== owner) return false;
+    m.staticAccounts[0] = randomAddress();
+    return true;
+  });
+  change('0.01 SOL from the wallet to the one-time key', m => {
+    const system = m.staticAccounts.indexOf(SYSTEM);
+    if (system < 0 || m.header.numSignerAccounts < 2) return false;
+    const data = new Uint8Array(12);
+    new DataView(data.buffer).setUint32(0, 2, true);
+    new DataView(data.buffer).setBigUint64(4, 10_000_000n, true);
+    m.instructions.push({ programAddressIndex: system, accountIndices: [0, 1], data });
+    return true;
+  });
+  change('network fee raised a million times', m => {
+    const ix = m.instructions.find(i => m.staticAccounts[i.programAddressIndex] === COMPUTE_BUDGET && i.data?.[0] === 3);
+    if (!ix?.data) return false;
+    const v = new DataView(ix.data.buffer, ix.data.byteOffset);
+    v.setBigUint64(1, (v.getBigUint64(1, true) + 1n) * 1_000_000n, true);
+    return true;
+  });
+  change('output sent to another account', m => {
+    const ix = jupiterIx(m);
+    if (!ix?.data || !ix.accountIndices) return false;
+    const accounts = ix.accountIndices.map(k => m.staticAccounts[k] ?? '');
+    const dest = jupiterDestination(ix.data, accounts as never);
+    const at = dest ? m.staticAccounts.indexOf(dest) : -1;
+    if (at < m.header.numSignerAccounts) return false;
+    m.staticAccounts[at] = randomAddress();
+    return true;
+  });
+  change('the route handed to another program', m => {
+    const ix = jupiterIx(m);
+    const system = m.staticAccounts.indexOf(SYSTEM);
+    if (!ix || system < 0) return false;
+    ix.programAddressIndex = system;
+    return true;
+  });
+  return out;
+}
+
+/** Each tampering of a passed swap, put to the skill's check: every one must be refused. */
+async function tamperWith(w: World, checked: Checked, owner: string, ceiling: number | undefined): Promise<NonNullable<Result['tampered']>> {
+  const results: NonNullable<Result['tampered']> = [];
+  for (const t of tamperings(checked.prepared.transaction, owner)) {
+    if (!t.wire) continue;
+    // A dishonest server states the hash of what it changed: the check must find the change itself.
+    const digest = createHash('sha256').update(getTransactionDecoder().decode(Buffer.from(t.wire, 'base64')).messageBytes as unknown as Uint8Array).digest('hex');
+    const prepared: Prepared = {
+      ...checked.prepared, transaction: t.wire, messageSha256: digest,
+      certificate: { ...checked.prepared.certificate, messageSha256: digest },
+    };
+    try {
+      const problems = await checkPrepared(prepared, checked.intent, w.rpc, { requestTimeoutMs: 30_000, ...(ceiling !== undefined ? { slippageCeilingBps: ceiling } : {}) });
+      results.push(problems.length
+        ? { name: t.name, verdict: 'caught', why: problems.join('; ').slice(0, 200) }
+        : { name: t.name, verdict: 'missed', why: 'the check found nothing to refuse' });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      results.push({ name: t.name, verdict: UNAVAILABLE.test(message) ? 'untested' : 'caught', why: message.slice(0, 140) });
+    }
+  }
+  return results;
+}
+
+/** How many rules `invariantsBroken` checks on each pass. */
+const INVARIANTS = 9;
+
+/**
+ * The rules a passed swap must hold, read here from the answer and its bytes apart from the skill's
+ * check: a second reading, so that a pass is not only the check's word. Returns those broken.
+ */
+function invariantsBroken(p: Prepared, owner: string, intent: Omit<Intent, 'owner'>, policy: OwnerPolicy | undefined): string[] {
+  const broken: string[] = [];
+  const wire = Buffer.from(p.transaction, 'base64');
+  const tx = getTransactionDecoder().decode(wire);
+  const signers = Object.keys(tx.signatures);
+  // 1-2: the wallet pays and signs, and the one-time key is the only other signer.
+  if (signers[0] !== owner) broken.push(`fee payer ${signers[0]}, not the wallet`);
+  if (signers.length !== 2 || signers[1] !== p.temporaryAuthority || p.temporaryAuthority === owner) broken.push(`signers ${signers.join(', ')}`);
+  // 3: a v0 transaction fits in a packet.
+  let v0 = false;
+  try { v0 = (getCompiledTransactionMessageDecoder().decode(tx.messageBytes) as unknown as Compiled).version === 0; } catch { /* v1 */ }
+  if (v0 && wire.length > 1_232) broken.push(`${wire.length} bytes, over 1232`);
+  // 4: Orientim's fee is its pinned 0.25% at most.
+  if (Number(p.amounts.feeBps) > 25) broken.push(`fee ${p.amounts.feeBps} bps`);
+  // 5: the price impact within the limit asked (5% unless the owner or agent set another).
+  const limit = intent.maxPriceImpactBps ?? Math.min(500, policy?.maxPriceImpactBps ?? 500);
+  if (typeof p.amounts.priceImpactPct === 'number' && p.amounts.priceImpactPct * 10_000 > limit + 0.5) broken.push(`impact ${(p.amounts.priceImpactPct * 100).toFixed(2)}% over ${limit / 100}%`);
+  // 6: a minimum above zero and under the quote.
+  if (!(BigInt(p.amounts.minOut) > 0n && BigInt(p.amounts.minOut) <= BigInt(p.amounts.quotedOut))) broken.push(`minOut ${p.amounts.minOut} against quote ${p.amounts.quotedOut}`);
+  // 7: the amount asked, exactly.
+  if (p.amounts.amountIn !== intent.amountIn) broken.push(`amount in ${p.amounts.amountIn}, asked ${intent.amountIn}`);
+  // 8: the answer names this wallet, in the answer and in its certificate.
+  if (p.wallet !== owner || p.certificate.wallet !== owner) broken.push('another wallet named');
+  // 9: a lifetime of at most 150 blocks (and one for the height read a moment apart), not yet over.
+  // The test fakes' chain has no such bound.
+  if (p.blocksLeft !== undefined && !(Number(p.blocksLeft) > 0 && (OFFLINE || Number(p.blocksLeft) <= 151))) broken.push(`${p.blocksLeft} blocks left`);
+  return broken;
+}
+
 async function runCase(w: World, c: Case, n: number): Promise<Result> {
   const input = (T as Record<string, string>)[c.input] ?? c.input;
   const output = (T as Record<string, string>)[c.output] ?? c.output;
@@ -529,10 +779,25 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     let outcome: Result;
     try {
       if (policy) await checkPolicy(policy, { owner, inputMint: input, amountIn: intent.amountIn });
-      const checked: Checked = await prepareChecked({
-        apiUrl: API_URL, apiKey: API_KEY, rpc: w.rpc, owner, intent, fetchImpl: w.fetchImpl, jupiterApiKey: JUPITER_API_KEY,
+      const prepare = (asked: Omit<Intent, 'owner'>) => prepareChecked({
+        apiUrl: API_URL, apiKey: API_KEY, rpc: w.rpc, owner, intent: asked, fetchImpl: w.fetchImpl, jupiterApiKey: JUPITER_API_KEY,
         requestTimeoutMs: 30_000, ...(policy ? { policy } : {}),
       });
+      let approved: string | undefined;
+      let checked: Checked;
+      try {
+        checked = await prepare(intent);
+      } catch (e) {
+        // The owner approves, as the skill tells the agent to ask: the gap, or the new minimum.
+        if (!c.approve || !(e instanceof OrientimApiError) || !['costs-more', 'price-moved'].includes(e.code)) throw e;
+        if (e.code === 'costs-more') {
+          approved = `a route ${String(e.body.gapBps)} bps costlier`;
+          checked = await prepare({ ...intent, acceptCostBps: String(e.body.gapBps) });
+        } else {
+          approved = `a new minimum ${String(e.body.newMinOut)}`;
+          checked = await prepare({ ...intent, minOut: String(e.body.newMinOut) });
+        }
+      }
       const p = checked.prepared;
       // A v1 message is not read by the v0 decoder here: the answer states it then (the check held it).
       const built = builtTolerance(p.transaction) ?? (typeof p.slippageBps === 'number' ? p.slippageBps : null);
@@ -546,12 +811,29 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
         floor: `${(floorBps / 100).toFixed(2)}% under quote`,
         detail: (checked.notices ?? []).join(' ').slice(0, 160),
       };
+      outcome.usdValue = c.usd || undefined;
+      outcome.impactBps = typeof p.amounts.priceImpactPct === 'number' ? Math.round(p.amounts.priceImpactPct * 10_000) : null;
+      outcome.floorBps = floorBps;
+      if (approved) outcome.approved = approved;
+      // Rules every pass must hold, checked here from the bytes apart from the skill's own check.
+      const broken = invariantsBroken(p, owner, intent, policy);
+      outcome.invariants = INVARIANTS;
+      if (broken.length) outcome = { ...outcome, kind: 'BUG', code: 'invariant', detail: broken.join('; ') };
       // What a pass must hold: never looser than the owner's ceiling or the tolerance asked.
       const ceiling = policy?.maxSlippageBps;
       if (built !== null && ceiling !== undefined && built > ceiling) outcome = { ...outcome, kind: 'BUG', code: 'above-ceiling', detail: `built at ${built} bps, owner's ceiling ${ceiling}` };
       if (built !== null && typeof c.slippage === 'number' && built > c.slippage) outcome = { ...outcome, kind: 'BUG', code: 'above-asked', detail: `built at ${built} bps, asked ${c.slippage}` };
+      if (c.tamper && outcome.kind === 'PASS') {
+        const tampered = await tamperWith(w, checked, owner, ceiling);
+        outcome.tampered = tampered;
+        const missed = tampered.filter(t => t.verdict === 'missed');
+        if (missed.length) outcome = { ...outcome, kind: 'BUG', code: 'tamper-missed', detail: missed.map(t => t.name).join('; ') };
+        else outcome.detail = `${tampered.filter(t => t.verdict === 'caught').length} of ${tampered.length} changes refused ${outcome.detail}`.trim();
+      }
     } catch (e) {
       outcome = { ...base, ...classify(e) };
+      if (e instanceof OrientimApiError && e.code === 'costs-more') outcome.gapBps = Number(e.body.gapBps);
+      if (c.usd) outcome.usdValue = c.usd;
     }
     // The same case as a bot: orientim-verify prepare, with the same policy.
     if (c.bot) {
@@ -592,6 +874,67 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
 /** Outcomes that depend on the market of the moment, not on the code that checks it. */
 const MARKET_DECIDES = /costs-more|price-moved|price-impact-high|route-failed-in-check|check-refused-honest-answer|problems: .*fails in simulation/;
 
+// --- the analysis: what the passes and refusals show, beyond each verdict
+const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)] : NaN);
+const pct = (xs: number[], q: number) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(q * xs.length))] : NaN);
+const bps = (x: number) => (Number.isFinite(x) ? `${(x / 100).toFixed(2)}%` : '-');
+
+function analysis(results: Result[]): string[] {
+  const lines: string[] = ['', '## Analysis', ''];
+  const passes = results.filter(r => r.kind === 'PASS');
+  // Invariants, read apart from the check.
+  const checked = passes.filter(r => r.invariants);
+  lines.push(`- **Rules read apart from the check**: ${checked.length} passes × ${INVARIANTS} rules (the wallet pays and signs, one one-time key besides, fits a packet, fee at most 0.25%, impact within its limit, a minimum above zero and under the quote, the amount asked, this wallet named, at most 150 blocks): ${results.filter(r => r.code === 'invariant').length} broken.`);
+  // Tampering.
+  const tampered = results.flatMap(r => r.tampered ?? []);
+  if (tampered.length) {
+    const by = new Map<string, { caught: number; missed: number; untested: number; why: string }>();
+    for (const t of tampered) {
+      const e = by.get(t.name) ?? { caught: 0, missed: 0, untested: 0, why: '' };
+      e[t.verdict]++;
+      if (t.verdict === 'caught' && !e.why) e.why = t.why;
+      by.set(t.name, e);
+    }
+    lines.push(`- **A dishonest server, on ${results.filter(r => r.tampered).length} real mainnet transactions**: ${tampered.length} changes, ${tampered.filter(t => t.verdict === 'caught').length} refused by the check, ${tampered.filter(t => t.verdict === 'missed').length} missed, ${tampered.filter(t => t.verdict === 'untested').length} not tested (the RPC did not answer).`);
+    for (const [name, e] of by) lines.push(`  - ${name}: ${e.caught} refused, ${e.missed} missed${e.untested ? `, ${e.untested} not tested` : ''}${e.why ? `. For example: "${e.why.replace(/\|/g, '/').slice(0, 160)}"` : ''}`);
+  }
+  // Approvals.
+  const approved = results.filter(r => r.approved);
+  if (approved.length) lines.push(`- **The owner's approval**: ${approved.length} swaps passed after the owner approved ${approved.map(r => `${r.pair} ${r.usd} (${r.approved})`).join('; ')}.`);
+  // By size.
+  const buckets: [string, number, number][] = [['under $1k', 0, 1_000], ['$1k–$10k', 1_000, 10_000], ['$10k–$100k', 10_000, 100_000], ['$100k–$1M', 100_000, 1_000_000], ['$1M and more', 1_000_000, Infinity]];
+  lines.push('', '| size | cases | passed | refused: impact | refused: costs more | median impact of passes | 95th pct impact | median floor under quote | median gap refused | median time (s) |', '|---|---|---|---|---|---|---|---|---|---|');
+  for (const [label, lo, hi] of buckets) {
+    const rs = results.filter(r => r.usdValue !== undefined && r.usdValue >= lo && r.usdValue < hi);
+    if (!rs.length) continue;
+    const ps = rs.filter(r => r.kind === 'PASS');
+    const impacts = ps.map(r => r.impactBps).filter((x): x is number => typeof x === 'number');
+    const gaps = rs.map(r => r.gapBps).filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+    lines.push(`| ${label} | ${rs.length} | ${ps.length} | ${rs.filter(r => r.code === 'price-impact-high').length} | ${rs.filter(r => r.code === 'costs-more').length} | ${bps(median(impacts))} | ${bps(pct(impacts, 0.95))} | ${bps(median(ps.map(r => r.floorBps ?? NaN).filter(Number.isFinite)))} | ${gaps.length ? bps(median(gaps)) : '-'} | ${(median(ps.map(r => r.ms)) / 1000).toFixed(1)} |`);
+  }
+  // The largest swaps that passed.
+  const largest = passes.filter(r => r.usdValue).sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0)).slice(0, 8);
+  if (largest.length) lines.push('', `- **Largest swaps that passed the full check**: ${largest.map(r => `${r.pair} ${r.usd} (impact ${r.impact})`).join('; ')}.`);
+  // Time.
+  const ms = passes.map(r => r.ms);
+  if (ms.length) lines.push(`- **Time per passed case**, own quote to the end of the check (Jupiter spaced ${JUPITER_INTERVAL_MS} ms apart for the test key): median ${(median(ms) / 1000).toFixed(1)} s, 95th percentile ${(pct(ms, 0.95) / 1000).toFixed(1)} s, longest ${(Math.max(...ms) / 1000).toFixed(1)} s.`);
+  // Markets.
+  const dexes = new Map<string, number>();
+  for (const r of passes) for (const d of r.route.split(' > ').map(x => x.trim()).filter(Boolean)) dexes.set(d, (dexes.get(d) ?? 0) + 1);
+  if (dexes.size) lines.push(`- **Markets in the passed routes** (${dexes.size}): ${[...dexes].sort((a, b) => b[1] - a[1]).map(([d, k]) => `${d} ${k}`).join(', ')}.`);
+  // The same swaps, again and again.
+  const rounds = results.filter(r => r.group === 'repeat');
+  if (rounds.length) {
+    const byCase = new Map<string, string[]>();
+    for (const r of rounds) byCase.set(`${r.pair} ${r.usd}`, [...(byCase.get(`${r.pair} ${r.usd}`) ?? []), r.kind === 'PASS' ? 'PASS' : r.code]);
+    lines.push(`- **The same swaps at the start, middle and end of the run**: ${[...byCase].map(([k, v]) => `${k}: ${v.join(' / ')}`).join('; ')}.`);
+  }
+  // Agents against bots.
+  const both = results.filter(r => r.bot !== undefined);
+  if (both.length) lines.push(`- **Agent and bot (orientim-verify) on the same swap**: ${both.length} cases, ${both.filter(r => r.code !== 'agent-bot-differ').length} decided alike.`);
+  return lines;
+}
+
 // --- the report
 function report(results: Result[], started: number, summaryOnly = false): string {
   const count = (k: Result['kind']) => results.filter(r => r.kind === k).length;
@@ -613,6 +956,7 @@ function report(results: Result[], started: number, summaryOnly = false): string
     lines.push('', '## To look at', '');
     for (const b of bugs) lines.push(`- #${b.n} ${b.group}: ${b.pair}, ${b.usd}${b.rule ? `, ${b.rule}` : ''}, slippage ${b.asked}: **${b.code}**: ${b.detail.replace(/\|/g, '/')}`);
   }
+  lines.push(...analysis(results));
   const esc = (s: string) => s.replace(/\|/g, '/').replace(/\n/g, ' ');
   const failed = results.filter(r => r.code === 'route-failed-in-check');
   if (failed.length) {
@@ -657,6 +1001,11 @@ it('the mainnet simulation matrix', async () => {
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, parallel: 3 },
       { group: 'offline', input: 'USDC', output: 'USDC', usd: 100, expect: ['any-refusal'] },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, minOutOfQuote: 1.05, expect: ['any-refusal'] },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, tamper: true },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, minOutOfQuote: 1.05, approve: true },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, wave: 'w' },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 200, wave: 'w' },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 300, wave: 'w', slippage: 'auto' },
     ] as Case[]
     : buildCases(pump);
   console.log(`${cases.length} cases${pump.curve.length || pump.amm.length ? `; Pump.fun curve ${pump.curve.map(nameOf).join(', ')}; PumpSwap ${pump.amm.map(nameOf).join(', ')}` : ''}`);
@@ -664,23 +1013,30 @@ it('the mainnet simulation matrix', async () => {
   let n = 0;
   const say = (r: Result) => console.log(`${String(r.n).padStart(3)} ${r.kind.padEnd(8)} ${r.group.padEnd(9)} ${r.pair} ${r.usd} ${r.rule} slippage ${r.asked}${r.built ? ` built ${r.built}` : ''}: ${r.code} ${r.route} ${r.detail.slice(0, 120)}`);
   const withAnswers = (r: Result) => (jupiterAnswers.has(r.n) ? { ...r, jupiter: jupiterAnswers.get(r.n) } : r);
+  // A step: one case (with its copies), or every case of one wave, all started together.
+  const steps: Case[][] = [];
   for (const c of cases) {
-    // Copies of one case at once: each its own number, all started together.
-    const copies = Array.from({ length: c.parallel ?? 1 }, () => ++n);
-    let rs = await Promise.all(copies.map(k => caseOf.run(k, () => runCase(w, c, k))));
+    const last = steps[steps.length - 1];
+    if (c.wave && last?.[0]?.wave === c.wave) last.push(c);
+    else steps.push([c]);
+  }
+  for (const step of steps) {
+    const runs = step.flatMap(c => Array.from({ length: c.parallel ?? 1 }, () => ({ c, k: ++n })));
+    let rs = await Promise.all(runs.map(({ c, k }) => caseOf.run(k, () => runCase(w, c, k))));
     // Agent and bot run seconds apart: when they differ on an answer the market decides (a cost, a
     // price, a route that fails in simulation), the case runs once more, and only a second
     // difference counts.
-    rs = await Promise.all(rs.map(async r => {
+    rs = await Promise.all(rs.map(async (r, i) => {
       if (r.code !== 'agent-bot-differ' || !MARKET_DECIDES.test(r.detail)) return r;
-      const again = await caseOf.run(r.n, () => runCase(w, c, r.n));
+      const again = await caseOf.run(r.n, () => runCase(w, runs[i].c, r.n));
       return { ...again, detail: `${again.detail} (first try: ${r.detail})`.slice(0, 400) };
     }));
-    for (const r of rs) {
-      const kept = withAnswers(c.parallel ? { ...r, group: `${r.group} (×${c.parallel})` } : r);
+    rs.forEach((r, i) => {
+      const c = runs[i].c;
+      const kept = withAnswers(c.parallel ? { ...r, group: `${r.group} (×${c.parallel})` } : c.wave ? { ...r, group: `${r.group} (×${step.length})` } : r);
       results.push(kept);
       say(kept);
-    }
+    });
   }
   const md = report(results, started);
   mkdirSync(OUT, { recursive: true });

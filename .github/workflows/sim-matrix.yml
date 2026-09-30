@@ -3,7 +3,8 @@ name: Simulation matrix
 # The whole path of an agent and a bot on mainnet's real prices, pools and balances, stopped before
 # anything is signed: tools/sim/matrix.sim.ts. Amounts from $1 to $1M, majors, LSTs, stablecoins,
 # memecoins, Token-2022, Pump.fun tokens on the curve and on PumpSwap, pairs where neither side is SOL
-# or USDC, every tolerance, the owner's ceilings and limits. Public wallets that hold each input stand
+# or USDC, every tolerance, the owner's ceilings and limits; swaps up to $5M, a dishonest server's
+# changes to real transactions, the owner's approvals, bursts of swaps at once. Public wallets that hold each input stand
 # in for the agent's: no key is used, nothing is signed or sent, no funds move. The report is the
 # job's summary. Red when a case needs a look, or when fewer than half the cases could be tested.
 #
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       groups:
-        description: 'Only these groups, comma-separated (sizes, pairs, majors, pump, tolerance, rules, parity, modes); empty for all'
+        description: 'Only these groups, comma-separated (repeat, sizes, pairs, majors, whales, personas, pump, tolerance, rules, parity, hard, giants, more-tokens, tamper, approve, burst, modes); empty for all'
         required: false
         default: ''
       limit:
