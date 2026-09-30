@@ -394,7 +394,8 @@ export function strictMinimumOutput(
  * The fee in lamports for a swap no token of which can carry it: `feeBps` of what `amount` of the
  * input is worth in SOL, as Jupiter prices it for the one-time key (never the wallet). Undefined when
  * Jupiter cannot price it, or answers for another trade: with a treasury, the swap is then refused
- * (`fee-unavailable`), never built for free. A busy Jupiter is busy, as for the route itself.
+ * (`fee-unavailable`), never built for free. A busy Jupiter is busy, and a silent one unavailable,
+ * as for the route itself.
  */
 export async function feeInSol(
   jupiter: JupiterClient,
@@ -410,6 +411,12 @@ export async function feeInSol(
     return (BigInt(r.outAmount) * args.feeBps) / 10_000n;
   } catch (e) {
     if (e instanceof JupiterError && e.status === 429) throw new OrientimError('busy', BUSY_MESSAGE);
+    // Only Jupiter's refusal of the trade (a 4xx) means the pair cannot be priced. A Jupiter that did
+    // not answer, answered 5xx or refused Orientim's key is unavailable, as for the route itself:
+    // try again in a moment, not a pair that cannot pay the fee.
+    if (!(e instanceof JupiterError) || e.status >= 500 || [401, 403, 404, 410].includes(e.status)) {
+      throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
+    }
     return undefined;
   }
 }

@@ -784,6 +784,15 @@ describe("the fee, taken like Jupiter's: SOL first, then USDC and USDT, otherwis
     const busy = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(new JupiterError('Jupiter 429', 429)) })
       .catch((e: OrientimError) => e);
     expect((busy as OrientimError).code).toBe('busy');
+    // A Jupiter that answered 5xx, timed out or could not be reached while pricing the fee is
+    // unavailable, as for the route: try again in a moment, not a pair that cannot pay.
+    for (const silent of [new JupiterError('Jupiter 502', 502), new JupiterError('Jupiter timed out', 504)]) {
+      const e = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: pricedWith(silent) }).catch((x: OrientimError) => x);
+      expect((e as OrientimError).code).toBe('unavailable');
+    }
+    const unreachable: JupiterClient = { ...base, build: async (p: BuildParams) => { if (p.outputMint === WSOL_MINT) throw new TypeError('fetch failed'); return base.build(p); } };
+    const e = await prepare(USDC, { input: BONK, treasury: TREASURY, chain: [wallet], jupiter: unreachable }).catch((x: OrientimError) => x);
+    expect((e as OrientimError).code).toBe('unavailable');
   });
 
   it('a fee side that changes between the quote and the build keeps the minimum the page showed', async () => {
