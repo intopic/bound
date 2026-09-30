@@ -142,6 +142,18 @@ export default async function Page() {
 
             <section id="overview">
               <h2>Overview</h2>
+              <h3>Your strategy, Orientim&apos;s execution</h3>
+              <p>
+                <strong>Use your own strategy. When your agent or bot decides to swap, call Orientim for the protected execution.</strong>{' '}
+                Your agent or bot decides when and what to trade. Orientim builds the protected swap when the API is called, your
+                wallet signs it, and it is sent. The strategy and its monitoring stay in your system.
+              </p>
+              <p>
+                For example, your bot decides: &ldquo;Buy SOL with 100 USDC now.&rdquo; At that moment it calls Orientim, which
+                prepares the protected swap; the wallet signs it and the swap is sent. Later the bot decides: &ldquo;Sell the SOL
+                now.&rdquo; It calls Orientim again, for a new swap. DCA, stop-loss or any other strategy runs the same way: in your
+                system, with each swap it triggers going through Orientim.
+              </p>
               <p>The swap program only ever holds a one-time key with the amount you approve, and if less than your minimum would arrive, the whole transaction reverts. Three ways in:</p>
               <div className="table-wrap">
                 <table>
@@ -153,6 +165,11 @@ export default async function Page() {
                   </tbody>
                 </table>
               </div>
+              <p>These are ways to connect, not different products:</p>
+              <ul>
+                <li><strong>The skill or the command line</strong> bring the check before signing, the record of each order and the recovery after an interruption.</li>
+                <li><strong>The API directly</strong>: your client runs <a href="#verify">the check</a> before signing, keeps a record of each order, and confirms the result (<a href="#recovery">Results and recovery</a>).</li>
+              </ul>
               <p>You need:</p>
               <ul>
                 <li>An <a href="#access">API key</a> for the wallet that swaps.</li>
