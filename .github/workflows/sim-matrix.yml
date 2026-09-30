@@ -1,0 +1,50 @@
+name: Simulation matrix
+
+# The whole path of an agent and a bot on mainnet's real prices, pools and balances, stopped before
+# anything is signed: tools/sim/matrix.sim.ts. Amounts from $1 to $1M, majors, LSTs, stablecoins,
+# memecoins, Token-2022, Pump.fun tokens on the curve and on PumpSwap, pairs where neither side is SOL
+# or USDC, every tolerance, the owner's ceilings and limits. Public wallets that hold each input stand
+# in for the agent's: no key is used, nothing is signed or sent, no funds move. The report is the
+# job's summary. Red when a case needs a look, or when fewer than half the cases could be tested.
+#
+# By hand only. It uses the secrets CANARY_RPC_URL and CANARY_JUPITER_API_KEY: keys of test accounts,
+# apart from production's, so that the matrix never spends the site's quota.
+on:
+  workflow_dispatch:
+    inputs:
+      groups:
+        description: 'Only these groups, comma-separated (sizes, pairs, majors, pump, tolerance, rules, parity, modes); empty for all'
+        required: false
+        default: ''
+      limit:
+        description: 'At most this many cases; empty for all'
+        required: false
+        default: ''
+      jupiter_interval_ms:
+        description: 'Least time between two Jupiter requests, in ms (1100 suits a free key)'
+        required: false
+        default: '1100'
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Simulate
+        env:
+          RPC_URL: ${{ secrets.CANARY_RPC_URL }}
+          JUPITER_API_KEY: ${{ secrets.CANARY_JUPITER_API_KEY }}
+          SIM_GROUPS: ${{ inputs.groups }}
+          SIM_LIMIT: ${{ inputs.limit }}
+          SIM_JUPITER_INTERVAL_MS: ${{ inputs.jupiter_interval_ms }}
+          SIM_OUT: ${{ runner.temp }}/sim
+        run: node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts
