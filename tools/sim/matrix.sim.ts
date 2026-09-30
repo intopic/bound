@@ -207,10 +207,10 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
   // Hard cases: boundaries, nonsense a misled agent may send, extremes, several at once.
   const RANDOM_MINT = 'Hq7dYVVc2S3mtDuLyYy6oF4rUUqzmVZqQ8dvKq1WgN6A';
   cases.push(
-    // At the smallest swap Orientim takes (about $1), just under and just over it.
-    { group: 'hard', input: 'USDC', output: 'SOL', usd: 0.9, expect: ['amount-too-small'] },
+    // Near the smallest swap: the fee has a floor in SOL (about $0.40), so $0.25 is refused and $1 goes.
+    { group: 'hard', input: 'USDC', output: 'SOL', usd: 0.25, expect: ['amount-too-small'] },
     { group: 'hard', input: 'USDC', output: 'SOL', usd: 1.05 },
-    { group: 'hard', input: 'SOL', output: 'USDC', usd: 0.9, expect: ['amount-too-small'] },
+    { group: 'hard', input: 'SOL', output: 'USDC', usd: 0.25, expect: ['amount-too-small'] },
     { group: 'hard', input: 'SOL', output: 'USDC', usd: 1.1 },
     // Nonsense: the same token on both sides, a mint that is no token at all.
     { group: 'hard', input: 'USDC', output: 'USDC', usd: 100, expect: ['any-refusal'] },
@@ -224,7 +224,8 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     { group: 'hard', input: 'USDC', output: 'SOL', usd: 500, rule: r('floor at the quote (maxBelowBps 0)', { maxBelowBps: 0 }) },
     // The extremes of tolerance on thin and deep markets.
     { group: 'hard', input: 'USDC', output: 'WIF', usd: 20_000, slippage: 10 },
-    { group: 'hard', input: 'USDC', output: 'WIF', usd: 20_000, slippage: 1_500 },
+    // A wide tolerance on a thin route, three times: a failure in the check must repeat to count.
+    ...[1, 2, 3].map(n => ({ group: 'hard', input: 'USDC', output: 'WIF', usd: 20_000, slippage: 1_500, rule: r(`wide tolerance, try ${n} of 3`, undefined) }) as Case),
     { group: 'hard', input: 'SOL', output: 'HNT', usd: 10_000, slippage: 'auto', rule: r('thin market, owner allows 20% impact', { maxPriceImpactBps: 2_000 }, { maxPriceImpactBps: 2_000 }) },
     { group: 'hard', input: 'SOL', output: 'W', usd: 50_000, rule: r('owner allows 20% impact', { maxPriceImpactBps: 2_000 }, { maxPriceImpactBps: 2_000 }) },
     // Stablecoin to stablecoin, deep.

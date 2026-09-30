@@ -156,7 +156,11 @@ export function createJupiterClient(opts: {
       }
       const body = await res.text();
       // Jupiter wraps transient upstream failures ("Pool has not been updated in a while") in a 400.
-      const retryable = res.status === 429 || res.status >= 500 || (res.status === 400 && /quote failed|not been updated/i.test(body));
+      // Also a market whose oracle is behind for a moment ("Oracle is stale", "price out of date"),
+      // which Jupiter wraps in a 400 as well; never a refusal of the trade itself.
+      const retryable = res.status === 429 || res.status >= 500 || (res.status === 400
+        && /quote failed|not been updated|oracle|stale|expired|temporarily unavailable|no matching liquidity|"500: /i.test(body)
+        && !/no routes? found|could not find any route|missing token program|cannot be same as/i.test(body));
       if (retryable && attempt < 3) {
         // Jittered, so pages refused together do not all retry at the same moment; Jupiter's own
         // wait is honoured up to a few seconds.

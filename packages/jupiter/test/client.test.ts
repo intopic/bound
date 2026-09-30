@@ -98,6 +98,27 @@ describe('a Jupiter under load', () => {
     expect(counter.calls).toBe(3);
   });
 
+  it("a 400 around a stale oracle is asked again; a 400 refusing the trade is not", async () => {
+    const answering = (bodies: string[], counter: { calls: number }) => createJupiterClient({
+      buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels',
+      retryBaseMs: 1,
+      fetchImpl: (async () => {
+        const body = bodies[Math.min(counter.calls++, bodies.length - 1)];
+        return body === 'ok' ? new Response(JSON.stringify(good)) : new Response(body, { status: 400 });
+      }) as unknown as typeof fetch,
+    });
+    for (const busy of ['{"error":"Oracle price out of date. Pair temporarily unavailable"}', '{"error":"500: Oracle is stale"}', '{"error":"The price was expired"}']) {
+      const counter = { calls: 0 };
+      expect((await answering([busy, 'ok'], counter).build(params)).outAmount).toBe(good.outAmount);
+      expect(counter.calls).toBe(2);
+    }
+    for (const refusal of ['{"error":"No routes found"}', '{"error":"Missing token program for X pump"}', '{"error":"inputMint cannot be same as outputMint, oracle"}']) {
+      const counter = { calls: 0 };
+      await expect(answering([refusal, 'ok'], counter).build(params)).rejects.toMatchObject({ status: 400 });
+      expect(counter.calls).toBe(1);
+    }
+  });
+
   it('after every retry was refused, the page stops asking for a few seconds instead of adding to the load', async () => {
     const counter = { calls: 0 };
     const client = clientAnswering([429], counter);

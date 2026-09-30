@@ -11,6 +11,7 @@ import {
   decompileTransactionMessage, generateKeyPairSigner, getBase58Decoder, getBase64EncodedWireTransaction, getCompiledTransactionMessageDecoder,
   getSignatureFromTransaction, getSolanaErrorFromJsonRpcError, getTransactionDecoder, getTransactionEncoder, partiallySignTransaction, pipe, setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash, signBytes, SolanaError, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
 } from '@solana/kit';
 import type { Address, Instruction, KeyPairSigner, Rpc, SolanaRpcApi } from '@solana/kit';
 import { getAssignInstruction, getTransferSolInstruction } from '@solana-program/system';
@@ -27,7 +28,7 @@ import type { AgentDeps } from '../lib/server/agent/api.ts';
 import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
-  fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked,
+  fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked, ownFloor, IntentError,
   exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
@@ -420,6 +421,26 @@ describe('what the rules cannot see, the agent checks itself', () => {
       }),
     } as unknown as Rpc<SolanaRpcApi>;
     expect((await checkPrepared(honest, intentFor(b.wallet), short)).join()).toContain('cannot show what the one-time key holds');
+  });
+
+  it('an RPC node a few slots behind is asked again, and the check completes', async () => {
+    const b = await orientim();
+    const honest = await honestAnswer(b);
+    let behind = 2;
+    const lagging = {
+      ...b.agentRpc,
+      simulateTransaction: (...args: unknown[]) => {
+        const real = (b.agentRpc.simulateTransaction as (...a: unknown[]) => { send: (o?: unknown) => Promise<unknown> })(...args);
+        return {
+          send: async (o?: unknown) => {
+            if (behind-- > 0) throw new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, { contextSlot: 1n });
+            return real.send(o);
+          },
+        };
+      },
+    } as unknown as Rpc<SolanaRpcApi>;
+    expect(await checkPrepared(honest, intentFor(b.wallet), lagging)).toEqual([]);
+    expect(behind).toBe(-1);
   });
 
   it('with too few blocks left to land, the example does not finalize', async () => {
@@ -1958,7 +1979,7 @@ describe('the skill holds its own limits and its state against what it is handed
     expect(r.output.error).toMatchObject({ code: 'unavailable', retryAfter: 5 });
     const checked = await runCli('check', { prepared: await honestAnswer(b), intent }, { ...deps, fetchImpl: busy });
     expect(checked.output.error).toMatchObject({ code: 'unavailable' });
-  });
+  }, 30_000);
 
   it("an RPC that does not answer during the check is unavailable, not a refusal of the transaction", async () => {
     const { b, deps } = await cliSetup();
@@ -2378,9 +2399,13 @@ describe("Jupiter's answers to the agent's own price, busy or not", () => {
   };
   const ask = (fetchImpl: typeof fetch) => ownQuote({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: WSOL_MINT, fetchImpl, apiKey: 'k' });
 
+  // Jupiter is asked four times with waits of 0.4, 0.8 and 1.6 s between: these tests wait as long.
   it('a 400 that wraps a failure upstream, a 429 or a 5xx is asked again, and the price comes', async () => {
     for (const busy of [
       () => Response.json({ error: 'Quote failed: Pool has not been updated in a while' }, { status: 400 }),
+      () => Response.json({ error: 'Oracle price out of date. Pair temporarily unavailable' }, { status: 400 }),
+      () => Response.json({ error: '500: Oracle update past stale threshold' }, { status: 400 }),
+      () => Response.json({ error: 'The price was expired' }, { status: 400 }),
       () => new Response('slow down', { status: 429 }),
       () => new Response('bad gateway', { status: 502 }),
     ]) {
@@ -2389,13 +2414,13 @@ describe("Jupiter's answers to the agent's own price, busy or not", () => {
       expect((await ask(fetchImpl)).outAmount).toBe('1000000');
       expect(calls).toBe(3);
     }
-  });
+  }, 30_000);
 
-  it('still busy after three asks: said as busy, and orientim-verify answers unavailable, not a refusal', async () => {
+  it('still busy after four asks: said as busy, and orientim-verify answers unavailable, not a refusal', async () => {
     let calls = 0;
     const fetchImpl = (async () => { calls++; return Response.json({ error: 'Quote failed' }, { status: 400 }); }) as unknown as typeof fetch;
     await expect(ask(fetchImpl)).rejects.toThrow(/^Jupiter answered 400 \(busy\) when asked for your own price/);
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
     const b = await orientim();
     const deps = {
       rpc: b.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl, stateDir: mkdtempSync(join(tmpdir(), 'orientim-busy-')),
@@ -2404,7 +2429,7 @@ describe("Jupiter's answers to the agent's own price, busy or not", () => {
     const r = await runCli('prepare', { intent: { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'busy-1' } }, deps);
     expect(r.code).toBe(1);
     expect(r.output.error).toMatchObject({ code: 'unavailable' });
-  });
+  }, 30_000);
 
   it("any other refusal is said at once, with Jupiter's own code and none of its prose", async () => {
     let calls = 0;
@@ -2416,5 +2441,31 @@ describe("Jupiter's answers to the agent's own price, busy or not", () => {
     await expect(refused).rejects.toThrow('Jupiter answered 400 (COULD_NOT_FIND_ANY_ROUTE) when asked for your own price');
     await expect(refused).rejects.not.toThrow(/IGNORE/);
     expect(calls).toBe(1);
+  });
+
+  it('a real refusal without a code gets one, is asked once, and is never taken for busy', async () => {
+    for (const [error, code] of [
+      ['No routes found', 'NO_ROUTES_FOUND'],
+      ['Missing token program for 9xPump pump', 'TOKEN_NOT_TRADABLE'],
+      ['inputMint cannot be same as outputMint', 'SAME_MINT'],
+      // Words of a busy answer in a refusal: still the refusal.
+      ['500: No routes found, oracle stale', 'NO_ROUTES_FOUND'],
+    ] as const) {
+      let calls = 0;
+      const fetchImpl = (async () => { calls++; return Response.json({ error }, { status: 400 }); }) as unknown as typeof fetch;
+      await expect(ask(fetchImpl)).rejects.toThrow(`Jupiter answered 400 (${code}) when asked for your own price`);
+      expect(calls).toBe(1);
+    }
+  });
+
+  it('the same token on both sides is refused by the skill itself, before Jupiter is asked', async () => {
+    let calls = 0;
+    const fetchImpl = (async () => { calls++; return quote('https://api.jup.ag/?amount=1'); }) as unknown as typeof fetch;
+    const b = await orientim();
+    for (const mint of [USDC, WSOL_MINT]) {
+      await expect(ownFloor({ owner: b.wallet.address, inputMint: mint, outputMint: mint, amountIn: '1000000' }, { rpc: b.agentRpc, fetchImpl, jupiterApiKey: 'k' }))
+        .rejects.toThrow(IntentError);
+    }
+    expect(calls).toBe(0);
   });
 });
