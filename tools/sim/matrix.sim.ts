@@ -942,7 +942,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
 }
 
 /** Outcomes that depend on the market of the moment, not on the code that checks it. */
-const MARKET_DECIDES = /costs-more|price-moved|price-impact-high|route-failed-in-check|check-refused-honest-answer|problems: .*fails in simulation/;
+const MARKET_DECIDES = /costs-more|price-moved|simulation-failed|price-impact-high|route-failed-in-check|check-refused-honest-answer|problems: .*fails in simulation/;
 
 // --- the analysis: what the passes and refusals show, beyond each verdict
 const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)] : NaN);
