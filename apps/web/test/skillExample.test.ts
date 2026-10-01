@@ -13,7 +13,7 @@ import {
   setTransactionMessageLifetimeUsingBlockhash, signBytes, SolanaError, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
 } from '@solana/kit';
-import type { Address, Instruction, KeyPairSigner, Rpc, SolanaRpcApi } from '@solana/kit';
+import type { Address, Instruction, KeyPairSigner, Rpc, SolanaRpcApi, Transaction } from '@solana/kit';
 import { getAssignInstruction, getTransferSolInstruction } from '@solana-program/system';
 import {
   AuthorityType, getApproveInstruction, getSetAuthorityInstruction, getTransferCheckedInstruction,
@@ -62,7 +62,7 @@ const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter())
  * `market`: what Orientim's server quotes from, which a compromised server chooses. `treasuryWallet`:
  * the treasury's wallet exists, so a sale into SOL pays its fee in SOL, out of the output.
  */
-async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean } = {}) {
+async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean; v1?: boolean } = {}) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
@@ -78,7 +78,7 @@ async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean
     rpc, jupiter: opts.market ?? fakeJupiter(), secrets: [new Uint8Array(32).fill(3)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'skill-test']]),
     feeBps: 20n, treasury: TREASURY, excludeDexes: ['HumidiFi'], maxNetworkFeeLamports: 200_000n,
-    disabled: false, v1: false, perMinute: 1_000,
+    disabled: false, v1: opts.v1 ?? false, perMinute: 1_000,
   };
   // The API as the agent reaches it over HTTP.
   const fetchImpl = (async (url: string, init: RequestInit) => {
@@ -1695,6 +1695,37 @@ describe('the same as the page, for agents and bots: tolerance, price impact, to
       intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
     });
     expect(open.outcome).toBe('confirmed');
+  });
+
+  it("the owner's slippage ceiling holds on a v1 transaction too, whose instructions are headers and payloads", async () => {
+    const curve = () => fakeJupiter({ curveProgram: true, label: 'Pump.fun' });
+    const policy = { maxAmountIn: { [USDC]: '1000000' }, maxSlippageBps: 100 };
+    const b = await orientim({ market: curve(), v1: true });
+    await expect(protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1, policy,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY, version: 1 },
+    })).rejects.toThrow(/tolerates \d+ bps, above the owner's limit of 100 \(maxSlippageBps\)/);
+    expect(b.sent).toHaveLength(0);
+    // Within the ceiling, the v1 swap goes through.
+    const d = await orientim({ market: curve(), v1: true });
+    const within = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: d.agentRpc, wallet: d.wallet, fetchImpl: d.fetchImpl, pollMs: 1, policy,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY, slippageBps: 100, version: 1 },
+    });
+    expect(within.outcome).toBe('confirmed');
+    expect(getTransactionDecoder().decode(Buffer.from(d.sent[0], 'base64')).messageBytes[0]).toBe(0x81);
+  });
+
+  it('a v1 transaction that failed is explained with its program, as a v0 one is', async () => {
+    const payer = await generateKeyPairSigner();
+    const tx: Transaction = compileTransaction(pipe(
+      createTransactionMessage({ version: 1 } as never),
+      m => setTransactionMessageFeePayer(payer.address, m as never),
+      m => setTransactionMessageLifetimeUsingBlockhash({ blockhash: '11111111111111111111111111111111' as never, lastValidBlockHeight: 1n }, m as never),
+      m => appendTransactionMessageInstructions([getTransferSolInstruction({ source: createNoopSigner(payer.address), destination: TREASURY, amount: 1n })], m as never),
+    ) as never) as Transaction;
+    expect(tx.messageBytes[0]).toBe(0x81);
+    expect(failureCause({ InstructionError: [0, { Custom: 7 }] }, tx)).toContain('program 11111111111111111111111111111111');
   });
 
   it('a price impact above the limit is refused before anything is prepared; the owner may allow more', async () => {
