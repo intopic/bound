@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       groups:
-        description: 'Only these groups, comma-separated (repeat, sizes, pairs, majors, whales, personas, pump, tolerance, rules, parity, hard, giants, more-tokens, tamper, approve, burst, modes); empty for all'
+        description: 'Only these groups, comma-separated (repeat, sizes, pairs, majors, whales, personas, pump, tolerance, rules, parity, hard, giants, more-tokens, tamper, approve, burst, v1-compare, modes); empty for all'
         required: false
         default: ''
       limit:

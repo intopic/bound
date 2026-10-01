@@ -27,7 +27,7 @@
  *
  *   RPC_URL=<mainnet RPC> JUPITER_API_KEY=<key> npx vitest run --config tools/sim/vitest.config.ts
  *   SIM_GROUPS=sizes,pairs   only those groups (repeat, sizes, pairs, majors, whales, personas, pump, tolerance, rules,
- *                            parity, hard, giants, more-tokens, tamper, approve, burst, modes)
+ *                            parity, hard, giants, more-tokens, tamper, approve, burst, v1-compare, modes)
  *   SIM_LIMIT=20             at most this many cases
  *   SIM_JUPITER_INTERVAL_MS  the least time between two Jupiter requests (default 1100: a free key)
  *   SIM_OFFLINE=1            a few cases against the test fakes, to check the matrix itself without a network
@@ -130,6 +130,8 @@ type Case = {
   approve?: boolean;
   /** Cases with the same wave run all at once: many agents, different swaps, the same moment. */
   wave?: string;
+  /** The same swap as a v0 and as a v1 transaction, one after the other: their outputs compared. */
+  compare?: string;
 };
 
 function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
@@ -324,6 +326,17 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     { input: 'mSOL', output: 'JitoSOL', usd: 5_000, bot: true }, { input: 'SOL', output: 'JTO', usd: 2_500 }, { input: 'RAY', output: 'USDC', usd: 700 },
   ] as Omit<Case, 'group'>[]) cases.push({ group: 'burst', wave: 'burst', ...c });
   repeat(3);
+  // v0 against v1: the swaps where a protected route cost more than the open market, each built as
+  // a v0 transaction (1232 bytes) and then as v1 (4096 bytes), a moment apart. A v1 route need not
+  // shrink to fit, so the difference is what the larger transaction is worth.
+  for (const [input, output, usd] of [
+    ['SOL', 'BONK', 50_000], ['SOL', 'BONK', 100_000], ['BONK', 'SOL', 100_000], ['JTO', 'SOL', 50_000], ['JTO', 'SOL', 100_000],
+    ['SOL', 'JTO', 100_000], ['USDC', 'JUP', 100_000], ['JUP', 'SOL', 200_000], ['SOL', 'W', 8_000], ['RENDER', 'SOL', 100_000],
+    ['TRUMP', 'SOL', 200_000], ['USDT', 'BONK', 100_000], ['SOL', 'WIF', 100_000], ['SOL', 'USDC', 1_000_000], ['USDC', 'SOL', 500_000],
+  ] as const) {
+    const key = `${input}-${output}-${usd}`;
+    cases.push({ group: 'v1-compare', input, output, usd, compare: key }, { group: 'v1-compare', input, output, usd, compare: key, version: 1 });
+  }
 
   // v1 transactions and Jupiter's fast routing, where the deployment offers them.
   cases.push(
@@ -517,6 +530,8 @@ type Result = {
   tampered?: { name: string; verdict: 'caught' | 'missed' | 'untested'; why: string }[];
   /** What the owner approved before the swap passed: a gap, or a new minimum. */
   approved?: string;
+  /** The protected route's quoted output (passed, or refused as costing more), and the v0/v1 pair it belongs to. */
+  outAmount?: string; compare?: string; version?: number;
 };
 
 const ABOVE_CEILING = /above the owner's limit of \d+ \(maxSlippageBps\)/;
@@ -738,6 +753,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     n, group: c.group, pair: `${nameOf(input)} → ${nameOf(output)}`, usd: c.share ? `${c.share * 100}% of a holder` : `$${c.usd.toLocaleString('en-US')}`,
     rule: c.rule?.label ?? '', asked: c.slippage === undefined ? 'default' : String(c.slippage), built: '',
     kind: 'UNTESTED', code: '', detail: '', route: '', impact: '', fee: '', floor: '', ms: 0,
+    ...(c.compare ? { compare: c.compare, version: c.version ?? 0 } : {}),
   };
   const started = Date.now();
   try {
@@ -812,6 +828,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
         detail: (checked.notices ?? []).join(' ').slice(0, 160),
       };
       outcome.usdValue = c.usd || undefined;
+      outcome.outAmount = p.amounts.quotedOut;
       outcome.impactBps = typeof p.amounts.priceImpactPct === 'number' ? Math.round(p.amounts.priceImpactPct * 10_000) : null;
       outcome.floorBps = floorBps;
       if (approved) outcome.approved = approved;
@@ -835,7 +852,10 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
       }
     } catch (e) {
       outcome = { ...base, ...classify(e) };
-      if (e instanceof OrientimApiError && e.code === 'costs-more') outcome.gapBps = Number(e.body.gapBps);
+      if (e instanceof OrientimApiError && e.code === 'costs-more') {
+        outcome.gapBps = Number(e.body.gapBps);
+        outcome.outAmount = String(e.body.outAmount);
+      }
       if (c.usd) outcome.usdValue = c.usd;
     }
     // The same case as a bot: orientim-verify prepare, with the same policy.
@@ -931,6 +951,27 @@ function analysis(results: Result[]): string[] {
     const byCase = new Map<string, string[]>();
     for (const r of rounds) byCase.set(`${r.pair} ${r.usd}`, [...(byCase.get(`${r.pair} ${r.usd}`) ?? []), r.kind === 'PASS' ? 'PASS' : r.code]);
     lines.push(`- **The same swaps at the start, middle and end of the run**: ${[...byCase].map(([k, v]) => `${k}: ${v.join(' / ')}`).join('; ')}.`);
+  }
+  // v0 against v1.
+  const pairs = new Map<string, { v0?: Result; v1?: Result }>();
+  for (const r of results.filter(x => x.compare)) {
+    const e = pairs.get(r.compare!) ?? {};
+    if (r.version === 1) e.v1 = r; else e.v0 = r;
+    pairs.set(r.compare!, e);
+  }
+  if (pairs.size) {
+    const verdict = (r?: Result) => (!r ? '-' : r.kind === 'PASS' ? 'PASS' : r.code === 'costs-more' ? `costs ${bps(r.gapBps ?? NaN)} more` : r.code);
+    const gains: number[] = [];
+    lines.push('', '### v0 (1232 bytes) against v1 (4096 bytes), the same swap a moment apart', '', '| pair | amount | v0 | v1 | v1 output against v0 |', '|---|---|---|---|---|');
+    for (const { v0, v1 } of pairs.values()) {
+      const a = v0?.outAmount ? Number(v0.outAmount) : NaN;
+      const b = v1?.outAmount ? Number(v1.outAmount) : NaN;
+      const gain = a > 0 && b > 0 ? ((b - a) / a) * 10_000 : NaN;
+      if (Number.isFinite(gain)) gains.push(gain);
+      const any = v0 ?? v1!;
+      lines.push(`| ${any.pair} | ${any.usd} | ${verdict(v0)} | ${verdict(v1)} | ${Number.isFinite(gain) ? `${gain >= 0 ? '+' : ''}${(gain / 100).toFixed(2)}%` : '-'} |`);
+    }
+    if (gains.length) lines.push('', `- **v1 against v0**: ${gains.length} pairs compared, median ${bps(median(gains))} more output with v1, best ${bps(Math.max(...gains))}, worst ${bps(Math.min(...gains))}; ${[...pairs.values()].filter(p => p.v0?.code === 'costs-more' && p.v1?.kind === 'PASS').length} swaps refused as costlier with v0 passed with v1.`);
   }
   // Agents against bots.
   const both = results.filter(r => r.bot !== undefined);
