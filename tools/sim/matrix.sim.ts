@@ -30,6 +30,7 @@
  *                            parity, hard, giants, more-tokens, tamper, approve, burst, v1-compare, modes)
  *   SIM_LIMIT=20             at most this many cases
  *   SIM_JUPITER_INTERVAL_MS  the least time between two Jupiter requests (default 1100: a free key)
+ *   SIM_VERSION=1            every case that names no version as a v1 transaction (default v0)
  *   SIM_OFFLINE=1            a few cases against the test fakes, to check the matrix itself without a network
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -62,6 +63,8 @@ const JUPITER_INTERVAL_MS = Number(process.env.SIM_JUPITER_INTERVAL_MS ?? (JUPIT
 const GROUPS = (process.env.SIM_GROUPS ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const LIMIT = Number(process.env.SIM_LIMIT ?? 0) || Infinity;
 const OUT = process.env.SIM_OUT ?? join(tmpdir(), 'orientim-sim');
+/** The transaction version of every case that does not name its own: SIM_VERSION=1 runs the matrix as v1. */
+const DEFAULT_VERSION: 0 | 1 = process.env.SIM_VERSION === '1' ? 1 : 0;
 const API_KEY = `ori_sim_${randomBytes(12).toString('hex')}`;
 const API_URL = 'http://orientim.sim';
 
@@ -335,7 +338,7 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     ['TRUMP', 'SOL', 200_000], ['USDT', 'BONK', 100_000], ['SOL', 'WIF', 100_000], ['SOL', 'USDC', 1_000_000], ['USDC', 'SOL', 500_000],
   ] as const) {
     const key = `${input}-${output}-${usd}`;
-    cases.push({ group: 'v1-compare', input, output, usd, compare: key }, { group: 'v1-compare', input, output, usd, compare: key, version: 1 });
+    cases.push({ group: 'v1-compare', input, output, usd, compare: key, version: 0 }, { group: 'v1-compare', input, output, usd, compare: key, version: 1 });
   }
 
   // v1 transactions and Jupiter's fast routing, where the deployment offers them.
@@ -491,7 +494,7 @@ async function offline(): Promise<World> {
   const jupiter = fakes.fakeJupiter();
   const deps: AgentDeps = {
     rpc, jupiter, secrets: [randomBytes(32)], keys: new Map([[createHash('sha256').update(API_KEY).digest('hex'), 'sim']]),
-    feeBps: 25n, treasury: address(ORIENTIM_TREASURY), excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: false, perMinute: 1_000_000,
+    feeBps: 25n, treasury: address(ORIENTIM_TREASURY), excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: true, perMinute: 1_000_000,
   };
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     if (String(url).startsWith('https://api.jup.ag/')) {
@@ -573,12 +576,52 @@ function classify(e: unknown): Pick<Result, 'kind' | 'code' | 'detail'> {
   return { kind: 'BUG', code: 'error', detail: message.slice(0, 400) };
 }
 
-/** The tolerance the Jupiter route in the built transaction carries, in bps. */
+/**
+ * A compiled message of either version, with its instructions in one shape: v0 lists them as
+ * instructions; v1 as headers and payloads, with the compute budget in its config instead of
+ * ComputeBudget instructions.
+ */
+type Ix = { programAddressIndex: number; accountIndices?: number[]; data?: Uint8Array };
+type Compiled = {
+  version: number | 'legacy'; header: { numSignerAccounts: number; numReadonlySignerAccounts: number; numReadonlyNonSignerAccounts: number };
+  staticAccounts: string[]; lifetimeToken: string;
+  instructions: Ix[];
+  addressTableLookups?: unknown[];
+  configValues?: { kind: string; value: number | bigint }[];
+};
+type RawV1 = {
+  instructionHeaders: { programAccountIndex: number; numInstructionAccounts: number; numInstructionDataBytes: number }[];
+  instructionPayloads: { instructionAccountIndices: number[]; instructionData: Uint8Array }[];
+};
+
+function decodeMessage(messageBytes: Uint8Array): Compiled {
+  const raw = getCompiledTransactionMessageDecoder().decode(messageBytes as never) as unknown as Compiled & Partial<RawV1>;
+  if (raw.version !== 1) return raw;
+  const instructions = (raw.instructionHeaders ?? []).map((h, i) => ({
+    programAddressIndex: h.programAccountIndex,
+    accountIndices: [...(raw.instructionPayloads?.[i]?.instructionAccountIndices ?? [])],
+    data: Uint8Array.from(raw.instructionPayloads?.[i]?.instructionData ?? []),
+  }));
+  return { ...raw, instructions };
+}
+
+function encodeMessage(m: Compiled): Uint8Array {
+  if (m.version !== 1) return getCompiledTransactionMessageEncoder().encode(m as never) as Uint8Array;
+  const { instructions, ...rest } = m;
+  const v1 = {
+    ...rest,
+    numStaticAccounts: m.staticAccounts.length,
+    numInstructions: instructions.length,
+    instructionHeaders: instructions.map(i => ({ programAccountIndex: i.programAddressIndex, numInstructionAccounts: i.accountIndices?.length ?? 0, numInstructionDataBytes: i.data?.length ?? 0 })),
+    instructionPayloads: instructions.map(i => ({ instructionAccountIndices: i.accountIndices ?? [], instructionData: i.data ?? new Uint8Array() })),
+  };
+  return getCompiledTransactionMessageEncoder().encode(v1 as never) as Uint8Array;
+}
+
+/** The tolerance the Jupiter route in the built transaction carries, in bps (v0 or v1). */
 function builtTolerance(wire: string): number | null {
   try {
-    const compiled = getCompiledTransactionMessageDecoder().decode(getTransactionDecoder().decode(Buffer.from(wire, 'base64')).messageBytes) as unknown as {
-      staticAccounts: string[]; instructions: { programAddressIndex: number; data?: Uint8Array }[];
-    };
+    const compiled = decodeMessage(getTransactionDecoder().decode(Buffer.from(wire, 'base64')).messageBytes as unknown as Uint8Array);
     const ix = compiled.instructions.find(i => compiled.staticAccounts[i.programAddressIndex] === JUPITER_PROGRAM);
     return ix?.data ? jupiterRouteArgs(ix.data)?.slippageBps ?? null : null;
   } catch {
@@ -589,32 +632,27 @@ function builtTolerance(wire: string): number | null {
 // --- a dishonest server, on real transactions
 const SYSTEM = '11111111111111111111111111111111';
 const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111';
-type Compiled = {
-  version: number | 'legacy'; header: { numSignerAccounts: number; numReadonlySignerAccounts: number; numReadonlyNonSignerAccounts: number };
-  staticAccounts: string[]; lifetimeToken: string;
-  instructions: { programAddressIndex: number; accountIndices?: number[]; data?: Uint8Array }[];
-  addressTableLookups?: unknown[];
-};
 const randomAddress = () => getAddressDecoder().decode(randomBytes(32));
 
 /**
- * The changes a dishonest server could make to a transaction it built, each as a new wire
- * transaction, or null where it does not apply (a v1 message, no such instruction).
+ * The changes a dishonest server could make to a transaction it built, v0 or v1, each as a new wire
+ * transaction, or null where it does not apply (no such instruction).
  */
 function tamperings(wire: string, owner: string): { name: string; wire: string | null }[] {
   const tx = getTransactionDecoder().decode(Buffer.from(wire, 'base64'));
   let base: Compiled;
   try {
-    base = getCompiledTransactionMessageDecoder().decode(tx.messageBytes) as unknown as Compiled;
+    base = decodeMessage(tx.messageBytes as unknown as Uint8Array);
   } catch {
     return [];
   }
   const clone = (): Compiled => ({
     ...base, header: { ...base.header }, staticAccounts: [...base.staticAccounts],
     instructions: base.instructions.map(i => ({ ...i, accountIndices: i.accountIndices ? [...i.accountIndices] : undefined, data: i.data ? Uint8Array.from(i.data) : undefined })),
+    ...(base.configValues ? { configValues: base.configValues.map(v => ({ ...v })) } : {}),
   });
   const encode = (m: Compiled): string => {
-    const messageBytes = getCompiledTransactionMessageEncoder().encode(m as never);
+    const messageBytes = encodeMessage(m);
     const signatures = Object.fromEntries(m.staticAccounts.slice(0, m.header.numSignerAccounts).map(a => [a, null]));
     return Buffer.from(getTransactionEncoder().encode({ messageBytes, signatures } as never)).toString('base64');
   };
@@ -660,6 +698,13 @@ function tamperings(wire: string, owner: string): { name: string; wire: string |
     return true;
   });
   change('network fee raised a million times', m => {
+    // v1: the priority fee is the message's config value in lamports (its only u64).
+    const fee = m.configValues?.find(v => v.kind === 'u64');
+    if (m.version === 1) {
+      if (!fee) return false;
+      fee.value = (BigInt(fee.value) + 1n) * 1_000_000n;
+      return true;
+    }
     const ix = m.instructions.find(i => m.staticAccounts[i.programAddressIndex] === COMPUTE_BUDGET && i.data?.[0] === 3);
     if (!ix?.data) return false;
     const v = new DataView(ix.data.buffer, ix.data.byteOffset);
@@ -725,10 +770,12 @@ function invariantsBroken(p: Prepared, owner: string, intent: Omit<Intent, 'owne
   // 1-2: the wallet pays and signs, and the one-time key is the only other signer.
   if (signers[0] !== owner) broken.push(`fee payer ${signers[0]}, not the wallet`);
   if (signers.length !== 2 || signers[1] !== p.temporaryAuthority || p.temporaryAuthority === owner) broken.push(`signers ${signers.join(', ')}`);
-  // 3: a v0 transaction fits in a packet.
-  let v0 = false;
-  try { v0 = (getCompiledTransactionMessageDecoder().decode(tx.messageBytes) as unknown as Compiled).version === 0; } catch { /* v1 */ }
-  if (v0 && wire.length > 1_232) broken.push(`${wire.length} bytes, over 1232`);
+  // 3: the transaction fits its version's limit: 1232 bytes for v0, 4096 for v1.
+  let version: number | 'legacy' | null = null;
+  try { version = decodeMessage(tx.messageBytes as unknown as Uint8Array).version; } catch { /* unreadable: checked below */ }
+  const sizeLimit = version === 1 ? 4_096 : 1_232;
+  if (version === null) broken.push('a message this matrix cannot read');
+  else if (wire.length > sizeLimit) broken.push(`${wire.length} bytes, over ${sizeLimit} (v${version})`);
   // 4: Orientim's fee is its pinned 0.25% at most.
   if (Number(p.amounts.feeBps) > 25) broken.push(`fee ${p.amounts.feeBps} bps`);
   // 5: the price impact within the limit asked (5% unless the owner or agent set another).
@@ -753,7 +800,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     n, group: c.group, pair: `${nameOf(input)} → ${nameOf(output)}`, usd: c.share ? `${c.share * 100}% of a holder` : `$${c.usd.toLocaleString('en-US')}`,
     rule: c.rule?.label ?? '', asked: c.slippage === undefined ? 'default' : String(c.slippage), built: '',
     kind: 'UNTESTED', code: '', detail: '', route: '', impact: '', fee: '', floor: '', ms: 0,
-    ...(c.compare ? { compare: c.compare, version: c.version ?? 0 } : {}),
+    ...(c.compare ? { compare: c.compare, version: c.version ?? DEFAULT_VERSION } : {}),
   };
   const started = Date.now();
   try {
@@ -788,7 +835,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     const intent: Omit<Intent, 'owner'> = {
       inputMint: input, outputMint: output, amountIn: amount.toString(), ...(minOut ? { minOut } : {}),
       ...(c.slippage !== undefined ? { slippageBps: c.slippage } : {}),
-      ...(c.version ? { version: c.version } : {}), ...(c.fast ? { routingMode: 'fast' as const } : {}),
+      ...((c.version ?? DEFAULT_VERSION) === 1 ? { version: 1 as const } : {}), ...(c.fast ? { routingMode: 'fast' as const } : {}),
       ...(c.rule?.intent ?? {}),
     };
     // As protectedSwap does: the owner's per-swap limits first, then prepare and the full check.
@@ -907,7 +954,7 @@ function analysis(results: Result[]): string[] {
   const passes = results.filter(r => r.kind === 'PASS');
   // Invariants, read apart from the check.
   const checked = passes.filter(r => r.invariants);
-  lines.push(`- **Rules read apart from the check**: ${checked.length} passes × ${INVARIANTS} rules (the wallet pays and signs, one one-time key besides, fits a packet, fee at most 0.25%, impact within its limit, a minimum above zero and under the quote, the amount asked, this wallet named, at most 150 blocks): ${results.filter(r => r.code === 'invariant').length} broken.`);
+  lines.push(`- **Rules read apart from the check**: ${checked.length} passes × ${INVARIANTS} rules (the wallet pays and signs, one one-time key besides, fits its version's size, fee at most 0.25%, impact within its limit, a minimum above zero and under the quote, the amount asked, this wallet named, at most 150 blocks): ${results.filter(r => r.code === 'invariant').length} broken.`);
   // Tampering.
   const tampered = results.flatMap(r => r.tampered ?? []);
   if (tampered.length) {
@@ -983,7 +1030,7 @@ function analysis(results: Result[]): string[] {
 function report(results: Result[], started: number, summaryOnly = false): string {
   const count = (k: Result['kind']) => results.filter(r => r.kind === k).length;
   const lines: string[] = [];
-  lines.push(`# Orientim mainnet simulation matrix`, '');
+  lines.push(`# Orientim mainnet simulation matrix (v${DEFAULT_VERSION} transactions unless a case names its own)`, '');
   lines.push(`${results.length} cases in ${Math.round((Date.now() - started) / 60_000)} min: **${count('PASS')} passed**, ${count('REFUSED')} refused, ${count('UNTESTED')} untested, **${count('BUG')} to look at**.`, '');
   lines.push('Nothing was signed or sent: each swap stops before the wallet signs, after the full check simulated it on mainnet state.', '');
   const groups = [...new Set(results.map(r => r.group))];
@@ -1046,13 +1093,14 @@ it('the mainnet simulation matrix', async () => {
       { group: 'offline', input: 'USDC', output: 'USDC', usd: 100, expect: ['any-refusal'] },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, minOutOfQuote: 1.05, expect: ['any-refusal'] },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, tamper: true },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, tamper: true, version: 1 },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, minOutOfQuote: 1.05, approve: true },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, wave: 'w' },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 200, wave: 'w' },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 300, wave: 'w', slippage: 'auto' },
     ] as Case[]
     : buildCases(pump);
-  console.log(`${cases.length} cases${pump.curve.length || pump.amm.length ? `; Pump.fun curve ${pump.curve.map(nameOf).join(', ')}; PumpSwap ${pump.amm.map(nameOf).join(', ')}` : ''}`);
+  console.log(`${cases.length} cases, as v${DEFAULT_VERSION} unless a case names its own${pump.curve.length || pump.amm.length ? `; Pump.fun curve ${pump.curve.map(nameOf).join(', ')}; PumpSwap ${pump.amm.map(nameOf).join(', ')}` : ''}`);
   const results: Result[] = [];
   let n = 0;
   const say = (r: Result) => console.log(`${String(r.n).padStart(3)} ${r.kind.padEnd(8)} ${r.group.padEnd(9)} ${r.pair} ${r.usd} ${r.rule} slippage ${r.asked}${r.built ? ` built ${r.built}` : ''}: ${r.code} ${r.route} ${r.detail.slice(0, 120)}`);
