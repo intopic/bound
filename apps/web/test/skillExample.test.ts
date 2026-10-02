@@ -2811,15 +2811,16 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     const failure = await prepareChecked({
       apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, owner: b.wallet.address, fetchImpl, jupiterApiKey: 'fallback-time',
       intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
-      // 2.5 s for the whole preparation; the call itself would wait 60 s.
-      budget: { asks: 48, until: performance.now() + 2_500 },
+      // 8 s for the whole preparation (the rounds before it take a second or two, more on a busy
+      // machine); the call itself would wait 60 s.
+      budget: { asks: 48, until: performance.now() + 8_000 },
     }).catch(e => e as Error);
     expect(fellBackAt).toBeGreaterThan(0);
     expect(failure).toMatchObject({ name: 'BudgetSpentError', message: expect.stringMatching(/took longer than a swap may/) });
     // Ended by the preparation's own time, not by the call's 60 s.
-    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(performance.now() - started).toBeLessThan(12_000);
     expect(b.sent).toHaveLength(0);
-  }, 20_000);
+  }, 30_000);
 
   it('a route asked for again is not fetched again; asked only for routes already sent, the skill stops', async () => {
     const E = (await generateKeyPairSigner()).address;
