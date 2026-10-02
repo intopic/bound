@@ -730,3 +730,84 @@ describe('a prepare that takes too long', () => {
     expect(w.sent).toHaveLength(0);
   });
 });
+
+describe("routes the agent brings from Jupiter with its own key", () => {
+  type Asked = { error: { code: string; session: string; taker: string; requests: Record<string, unknown>[] } };
+  const paramsOf = (r: Record<string, unknown>) => ({
+    inputMint: address(r.inputMint as string), outputMint: address(r.outputMint as string), amount: BigInt(r.amount as string),
+    taker: address(r.taker as string), slippageBps: r.slippageBps as number, maxAccounts: r.maxAccounts as number,
+    ...(r.destinationTokenAccount ? { destinationTokenAccount: address(r.destinationTokenAccount as string) } : {}),
+    ...(r.excludeDexes ? { excludeDexes: r.excludeDexes as string[] } : {}),
+  });
+  /** Orientim's own client, counting what is asked of its key. */
+  const counting = () => {
+    const asked: unknown[] = [];
+    return { asked, jupiter: fakeJupiter({ asked: asked as never }) };
+  };
+
+  it('prepare asks for the routes it needs, the agent fetches them, and the swap is built without Orientim\'s key', async () => {
+    const own = counting();
+    const w = await world({ jupiter: own.jupiter });
+    const agentMarket = fakeJupiter();
+    const routes: { params: Record<string, unknown>; response: unknown }[] = [];
+    let session: string | undefined;
+    let res: Response | undefined;
+    for (let round = 0; round < 6; round++) {
+      res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, routes, ...(session ? { session } : {}) })), w.deps);
+      if (res.status !== 409) break;
+      const asked = (await res.json() as Asked).error;
+      expect(asked.code).toBe('routes-needed');
+      session = asked.session;
+      for (const r of asked.requests) {
+        expect(r.taker).toBe(asked.taker);
+        routes.push({ params: r, response: await agentMarket.build(paramsOf(r)) });
+      }
+    }
+    expect(res!.status).toBe(200);
+    const p = await res!.json() as Prepared;
+    expect(p.temporaryAuthority).toBe((await openSessionOf(session!)).taker);
+    expect(own.asked).toHaveLength(0);
+    // Finalize as ever: the wallet signs, E signs last.
+    const fin = await agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction) }), w.deps);
+    expect(fin.status).toBe(200);
+  });
+
+  it('a session opens only for the swap and the key it was sealed for, and routes come only with ownRoutes', async () => {
+    const w = await world();
+    const first = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true })), w.deps);
+    expect(first.status).toBe(409);
+    const { session } = (await first.json() as Asked).error;
+    for (const [body, key] of [
+      [swapBody(w.W.address, { ownRoutes: true, session, amountIn: '2000000' }), KEY],
+      [swapBody(w.W.address, { ownRoutes: true, session, outputMint: BONK }), KEY],
+      [swapBody(w.W.address, { ownRoutes: true, session }), OTHER_KEY],
+      [swapBody(w.W.address, { ownRoutes: true, session: `${session}x` }), KEY],
+    ] as const) {
+      const res = await agentPrepare(post('prepare', body, key), w.deps);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect((await res.json()).error.code).toBe('bad-session');
+    }
+    for (const body of [swapBody(w.W.address, { routes: [] }), swapBody(w.W.address, { session }), swapBody(w.W.address, { ownRoutes: 'yes' })]) {
+      expect((await agentPrepare(post('prepare', body), w.deps)).status).toBe(400);
+    }
+    expect(w.sent).toHaveLength(0);
+  });
+
+  it('a route that does not answer the swap is refused like a bad answer from Jupiter, and nothing is built', async () => {
+    const w = await world();
+    const first = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true })), w.deps);
+    const asked = (await first.json() as Asked).error;
+    // Built for twice the amount: not this swap.
+    const lying = fakeJupiter({ inAmountFactor: 2n });
+    const routes = await Promise.all(asked.requests.map(async r => ({ params: r, response: await lying.build(paramsOf(r)) })));
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, session: asked.session, routes })), w.deps);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.code).toBe('bad-quote');
+  });
+});
+
+/** The taker a session was opened for, read from its payload (the MAC is checked by the server). */
+async function openSessionOf(session: string) {
+  const payload = JSON.parse(Buffer.from(session.split('.')[0], 'base64url').toString('utf8')) as { nonce: string };
+  return { taker: (await ephemeralFor(secret(7), payload.nonce)).address };
+}

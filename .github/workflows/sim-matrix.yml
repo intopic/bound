@@ -26,6 +26,10 @@ on:
         description: 'Transaction version of every case that names none: 0, or 1 to run the matrix as v1'
         required: false
         default: '0'
+      own_routes:
+        description: "1: the agent fetches routes with its own Jupiter key (as the skill does); 0: Orientim's key builds them"
+        required: false
+        default: '1'
       jupiter_interval_ms:
         description: 'Least time between two Jupiter requests, in ms (1100 suits a free key)'
         required: false
@@ -53,5 +57,6 @@ jobs:
           SIM_LIMIT: ${{ inputs.limit }}
           SIM_JUPITER_INTERVAL_MS: ${{ inputs.jupiter_interval_ms }}
           SIM_VERSION: ${{ inputs.version }}
+          SIM_OWN_ROUTES: ${{ inputs.own_routes }}
           SIM_OUT: ${{ runner.temp }}/sim
         run: node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts

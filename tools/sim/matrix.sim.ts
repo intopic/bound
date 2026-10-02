@@ -31,6 +31,7 @@
  *   SIM_LIMIT=20             at most this many cases
  *   SIM_JUPITER_INTERVAL_MS  the least time between two Jupiter requests (default 1100: a free key)
  *   SIM_VERSION=1            every case that names no version as a v1 transaction (default v0)
+ *   SIM_OWN_ROUTES=0         Orientim's key fetches the routes (default: the agent's own key, as the skill does)
  *   SIM_OFFLINE=1            a few cases against the test fakes, to check the matrix itself without a network
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -59,6 +60,8 @@ import { ORIENTIM_TREASURY } from '../../skills/orientim-protected-swap/lib/orie
 const OFFLINE = process.env.SIM_OFFLINE === '1';
 const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';
 const JUPITER_API_KEY = process.env.JUPITER_API_KEY || undefined;
+/** Routes fetched by the agent with its own key (the default with a key); SIM_OWN_ROUTES=0: Orientim's key builds them. */
+const OWN_ROUTES = process.env.SIM_OWN_ROUTES !== '0';
 const JUPITER_INTERVAL_MS = Number(process.env.SIM_JUPITER_INTERVAL_MS ?? (JUPITER_API_KEY ? 1_100 : 2_200));
 const GROUPS = (process.env.SIM_GROUPS ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const LIMIT = Number(process.env.SIM_LIMIT ?? 0) || Infinity;
@@ -499,9 +502,12 @@ async function offline(): Promise<World> {
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     if (String(url).startsWith('https://api.jup.ag/')) {
       const q = new URL(url).searchParams;
+      // As Jupiter does, for the agent's own price and for the routes it fetches for Orientim.
       const r = await jupiter.build({
         inputMint: address(q.get('inputMint')!), outputMint: address(q.get('outputMint')!), amount: BigInt(q.get('amount')!),
-        taker: address(q.get('taker')!), slippageBps: Number(q.get('slippageBps')) || 50, maxAccounts: 64,
+        taker: address(q.get('taker')!), slippageBps: Number(q.get('slippageBps')) || 50, maxAccounts: Number(q.get('maxAccounts')) || 64,
+        ...(q.get('destinationTokenAccount') ? { destinationTokenAccount: address(q.get('destinationTokenAccount')!) } : {}),
+        ...(q.get('excludeDexes') ? { excludeDexes: q.get('excludeDexes')!.split(',') } : {}),
       });
       return Response.json({ ...r, priceImpactPct: 0 });
     }
@@ -844,7 +850,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
       if (policy) await checkPolicy(policy, { owner, inputMint: input, amountIn: intent.amountIn });
       const prepare = (asked: Omit<Intent, 'owner'>) => prepareChecked({
         apiUrl: API_URL, apiKey: API_KEY, rpc: w.rpc, owner, intent: asked, fetchImpl: w.fetchImpl, jupiterApiKey: JUPITER_API_KEY,
-        requestTimeoutMs: 30_000, ...(policy ? { policy } : {}),
+        requestTimeoutMs: 30_000, ownRoutes: OWN_ROUTES, ...(policy ? { policy } : {}),
       });
       let approved: string | undefined;
       let checked: Checked;
@@ -909,7 +915,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     if (c.bot) {
       const deps = {
         rpc: w.rpc, apiUrl: API_URL, apiKey: API_KEY, fetchImpl: w.fetchImpl, jupiterApiKey: JUPITER_API_KEY,
-        stateDir: mkdtempSync(join(tmpdir(), 'orientim-sim-bot-')), requestTimeoutMs: 30_000, ...(policy ? { policy } : {}),
+        stateDir: mkdtempSync(join(tmpdir(), 'orientim-sim-bot-')), requestTimeoutMs: 30_000, ownRoutes: OWN_ROUTES, ...(policy ? { policy } : {}),
       };
       const r = await runCli('prepare', { intent: { owner, id: `sim-${n}`, ...intent } }, deps);
       const out = JSON.parse(JSON.stringify(r.output)) as { error?: { code?: string; message?: string }; problems?: string[] };
@@ -1030,7 +1036,7 @@ function analysis(results: Result[]): string[] {
 function report(results: Result[], started: number, summaryOnly = false): string {
   const count = (k: Result['kind']) => results.filter(r => r.kind === k).length;
   const lines: string[] = [];
-  lines.push(`# Orientim mainnet simulation matrix (v${DEFAULT_VERSION} transactions unless a case names its own)`, '');
+  lines.push(`# Orientim mainnet simulation matrix (v${DEFAULT_VERSION} transactions unless a case names its own; routes from ${OWN_ROUTES && JUPITER_API_KEY ? "the agent's own Jupiter key" : "Orientim's key"})`, '');
   lines.push(`${results.length} cases in ${Math.round((Date.now() - started) / 60_000)} min: **${count('PASS')} passed**, ${count('REFUSED')} refused, ${count('UNTESTED')} untested, **${count('BUG')} to look at**.`, '');
   lines.push('Nothing was signed or sent: each swap stops before the wallet signs, after the full check simulated it on mainnet state.', '');
   const groups = [...new Set(results.map(r => r.group))];

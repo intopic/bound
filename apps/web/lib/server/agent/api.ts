@@ -8,7 +8,7 @@ import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
 import { TOKEN_2022_PROGRAM } from '@orientim/core/constants';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
 import type { TxVersion } from '@orientim/core';
-import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
+import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/solana';
 import { hasPermanentDelegate } from '@orientim/verifier';
@@ -16,7 +16,7 @@ import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
 import { rateLimited, secondsUntilReset } from '../rateLimit';
 import { openKey } from './keys';
-import { ephemeralFor, kidOf, newNonce, openTicket, sealTicket } from './ticket';
+import { ephemeralFor, kidOf, newNonce, openSession, openTicket, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
 
 /**
  * The agent API (AGENT-API.md): the protected swap (packages/jupiter), with E held by the
@@ -75,6 +75,8 @@ export function olderThan(version: string, minimum: string): boolean {
 
 const MAX_U64 = 2n ** 64n - 1n;
 const MAX_BODY_BYTES = 16 * 1024;
+/** A prepare may carry the routes an agent brought from Jupiter: up to 24 answers, with their lookup tables. */
+const MAX_PREPARE_BODY_BYTES = 1024 * 1024;
 const UINT = /^\d{1,20}$/;
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
@@ -108,8 +110,8 @@ async function authenticate(req: Request, deps: AgentDeps): Promise<{ id: string
   return auth;
 }
 
-async function readJson(req: Request): Promise<Record<string, unknown> | null> {
-  const text = await readBodyLimited(req, MAX_BODY_BYTES);
+async function readJson(req: Request, limit = MAX_BODY_BYTES): Promise<Record<string, unknown> | null> {
+  const text = await readBodyLimited(req, limit);
   if (text === null) return null;
   try {
     const body = JSON.parse(text);
@@ -190,13 +192,15 @@ export function deadlineFor(ms: number, rpc: SolanaRpc, jupiter: JupiterClient) 
     notLate();
     return Promise.race([f(...a), late]);
   };
-  const boundedJupiter: JupiterClient = {
-    build: bounded(p => jupiter.build(p)),
-    searchTokens: bounded(q => jupiter.searchTokens(q)),
-    programLabels: bounded(() => jupiter.programLabels()),
-  };
+  const bind = (j: JupiterClient): JupiterClient => ({
+    build: bounded(p => j.build(p)),
+    searchTokens: bounded(q => j.searchTokens(q)),
+    programLabels: bounded(() => j.programLabels()),
+  });
   return {
-    rpc: boundedRpc, jupiter: boundedJupiter, signal,
+    rpc: boundedRpc, jupiter: bind(jupiter), signal,
+    /** Another Jupiter client under the same deadline. */
+    bind,
     /** `work`, or `unavailable` as soon as the deadline passes. */
     within: <T>(work: Promise<T>): Promise<T> => Promise.race([work, late]),
     done: () => clearTimeout(timer),
@@ -271,8 +275,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       minimum: deps.minSkillVersion,
     });
   }
-  const body = await readJson(req);
-  if (!body) return fail(400, 'bad-request', 'Send a JSON object of at most 16 KiB.');
+  const body = await readJson(req, MAX_PREPARE_BODY_BYTES);
+  if (!body) return fail(400, 'bad-request', 'Send a JSON object of at most 1 MiB.');
 
   const { owner, inputMint, outputMint } = body;
   for (const [name, v] of [['owner', owner], ['inputMint', inputMint], ['outputMint', outputMint]] as const) {
@@ -310,6 +314,30 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     return fail(400, 'bad-request', `slippageBps, when given, must be a whole number of bps from 10 to ${MAX_CHOSEN_SLIPPAGE_BPS}.`);
   }
   if (version === 1 && !deps.v1) return fail(400, 'bad-request', 'v1 transactions are not enabled on this deployment; use version 0.');
+  // Routes the agent brings from Jupiter with its own key (AGENT-API.md, "Your own Jupiter key").
+  const ownRoutes = body.ownRoutes === true;
+  if (body.ownRoutes !== undefined && typeof body.ownRoutes !== 'boolean') return fail(400, 'bad-request', 'ownRoutes, when given, must be true or false.');
+  if (!ownRoutes && (body.routes !== undefined || body.session !== undefined)) {
+    return fail(400, 'bad-request', 'routes and session come with ownRoutes: true.');
+  }
+  let routes: ReturnType<typeof providedRoutes> | null = null;
+  let sessionNonce: string | null = null;
+  if (ownRoutes) {
+    const parsed = parseProvidedRoutes(body.routes ?? []);
+    if ('error' in parsed) return fail(400, 'bad-request', parsed.error);
+    // Labels come from Orientim's own client, never from the agent's routes.
+    routes = providedRoutes(parsed.routes, deps.jupiter);
+    if (body.session !== undefined) {
+      const opened = await openSession(deps.secrets, body.session);
+      const s = opened?.session;
+      // A session opens only for the swap, the key and the secret it was sealed for.
+      if (!s || opened.secret !== deps.secrets[0] || s.key !== key || s.owner !== owner || s.inputMint !== inputMint
+        || s.outputMint !== outputMint || s.amountIn !== amountIn.toString() || s.version !== version) {
+        return fail(400, 'bad-session', 'This session is expired, or was opened for another swap or key: prepare again without it. Nothing was built.');
+      }
+      sessionNonce = s.nonce;
+    }
+  }
 
   // One deadline for the whole prepare: the mints read, the build, and the block height read.
   const deadline = deadlineFor(deps.prepareDeadlineMs ?? PREPARE_DEADLINE_MS, deps.rpc, deps.jupiter);
@@ -325,13 +353,22 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     for (const m of [inMint, outMint]) {
       if (!mints.get(m)?.exists) return fail(422, 'unsupported-token', `${m} is not a token Orientim can swap.`);
     }
-    const nonce = newNonce();
+    const nonce = sessionNonce ?? newNonce();
     const [secret] = deps.secrets;
     const E = await ephemeralFor(secret, nonce);
-    const prepared = await deadline.within(prepareProtectedSwap(
+    // The session the agent's next round carries, when its routes are its own.
+    const session = () => kidOf(secret).then(kid => sealSession(secret, {
+      v: 1, kid, nonce, key, owner: owner as string, inputMint: inMint, outputMint: outMint, amountIn: amountIn.toString(), version,
+      exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+    }));
+    let prepared: Awaited<ReturnType<typeof prepareProtectedSwap>>;
+    try {
+      prepared = await deadline.within(prepareProtectedSwap(
       {
         rpc: deadline.rpc,
-        jupiter: deadline.jupiter,
+        // An agent's own routes, or Orientim's client; Orientim's fee in SOL is always priced by its own.
+        jupiter: routes ? deadline.bind(routes) : deadline.jupiter,
+        pricing: deadline.jupiter,
         ...(deps.priorityFee ? { priorityFee: deps.priorityFee } : {}),
         settings: {
           ...DEFAULT_SETTINGS,
@@ -352,6 +389,16 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         ...(body.routingMode === 'fast' ? { routingMode: 'fast' as const } : {}),
       },
     ));
+    } catch (e) {
+      // The routes the build needs next, for the one-time key it builds around: the agent fetches
+      // them from Jupiter with its own key and prepares again with the session.
+      if (e instanceof RoutesNeeded && routes) {
+        return fail(409, 'routes-needed', `Fetch these ${routes.missing.length} route(s) from Jupiter's /swap/v2/build with your own key, then prepare again with the session and every route you have.`, {
+          session: await session(), taker: E.address, requests: routes.missing,
+        });
+      }
+      throw e;
+    }
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
     // the certificate: it is the one value the fee depends on.
     const messageSha256 = await sha256Hex(prepared.transaction.messageBytes);

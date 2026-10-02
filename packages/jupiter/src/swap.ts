@@ -20,6 +20,7 @@ import {
 import type { Certificate } from '@orientim/verifier';
 import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientim/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
+import { RoutesNeeded } from './provided.ts';
 import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';
 import type { PriorityFeeLevel } from './priorityFee.ts';
 
@@ -628,7 +629,13 @@ async function latestLifetimeAt(rpc: SolanaRpc): Promise<{ lifetime: Lifetime; c
  */
 export async function prepareProtectedSwap(deps: {
   rpc: SolanaRpc;
+  /** Where routes come from: Orientim's own Jupiter client, or the routes an agent brought (providedRoutes). */
   jupiter: JupiterClient;
+  /**
+   * What prices Orientim's fee in SOL, for a pair neither token of which can carry it: always
+   * Orientim's own Jupiter client, never an agent's routes. Defaults to `jupiter`.
+   */
+  pricing?: JupiterClient;
   settings: SwapSettings;
   /** The RPC provider's own priority estimate (heliusPriorityFee); without one, or when it fails, recent fees. */
   priorityFee?: PriorityFeeLevel;
@@ -754,7 +761,7 @@ export async function prepareProtectedSwap(deps: {
     output: req.outputMint === WSOL_MINT ? treasuryWalletReady : outputFeeAccountExists,
   });
   const solFee = settings.treasury && treasuryWalletReady && tokenCarries === null
-    ? await feeInSol(jupiter, {
+    ? await feeInSol(deps.pricing ?? jupiter, {
       inputMint: req.inputMint,
       amount: req.amountIn - (inputFee ? transferFeeOn(req.amountIn, inputFee) : 0n),
       taker: E,
@@ -872,6 +879,8 @@ export async function prepareProtectedSwap(deps: {
     try {
       return await jupiter.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps, ...(mode === 'fast' ? { mode } : {}) });
     } catch (e) {
+      // A route the agent has not brought yet: the API asks the agent for it.
+      if (e instanceof RoutesNeeded) throw e;
       if (e instanceof JupiterError) {
         if (e.status === 429) throw new OrientimError('busy', BUSY_MESSAGE);
         // Jupiter answers "No routes found" with 400. A refused key or an endpoint that is gone is

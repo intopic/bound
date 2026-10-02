@@ -7,4 +7,6 @@ export {
 } from './swap.ts';
 export type { Attempt, OrientimErrorCode, CostsMore, Countersignable, PreparedSwap, PriceMoved, SwapRequest, SwapSettings } from './swap.ts';
 export { heliusPriorityFee } from './priorityFee.ts';
+export { MAX_PROVIDED_ROUTES, parseProvidedRoutes, parseRouteRequest, providedRoutes, requestFor, routeKey, routeRequestOf, RoutesNeeded } from './provided.ts';
+export type { ProvidedRoute, RouteRequest } from './provided.ts';
 export type { PriorityFeeLevel } from './priorityFee.ts';

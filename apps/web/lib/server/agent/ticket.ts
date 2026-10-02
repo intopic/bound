@@ -71,6 +71,60 @@ export async function ephemeralFor(secret: Uint8Array, nonce: string): Promise<K
   return createKeyPairSignerFromPrivateKeyBytes(await hmac(secret, `orientim/agent/ephemeral/${nonce}`));
 }
 
+/**
+ * A prepare whose routes the agent brings from Jupiter takes rounds: Orientim says which routes it
+ * needs, for the one-time key E it will use, and the agent fetches them with its own key. What
+ * holds E across the rounds travels with the agent as a session, sealed like a ticket (its own MAC
+ * label, so neither can stand for the other) and bound to the swap it was opened for. It authorizes
+ * nothing: E signs only in finalize, and only the message a ticket names.
+ */
+export type Session = {
+  v: 1;
+  kid: string;
+  nonce: string;
+  /** The API key, the wallet, the two mints, the amount and the version the session was opened for. */
+  key: string;
+  owner: string;
+  inputMint: string;
+  outputMint: string;
+  amountIn: string;
+  version: 0 | 1;
+  /** Unix time in seconds after which the session no longer opens. */
+  exp: number;
+};
+
+/** How long a session lives: rounds take seconds; a swap built from an older one is not worth it. */
+export const SESSION_TTL_SECONDS = 120;
+
+export async function sealSession(secret: Uint8Array, s: Session): Promise<string> {
+  const payload = toB64url(enc.encode(JSON.stringify(s)));
+  return `${payload}.${toB64url(await hmac(secret, `orientim/agent/session/${payload}`))}`;
+}
+
+/** The session, if one of `secrets` sealed it, it is well formed and it has not expired; otherwise null. */
+export async function openSession(secrets: readonly Uint8Array[], token: unknown, now = Math.floor(Date.now() / 1000)): Promise<{ session: Session; secret: Uint8Array } | null> {
+  if (typeof token !== 'string' || token.length > 2_000) return null;
+  const [payload, mac, extra] = token.split('.');
+  if (!payload || !mac || extra !== undefined) return null;
+  let s: Session;
+  try {
+    s = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Session;
+  } catch {
+    return null;
+  }
+  if (s?.v !== 1 || typeof s.kid !== 'string') return null;
+  for (const secret of secrets) {
+    if ((await kidOf(secret)) !== s.kid) continue;
+    const given = macOf(mac);
+    if (!given || !sameBytes(await hmac(secret, `orientim/agent/session/${payload}`), given)) return null;
+    const fields = [s.nonce, s.key, s.owner, s.inputMint, s.outputMint, s.amountIn];
+    if (fields.some(f => typeof f !== 'string') || !/^\d{1,20}$/.test(s.amountIn)) return null;
+    if ((s.version !== 0 && s.version !== 1) || !Number.isInteger(s.exp) || s.exp < now) return null;
+    return { session: s, secret };
+  }
+  return null;
+}
+
 /** `<payload>.<mac>`, both base64url. The payload is readable JSON; only the MAC is secret-bound. */
 export async function sealTicket(secret: Uint8Array, t: Ticket): Promise<string> {
   const payload = toB64url(enc.encode(JSON.stringify(t)));

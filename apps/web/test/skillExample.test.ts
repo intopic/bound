@@ -37,7 +37,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ORIENTIM_TREASURY, MAX_BELOW_BPS, autoSlippageBps, inputTransferFee, noticesOf, ownMinimum, ownQuote, solFeeOf, tokenNotices, tokenRisk } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
+import { ORIENTIM_TREASURY, MAX_BELOW_BPS, autoSlippageBps, fetchRoutes, inputTransferFee, noticesOf, ownMinimum, ownQuote, solFeeOf, tokenNotices, tokenRisk } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
 import { jupiterRouteArgs, routeAccountFor } from '@orientim/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
@@ -54,6 +54,8 @@ const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter())
   const r = await market.build({
     inputMint: address(q.get('inputMint')!), outputMint: address(q.get('outputMint')!), amount: BigInt(q.get('amount')!),
     taker: address(q.get('taker')!), slippageBps: Number(q.get('slippageBps')), maxAccounts: Number(q.get('maxAccounts')),
+    ...(q.get('destinationTokenAccount') ? { destinationTokenAccount: address(q.get('destinationTokenAccount')!) } : {}),
+    ...(q.get('excludeDexes') ? { excludeDexes: q.get('excludeDexes')!.split(',') } : {}),
   });
   return new Response(JSON.stringify(r), { status: 200, headers: { 'content-type': 'application/json' } });
 };
@@ -2578,4 +2580,62 @@ describe("Jupiter's answers to the agent's own price, busy or not", () => {
     }
     expect(calls).toBe(0);
   });
+});
+
+describe("the agent's own Jupiter key: routes fetched here, never sent to Orientim", () => {
+  it('a swap with a Jupiter key is built from routes the skill fetched, and Orientim\'s key is never used', async () => {
+    const asked: unknown[] = [];
+    const b = await orientim({ market: fakeJupiter({ asked: asked as never }) });
+    const seen: { url: string; headers: string; body: string }[] = [];
+    const watching = (async (url: string, init: RequestInit = {}) => {
+      if (url.startsWith('http://orientim.test')) seen.push({ url, headers: JSON.stringify(init.headers ?? {}), body: String(init.body ?? '') });
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const result = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: watching, pollMs: 1,
+      jupiterApiKey: 'agent-jupiter-key-123',
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(asked).toHaveLength(0);
+    expect(seen.some(r => r.body.includes('"ownRoutes":true'))).toBe(true);
+    for (const r of seen) expect(`${r.headers}${r.body}`).not.toContain('agent-jupiter-key-123');
+  });
+
+  it('ownRoutes false, or no key: Orientim builds with its own key, as before', async () => {
+    const asked: unknown[] = [];
+    const b = await orientim({ market: fakeJupiter({ asked: asked as never }) });
+    const result = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      jupiterApiKey: 'k', ownRoutes: false,
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(asked.length).toBeGreaterThan(0);
+  });
+
+  it('the skill fetches only routes for this swap: another mint, another taker or a larger amount is refused', async () => {
+    const swap = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: TREASURY };
+    const request = { inputMint: USDC, outputMint: WSOL_MINT, amount: '1000000', taker: TREASURY, slippageBps: 50, maxAccounts: 64 };
+    let calls = 0;
+    const fetchImpl = (async (url: string) => { calls++; return jupiterAnswer(url); }) as unknown as typeof fetch;
+    expect(await fetchRoutes([request], swap, { apiKey: 'k', fetchImpl })).toHaveLength(1);
+    for (const bad of [
+      { ...request, outputMint: BONK }, { ...request, taker: USDC }, { ...request, amount: '1000001' },
+      { ...request, maxAccounts: 500 }, { ...request, excludeDexes: ['A;rm -rf'] },
+    ]) {
+      await expect(fetchRoutes([bad], swap, { apiKey: 'k', fetchImpl })).rejects.toThrow(/not one for this swap/);
+    }
+    await expect(fetchRoutes(Array.from({ length: 9 }, () => request), swap, { apiKey: 'k', fetchImpl })).rejects.toThrow(/does not fetch/);
+    expect(calls).toBe(1);
+  });
+
+  it("Jupiter's refusal is sent back as no route; a refused key or a busy Jupiter stops the swap", async () => {
+    const swap = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: TREASURY };
+    const request = { inputMint: USDC, outputMint: WSOL_MINT, amount: '1000000', taker: TREASURY, slippageBps: 50, maxAccounts: 64 };
+    const answering = (status: number, body: string) => (async () => new Response(body, { status })) as unknown as typeof fetch;
+    expect(await fetchRoutes([request], swap, { apiKey: 'k', fetchImpl: answering(400, '{"error":"No routes found"}') })).toEqual([{ params: request, noRoute: true }]);
+    await expect(fetchRoutes([request], swap, { apiKey: 'k', fetchImpl: answering(401, 'bad key') })).rejects.toThrow(/Jupiter answered 401/);
+    await expect(fetchRoutes([request], swap, { apiKey: 'k', fetchImpl: answering(429, 'slow down') })).rejects.toThrow(/Jupiter answered 429/);
+  }, 20_000);
 });
