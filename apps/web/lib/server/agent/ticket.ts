@@ -91,6 +91,24 @@ export type Session = {
   version: 0 | 1;
   /** Unix time in seconds after which the session no longer opens. */
   exp: number;
+  /**
+   * Orientim's own price for this swap, when a fee on the output is held to it (`reference` in
+   * prepareProtectedSwap): the unrestricted output and the minimum at its tolerance, when it was
+   * asked (ms), and what it was asked for besides the swap above (the tolerance and the fee).
+   */
+  ref?: SessionReference;
+};
+
+export type SessionReference = { out: string; min: string; at: number; slip: number | null; feeBps: string; treasury: string | null };
+
+/** How long Orientim's own price stays good for the next round: a few seconds of the market. */
+export const REFERENCE_FRESH_MS = 15_000;
+
+const referenceOk = (r: unknown): r is SessionReference => {
+  const x = r as SessionReference;
+  return !!x && typeof x === 'object' && typeof x.out === 'string' && /^\d{1,20}$/.test(x.out) && typeof x.min === 'string' && /^\d{1,20}$/.test(x.min)
+    && Number.isSafeInteger(x.at) && (x.slip === null || Number.isInteger(x.slip)) && typeof x.feeBps === 'string' && /^\d{1,5}$/.test(x.feeBps)
+    && (x.treasury === null || typeof x.treasury === 'string');
 };
 
 /** How long a session lives: rounds take seconds; a swap built from an older one is not worth it. */
@@ -120,6 +138,7 @@ export async function openSession(secrets: readonly Uint8Array[], token: unknown
     const fields = [s.nonce, s.key, s.owner, s.inputMint, s.outputMint, s.amountIn];
     if (fields.some(f => typeof f !== 'string') || !/^\d{1,20}$/.test(s.amountIn)) return null;
     if ((s.version !== 0 && s.version !== 1) || !Number.isInteger(s.exp) || s.exp < now) return null;
+    if (s.ref !== undefined && !referenceOk(s.ref)) return null;
     return { session: s, secret };
   }
   return null;

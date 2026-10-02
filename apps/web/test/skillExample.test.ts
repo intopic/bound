@@ -2734,6 +2734,47 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     expect(s.b.sent).toHaveLength(0);
   });
 
+  it('one budget for the whole preparation: the 49th ask of Jupiter is never sent, and nothing is signed', async () => {
+    const E = (await generateKeyPairSigner()).address;
+    const b = await orientim();
+    const tries = new Map<string, number>();
+    let asks = 0;
+    const levels = (from: number) => Array.from({ length: 8 }, (_, i) => requestFor(E, from + i));
+    const rounds = [() => routesNeeded(E, levels(10)), () => routesNeeded(E, levels(18)), () => routesNeeded(E, levels(26))];
+    let round = 0;
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.startsWith('https://api.jup.ag/')) {
+        asks++;
+        // Each route the agent fetches fails twice before Jupiter answers it.
+        if (url.includes(E)) {
+          const n = (tries.get(url) ?? 0) + 1;
+          tries.set(url, n);
+          if (n <= 2) return new Response('upstream', { status: 503 });
+        }
+        return b.fetchImpl(url, init);
+      }
+      if (url.endsWith('/api/v1/prepare') && rounds[round]) return rounds[round++]();
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    await expect(protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, jupiterApiKey: 'budget-whole',
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    })).rejects.toThrow(/more asks of your Jupiter key/);
+    // The agent's own quote and every route's tries, together: 48, never 49.
+    expect(asks).toBe(48);
+    expect(b.sent).toHaveLength(0);
+  }, 60_000);
+
+  it('a preparation past its time stops before signing, whatever step it reached', async () => {
+    const b = await orientim();
+    await expect(prepareChecked({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, owner: b.wallet.address, fetchImpl: b.fetchImpl, jupiterApiKey: 'late',
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+      budget: { asks: 48, until: performance.now() - 1 },
+    })).rejects.toThrow(/took longer than a swap may \(110 s\)/);
+    expect(b.sent).toHaveLength(0);
+  });
+
   it('a route asked for again is not fetched again; asked only for routes already sent, the skill stops', async () => {
     const E = (await generateKeyPairSigner()).address;
     const s = await scripted([
@@ -2753,12 +2794,12 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     let calls = 0;
     const busy = (async () => { calls++; return new Response('upstream down', { status: 503 }); }) as unknown as typeof fetch;
     const E = TREASURY;
-    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'budget-key', fetchImpl: busy, budget: { asks: 2, until: Date.now() + 60_000 } }))
+    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'budget-key', fetchImpl: busy, budget: { asks: 2, until: performance.now() + 60_000 } }))
       .rejects.toThrow(/more asks of your Jupiter key/);
     expect(calls).toBe(2);
     calls = 0;
     const started = Date.now();
-    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'deadline-key', fetchImpl: busy, budget: { asks: 48, until: Date.now() + 300 } }))
+    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'deadline-key', fetchImpl: busy, budget: { asks: 48, until: performance.now() + 300 } }))
       .rejects.toThrow(/longer than this swap's time allows/);
     expect(calls).toBe(1);
     expect(Date.now() - started).toBeLessThan(300);
@@ -2768,7 +2809,7 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     const E = TREASURY;
     let calls = 0;
     const silent = (async () => { calls++; const e = new Error('The operation was aborted due to timeout'); e.name = 'TimeoutError'; throw e; }) as unknown as typeof fetch;
-    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'silent-key', fetchImpl: silent, budget: { asks: 48, until: Date.now() + 60_000 } }))
+    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'silent-key', fetchImpl: silent, budget: { asks: 48, until: performance.now() + 60_000 } }))
       .rejects.toThrow(/did not answer in time \(busy\)/);
     expect(calls).toBe(4);
     calls = 0;
@@ -2776,7 +2817,7 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
       if (calls++ === 0) { const e = new Error('timeout'); e.name = 'TimeoutError'; throw e; }
       return jupiterAnswer(url);
     }) as unknown as typeof fetch;
-    expect(await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'slow-key', fetchImpl: slowOnce, budget: { asks: 48, until: Date.now() + 60_000 } })).toHaveLength(1);
+    expect(await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'slow-key', fetchImpl: slowOnce, budget: { asks: 48, until: performance.now() + 60_000 } })).toHaveLength(1);
   }, 20_000);
 
   it("Jupiter's rate limit is waited out as long as it says, when that fits; when it does not, the skill stops at once", async () => {
@@ -2787,12 +2828,12 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
       return jupiterAnswer(url);
     }) as unknown as typeof fetch;
     let started = Date.now();
-    expect(await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'wait-key', fetchImpl: limitedOnce, budget: { asks: 48, until: Date.now() + 60_000 } })).toHaveLength(1);
+    expect(await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'wait-key', fetchImpl: limitedOnce, budget: { asks: 48, until: performance.now() + 60_000 } })).toHaveLength(1);
     expect(Date.now() - started).toBeGreaterThanOrEqual(950);
     calls = 0;
     const limitedLong = (async () => { calls++; return new Response('rate limited', { status: 429, headers: { 'x-ratelimit-reset': '30' } }); }) as unknown as typeof fetch;
     started = Date.now();
-    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'long-key', fetchImpl: limitedLong, budget: { asks: 48, until: Date.now() + 5_000 } }))
+    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'long-key', fetchImpl: limitedLong, budget: { asks: 48, until: performance.now() + 5_000 } }))
       .rejects.toThrow(/limited for another 30 s/);
     expect(calls).toBe(1);
     expect(Date.now() - started).toBeLessThan(500);
@@ -2806,11 +2847,11 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
       return jupiterAnswer(url);
     }) as unknown as typeof fetch;
     const started = Date.now();
-    const a = fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'shared-key', fetchImpl: limited, budget: { asks: 48, until: Date.now() + 60_000 } });
+    const a = fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'shared-key', fetchImpl: limited, budget: { asks: 48, until: performance.now() + 60_000 } });
     await new Promise(r => setTimeout(r, 100));
     let otherAskedAt = 0;
     const other = (async (url: string) => { otherAskedAt ||= Date.now(); return jupiterAnswer(url); }) as unknown as typeof fetch;
-    await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'shared-key', fetchImpl: other, budget: { asks: 48, until: Date.now() + 60_000 } });
+    await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'shared-key', fetchImpl: other, budget: { asks: 48, until: performance.now() + 60_000 } });
     await a;
     expect(otherAskedAt - started).toBeGreaterThanOrEqual(900);
   }, 20_000);

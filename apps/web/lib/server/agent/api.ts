@@ -9,14 +9,15 @@ import { TOKEN_2022_PROGRAM } from '@orientim/core/constants';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
 import type { TxVersion } from '@orientim/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded, RoutesUntrusted } from '@orientim/jupiter';
-import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
+import type { JupiterClient, PriorityFeeLevel, ReferencePrice } from '@orientim/jupiter';
 import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/solana';
 import { hasPermanentDelegate } from '@orientim/verifier';
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
 import { rateLimited, secondsUntilReset } from '../rateLimit';
 import { openKey } from './keys';
-import { ephemeralFor, kidOf, newNonce, openSession, openTicket, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
+import { ephemeralFor, kidOf, newNonce, openSession, openTicket, REFERENCE_FRESH_MS, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
+import type { SessionReference } from './ticket';
 
 /**
  * The agent API (AGENT-API.md): the protected swap (packages/jupiter), with E held by the
@@ -62,6 +63,8 @@ export type AgentDeps = {
   minSkillVersion?: string | null;
   /** How long a prepare may take in all (PREPARE_DEADLINE_MS); shorter in tests. */
   prepareDeadlineMs?: number;
+  /** How long Orientim's own price stays good for the next round (REFERENCE_FRESH_MS); other in tests. */
+  referenceFreshMs?: number;
   /**
    * Routes an agent brings with its own Jupiter key (AGENT-API.md, "Your own Jupiter key"). Off,
    * prepare builds with Orientim's key and ignores ownRoutes, routes and session, as a deployment
@@ -331,6 +334,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   let sessionNonce: string | null = null;
   // A session ends two minutes after the first round, however many rounds follow.
   let sessionExp: number | null = null;
+  // Orientim's own price an earlier round sealed into the session (see `reference` below).
+  let sessionRef: SessionReference | null = null;
   if (ownRoutes) {
     const parsed = parseProvidedRoutes(body.routes ?? []);
     if ('error' in parsed) return fail(400, 'bad-request', parsed.error);
@@ -346,6 +351,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       }
       sessionNonce = s.nonce;
       sessionExp = s.exp;
+      sessionRef = s.ref ?? null;
     }
   }
 
@@ -367,9 +373,24 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const [secret] = deps.secrets;
     const E = await ephemeralFor(secret, nonce);
     // The session the agent's next round carries, when its routes are its own.
+    // Orientim's own price for a fee on the output, asked once and kept for the rounds that follow
+    // while it is fresh and asked for the same tolerance and fee; otherwise asked again.
+    const slip = typeof slippageBps === 'number' ? slippageBps : null;
+    const treasuryText = deps.treasury ? String(deps.treasury) : null;
+    const freshMs = deps.referenceFreshMs ?? REFERENCE_FRESH_MS;
+    const reuse = sessionRef && Date.now() - sessionRef.at <= freshMs && sessionRef.slip === slip
+      && sessionRef.feeBps === deps.feeBps.toString() && sessionRef.treasury === treasuryText ? sessionRef : null;
+    let price: { value: ReferencePrice; at: number } | null = reuse ? { value: { out: BigInt(reuse.out), minimum: BigInt(reuse.min) }, at: reuse.at } : null;
+    const asked = (value: ReferencePrice) => {
+      price = { value, at: Date.now() };
+      // Why it was asked of Orientim's key, for its own count of requests.
+      const why = !sessionRef ? 'no earlier price' : Date.now() - sessionRef.at > freshMs ? 'the earlier price expired' : 'asked for another tolerance or fee';
+      console.info(`Agent ${key}: Orientim's own price asked of its key (${why}).`);
+    };
     const session = () => kidOf(secret).then(kid => sealSession(secret, {
       v: 1, kid, nonce, key, owner: owner as string, inputMint: inMint, outputMint: outMint, amountIn: amountIn.toString(), version,
       exp: sessionExp ?? Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+      ...(price ? { ref: { out: price.value.out.toString(), min: price.value.minimum.toString(), at: price.at, slip, feeBps: deps.feeBps.toString(), treasury: treasuryText } } : {}),
     }));
     // From an agent's own routes, or Orientim's client; Orientim's fee in SOL is always priced by its
     // own, and with an agent's routes a fee on the output is held to its own price (`reference`).
@@ -378,7 +399,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         rpc: deadline.rpc,
         jupiter,
         pricing: deadline.jupiter,
-        ...(reference ? { reference } : {}),
+        ...(reference ? { reference, onReferencePrice: asked, ...(price ? { referencePrice: price.value } : {}) } : {}),
         ...(deps.priorityFee ? { priorityFee: deps.priorityFee } : {}),
         settings: {
           ...DEFAULT_SETTINGS,

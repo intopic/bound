@@ -10,19 +10,19 @@ import type { BuildParams, BuildResponse, JupiterClient } from './client.ts';
  *
  * A route an agent brings is untrusted, as Jupiter's own answers are: the pipeline holds it to the
  * swap it answers (mints and amount), to the tolerance and quote its instruction carries, to the
- * verifier's rules and to two simulations. A route the agent made up harms only the agent's own
- * swap, and never lowers Orientim's fee: a fee on the input is a share of the amount in; a fee in SOL
- * is priced with Orientim's key, never from an agent's route; and a fee on the output, a share of
- * the minimum the route sets, is held to Orientim's own price (`PROVIDED_ROUTE_TOLERANCE_BPS`). What
- * cannot be checked is not taken on trust: Orientim builds the swap with its own key instead
- * (`RoutesUntrusted`).
+ * verifier's rules and to two simulations. What a route the agent made up can do to Orientim's fee
+ * is bounded: a fee on the input is a share of the amount in; a fee in SOL is priced with Orientim's
+ * key, never from an agent's route; and a fee on the output is 0.25% of the minimum the route sets,
+ * which is held within PROVIDED_ROUTE_TOLERANCE_BPS (1%) of Orientim's own price, so such a fee is at
+ * most 1% of itself lower than with Orientim's routes. What cannot be checked is not taken on trust:
+ * Orientim builds the swap with its own key instead (`RoutesUntrusted`).
  */
 
 /**
  * How far below Orientim's own price the minimum of an agent's route may be, when Orientim's fee is
  * a share of that minimum: 1%, the cost a user is asked about (0.5%) and a few seconds of the
  * market's movement between the agent's quote and Orientim's. Further below, the route is not used
- * and Orientim builds the swap with its own key: the fee never rests on a price only the agent gave.
+ * and Orientim builds the swap with its own key; within it, the fee follows the route's minimum.
  */
 export const PROVIDED_ROUTE_TOLERANCE_BPS = 100n;
 

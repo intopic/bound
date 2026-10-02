@@ -245,6 +245,9 @@ export type PriceMoved = {
 };
 
 /** For `costs-more`: how far the best protected route sits below the unrestricted one. */
+/** Orientim's own price for a swap: the unrestricted output, and the minimum at its tolerance. */
+export type ReferencePrice = { out: bigint; minimum: bigint };
+
 export type CostsMore = { gapBps: bigint; outAmount: bigint; baselineOut: bigint };
 
 export class OrientimError extends Error {
@@ -640,9 +643,15 @@ export async function prepareProtectedSwap(deps: {
    * Orientim's own Jupiter client, when `jupiter` answers from an agent's routes. With a fee on the
    * output, a share of the minimum a route sets, the unrestricted baseline is asked of it, and a
    * route whose minimum is more than PROVIDED_ROUTE_TOLERANCE_BPS below the baseline's stops the
-   * build with `RoutesUntrusted`: the fee never rests on a price only the agent gave.
+   * build with `RoutesUntrusted`: within it, the fee follows the route's minimum.
    */
   reference?: JupiterClient;
+  /**
+   * Orientim's own price from an earlier round of this swap, still fresh (the API decides): used
+   * instead of asking `reference` again. `onReferencePrice` hears each price `reference` gave.
+   */
+  referencePrice?: ReferencePrice;
+  onReferencePrice?: (price: ReferencePrice) => void;
   settings: SwapSettings;
   /** The RPC provider's own priority estimate (heliusPriorityFee); without one, or when it fails, recent fees. */
   priorityFee?: PriorityFeeLevel;
@@ -920,8 +929,9 @@ export async function prepareProtectedSwap(deps: {
   // route's minimum is held to (`deps.reference`); asked once the agent has brought the first route,
   // so that a round that only learns which routes to bring costs Orientim's key nothing.
   const reference = deps.reference && policy.feeSide === 'output' ? deps.reference : null;
+  const known = reference ? deps.referencePrice : undefined;
   const firstRouteTask = buildOrNull(MAX_ACCOUNTS_LEVELS[0], settings.excludeDexes);
-  const baselineTask = (async () => {
+  const baselineTask = known ? Promise.resolve(null) : (async () => {
     if (reference) await firstRouteTask.catch(e => { if (e instanceof RoutesNeeded || e instanceof RoutesUntrusted) throw e; });
     for (const [i, maxAccounts] of [64, 64, 48, 32].entries()) {
       if (i > 0) await new Promise(r => setTimeout(r, 700));
@@ -938,11 +948,12 @@ export async function prepareProtectedSwap(deps: {
   firstRouteTask.catch(() => undefined);
   firstLifetimeTask.catch(() => undefined);
   const baseline = await baselineTask;
-  if (!baseline) throw new OrientimError('no-route', 'Jupiter found no route for this pair and amount, asked four times. The token may have no liquidity left, or too little for this amount: try a smaller amount or once more later, and stop if it is refused again.');
-  if (!answersThisRequest(baseline)) throw new OrientimError('bad-quote', 'Jupiter answered for a different trade. Nothing was built.');
-  const baselineOut = BigInt(baseline.outAmount);
+  if (!known && !baseline) throw new OrientimError('no-route', 'Jupiter found no route for this pair and amount, asked four times. The token may have no liquidity left, or too little for this amount: try a smaller amount or once more later, and stop if it is refused again.');
+  if (baseline && !answersThisRequest(baseline)) throw new OrientimError('bad-quote', 'Jupiter answered for a different trade. Nothing was built.');
+  const baselineOut = known ? known.out : BigInt(baseline!.outAmount);
   /** What Orientim's own price guarantees at its own tolerance (used with `reference`). */
-  const referenceMinimum = minimumOutput(baselineOut, slippageFor(baseline, settings));
+  const referenceMinimum = known ? known.minimum : minimumOutput(baselineOut, slippageFor(baseline!, settings));
+  if (reference && !known) deps.onReferencePrice?.({ out: baselineOut, minimum: referenceMinimum });
   const labels = await labelsTask;
 
   const learned: string[] = [];

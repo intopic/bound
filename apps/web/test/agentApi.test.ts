@@ -860,6 +860,30 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect(fin.status).toBe(200);
   });
 
+  it('the fee on the output, exactly as documented: 0.25% of the guaranteed minimum, the route held within 1% of Orientim\'s price', async () => {
+    const honest = BigInt(await feeWithOrientimsKey(true));
+    for (const below of [0n, 50n, 100n, 200n, 9_900n]) {
+      const own = counting();
+      const w = await world({ jupiter: own.jupiter, treasuryWallet: true });
+      const agentOut = OUT - (OUT * below) / 10_000n;
+      // A route 1% below the market costs more than the 0.5% the user is asked about: approved here.
+      const { res } = await roundsWith(w, fakeJupiter({ out: agentOut }), () => ({ acceptCostBps: 200 }));
+      expect(res.status, `${below} bps`).toBe(200);
+      const p = await res.json() as Prepared & { amounts: { minOut: string } };
+      const fee = BigInt(p.amounts.fee);
+      const keeps = BigInt(p.amounts.minOut);
+      // The minimum the transaction enforces is what the wallet keeps plus the fee; the fee is
+      // feeBps (20 here) of it, rounded down.
+      expect(fee, `${below} bps`).toBe(((keeps + fee) * 20n) / 10_000n);
+      // Within 1%, the agent's route sets the minimum; beyond it, Orientim's own routes do.
+      if (below <= 100n) expect((keeps + fee) * 10_000n, `${below} bps`).toBe(((agentOut * 9_950n) / 10_000n) * 10_000n);
+      else expect(fee, `${below} bps`).toBe(honest);
+      // Never more than 1% below the fee of Orientim's own routes, and the wallet's minimum is kept.
+      expect(fee * 10_000n, `${below} bps`).toBeGreaterThanOrEqual(honest * 9_900n);
+      expect(keeps, `${below} bps`).toBeGreaterThanOrEqual(1n);
+    }
+  });
+
   it('a route only 0.5% below Orientim\'s price is the agent\'s to use; 2% below, Orientim builds it', async () => {
     for (const [below, builtByOrientim] of [[50n, false], [200n, true]] as const) {
       const own = counting();
@@ -868,6 +892,57 @@ describe("routes the agent brings from Jupiter with its own key", () => {
       expect(res.status, `${below} bps`).toBe(200);
       expect(own.asked.some(a => (a as { excludeDexes?: string[] }).excludeDexes?.length), `${below} bps`).toBe(builtByOrientim);
     }
+  });
+
+  /** The agent's market: routes wider than 48 accounts do not fit, so the build takes three rounds. */
+  async function narrowMarket() {
+    const extra = await Promise.all(Array.from({ length: 60 }, async () => (await generateKeyPairSigner()).address));
+    const wide = fakeJupiter({ extraAccounts: extra });
+    const narrow = fakeJupiter();
+    return { ...narrow, build: (q: Parameters<typeof narrow.build>[0]) => ((q.maxAccounts ?? 64) > 48 ? wide.build(q) : narrow.build(q)) } as ReturnType<typeof fakeJupiter>;
+  }
+  /** Rounds as the skill makes them, with a body of its own for each round. */
+  async function roundsWith(w: Awaited<ReturnType<typeof world>>, agentMarket: ReturnType<typeof fakeJupiter>, extra: (round: number) => Record<string, unknown> = () => ({})) {
+    const routes: { params: Record<string, unknown>; response: unknown }[] = [];
+    let session: string | undefined;
+    let res: Response | undefined;
+    let rounds = 0;
+    for (; rounds < 8; rounds++) {
+      res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, routes, ...(session ? { session } : {}), ...extra(rounds) })), w.deps);
+      if (res.status !== 409) break;
+      const asked = (await res.json() as Asked).error;
+      session = asked.session;
+      for (const r of asked.requests) routes.push({ params: r, response: await agentMarket.build(paramsOf(r)) });
+    }
+    return { res: res!, rounds: rounds + 1 };
+  }
+  const baselineAsks = (asked: unknown[]) => asked.filter(a => !(a as { excludeDexes?: string[] }).excludeDexes?.length).length;
+
+  it('three rounds within the price\'s freshness ask Orientim\'s key for its price once', async () => {
+    const own = counting();
+    const w = await world({ jupiter: own.jupiter, treasuryWallet: true });
+    const { res, rounds } = await roundsWith(w, await narrowMarket());
+    expect(res.status).toBe(200);
+    expect(rounds).toBe(3);
+    expect(own.asked).toHaveLength(1);
+    expect(baselineAsks(own.asked)).toBe(1);
+  });
+
+  it('an expired price, or a round asking another tolerance, is asked for again', async () => {
+    const expired = counting();
+    const w = await world({ jupiter: expired.jupiter, treasuryWallet: true });
+    expect((await roundsWith(w, await narrowMarket())).res.status).toBe(200);
+    const w2 = await world({ jupiter: expired.jupiter, treasuryWallet: true });
+    expired.asked.length = 0;
+    const r2 = await roundsWith({ ...w2, deps: { ...w2.deps, referenceFreshMs: -1 } }, await narrowMarket());
+    expect(r2.res.status).toBe(200);
+    expect(baselineAsks(expired.asked)).toBe(2);
+    const other = counting();
+    const w3 = await world({ jupiter: other.jupiter, treasuryWallet: true });
+    // The last round asks another tolerance: a price asked for 0.5% is not the one for 1%.
+    const r3 = await roundsWith(w3, await narrowMarket(), round => (round === 2 ? { slippageBps: 100 } : {}));
+    expect(r3.res.status).toBe(200);
+    expect(baselineAsks(other.asked)).toBe(2);
   });
 
   it('without Orientim\'s program labels an excluded DEX cannot be checked: the swap is built with its own key', async () => {
