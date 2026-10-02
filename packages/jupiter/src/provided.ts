@@ -67,6 +67,12 @@ export class RoutesUntrusted extends Error {
   }
 }
 
+/** The route sizes a build tries, widest first (Jupiter's maxAccounts): one that does not fit tries the next. */
+export const ROUTE_LEVELS = [64, 56, 48, 40, 32, 24, 16] as const;
+
+/** The most route requests the API asks an agent for in one round (the skill fetches no more). */
+export const MAX_ROUTE_REQUESTS_PER_ROUND = 8;
+
 export function routeRequestOf(p: BuildParams): RouteRequest {
   return {
     inputMint: p.inputMint, outputMint: p.outputMint, amount: p.amount.toString(), taker: p.taker,
@@ -150,10 +156,17 @@ export function providedRoutes(routes: readonly ProvidedRoute[], own: Pick<Jupit
       const key = routeKey(request);
       const found = byKey.get(key);
       if (!found) {
-        if (!missingKeys.has(key)) {
-          missingKeys.add(key);
-          missing.push(request);
-        }
+        const ask = (r: RouteRequest) => {
+          const k = routeKey(r);
+          if (byKey.has(k) || missingKeys.has(k) || missing.length >= MAX_ROUTE_REQUESTS_PER_ROUND) return;
+          missingKeys.add(k);
+          missing.push(r);
+        };
+        ask(request);
+        // A narrower route is asked for only when the wider ones did not fit, as for a large amount:
+        // the rest of the narrower ones are asked for in the same round, rather than one a round.
+        const level = ROUTE_LEVELS.indexOf(request.maxAccounts as (typeof ROUTE_LEVELS)[number]);
+        if (level > 0) for (const narrower of ROUTE_LEVELS.slice(level + 1)) ask({ ...request, maxAccounts: narrower });
         throw new RoutesNeeded(missing);
       }
       if (found.noRoute) throw new JupiterError('Jupiter 400: No routes found (as the agent was told)', 400);

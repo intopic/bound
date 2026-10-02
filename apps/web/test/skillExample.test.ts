@@ -2698,16 +2698,40 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     expect(s.b.sent).toHaveLength(0);
   });
 
-  it('routes are counted before they are fetched: never more than 24 for a swap, each once', async () => {
+  it('routes are counted before they are fetched, never more than 24, each once; a swap that needs more is built with Orientim\'s key', async () => {
     const E = (await generateKeyPairSigner()).address;
     const levels = (from: number) => Array.from({ length: 8 }, (_, i) => requestFor(E, from + i));
     const s = await scripted([
       () => routesNeeded(E, levels(10)), () => routesNeeded(E, levels(18)), () => routesNeeded(E, levels(26)),
       () => routesNeeded(E, [requestFor(E, 40)]),
     ]);
-    await expect(s.swap()).rejects.toThrow(/more than 24 routes/);
+    expect((await s.swap()).outcome).toBe('confirmed');
     expect(s.builds.filter(u => u.includes(E))).toHaveLength(24);
     expect((s.bodies[3].routes as unknown[])).toHaveLength(24);
+    // The 25th was never fetched: the last prepare is without own routes.
+    expect(s.bodies).toHaveLength(5);
+    expect(s.bodies[4].ownRoutes).toBeUndefined();
+    expect(s.bodies[4].routes).toBeUndefined();
+  });
+
+  it('still asked for routes after every round a prepare may take, the swap is built with Orientim\'s key', async () => {
+    const E = (await generateKeyPairSigner()).address;
+    const s = await scripted(Array.from({ length: 10 }, (_, i) => () => routesNeeded(E, [requestFor(E, 64 - i)])));
+    expect((await s.swap()).outcome).toBe('confirmed');
+    expect(s.bodies).toHaveLength(11);
+    expect(s.bodies[10].ownRoutes).toBeUndefined();
+  });
+
+  it("a route whose price impact is above the limit is refused, even when Orientim built it at the user's approved cost", async () => {
+    const s = await scripted([
+      async (body, forward) => {
+        const res = await forward({ ...body, ownRoutes: undefined, routes: undefined });
+        const p = await res.json() as Prepared;
+        return new Response(JSON.stringify({ ...p, amounts: { ...p.amounts, priceImpactPct: 0.0537 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      },
+    ]);
+    await expect(s.swap()).rejects.toThrow(/Price impact is 5.37%, above the limit of 5.00%/);
+    expect(s.b.sent).toHaveLength(0);
   });
 
   it('a route asked for again is not fetched again; asked only for routes already sent, the skill stops', async () => {
@@ -2739,6 +2763,21 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     expect(calls).toBe(1);
     expect(Date.now() - started).toBeLessThan(300);
   });
+
+  it('Jupiter that does not answer in time is busy: asked again, then a clear refusal', async () => {
+    const E = TREASURY;
+    let calls = 0;
+    const silent = (async () => { calls++; const e = new Error('The operation was aborted due to timeout'); e.name = 'TimeoutError'; throw e; }) as unknown as typeof fetch;
+    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'silent-key', fetchImpl: silent, budget: { asks: 48, until: Date.now() + 60_000 } }))
+      .rejects.toThrow(/did not answer in time \(busy\)/);
+    expect(calls).toBe(4);
+    calls = 0;
+    const slowOnce = (async (url: string) => {
+      if (calls++ === 0) { const e = new Error('timeout'); e.name = 'TimeoutError'; throw e; }
+      return jupiterAnswer(url);
+    }) as unknown as typeof fetch;
+    expect(await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'slow-key', fetchImpl: slowOnce, budget: { asks: 48, until: Date.now() + 60_000 } })).toHaveLength(1);
+  }, 20_000);
 
   it("Jupiter's rate limit is waited out as long as it says, when that fits; when it does not, the skill stops at once", async () => {
     const E = TREASURY;

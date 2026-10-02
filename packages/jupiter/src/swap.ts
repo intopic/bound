@@ -20,7 +20,7 @@ import {
 import type { Certificate } from '@orientim/verifier';
 import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientim/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
-import { PROVIDED_ROUTE_TOLERANCE_BPS, RoutesNeeded, RoutesUntrusted } from './provided.ts';
+import { PROVIDED_ROUTE_TOLERANCE_BPS, ROUTE_LEVELS, RoutesNeeded, RoutesUntrusted } from './provided.ts';
 import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';
 import type { PriorityFeeLevel } from './priorityFee.ts';
 
@@ -105,7 +105,7 @@ export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'>
   priorityFeeLamports: 10_000n,
 };
 
-const MAX_ACCOUNTS_LEVELS = [64, 56, 48, 40, 32, 24, 16];
+const MAX_ACCOUNTS_LEVELS: readonly number[] = ROUTE_LEVELS;
 
 export type SwapRequest = {
   owner: Address;

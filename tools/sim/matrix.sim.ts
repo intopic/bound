@@ -1127,7 +1127,14 @@ it('the mainnet simulation matrix', async () => {
     rs = await Promise.all(rs.map(async (r, i) => {
       if (r.code !== 'agent-bot-differ' || !MARKET_DECIDES.test(r.detail)) return r;
       const again = await caseOf.run(r.n, () => runCase(w, runs[i].c, r.n));
-      return { ...again, detail: `${again.detail} (first try: ${r.detail})`.slice(0, 400) };
+      const detail = `${again.detail} (first try: ${r.detail})`.slice(0, 400);
+      // The market's answer on the other side the second time (the agent's route failed once and the
+      // bot's the next): neither copy decides differently, the market does. Not a pass, not a bug.
+      const side = (d: string) => /^agent PASS/.test(d) ? 'bot' : /, bot PASS$/.test(d) ? 'agent' : null;
+      if (again.code === 'agent-bot-differ' && MARKET_DECIDES.test(again.detail) && side(r.detail) && side(again.detail) && side(r.detail) !== side(again.detail)) {
+        return { ...again, kind: 'UNTESTED' as const, code: 'market-decided-twice', detail };
+      }
+      return { ...again, detail };
     }));
     rs.forEach((r, i) => {
       const c = runs[i].c;

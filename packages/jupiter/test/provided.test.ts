@@ -114,6 +114,15 @@ describe('routes an agent brings from Jupiter', () => {
     }
   });
 
+  it('the widest route is asked for alone; once it does not fit, every narrower one in the same round', async () => {
+    const taker = (await generateKeyPairSigner()).address;
+    const params = (maxAccounts: number): BuildParams => ({ inputMint: USDC, outputMint: WSOL_MINT, amount: 1_000_000n, taker, slippageBps: 50, maxAccounts });
+    const widest = await providedRoutes([], fakeJupiter()).build(params(64)).catch(e => e);
+    expect((widest as RoutesNeeded).requests.map(r => r.maxAccounts)).toEqual([64]);
+    const narrower = await providedRoutes([], fakeJupiter()).build(params(56)).catch(e => e);
+    expect((narrower as RoutesNeeded).requests.map(r => r.maxAccounts)).toEqual([56, 48, 40, 32, 24, 16]);
+  });
+
   it('a route Jupiter refused is sent back as noRoute, and the build goes on as with no route', async () => {
     const w = await world();
     const routes: ProvidedRoute[] = [];
