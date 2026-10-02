@@ -1,5 +1,6 @@
 import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientim/core';
 import { maxNetworkFeeSetting } from '../settings';
+import { SKILL_VERSION } from './skillSums';
 
 /**
  * Server-only settings. Secrets (RPC URLs, API keys) never reach the browser.
@@ -56,13 +57,23 @@ export type PublicStatus = {
   enabled: boolean;
   excludeDexes: string[];
   maxNetworkFeeLamports: string;
+  /**
+   * The commit this deployment was built from (the public repository's), so that a monitor can tell
+   * whether production runs code that is on main and passed CI; null when the host does not say.
+   */
+  build: string | null;
+  /** The skill this deployment serves at /skill (its version). */
+  skillVersion: string;
 };
 
 export function publicStatus(): PublicStatus {
   const c = serverConfig();
+  const commit = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.ORIENTIM_BUILD_ID ?? '';
   return {
     enabled: !c.disabled,
     excludeDexes: c.excludeDexes,
     maxNetworkFeeLamports: c.maxNetworkFeeLamports.toString(),
+    build: /^[0-9a-f]{7,40}$/.test(commit) ? commit : null,
+    skillVersion: SKILL_VERSION,
   };
 }

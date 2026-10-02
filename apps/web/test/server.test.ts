@@ -88,7 +88,7 @@ describe('the public status and the settings behind it', () => {
     try {
       expect(Object.keys(publicStatus())).not.toContain('jupiterKey');
       // No per-swap USD cap: nothing enforced it, so nothing publishes one.
-      expect(Object.keys(publicStatus()).sort()).toEqual(['enabled', 'excludeDexes', 'maxNetworkFeeLamports']);
+      expect(Object.keys(publicStatus()).sort()).toEqual(['build', 'enabled', 'excludeDexes', 'maxNetworkFeeLamports', 'skillVersion']);
       expect(JSON.stringify(publicStatus())).not.toContain('test-key');
     } finally {
       delete process.env.JUPITER_API_KEY;

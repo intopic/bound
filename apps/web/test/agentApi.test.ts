@@ -5,7 +5,7 @@
  * nothing signed and nothing sent.
  */
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   address, compileTransaction, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
   SolanaError, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
@@ -20,6 +20,7 @@ import { agentFinalize, agentPrepare, olderThan, PREPARE_DEADLINE_MS, withinDead
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { issueKey } from '../lib/server/agent/keys.ts';
+import { observed } from '../lib/server/agent/events.ts';
 
 const KEY = 'ori_test_key_for_the_agent_api_0001';
 const OTHER_KEY = 'ori_test_key_for_another_agent_0002';
@@ -943,6 +944,40 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     const r3 = await roundsWith(w3, await narrowMarket(), round => (round === 2 ? { slippageBps: 100 } : {}));
     expect(r3.res.status).toBe(200);
     expect(baselineAsks(other.asked)).toBe(2);
+  });
+
+  it('the operator counts each swap and whose routes built it, in one JSON line per event, never a key\'s secret', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'info').mockImplementation((line: unknown) => { lines.push(String(line)); });
+    try {
+      const own = counting();
+      const w = await world({ jupiter: own.jupiter, treasuryWallet: true });
+      // Routes 100 times below Orientim's price: not used, built with its key.
+      const res = await observed('prepare', () => inRounds(w, fakeJupiter({ out: OUT / 100n })));
+      expect(res.status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    const events = lines.map(l => JSON.parse(l) as Record<string, unknown>);
+    expect(events.some(e => e.event === 'orientim.routes_needed')).toBe(true);
+    expect(events.find(e => e.event === 'orientim.routes_not_used')?.reason).toMatch(/below Orientim's own price/);
+    expect(events.find(e => e.event === 'orientim.prepared')).toMatchObject({ routes: 'orientim-fallback', feeSide: 'output' });
+    expect(events.find(e => e.event === 'orientim.reference_price')).toMatchObject({ why: 'none' });
+    expect(events.at(-1)).toMatchObject({ event: 'orientim.prepare', http: 200 });
+    expect(lines.join('\n')).not.toContain(KEY);
+  });
+
+  it('an observed error is counted by its code', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'info').mockImplementation((line: unknown) => { lines.push(String(line)); });
+    try {
+      await observed('prepare', async () => Response.json({ error: { code: 'busy', message: 'm' } }, { status: 503 }));
+      await observed('finalize', async () => Response.json({ signature: 's', status: 'unknown' }));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(JSON.parse(lines[0])).toMatchObject({ event: 'orientim.prepare', http: 503, code: 'busy' });
+    expect(JSON.parse(lines[1])).toMatchObject({ event: 'orientim.finalize', http: 200, status: 'unknown' });
   });
 
   it('without Orientim\'s program labels an excluded DEX cannot be checked: the swap is built with its own key', async () => {

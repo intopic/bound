@@ -14,6 +14,7 @@ import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/sol
 import { hasPermanentDelegate } from '@orientim/verifier';
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
+import { logEvent } from './events';
 import { rateLimited, secondsUntilReset } from '../rateLimit';
 import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openSession, openTicket, REFERENCE_FRESH_MS, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
@@ -336,9 +337,12 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   let sessionExp: number | null = null;
   // Orientim's own price an earlier round sealed into the session (see `reference` below).
   let sessionRef: SessionReference | null = null;
+  // How many routes the agent brought this round (for the operator's count).
+  let providedCount = 0;
   if (ownRoutes) {
     const parsed = parseProvidedRoutes(body.routes ?? []);
     if ('error' in parsed) return fail(400, 'bad-request', parsed.error);
+    providedCount = parsed.routes.length;
     // Labels come from Orientim's own client, never from the agent's routes.
     routes = providedRoutes(parsed.routes, deps.jupiter);
     if (body.session !== undefined) {
@@ -384,8 +388,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const asked = (value: ReferencePrice) => {
       price = { value, at: Date.now() };
       // Why it was asked of Orientim's key, for its own count of requests.
-      const why = !sessionRef ? 'no earlier price' : Date.now() - sessionRef.at > freshMs ? 'the earlier price expired' : 'asked for another tolerance or fee';
-      console.info(`Agent ${key}: Orientim's own price asked of its key (${why}).`);
+      const why = !sessionRef ? 'none' : Date.now() - sessionRef.at > freshMs ? 'expired' : 'parameters';
+      logEvent('reference_price', { key, why });
     };
     const session = () => kidOf(secret).then(kid => sealSession(secret, {
       v: 1, kid, nonce, key, owner: owner as string, inputMint: inMint, outputMint: outMint, amountIn: amountIn.toString(), version,
@@ -421,12 +425,15 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       },
     ));
     let prepared: Awaited<ReturnType<typeof prepareProtectedSwap>>;
+    // Where the swap's routes came from, for the operator's count: the agent's, or Orientim's.
+    let routesFrom: 'agent' | 'orientim' | 'orientim-fallback' = routes ? 'agent' : 'orientim';
     try {
       prepared = routes ? await build(deadline.bind(routes), deadline.jupiter) : await build(deadline.jupiter);
     } catch (e) {
       // The routes the build needs next, for the one-time key it builds around: the agent fetches
       // them from Jupiter with its own key and prepares again with the session.
       if (e instanceof RoutesNeeded && routes) {
+        logEvent('routes_needed', { key, asked: routes.missing.length, brought: providedCount });
         return fail(409, 'routes-needed', `Fetch these ${routes.missing.length} route(s) from Jupiter's /swap/v2/build with your own key, then prepare again with the session and every route you have.`, {
           session: await session(), taker: E.address, requests: routes.missing,
         });
@@ -434,7 +441,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       // Routes Orientim cannot hold to its own price or exclusions: it builds the swap with its own
       // key, around the same one-time key, within the same deadline.
       if (!(e instanceof RoutesUntrusted && routes)) throw e;
-      console.warn(`Agent ${key}: its routes were not used (${e.message}); built with Orientim's key.`);
+      logEvent('routes_not_used', { key, reason: e.message.slice(0, 200) });
+      routesFrom = 'orientim-fallback';
       prepared = await build(deadline.jupiter);
     }
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
@@ -447,6 +455,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString() } : {}),
     });
     const p = prepared.policy;
+    logEvent('prepared', { key, routes: routesFrom, brought: providedCount, feeSide: p.feeSide, version });
     const feeMint = p.feeSide === 'output' ? p.outputMint : p.feeSide === 'sol' ? WSOL_MINT : p.inputMint;
     const solFee = feeMint === WSOL_MINT ? p.fee : 0n;
     // What the transaction has left to live, in blocks: 150 at most, about 40 s.

@@ -1,14 +1,17 @@
 name: Live check
 
-# Is the site serving the latest release? tools/check-live.ts compares every file under
-# /_next/static with the release's build-digest.txt and fails on any difference, so GitHub tells
-# the owner of this workflow. Off until the repository variable ORIENTIM_SITE_URL is set.
+# Is the site serving the release it says it runs? /api/status names the commit production was built
+# from; when a release tag points at that commit, tools/check-live.ts compares every file under
+# /_next/static with that release's build-digest.txt and fails on any difference, so GitHub tells
+# the owner of this workflow. A commit without a release tag has no digest to compare with: the run
+# says so and passes (monitor.yml checks that the commit is on main and passed CI). On by default;
+# the repository variable ORIENTIM_LIVE_CHECK set to 0 turns it off, ORIENTIM_SITE_URL names another
+# site than https://orientim.com.
 on:
   schedule:
-    # Every six hours, some 120 minutes a month. On a private repository each run counts against the
-    # plan's Actions minutes; on a public one it is free and can run more often.
+    # Every six hours (free on a public repository).
     - cron: '17 */6 * * *'
-  # Run it by hand once the tagged deploy is live.
+  # Run it by hand once a tagged deploy is live.
   workflow_dispatch:
 
 permissions:
@@ -16,15 +19,31 @@ permissions:
 
 jobs:
   check:
-    if: vars.ORIENTIM_SITE_URL != ''
+    if: vars.ORIENTIM_LIVE_CHECK != '0' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      SITE: ${{ vars.ORIENTIM_SITE_URL || 'https://orientim.com' }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-      - name: The latest release's digest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download --pattern build-digest.txt --dir release
-      - run: node tools/check-live.ts --site "${{ vars.ORIENTIM_SITE_URL }}" --manifest release/build-digest.txt
+      - name: The release of the commit production runs
+        id: release
+        run: |
+          build=$(curl -fsS "$SITE/api/status" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).build||'')}catch{}})")
+          tag=""
+          if [ -n "$build" ]; then
+            tag=$(gh api "repos/$GITHUB_REPOSITORY/tags" --paginate --jq ".[] | select(.commit.sha == \"$build\") | .name" | grep '^v' | head -n 1 || true)
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -z "$tag" ]; then
+            echo "Production runs ${build:-an unnamed commit}, which has no release tag: no digest to compare with." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: The release's digest
+        if: steps.release.outputs.tag != ''
+        run: gh release download "${{ steps.release.outputs.tag }}" --pattern build-digest.txt --dir release
+      - if: steps.release.outputs.tag != ''
+        run: node tools/check-live.ts --site "$SITE" --manifest release/build-digest.txt

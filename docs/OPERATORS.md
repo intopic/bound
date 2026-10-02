@@ -70,16 +70,61 @@ is compromised, the key can take the fees it holds and nothing else. Then:
   instruction the verifier cannot read stops every swap with `route-format`. `node tools/canary.ts`
   builds and simulates swaps on mainnet state and fails on such a change or on a fee that is no
   longer taken where it should be, and exits 2 (incomplete, not a pass) when a market it promises,
-  such as a Pump.fun curve or PumpSwap, could not be proven that run. `.github/workflows/canary.yml` runs it every twelve hours once
-  the repository variable `ORIENTIM_CANARY` is `1` and the secrets `CANARY_RPC_URL` and
-  `CANARY_JUPITER_API_KEY` are set. Until then, and until `ORIENTIM_SITE_URL` is set for the live
-  check, nothing watches production.
+  such as a Pump.fun curve or PumpSwap, could not be proven that run. `.github/workflows/canary.yml`
+  runs it every six hours with the secrets `CANARY_RPC_URL` and `CANARY_JUPITER_API_KEY` (the
+  repository variable `ORIENTIM_CANARY` set to `0` turns the schedule off).
 - `/api/status` shows the kill switch only; `/api/health` checks the RPC and Jupiter, that the
   agent API is on (`agentApi`), the API's own RPC (`RPC_URL_AGENTS`, or the site's) and a small swap
   Jupiter builds with the API's own key (`JUPITER_API_KEY_AGENTS`, or the site's). An agent API left
   off by the settings (a missing secret or keys, a fee above 30 bps) is `agentApi: "off"` and 503; a
-  pause by the kill switch is `paused: true` and stays 200. An uptime monitor on `/api/health` every
-  few minutes, alerting on 503, covers outages.
+  pause by the kill switch is `paused: true` and stays 200. `/api/status` also names the commit the
+  deployment was built from (`build`) and the skill it serves (`skillVersion`).
+
+## Watching production
+
+Three scheduled workflows watch it, on by default (free on a public repository; GitHub pauses a
+schedule after 60 days without a commit). A failed run makes GitHub tell the workflow's owner, by
+mail and in the notifications: make sure that account receives them.
+
+| Workflow | Every | Fails when | Off with the repository variable |
+| --- | --- | --- | --- |
+| `monitor.yml` (`tools/monitor.ts`) | 10 minutes | `/api/health` is not ok three times 20 s apart; the agent API is off; production runs a commit not on `main`, or one whose CI failed; `/skill/SHA256SUMS` is not the repository's at that commit. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
+| `canary.yml` (`tools/canary.ts`) | 6 hours | A swap no longer builds on mainnet state (Jupiter's format, a Pump.fun or token program changed), a fee is not taken where it should be, or a promised market could not be proven. | `ORIENTIM_CANARY=0` |
+| `live-check.yml` (`tools/check-live.ts`) | 6 hours | Production runs a tagged release and serves other bytes than its digest. Untagged commits are said and pass. | `ORIENTIM_LIVE_CHECK=0` |
+
+`ORIENTIM_SITE_URL` names another site than `https://orientim.com` for all of them.
+
+**What the logs count.** Every prepare and finalize writes one line of JSON, and so do the moments
+the operator counts (`apps/web/lib/server/agent/events.ts`). On Vercel: Logs, search `orientim.`.
+
+| Event | Fields | Read it as |
+| --- | --- | --- |
+| `orientim.prepare`, `orientim.finalize` | `http`, `code` (the error's), `ms`; finalize's `status` | Errors and latency by endpoint: `busy` and `unavailable` are Jupiter's or the RPC's quota or outage; `rate-limited` is an agent at its limit; `internal` is ours. |
+| `orientim.prepared` | `key`, `routes` (`agent`, `orientim`, `orientim-fallback`), `brought`, `feeSide`, `version` | Each swap built: whose routes, and the fee's side. |
+| `orientim.routes_needed` | `key`, `asked`, `brought` | A round of an agent's own routes. |
+| `orientim.routes_not_used` | `key`, `reason` | An agent's routes Orientim could not hold to its price or exclusions: built with its key. Many from one key is worth a look. |
+| `orientim.reference_price` | `key`, `why` (`none`, `expired`, `parameters`) | An ask of Orientim's Jupiter key for its own price. |
+
+What to watch: a share of `prepare` answering `busy` or `unavailable` above a few percent (a quota
+or a provider), `internal` at all, `ms` far above its usual (Jupiter or the RPC slowing), and
+`routes_not_used` from one key again and again (an agent bringing routes it should not).
+
+**Limits across instances.** The app's rate limit (60 a minute per key and endpoint) is kept by each
+instance in memory, so it bounds one instance, not the deployment. A rate-limit rule in the hosting
+firewall bounds all of them: on Vercel, Firewall, a rule on the path prefix `/api/v1/` keyed on the
+client's IP (for example 120 requests a minute, answered 429), and one on `/api/health` (30 a
+minute). Spend alerts on the RPC and Jupiter accounts bound what an abuse can cost.
+
+## Drills
+
+Rehearse each once on a preview, then after any change to hosting, and write down how long each
+step took. The steps are in "Pausing, revoking and rotating" above.
+
+| Drill | Done when |
+| --- | --- |
+| Pause | `/api/status` answers `enabled: false`, a prepare answers `503 paused`, the monitor warns of the pause, and promoting the normal deployment back restores `enabled: true`. |
+| Revoke a key | A prepare with that key answers `401 unauthorized` after the redeploy, and its wallet can sign for a new key only when revoked up to a time (`<wallet>@<unix seconds>`). |
+| Roll back | Instant Rollback to the previous production deployment, `/api/status` names its commit (`build`), and the monitor passes on it. |
 
 ## Verifying the code you are running
 

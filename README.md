@@ -67,7 +67,7 @@ bound/
 │   └── cpi/           T6: a malicious swap program (Rust) executed against the protected transaction in a real Solana VM
 ├── tools/          skill build, release digest, live check, canary, agent API keys
 ├── docs/           OPERATORS.md (running the agent API)
-└── .github/        CI, fuzz, T6, canary, release and live-check workflows
+└── .github/        CI, fuzz, T6, canary, monitor, release and live-check workflows
 ```
 
 The verifier (`packages/verifier`, `@orientim/verifier`) imports only `@solana/kit`, the token program
