@@ -60,6 +60,8 @@ export type AgentDeps = {
    * a swap already signed is always finalized, whatever the copy of the skill that signed it.
    */
   minSkillVersion?: string | null;
+  /** How long a prepare may take in all (PREPARE_DEADLINE_MS); shorter in tests. */
+  prepareDeadlineMs?: number;
 };
 
 /** Is `version` (major.minor.patch) older than `minimum`? A version that is not one is not judged. */
@@ -129,23 +131,76 @@ const unanswered = (e: unknown) => e instanceof Error
   && (e.name === 'TimeoutError' || e.name === 'AbortError' || (e instanceof TypeError && /fetch failed/i.test(e.message)));
 
 /**
- * A prepare answers within this: before the function's own limit (maxDuration, 60 s) and within the
- * skill's wait for it (60 s), so that retries to a slow Jupiter or RPC end in an answer the agent
- * still reads, never a transaction built for no one.
+ * A prepare answers within this, in all: the mints read, the swap built and the block height read,
+ * before the function's own limit (maxDuration, 60 s) and within the skill's wait for it (60 s), so
+ * that retries to a slow Jupiter or RPC end in an answer the agent still reads, never a transaction
+ * built for no one.
  */
 export const PREPARE_DEADLINE_MS = 45_000;
+
+const LATE_MESSAGE = 'Building this swap took too long: Jupiter or the Solana RPC is slow right now. Nothing was signed; prepare again in a moment.';
 
 /** `work`, or `unavailable` once `ms` have passed. */
 export async function withinDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new OrientimError('unavailable', 'Building this swap took too long: Jupiter or the Solana RPC is slow right now. Nothing was signed; prepare again in a moment.')), ms);
+    timer = setTimeout(() => reject(new OrientimError('unavailable', LATE_MESSAGE)), ms);
   });
   try {
     return await Promise.race([work, late]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * One deadline for a whole request, and the clients it may use: every RPC request is sent with the
+ * deadline's signal, so one in flight is aborted when it passes, and no RPC or Jupiter request starts
+ * after it. A Jupiter request already in flight ends at its own timeout, and its answer is dropped.
+ */
+export function deadlineFor(ms: number, rpc: SolanaRpc, jupiter: JupiterClient) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new OrientimError('unavailable', LATE_MESSAGE)), ms);
+  const { signal } = controller;
+  const late = new Promise<never>((_, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
+  late.catch(() => undefined);
+  const notLate = () => {
+    if (signal.aborted) throw signal.reason;
+  };
+  const boundedRpc = new Proxy(rpc as object, {
+    get(target, method) {
+      const call = (target as Record<string | symbol, unknown>)[method];
+      if (typeof call !== 'function') return call;
+      return (...args: unknown[]) => {
+        const request = (call as (...a: unknown[]) => { send(o?: { abortSignal?: AbortSignal }): Promise<unknown> }).apply(target, args);
+        return {
+          ...request,
+          send: (o?: { abortSignal?: AbortSignal }) => {
+            notLate();
+            const abortSignal = o?.abortSignal && typeof AbortSignal.any === 'function' ? AbortSignal.any([o.abortSignal, signal]) : signal;
+            return request.send({ ...o, abortSignal });
+          },
+        };
+      };
+    },
+  }) as SolanaRpc;
+  const bounded = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
+    notLate();
+    return Promise.race([f(...a), late]);
+  };
+  const boundedJupiter: JupiterClient = {
+    build: bounded(p => jupiter.build(p)),
+    searchTokens: bounded(q => jupiter.searchTokens(q)),
+    programLabels: bounded(() => jupiter.programLabels()),
+  };
+  return {
+    rpc: boundedRpc, jupiter: boundedJupiter, signal,
+    /** `work`, or `unavailable` as soon as the deadline passes. */
+    within: <T>(work: Promise<T>): Promise<T> => Promise.race([work, late]),
+    done: () => clearTimeout(timer),
+  };
 }
 
 /** Every refusal in plain words, with what an agent needs to act on it. */
@@ -256,9 +311,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   }
   if (version === 1 && !deps.v1) return fail(400, 'bad-request', 'v1 transactions are not enabled on this deployment; use version 0.');
 
+  // One deadline for the whole prepare: the mints read, the build, and the block height read.
+  const deadline = deadlineFor(deps.prepareDeadlineMs ?? PREPARE_DEADLINE_MS, deps.rpc, deps.jupiter);
   try {
     const [inMint, outMint] = [inputMint as Address, outputMint as Address];
-    const mintStates = await fetchAccounts(deps.rpc, [inMint, outMint]);
+    const mintStates = await deadline.within(fetchAccounts(deadline.rpc, [inMint, outMint]));
     const mints = new Map([inMint, outMint].map(m => [m as string, mintInfoOf(mintStates.get(m))]));
     // A Token-2022 permanent delegate: its issuer can move or burn any holder's balance.
     const permanentDelegate = (m: Address) => {
@@ -271,10 +328,10 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const nonce = newNonce();
     const [secret] = deps.secrets;
     const E = await ephemeralFor(secret, nonce);
-    const prepared = await withinDeadline(prepareProtectedSwap(
+    const prepared = await deadline.within(prepareProtectedSwap(
       {
-        rpc: deps.rpc,
-        jupiter: deps.jupiter,
+        rpc: deadline.rpc,
+        jupiter: deadline.jupiter,
         ...(deps.priorityFee ? { priorityFee: deps.priorityFee } : {}),
         settings: {
           ...DEFAULT_SETTINGS,
@@ -294,7 +351,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         acceptedMinReceived: minOut, acceptedCostBps: acceptCostBps, version,
         ...(body.routingMode === 'fast' ? { routingMode: 'fast' as const } : {}),
       },
-    ), PREPARE_DEADLINE_MS);
+    ));
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
     // the certificate: it is the one value the fee depends on.
     const messageSha256 = await sha256Hex(prepared.transaction.messageBytes);
@@ -308,7 +365,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const feeMint = p.feeSide === 'output' ? p.outputMint : p.feeSide === 'sol' ? WSOL_MINT : p.inputMint;
     const solFee = feeMint === WSOL_MINT ? p.fee : 0n;
     // What the transaction has left to live, in blocks: 150 at most, about 40 s.
-    const height = await deps.rpc.getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null);
+    // Read in the time left: past the deadline it is left out, and the swap is still answered.
+    const height = await deadline.within(deadline.rpc.getBlockHeight({ commitment: 'confirmed' }).send()).catch(() => null);
     return json(200, {
       ticket,
       transaction: getBase64EncodedWireTransaction(prepared.transaction),
@@ -378,6 +436,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     });
   } catch (e) {
     return explain(e);
+  } finally {
+    deadline.done();
   }
 }
 

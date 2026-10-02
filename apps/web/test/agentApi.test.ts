@@ -689,4 +689,44 @@ describe('a prepare that takes too long', () => {
     await expect(withinDeadline(slow, 20)).rejects.toMatchObject({ code: 'unavailable' });
     await expect(withinDeadline(Promise.resolve('on time'), 20)).resolves.toBe('on time');
   });
+
+  // The deadline covers the whole prepare: a slow read of the mints before the build counts.
+  it('a slow first read of the mints counts against the one deadline, and its request is aborted', async () => {
+    const w = await world();
+    let aborted = false;
+    const real = w.deps.rpc;
+    w.deps.rpc = new Proxy(real as object, {
+      get(target, method) {
+        const call = (target as Record<string | symbol, unknown>)[method];
+        if (method !== 'getMultipleAccounts' || typeof call !== 'function') return call;
+        return () => ({
+          send: ({ abortSignal }: { abortSignal?: AbortSignal } = {}) => new Promise((_, reject) => {
+            abortSignal?.addEventListener('abort', () => { aborted = true; reject(abortSignal.reason); });
+          }),
+        });
+      },
+    }) as AgentDeps['rpc'];
+    w.deps.prepareDeadlineMs = 50;
+    const started = Date.now();
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe('unavailable');
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(aborted).toBe(true);
+  });
+
+  it('a slow Jupiter ends the prepare at the deadline, and no request to it starts afterwards', async () => {
+    const base = fakeJupiter();
+    let calls = 0;
+    const slow: AgentDeps['jupiter'] = { ...base, build: async p => { calls++; await new Promise(r => setTimeout(r, 80)); return base.build(p); } };
+    const w = await world({ jupiter: slow });
+    w.deps.prepareDeadlineMs = 60;
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe('unavailable');
+    const atDeadline = calls;
+    await new Promise(r => setTimeout(r, 400));
+    expect(calls).toBe(atDeadline);
+    expect(w.sent).toHaveLength(0);
+  });
 });

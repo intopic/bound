@@ -2464,6 +2464,42 @@ describe('a second proof of expiry, locks kept fresh, approvals by amount, no ma
     expect(await store.reclaimOrder!('o-1', prior, { signature: 'third', state: 'pending' })).toBe(false);
     expect(await store.order('o-1')).toEqual({ signature: 'second', state: 'pending' });
   });
+
+  it('a marker left by a worker that stopped before recording its attempt does not hold the order for good', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-marker-'));
+    const store = createFileStore(dir);
+    const prior = { signature: 'first', state: 'expired' as const };
+    await store.claimOrder('o-1', prior);
+    // The worker created the marker for its retry, then stopped before recording its attempt.
+    const marker = join(dir, readdirSync(dir).find(f => f.startsWith('order-'))!.replace(/\.json$/, '.json.retry-first'));
+    writeFileSync(marker, '');
+    // Fresh, it may still be a worker at work: the order is not taken.
+    expect(await store.reclaimOrder!('o-1', prior, { signature: 'second', state: 'pending' })).toBe(false);
+    // Old, but a swap kept for this order is still pending: still not taken.
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(marker, old, old);
+    await store.put({ signature: 'kept', wallet: 'W', lastValidBlockHeight: 1n, signedTransaction: 'AA==', ticket: 't', messageSha256: 'm', signedAt: 1, intentId: 'o-1' } as never);
+    expect(await store.reclaimOrder!('o-1', prior, { signature: 'second', state: 'pending' })).toBe(false);
+    // Once that swap is settled, the abandoned marker is set aside and the retry takes the order, once.
+    await store.remove('kept');
+    expect(await store.reclaimOrder!('o-1', prior, { signature: 'second', state: 'pending' })).toBe(true);
+    expect(await store.order('o-1')).toEqual({ signature: 'second', state: 'pending' });
+    expect(readdirSync(dir).filter(f => f.includes('.retry-'))).toEqual([]);
+    expect(await store.reclaimOrder!('o-1', prior, { signature: 'third', state: 'pending' })).toBe(false);
+  });
+
+  it('an abandoned marker is taken by one worker only, when several find it at once', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-marker-'));
+    const store = createFileStore(dir);
+    const prior = { signature: 'first', state: 'failed' as const };
+    await store.claimOrder('o-2', prior);
+    const marker = join(dir, readdirSync(dir).find(f => f.startsWith('order-'))!.replace(/\.json$/, '.json.retry-first'));
+    writeFileSync(marker, '');
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(marker, old, old);
+    const won = await Promise.all(['a', 'b', 'c', 'd'].map(s => store.reclaimOrder!('o-2', prior, { signature: s, state: 'pending' })));
+    expect(won.filter(Boolean)).toHaveLength(1);
+  });
 });
 
 describe("Jupiter's answers to the agent's own price, busy or not", () => {
