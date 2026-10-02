@@ -29,7 +29,7 @@ import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked, ownFloor, IntentError,
-  exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
+  ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
@@ -2207,6 +2207,22 @@ describe('the skill holds its own limits and its state against what it is handed
     }
   });
 
+  it('the developers page and the API reference state the integration contract, and every error the skill knows', () => {
+    const page = readFileSync(join(import.meta.dirname, '../app/developers/page.tsx'), 'utf8');
+    const reference = readFileSync(join(import.meta.dirname, '../../../AGENT-API.md'), 'utf8');
+    for (const said of [
+      // The fee, by its side, and the check of the client's own routes.
+      'On the input: that share of <code>amountIn</code>', 'that share of the guaranteed minimum', 'within 1%',
+      // ownRoutes moves the Jupiter requests; the RPC's use is said apart.
+      'id="own-routes"', 'Orientim&apos;s Jupiter key', 'Your RPC', 'ORIENTIM_OWN_ROUTES', 'BudgetSpentError', '110 seconds and 48 asks',
+      // sent and unknown are not final; no order database; restart and recovery from the quickstart.
+      'Only a swap confirmed on chain is done', 'Orientim keeps no order database', 'Make restarts safe', 'On every start, for a direct API client',
+    ]) expect(page, said).toContain(said);
+    for (const said of ['up to 1%', 'Neither `sent` nor `unknown` is a final answer', 'keeps no order database', 'On every start']) expect(reference, said).toContain(said);
+    // Every error the skill can be answered with is in the reference, so a client can decide on it.
+    for (const code of Object.keys(ERROR_MEANINGS)) expect(reference, code).toContain(`\`${code}\``);
+  });
+
   it('a checked v1 transaction longer than any data string is kept whole', () => {
     const long = 'A'.repeat(5_000);
     expect(preparedData({ transaction: long, note: 'prose here' } as unknown as Prepared)).toEqual({ transaction: long });
@@ -2775,6 +2791,36 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     expect(b.sent).toHaveLength(0);
   });
 
+  it('the fall back to Orientim\'s own routes runs within the time the preparation has left, and stops unsigned when it is spent', async () => {
+    const E = (await generateKeyPairSigner()).address;
+    const b = await orientim();
+    const levels = (from: number) => Array.from({ length: 8 }, (_, i) => requestFor(E, from + i));
+    const rounds = [() => routesNeeded(E, levels(10)), () => routesNeeded(E, levels(18)), () => routesNeeded(E, levels(26)), () => routesNeeded(E, [requestFor(E, 40)])];
+    let round = 0;
+    let fellBackAt = 0;
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.endsWith('/api/v1/prepare')) {
+        if (rounds[round]) return rounds[round++]();
+        // The prepare that falls back to Orientim's routes never answers: only the time left ends it.
+        fellBackAt = performance.now();
+        return new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+      }
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const started = performance.now();
+    const failure = await prepareChecked({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, owner: b.wallet.address, fetchImpl, jupiterApiKey: 'fallback-time',
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+      // 2.5 s for the whole preparation; the call itself would wait 60 s.
+      budget: { asks: 48, until: performance.now() + 2_500 },
+    }).catch(e => e as Error);
+    expect(fellBackAt).toBeGreaterThan(0);
+    expect(failure).toMatchObject({ name: 'BudgetSpentError', message: expect.stringMatching(/took longer than a swap may/) });
+    // Ended by the preparation's own time, not by the call's 60 s.
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(b.sent).toHaveLength(0);
+  }, 20_000);
+
   it('a route asked for again is not fetched again; asked only for routes already sent, the skill stops', async () => {
     const E = (await generateKeyPairSigner()).address;
     const s = await scripted([
@@ -2795,12 +2841,12 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     const busy = (async () => { calls++; return new Response('upstream down', { status: 503 }); }) as unknown as typeof fetch;
     const E = TREASURY;
     await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'budget-key', fetchImpl: busy, budget: { asks: 2, until: performance.now() + 60_000 } }))
-      .rejects.toThrow(/more asks of your Jupiter key/);
+      .rejects.toMatchObject({ name: 'BudgetSpentError', message: expect.stringMatching(/more asks of your Jupiter key than one preparation may make \(48/) });
     expect(calls).toBe(2);
     calls = 0;
     const started = Date.now();
     await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'deadline-key', fetchImpl: busy, budget: { asks: 48, until: performance.now() + 300 } }))
-      .rejects.toThrow(/longer than this swap's time allows/);
+      .rejects.toMatchObject({ name: 'BudgetSpentError', message: expect.stringMatching(/took longer than a swap may \(110 s\)/) });
     expect(calls).toBe(1);
     expect(Date.now() - started).toBeLessThan(300);
   });
