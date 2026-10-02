@@ -27,7 +27,7 @@
  *
  *   RPC_URL=<mainnet RPC> JUPITER_API_KEY=<key> npx vitest run --config tools/sim/vitest.config.ts
  *   SIM_GROUPS=sizes,pairs   only those groups (repeat, sizes, pairs, majors, whales, personas, pump, tolerance, rules,
- *                            parity, hard, giants, more-tokens, tamper, approve, burst, v1-compare, modes)
+ *                            parity, hard, giants, more-tokens, tamper, approve, burst, v1-compare, modes, fallback)
  *   SIM_LIMIT=20             at most this many cases
  *   SIM_JUPITER_INTERVAL_MS  the least time between two Jupiter requests (default 1100: a free key)
  *   SIM_VERSION=1            every case that names no version as a v1 transaction (default v0)
@@ -138,6 +138,12 @@ type Case = {
   wave?: string;
   /** The same swap as a v0 and as a v1 transaction, one after the other: their outputs compared. */
   compare?: string;
+  /**
+   * The agent understates the output of every route it brings this many times (the audit's proof):
+   * with a fee on the output, Orientim must not use them and builds with its own key; with a fee on
+   * the input, the agent's own minimum still holds.
+   */
+  understate?: bigint;
 };
 
 function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
@@ -351,6 +357,17 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     { group: 'modes', input: 'USDC', output: 'SOL', usd: 100, fast: true },
     { group: 'modes', input: 'WIF', output: 'JUP', usd: 300, fast: true },
   );
+  // An agent that brings routes understating their output a hundred times: a sale into SOL or USDC
+  // (the fee on the output) is built with Orientim's key; a purchase with SOL (on the input) is not
+  // the fee's business, and the agent's own minimum holds it.
+  if (OWN_ROUTES && JUPITER_API_KEY) {
+    cases.push(
+      { group: 'fallback', input: 'USDC', output: 'SOL', usd: 100, understate: 100n },
+      { group: 'fallback', input: 'BONK', output: 'SOL', usd: 200, understate: 100n },
+      { group: 'fallback', input: 'JUP', output: 'USDC', usd: 500, understate: 100n },
+      { group: 'fallback', input: 'SOL', output: 'USDC', usd: 100, understate: 100n },
+    );
+  }
   return cases.filter(c => !GROUPS.length || GROUPS.includes(c.group)).slice(0, LIMIT);
 }
 
@@ -368,6 +385,33 @@ let nextJupiterAt = 0;
 /** Every request to Jupiter, the agent's and Orientim's, spaced as the key allows; a 429 is asked again twice. */
 /** The case each request belongs to, so that Jupiter's answers are kept with it even when cases run at once. */
 const caseOf = new AsyncLocalStorage<number>();
+/**
+ * The server's own events (lib/server/agent/events.ts), by case: whose routes built each swap, the
+ * fee's side, and how often Orientim's key was asked for its own price. The server runs in this
+ * process, in each case's async context, so its log lines are read here rather than printed.
+ */
+const serverEvents = new Map<number, { routesFrom?: string; feeSide?: string; referenceAsks: number }>();
+{
+  const info = console.info.bind(console);
+  console.info = (...args: unknown[]) => {
+    const line = args[0];
+    if (args.length === 1 && typeof line === 'string' && line.startsWith('{"event":"orientim.')) {
+      const n = caseOf.getStore() ?? 0;
+      const seen = serverEvents.get(n) ?? { referenceAsks: 0 };
+      try {
+        const e = JSON.parse(line) as { event: string; routes?: string; feeSide?: string };
+        // The agent's swap comes first; the same case run as a bot after it does not replace it.
+        if (e.event === 'orientim.prepared' && !seen.routesFrom) Object.assign(seen, { routesFrom: e.routes, feeSide: e.feeSide });
+        if (e.event === 'orientim.reference_price') seen.referenceAsks++;
+      } catch {
+        // Not an event after all: printed below.
+      }
+      serverEvents.set(n, seen);
+      return;
+    }
+    info(...args);
+  };
+}
 /** Every answer from Jupiter that was not a success, by case: status, endpoint and body, for the report. */
 const jupiterAnswers = new Map<number, string[]>();
 
@@ -541,6 +585,8 @@ type Result = {
   approved?: string;
   /** The protected route's quoted output (passed, or refused as costing more), and the v0/v1 pair it belongs to. */
   outAmount?: string; compare?: string; version?: number;
+  /** From the server's own events: whose routes built the swap, the fee's side, and the asks of its key for its own price. */
+  routesFrom?: string; feeSide?: string; referenceAsks?: number;
 };
 
 const ABOVE_CEILING = /above the owner's limit of \d+ \(maxSlippageBps\)/;
@@ -573,6 +619,9 @@ function classify(e: unknown): Pick<Result, 'kind' | 'code' | 'detail'> {
     // Orientim's own honest answer, refused by the skill's check: the two disagree.
     return { kind: 'BUG', code: 'check-refused-honest-answer', detail: message.slice(13, 400) };
   }
+  // The preparation spent its time or its asks of Jupiter (the test key is shared by every case):
+  // nothing was signed, and nothing was proven.
+  if (e instanceof Error && e.name === 'BudgetSpentError') return { kind: 'UNTESTED', code: 'budget-spent', detail: message.slice(0, 200) };
   // Jupiter still busy after the skill asked it again, or a refusal of its own with its code.
   if (/^Jupiter answered 400 \(busy\)/.test(message)) return { kind: 'UNTESTED', code: 'jupiter-busy', detail: message.slice(0, 200) };
   const jupiterCode = /^Jupiter answered 4\d\d \(([A-Za-z0-9_]+)\)/.exec(message)?.[1];
@@ -800,6 +849,16 @@ function invariantsBroken(p: Prepared, owner: string, intent: Omit<Intent, 'owne
 }
 
 async function runCase(w: World, c: Case, n: number): Promise<Result> {
+  serverEvents.delete(n);
+  const withEvents = (r: Result): Result => {
+    const ev = serverEvents.get(n);
+    const seen: Result = { ...r, ...(ev?.routesFrom ? { routesFrom: ev.routesFrom } : {}), ...(ev?.feeSide ? { feeSide: ev.feeSide } : {}), referenceAsks: ev?.referenceAsks ?? 0 };
+    // Understated routes behind a fee on the output must never be used.
+    if (c.understate && seen.kind === 'PASS' && seen.feeSide === 'output' && seen.routesFrom !== 'orientim-fallback') {
+      return { ...seen, kind: 'BUG', code: 'understated-routes-used', detail: `routes ${String(c.understate)} times below the market built the swap (${seen.routesFrom ?? 'unknown'})` };
+    }
+    return seen;
+  };
   const input = (T as Record<string, string>)[c.input] ?? c.input;
   const output = (T as Record<string, string>)[c.output] ?? c.output;
   const base: Result = {
@@ -848,8 +907,9 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     let outcome: Result;
     try {
       if (policy) await checkPolicy(policy, { owner, inputMint: input, amountIn: intent.amountIn });
+      const fetchImpl = c.understate ? understating(w.fetchImpl, owner, c.understate) : w.fetchImpl;
       const prepare = (asked: Omit<Intent, 'owner'>) => prepareChecked({
-        apiUrl: API_URL, apiKey: API_KEY, rpc: w.rpc, owner, intent: asked, fetchImpl: w.fetchImpl, jupiterApiKey: JUPITER_API_KEY,
+        apiUrl: API_URL, apiKey: API_KEY, rpc: w.rpc, owner, intent: asked, fetchImpl, jupiterApiKey: JUPITER_API_KEY,
         requestTimeoutMs: 30_000, ownRoutes: OWN_ROUTES, ...(policy ? { policy } : {}),
       });
       let approved: string | undefined;
@@ -941,11 +1001,38 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
       if (accepted && outcome.kind === 'BUG') outcome = { ...outcome, kind: 'REFUSED' };
       else if (!accepted && outcome.kind !== 'BUG') outcome = { ...outcome, kind: 'BUG', code: 'unexpected', detail: `expected ${c.expect.join(' or ')}, got ${got}: ${outcome.detail}` };
     }
-    return { ...outcome, ms: Date.now() - started };
+    return withEvents({ ...outcome, ms: Date.now() - started });
   } catch (e) {
-    return { ...base, ...classify(e), ms: Date.now() - started };
+    return withEvents({ ...base, ...classify(e), ms: Date.now() - started });
   }
 }
+
+/**
+ * The agent's fetch, understating `factor` times the output of every route it brings Orientim: its
+ * `outAmount`, its threshold, and the quote in the route's instruction, so that the route still
+ * agrees with itself. The agent's own price (asked with its own wallet as taker) is left as Jupiter
+ * gave it.
+ */
+function understating(fetchImpl: typeof fetch, owner: string, factor: bigint): typeof fetch {
+  return (async (url: string, init?: RequestInit) => {
+    const res = await fetchImpl(url, init);
+    const u = new URL(String(url));
+    if (!u.href.startsWith('https://api.jup.ag/swap/v2/build') || u.searchParams.get('taker') === owner || !res.ok) return res;
+    const r = (await res.json()) as { outAmount: string; otherAmountThreshold: string; swapInstruction: { data: string } };
+    const data = Buffer.from(r.swapInstruction.data, 'base64');
+    const args = jupiterRouteArgs(data);
+    if (!args) return Response.json(r);
+    const lower = BigInt(r.outAmount) / factor;
+    new DataView(data.buffer, data.byteOffset, data.byteLength).setBigUint64(args.slippageOffset - 8, lower, true);
+    return Response.json({
+      ...r, outAmount: lower.toString(), otherAmountThreshold: (BigInt(r.otherAmountThreshold) / factor).toString(),
+      swapInstruction: { ...r.swapInstruction, data: data.toString('base64') },
+    });
+  }) as unknown as typeof fetch;
+}
+
+/** The markets Orientim promises by name (the canary's too), as Jupiter labels them in a route. */
+const PROMISED_MARKETS: [string, string][] = [['Pump.fun curve', 'Pump.fun'], ['PumpSwap', 'Pump.fun Amm']];
 
 /** Outcomes that depend on the market of the moment, not on the code that checks it. */
 const MARKET_DECIDES = /costs-more|price-moved|simulation-failed|price-impact-high|route-failed-in-check|check-refused-honest-answer|problems: .*fails in simulation/;
@@ -998,6 +1085,15 @@ function analysis(results: Result[]): string[] {
   const dexes = new Map<string, number>();
   for (const r of passes) for (const d of r.route.split(' > ').map(x => x.trim()).filter(Boolean)) dexes.set(d, (dexes.get(d) ?? 0) + 1);
   if (dexes.size) lines.push(`- **Markets in the passed routes** (${dexes.size}): ${[...dexes].sort((a, b) => b[1] - a[1]).map(([d, k]) => `${d} ${k}`).join(', ')}.`);
+  // What the release promises, proven or not by this run: the markets named, the fee's three sides,
+  // and whose routes built the swaps (the server's own events).
+  const proven = (k: number) => (k ? `${k} passes` : '**NOT PROVEN this run**');
+  lines.push(`- **Markets Orientim promises**: ${PROMISED_MARKETS.map(([name, label]) => `${name} ${proven(dexes.get(label) ?? 0)}`).join('; ')}.`);
+  const side = (name: string) => passes.filter(r => r.feeSide === name).length;
+  lines.push(`- **The fee's side in the passes**: on the input ${proven(side('input'))}; on the output ${proven(side('output'))}; in SOL from the wallet ${proven(side('sol'))}.`);
+  const from = (name: string) => passes.filter(r => r.routesFrom === name).length;
+  const asks = results.reduce((t, r) => t + (r.referenceAsks ?? 0), 0);
+  lines.push(`- **Whose routes built the passes**: the agent's ${from('agent')}, Orientim's ${from('orientim')}, Orientim's after the agent's were not used ${from('orientim-fallback')}. Orientim's key was asked for its own price ${asks} times in ${results.length} cases.`);
   // The same swaps, again and again.
   const rounds = results.filter(r => r.group === 'repeat');
   if (rounds.length) {

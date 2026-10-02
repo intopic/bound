@@ -20,6 +20,7 @@
  *
  *   node tools/canary.ts          RPC_URL and JUPITER_API_KEY are used when set
  *   node tools/canary.ts --record-deploys   after a review, record the programs' deploys as reviewed
+ *   node tools/canary.ts --swaps-only       the review itself: the swaps, with the deploys only said
  *
  * Exit 1 when a swap cannot be built or executed for a reason that is not load: Jupiter's format
  * changed, a rule no longer holds, a major pair has no route, the fee is not where it belongs, or
@@ -153,7 +154,8 @@ for (const [name, program] of PROGRAMS) {
   const deployed = Buffer.from(header.value!.data[0], 'base64').readBigUInt64LE(0);
   seen[name] = deployed.toString();
   console.log(`${name}: last deployed ${((Number(slot - deployed) * msPerSlot) / 86_400_000).toFixed(1)} days ago (slot ${deployed})`);
-  if (process.argv.includes('--record-deploys')) continue;
+  // Recording them, or reviewing them by the swaps: the deploys are said, not judged.
+  if (process.argv.includes('--record-deploys') || process.argv.includes('--swaps-only')) continue;
   if (known[name] === undefined) report('warn', `${name} program`, `no reviewed deploy on record (${KNOWN})`);
   else if (deployed !== BigInt(known[name])) {
     report('fail', `${name} program`, `deployed again at slot ${deployed}, after the one reviewed (${known[name]}): re-run the canary's swaps and tests/integration/jupiter-floor.ts, then record it with --record-deploys`);
