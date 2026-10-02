@@ -20,7 +20,7 @@ import {
 import type { Certificate } from '@orientim/verifier';
 import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientim/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
-import { RoutesNeeded } from './provided.ts';
+import { PROVIDED_ROUTE_TOLERANCE_BPS, RoutesNeeded, RoutesUntrusted } from './provided.ts';
 import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';
 import type { PriorityFeeLevel } from './priorityFee.ts';
 
@@ -636,6 +636,13 @@ export async function prepareProtectedSwap(deps: {
    * Orientim's own Jupiter client, never an agent's routes. Defaults to `jupiter`.
    */
   pricing?: JupiterClient;
+  /**
+   * Orientim's own Jupiter client, when `jupiter` answers from an agent's routes. With a fee on the
+   * output, a share of the minimum a route sets, the unrestricted baseline is asked of it, and a
+   * route whose minimum is more than PROVIDED_ROUTE_TOLERANCE_BPS below the baseline's stops the
+   * build with `RoutesUntrusted`: the fee never rests on a price only the agent gave.
+   */
+  reference?: JupiterClient;
   settings: SwapSettings;
   /** The RPC provider's own priority estimate (heliusPriorityFee); without one, or when it fails, recent fees. */
   priorityFee?: PriorityFeeLevel;
@@ -873,14 +880,18 @@ export async function prepareProtectedSwap(deps: {
   // retry the baseline once and skip a failing maxAccounts level instead of giving up.
   // A 429 or a Jupiter that does not answer is not a missing route: it ends the attempt with that
   // reason, instead of reading as "no route fits, try another token".
-  const buildOrNull = async (maxAccounts: number, excludeDexes?: readonly string[], slippageBps = buildBase.slippageBps, mode: 'standard' | 'fast' = req.routingMode ?? 'standard') => {
+  const buildOrNull = async (
+    maxAccounts: number, excludeDexes?: readonly string[], slippageBps = buildBase.slippageBps,
+    mode: 'standard' | 'fast' = req.routingMode ?? 'standard', client: JupiterClient = jupiter,
+  ) => {
     const at = performance.now();
     jupiterBuildCalls++;
     try {
-      return await jupiter.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps, ...(mode === 'fast' ? { mode } : {}) });
+      return await client.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps, ...(mode === 'fast' ? { mode } : {}) });
     } catch (e) {
-      // A route the agent has not brought yet: the API asks the agent for it.
-      if (e instanceof RoutesNeeded) throw e;
+      // A route the agent has not brought yet: the API asks the agent for it. One that cannot be
+      // checked: the API builds the swap with Orientim's key.
+      if (e instanceof RoutesNeeded || e instanceof RoutesUntrusted) throw e;
       if (e instanceof JupiterError) {
         if (e.status === 429) throw new OrientimError('busy', BUSY_MESSAGE);
         // Jupiter answers "No routes found" with 400. A refused key or an endpoint that is gone is
@@ -905,17 +916,22 @@ export async function prepareProtectedSwap(deps: {
   // depend on each other: ask for them at the same time (idea 21).
   // Jupiter sometimes answers "No matching liquidity" for a pair it quotes a second later: retry
   // once after a pause, then accept a smaller route as the baseline before giving up.
+  // With an agent's routes and a fee on the output, the baseline is Orientim's own price, which every
+  // route's minimum is held to (`deps.reference`); asked once the agent has brought the first route,
+  // so that a round that only learns which routes to bring costs Orientim's key nothing.
+  const reference = deps.reference && policy.feeSide === 'output' ? deps.reference : null;
+  const firstRouteTask = buildOrNull(MAX_ACCOUNTS_LEVELS[0], settings.excludeDexes);
   const baselineTask = (async () => {
+    if (reference) await firstRouteTask.catch(e => { if (e instanceof RoutesNeeded || e instanceof RoutesUntrusted) throw e; });
     for (const [i, maxAccounts] of [64, 64, 48, 32].entries()) {
       if (i > 0) await new Promise(r => setTimeout(r, 700));
       // The baseline must remain standard even when the protected route uses fast mode:
       // otherwise a worse fast quote could make the protected-route price check look good.
-      const r = await buildOrNull(maxAccounts, undefined, buildBase.slippageBps, 'standard');
+      const r = await buildOrNull(maxAccounts, undefined, buildBase.slippageBps, 'standard', reference ?? jupiter);
       if (r) return r;
     }
     return null;
   })();
-  const firstRouteTask = buildOrNull(MAX_ACCOUNTS_LEVELS[0], settings.excludeDexes);
   const firstLifetimeTask = latestLifetime(rpc);
   const labelsTask = jupiter.programLabels().catch(() => ({} as Record<string, string>));
   // Settled early so that a failure the loop never waits for is not an unhandled rejection.
@@ -925,6 +941,8 @@ export async function prepareProtectedSwap(deps: {
   if (!baseline) throw new OrientimError('no-route', 'Jupiter found no route for this pair and amount, asked four times. The token may have no liquidity left, or too little for this amount: try a smaller amount or once more later, and stop if it is refused again.');
   if (!answersThisRequest(baseline)) throw new OrientimError('bad-quote', 'Jupiter answered for a different trade. Nothing was built.');
   const baselineOut = BigInt(baseline.outAmount);
+  /** What Orientim's own price guarantees at its own tolerance (used with `reference`). */
+  const referenceMinimum = minimumOutput(baselineOut, slippageFor(baseline, settings));
   const labels = await labelsTask;
 
   const learned: string[] = [];
@@ -1129,6 +1147,11 @@ export async function prepareProtectedSwap(deps: {
         continue;
       }
       const out = BigInt(r.outAmount);
+      // An agent's route sets the minimum Orientim's fee on the output is a share of: never more than
+      // PROVIDED_ROUTE_TOLERANCE_BPS below Orientim's own price, at each one's own tolerance.
+      if (reference && minimumOutput(out, own) * 10_000n < referenceMinimum * (10_000n - PROVIDED_ROUTE_TOLERANCE_BPS)) {
+        throw new RoutesUntrusted(`the route's minimum is more than ${PROVIDED_ROUTE_TOLERANCE_BPS} bps below Orientim's own price`);
+      }
       const gap = baselineOut > 0n ? ((baselineOut - out) * 10_000n) / baselineOut : 0n;
       if (bestGapBps === null || gap < bestGapBps) bestGapBps = gap;
       if (gap > settings.badQuoteBps) { sawFarBelow = true; continue; }

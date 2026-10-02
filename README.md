@@ -117,6 +117,7 @@ Fixed at build time (compiled into the build, so they cannot change without a ne
 | `NEXT_PUBLIC_ORIENTIM_FEE_BPS` | 25 | 0.25%. Production configuration and the shipped agent skill refuse more than 30 bps. The agent API also refuses an `ORIENTIM_API_FEE_BPS` above 30 bps. |
 | `NEXT_PUBLIC_ORIENTIM_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Orientim v1 swap has landed on mainnet |
 | `ORIENTIM_ENABLE_FAST_ROUTING` | — | `1` allows agent requests with `routingMode: "fast"`. Off by default. Jupiter fast routing is beta and can worsen price or priority fee; the bot must still opt in, and the standard baseline, simulation, and verifier remain mandatory. |
+| `ORIENTIM_OWN_ROUTES` | on | `0` turns off routes agents bring with their own Jupiter key (`ownRoutes`): prepare then builds every swap with Orientim's key and ignores `ownRoutes`, `routes` and `session`. A fee on the output is held to Orientim's own price either way. |
 
 Server only (never sent to the browser):
 

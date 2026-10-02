@@ -307,6 +307,8 @@ export function fakeJupiter(answer: {
   routeAccount?: boolean;
   /** Jupiter answers with a swap instruction of a format nobody has seen yet. */
   unknownFormat?: boolean;
+  /** Jupiter's program labels; by default one for HumidiFi, at a program no route here passes. */
+  labels?: Record<string, string> | 'down';
 } = {}): JupiterClient {
   let calls = 0;
   return {
@@ -373,10 +375,14 @@ export function fakeJupiter(answer: {
       return [];
     },
     async programLabels() {
-      return {};
+      if (answer.labels === 'down') throw new JupiterError('Jupiter 503: unavailable', 503);
+      return answer.labels ?? { [HUMIDIFI_PROGRAM]: 'HumidiFi' };
     },
   };
 }
+
+/** A program labeled HumidiFi in the fake's labels, which no fake route passes. */
+export const HUMIDIFI_PROGRAM = address('9H6tua7jkLhdm3w8BvgpTn5LZNU7g4ZynDhCiNN3q6Rp');
 
 /**
  * Jupiter's route_v2 data as /swap/v2/build returns it: discriminator, amount in, quoted amount out,

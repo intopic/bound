@@ -11,9 +11,20 @@ import type { BuildParams, BuildResponse, JupiterClient } from './client.ts';
  * A route an agent brings is untrusted, as Jupiter's own answers are: the pipeline holds it to the
  * swap it answers (mints and amount), to the tolerance and quote its instruction carries, to the
  * verifier's rules and to two simulations. A route the agent made up harms only the agent's own
- * swap, never Orientim's fee, which Orientim builds and the verifier checks. Orientim's fee in SOL
- * is never priced from an agent's route: that price is asked of Jupiter with Orientim's key.
+ * swap, and never lowers Orientim's fee: a fee on the input is a share of the amount in; a fee in SOL
+ * is priced with Orientim's key, never from an agent's route; and a fee on the output, a share of
+ * the minimum the route sets, is held to Orientim's own price (`PROVIDED_ROUTE_TOLERANCE_BPS`). What
+ * cannot be checked is not taken on trust: Orientim builds the swap with its own key instead
+ * (`RoutesUntrusted`).
  */
+
+/**
+ * How far below Orientim's own price the minimum of an agent's route may be, when Orientim's fee is
+ * a share of that minimum: 1%, the cost a user is asked about (0.5%) and a few seconds of the
+ * market's movement between the agent's quote and Orientim's. Further below, the route is not used
+ * and Orientim builds the swap with its own key: the fee never rests on a price only the agent gave.
+ */
+export const PROVIDED_ROUTE_TOLERANCE_BPS = 100n;
 
 /** One Jupiter build, as text: what Orientim asks for, and what an agent fetches and sends back. */
 export type RouteRequest = {
@@ -42,6 +53,17 @@ export class RoutesNeeded extends Error {
     super(`Orientim needs ${requests.length} more route(s) from Jupiter to build this swap.`);
     this.name = 'RoutesNeeded';
     this.requests = requests;
+  }
+}
+
+/**
+ * The agent's routes cannot be held to what Orientim must check (its fee on the output, or a DEX the
+ * swap excludes): the API builds the swap with Orientim's own key instead.
+ */
+export class RoutesUntrusted extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'RoutesUntrusted';
   }
 }
 
@@ -137,7 +159,14 @@ export function providedRoutes(routes: readonly ProvidedRoute[], own: Pick<Jupit
       if (found.noRoute) throw new JupiterError('Jupiter 400: No routes found (as the agent was told)', 400);
       const r = found.response as BuildResponse;
       if (p.excludeDexes?.length) {
-        const labels = await own.programLabels().catch(() => ({} as Record<string, string>));
+        // Without Orientim's labels, or with a DEX they do not name, an excluded DEX could not be told
+        // from any other: never "nothing excluded", the swap is built with Orientim's key, where
+        // Jupiter itself leaves the DEX out.
+        const labels = await own.programLabels().catch(() => null);
+        const known = new Set(Object.values(labels ?? {}));
+        if (!labels || p.excludeDexes.some(label => !known.has(label))) {
+          throw new RoutesUntrusted(`Orientim cannot tell ${p.excludeDexes.join(', ')} by its programs now`);
+        }
         const programs = new Set<string>([r.swapInstruction.programId, ...r.swapInstruction.accounts.map(a => a.pubkey)]);
         const through = [...programs].map(a => labels[a]).find(label => label && p.excludeDexes!.includes(label));
         if (through) throw new JupiterError(`Jupiter 400: the route goes through ${through}, which this build excludes`, 400);

@@ -159,6 +159,8 @@ export function agentDeps(): AgentDeps | null {
     disabled: server.disabled,
     v1: process.env.NEXT_PUBLIC_ORIENTIM_ENABLE_V1 === '1',
     fastRouting: process.env.ORIENTIM_ENABLE_FAST_ROUTING === '1',
+    // Routes an agent brings with its own Jupiter key; ORIENTIM_OWN_ROUTES=0 turns them off.
+    ownRoutes: process.env.ORIENTIM_OWN_ROUTES !== '0',
     perMinute: Number.isInteger(perMinute) && perMinute > 0 ? perMinute : 60,
     minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
     // The smallest swap, about $1, so that no swap costs more to build than it brings.

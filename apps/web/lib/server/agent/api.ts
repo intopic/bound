@@ -8,7 +8,7 @@ import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
 import { TOKEN_2022_PROGRAM } from '@orientim/core/constants';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
 import type { TxVersion } from '@orientim/core';
-import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded } from '@orientim/jupiter';
+import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded, RoutesUntrusted } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/solana';
 import { hasPermanentDelegate } from '@orientim/verifier';
@@ -329,6 +329,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   const ownRoutes = body.ownRoutes === true && deps.ownRoutes === true;
   let routes: ReturnType<typeof providedRoutes> | null = null;
   let sessionNonce: string | null = null;
+  // A session ends two minutes after the first round, however many rounds follow.
+  let sessionExp: number | null = null;
   if (ownRoutes) {
     const parsed = parseProvidedRoutes(body.routes ?? []);
     if ('error' in parsed) return fail(400, 'bad-request', parsed.error);
@@ -343,6 +345,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         return fail(400, 'bad-session', 'This session is expired, or was opened for another swap or key: prepare again without it. Nothing was built.');
       }
       sessionNonce = s.nonce;
+      sessionExp = s.exp;
     }
   }
 
@@ -366,16 +369,16 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     // The session the agent's next round carries, when its routes are its own.
     const session = () => kidOf(secret).then(kid => sealSession(secret, {
       v: 1, kid, nonce, key, owner: owner as string, inputMint: inMint, outputMint: outMint, amountIn: amountIn.toString(), version,
-      exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+      exp: sessionExp ?? Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
     }));
-    let prepared: Awaited<ReturnType<typeof prepareProtectedSwap>>;
-    try {
-      prepared = await deadline.within(prepareProtectedSwap(
+    // From an agent's own routes, or Orientim's client; Orientim's fee in SOL is always priced by its
+    // own, and with an agent's routes a fee on the output is held to its own price (`reference`).
+    const build = (jupiter: JupiterClient, reference?: JupiterClient) => deadline.within(prepareProtectedSwap(
       {
         rpc: deadline.rpc,
-        // An agent's own routes, or Orientim's client; Orientim's fee in SOL is always priced by its own.
-        jupiter: routes ? deadline.bind(routes) : deadline.jupiter,
+        jupiter,
         pricing: deadline.jupiter,
+        ...(reference ? { reference } : {}),
         ...(deps.priorityFee ? { priorityFee: deps.priorityFee } : {}),
         settings: {
           ...DEFAULT_SETTINGS,
@@ -396,6 +399,9 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         ...(body.routingMode === 'fast' ? { routingMode: 'fast' as const } : {}),
       },
     ));
+    let prepared: Awaited<ReturnType<typeof prepareProtectedSwap>>;
+    try {
+      prepared = routes ? await build(deadline.bind(routes), deadline.jupiter) : await build(deadline.jupiter);
     } catch (e) {
       // The routes the build needs next, for the one-time key it builds around: the agent fetches
       // them from Jupiter with its own key and prepares again with the session.
@@ -404,7 +410,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
           session: await session(), taker: E.address, requests: routes.missing,
         });
       }
-      throw e;
+      // Routes Orientim cannot hold to its own price or exclusions: it builds the swap with its own
+      // key, around the same one-time key, within the same deadline.
+      if (!(e instanceof RoutesUntrusted && routes)) throw e;
+      console.warn(`Agent ${key}: its routes were not used (${e.message}); built with Orientim's key.`);
+      prepared = await build(deadline.jupiter);
     }
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
     // the certificate: it is the one value the fee depends on.

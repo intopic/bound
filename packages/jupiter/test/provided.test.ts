@@ -8,7 +8,7 @@ import { address, generateKeyPairSigner } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
 import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { DEFAULT_SETTINGS, OrientimError, prepareProtectedSwap } from '../src/swap.ts';
-import { MAX_PROVIDED_ROUTES, parseProvidedRoutes, providedRoutes, routeKey, RoutesNeeded } from '../src/provided.ts';
+import { MAX_PROVIDED_ROUTES, parseProvidedRoutes, providedRoutes, routeKey, RoutesNeeded, RoutesUntrusted } from '../src/provided.ts';
 import type { ProvidedRoute, RouteRequest } from '../src/provided.ts';
 import type { BuildParams, JupiterClient } from '../src/client.ts';
 import { BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from './fakes.ts';
@@ -104,6 +104,14 @@ describe('routes an agent brings from Jupiter', () => {
     const failure = await inRounds(w, fakeJupiter({ label: 'Whirlpool' }), own).catch((e: OrientimError) => e);
     expect(failure).toBeInstanceOf(OrientimError);
     expect((failure as OrientimError).code).toBe('no-route');
+  });
+
+  it('without labels that name an excluded DEX, a route is not taken on trust: RoutesUntrusted, never "nothing excluded"', async () => {
+    for (const labels of ['down', {}, { [DEX]: 'Whirlpool' }] as const) {
+      const w = await world();
+      const failure = await inRounds(w, fakeJupiter(), fakeJupiter({ labels })).catch(e => e);
+      expect(failure, JSON.stringify(labels)).toBeInstanceOf(RoutesUntrusted);
+    }
   });
 
   it('a route Jupiter refused is sent back as noRoute, and the build goes on as with no route', async () => {

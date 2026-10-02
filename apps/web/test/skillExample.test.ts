@@ -37,7 +37,9 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ORIENTIM_TREASURY, MAX_BELOW_BPS, autoSlippageBps, fetchRoutes, inputTransferFee, noticesOf, ownMinimum, ownQuote, solFeeOf, tokenNotices, tokenRisk } from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
+import {
+  ORIENTIM_TREASURY, MAX_BELOW_BPS, autoSlippageBps, fetchRoutes, inputTransferFee, noticesOf, ownMinimum, ownQuote, rateLimitResetMs, solFeeOf, tokenNotices, tokenRisk,
+} from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
 import { jupiterRouteArgs, routeAccountFor } from '@orientim/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
@@ -2650,4 +2652,139 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     await expect(fetchRoutes([request], swap, { apiKey: 'k', fetchImpl: answering(401, 'bad key') })).rejects.toThrow(/Jupiter answered 401/);
     await expect(fetchRoutes([request], swap, { apiKey: 'k', fetchImpl: answering(429, 'slow down') })).rejects.toThrow(/Jupiter answered 429/);
   }, 20_000);
+
+  /** A prepare that answers with the rounds given (then Orientim's own answer), counting what the skill fetched. */
+  async function scripted(rounds: ((body: Record<string, unknown>, forward: (body: Record<string, unknown>) => Promise<Response>) => Response | Promise<Response>)[]) {
+    const b = await orientim();
+    const bodies: Record<string, unknown>[] = [];
+    const builds: string[] = [];
+    let round = 0;
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.startsWith('https://api.jup.ag/') && url.includes('/build')) builds.push(url);
+      if (url.endsWith('/api/v1/prepare')) {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        bodies.push(body);
+        const answer = rounds[round++];
+        if (answer) return answer(body, next => b.fetchImpl(url, { ...init, body: JSON.stringify(next) }));
+      }
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const swap = () => protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, jupiterApiKey: 'agent-key',
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    });
+    return { b, bodies, builds, swap };
+  }
+  const routesNeeded = (taker: string, requests: unknown[], session = 'c2Vzc2lvbg.bWFj') =>
+    new Response(JSON.stringify({ error: { code: 'routes-needed', message: 'routes', session, taker, requests } }), { status: 409, headers: { 'content-type': 'application/json' } });
+  const requestFor = (taker: string, maxAccounts = 64, slippageBps = 50) =>
+    ({ inputMint: USDC, outputMint: WSOL_MINT, amount: '1000000', taker, slippageBps, maxAccounts });
+
+  it('the one-time key of the first round is the one every round names: another one is refused before any route for it is fetched', async () => {
+    const [E1, E2] = [(await generateKeyPairSigner()).address, (await generateKeyPairSigner()).address];
+    const s = await scripted([() => routesNeeded(E1, [requestFor(E1)]), () => routesNeeded(E2, [requestFor(E2, 48)])]);
+    await expect(s.swap()).rejects.toThrow(/another one-time key/);
+    expect(s.builds.filter(u => u.includes(E1) || u.includes(E2))).toHaveLength(1);
+  });
+
+  it('a swap built around another one-time key than the routes were fetched for is refused', async () => {
+    const E1 = (await generateKeyPairSigner()).address;
+    // The second round is Orientim's own build, around a key of its own: not E1.
+    const s = await scripted([
+      () => routesNeeded(E1, [requestFor(E1)]),
+      (body, forward) => forward({ ...body, ownRoutes: undefined, routes: undefined, session: undefined }),
+    ]);
+    await expect(s.swap()).rejects.toThrow(/another one-time key than the one it asked routes for/);
+    expect(s.b.sent).toHaveLength(0);
+  });
+
+  it('routes are counted before they are fetched: never more than 24 for a swap, each once', async () => {
+    const E = (await generateKeyPairSigner()).address;
+    const levels = (from: number) => Array.from({ length: 8 }, (_, i) => requestFor(E, from + i));
+    const s = await scripted([
+      () => routesNeeded(E, levels(10)), () => routesNeeded(E, levels(18)), () => routesNeeded(E, levels(26)),
+      () => routesNeeded(E, [requestFor(E, 40)]),
+    ]);
+    await expect(s.swap()).rejects.toThrow(/more than 24 routes/);
+    expect(s.builds.filter(u => u.includes(E))).toHaveLength(24);
+    expect((s.bodies[3].routes as unknown[])).toHaveLength(24);
+  });
+
+  it('a route asked for again is not fetched again; asked only for routes already sent, the skill stops', async () => {
+    const E = (await generateKeyPairSigner()).address;
+    const s = await scripted([
+      () => routesNeeded(E, [requestFor(E, 64), requestFor(E, 48)]),
+      () => routesNeeded(E, [requestFor(E, 48), { ...requestFor(E, 32) }, requestFor(E, 32)]),
+      () => routesNeeded(E, [requestFor(E, 64)]),
+    ]);
+    await expect(s.swap()).rejects.toThrow(/already sent/);
+    expect(s.builds.filter(u => u.includes(E))).toHaveLength(3);
+    expect(s.bodies[1].routes as unknown[]).toHaveLength(2);
+    expect(s.bodies[2].routes as unknown[]).toHaveLength(3);
+  });
+
+  const swapOf = (taker: string) => ({ inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker });
+
+  it('every ask of the agent\'s key counts, retries included, and none runs past the swap\'s deadline', async () => {
+    let calls = 0;
+    const busy = (async () => { calls++; return new Response('upstream down', { status: 503 }); }) as unknown as typeof fetch;
+    const E = TREASURY;
+    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'budget-key', fetchImpl: busy, budget: { asks: 2, until: Date.now() + 60_000 } }))
+      .rejects.toThrow(/more asks of your Jupiter key/);
+    expect(calls).toBe(2);
+    calls = 0;
+    const started = Date.now();
+    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'deadline-key', fetchImpl: busy, budget: { asks: 48, until: Date.now() + 300 } }))
+      .rejects.toThrow(/longer than this swap's time allows/);
+    expect(calls).toBe(1);
+    expect(Date.now() - started).toBeLessThan(300);
+  });
+
+  it("Jupiter's rate limit is waited out as long as it says, when that fits; when it does not, the skill stops at once", async () => {
+    const E = TREASURY;
+    let calls = 0;
+    const limitedOnce = (async (url: string) => {
+      if (calls++ === 0) return new Response('rate limited', { status: 429, headers: { 'retry-after': '1' } });
+      return jupiterAnswer(url);
+    }) as unknown as typeof fetch;
+    let started = Date.now();
+    expect(await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'wait-key', fetchImpl: limitedOnce, budget: { asks: 48, until: Date.now() + 60_000 } })).toHaveLength(1);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(950);
+    calls = 0;
+    const limitedLong = (async () => { calls++; return new Response('rate limited', { status: 429, headers: { 'x-ratelimit-reset': '30' } }); }) as unknown as typeof fetch;
+    started = Date.now();
+    await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'long-key', fetchImpl: limitedLong, budget: { asks: 48, until: Date.now() + 5_000 } }))
+      .rejects.toThrow(/limited for another 30 s/);
+    expect(calls).toBe(1);
+    expect(Date.now() - started).toBeLessThan(500);
+  }, 20_000);
+
+  it('swaps sharing one Jupiter key wait for its limit together, rather than spending it again', async () => {
+    const E = TREASURY;
+    let first = true;
+    const limited = (async (url: string) => {
+      if (first) { first = false; return new Response('rate limited', { status: 429, headers: { 'retry-after': '1' } }); }
+      return jupiterAnswer(url);
+    }) as unknown as typeof fetch;
+    const started = Date.now();
+    const a = fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'shared-key', fetchImpl: limited, budget: { asks: 48, until: Date.now() + 60_000 } });
+    await new Promise(r => setTimeout(r, 100));
+    let otherAskedAt = 0;
+    const other = (async (url: string) => { otherAskedAt ||= Date.now(); return jupiterAnswer(url); }) as unknown as typeof fetch;
+    await fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'shared-key', fetchImpl: other, budget: { asks: 48, until: Date.now() + 60_000 } });
+    await a;
+    expect(otherAskedAt - started).toBeGreaterThanOrEqual(900);
+  }, 20_000);
+
+  it('the rate limit is read from Retry-After or x-ratelimit-reset, in seconds, a date or a Unix time', () => {
+    const now = 1_800_000_000_000;
+    const h = (o: Record<string, string>) => new Headers(o);
+    expect(rateLimitResetMs(h({ 'retry-after': '3' }), now)).toBe(3_000);
+    expect(rateLimitResetMs(h({ 'retry-after': new Date(now + 5_000).toUTCString() }), now)).toBe(5_000);
+    expect(rateLimitResetMs(h({ 'x-ratelimit-reset': '2' }), now)).toBe(2_000);
+    expect(rateLimitResetMs(h({ 'x-ratelimit-reset': String(now / 1000 + 4) }), now)).toBe(4_000);
+    expect(rateLimitResetMs(h({ 'x-ratelimit-reset': String(now + 1_500) }), now)).toBe(1_500);
+    expect(rateLimitResetMs(h({}), now)).toBeNull();
+    expect(rateLimitResetMs(h({ 'retry-after': 'soon' }), now)).toBeNull();
+  });
 });

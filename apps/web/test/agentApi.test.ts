@@ -13,7 +13,7 @@ import {
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
 import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
-import { fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
+import { fakeJupiter, fakeRpc, fundedAccounts, mint, OUT, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
 import { agentFinalize, agentPrepare, olderThan, PREPARE_DEADLINE_MS, withinDeadline } from '../lib/server/agent/api.ts';
@@ -804,6 +804,94 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     const res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, session: asked.session, routes })), w.deps);
     expect(res.status).toBe(422);
     expect((await res.json()).error.code).toBe('bad-quote');
+  });
+
+  /** Prepare in rounds, the agent fetching every route asked for from `agentMarket`. */
+  async function inRounds(w: Awaited<ReturnType<typeof world>>, agentMarket: ReturnType<typeof fakeJupiter>, onRound?: (round: number) => void) {
+    const routes: { params: Record<string, unknown>; response: unknown }[] = [];
+    let session: string | undefined;
+    let res: Response | undefined;
+    for (let round = 0; round < 6; round++) {
+      onRound?.(round);
+      res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, routes, ...(session ? { session } : {}) })), w.deps);
+      if (res.status !== 409) break;
+      const asked = (await res.json() as Asked).error;
+      session = asked.session;
+      for (const r of asked.requests) routes.push({ params: r, response: await agentMarket.build(paramsOf(r)) });
+    }
+    return res!;
+  }
+  /** The fee of the same swap built with Orientim's own key. */
+  async function feeWithOrientimsKey(treasuryWallet: boolean) {
+    const w = await world({ treasuryWallet });
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(200);
+    return (await res.json() as Prepared).amounts.fee;
+  }
+
+  it('with a fee on the output, the routes are held to Orientim\'s own price: one ask of its key, and the same fee', async () => {
+    const own = counting();
+    const w = await world({ jupiter: own.jupiter, treasuryWallet: true });
+    const askedBefore: number[] = [];
+    const res = await inRounds(w, fakeJupiter(), () => askedBefore.push(own.asked.length));
+    expect(res.status).toBe(200);
+    const p = await res.json() as Prepared & { amounts: { feeMint: string } };
+    expect(p.amounts.feeMint).toBe(WSOL_MINT);
+    // The round that only learns which routes to bring asks Orientim's key nothing.
+    expect(askedBefore[1]).toBe(0);
+    // The baseline alone, unrestricted: the protected routes are the agent's.
+    expect(own.asked).toHaveLength(1);
+    expect((own.asked[0] as { excludeDexes?: string[] }).excludeDexes ?? []).toEqual([]);
+    expect(p.amounts.fee).toBe(await feeWithOrientimsKey(true));
+  });
+
+  it('a route that understates its output 100 times does not lower the fee: Orientim builds the swap with its own key', async () => {
+    const own = counting();
+    const w = await world({ jupiter: own.jupiter, treasuryWallet: true });
+    const res = await inRounds(w, fakeJupiter({ out: OUT / 100n }));
+    expect(res.status).toBe(200);
+    const p = await res.json() as Prepared;
+    const honest = await feeWithOrientimsKey(true);
+    expect(BigInt(p.amounts.fee)).toBeGreaterThan(0n);
+    expect(p.amounts.fee).toBe(honest);
+    // Built with Orientim's key: the protected routes were asked of it, with the exclusion.
+    expect(own.asked.some(a => (a as { excludeDexes?: string[] }).excludeDexes?.includes('HumidiFi'))).toBe(true);
+    const fin = await agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction) }), w.deps);
+    expect(fin.status).toBe(200);
+  });
+
+  it('a route only 0.5% below Orientim\'s price is the agent\'s to use; 2% below, Orientim builds it', async () => {
+    for (const [below, builtByOrientim] of [[50n, false], [200n, true]] as const) {
+      const own = counting();
+      const w = await world({ jupiter: own.jupiter, treasuryWallet: true });
+      const res = await inRounds(w, fakeJupiter({ out: OUT - (OUT * below) / 10_000n }));
+      expect(res.status, `${below} bps`).toBe(200);
+      expect(own.asked.some(a => (a as { excludeDexes?: string[] }).excludeDexes?.length), `${below} bps`).toBe(builtByOrientim);
+    }
+  });
+
+  it('without Orientim\'s program labels an excluded DEX cannot be checked: the swap is built with its own key', async () => {
+    const asked: unknown[] = [];
+    const w = await world({ jupiter: fakeJupiter({ asked: asked as never, labels: 'down' }) });
+    const res = await inRounds(w, fakeJupiter());
+    expect(res.status).toBe(200);
+    expect(asked.some(a => (a as { excludeDexes?: string[] }).excludeDexes?.includes('HumidiFi'))).toBe(true);
+    // Labels that do not name an excluded DEX cannot tell it either.
+    const asked2: unknown[] = [];
+    const w2 = await world({ jupiter: fakeJupiter({ asked: asked2 as never, labels: { [DEX]: 'Whirlpool' } }) });
+    expect((await inRounds(w2, fakeJupiter())).status).toBe(200);
+    expect(asked2.some(a => (a as { excludeDexes?: string[] }).excludeDexes?.includes('HumidiFi'))).toBe(true);
+  });
+
+  it('a session ends two minutes after the first round, however many rounds follow', async () => {
+    const w = await world();
+    const expOf = (session: string) => (JSON.parse(Buffer.from(session.split('.')[0], 'base64url').toString('utf8')) as { exp: number }).exp;
+    const first = (await (await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true })), w.deps)).json() as Asked).error;
+    await new Promise(r => setTimeout(r, 1_100));
+    const second = (await (await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, session: first.session })), w.deps)).json() as Asked).error;
+    expect(second.code).toBe('routes-needed');
+    expect(expOf(second.session)).toBe(expOf(first.session));
+    expect(second.taker).toBe(first.taker);
   });
 
   it('where own routes are off, ownRoutes is ignored and Orientim builds with its own key', async () => {
