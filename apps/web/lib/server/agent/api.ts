@@ -62,6 +62,12 @@ export type AgentDeps = {
   minSkillVersion?: string | null;
   /** How long a prepare may take in all (PREPARE_DEADLINE_MS); shorter in tests. */
   prepareDeadlineMs?: number;
+  /**
+   * Routes an agent brings with its own Jupiter key (AGENT-API.md, "Your own Jupiter key"). Off,
+   * prepare builds with Orientim's key and ignores ownRoutes, routes and session, as a deployment
+   * from before them did.
+   */
+  ownRoutes?: boolean;
 };
 
 /** Is `version` (major.minor.patch) older than `minimum`? A version that is not one is not judged. */
@@ -315,11 +321,12 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   }
   if (version === 1 && !deps.v1) return fail(400, 'bad-request', 'v1 transactions are not enabled on this deployment; use version 0.');
   // Routes the agent brings from Jupiter with its own key (AGENT-API.md, "Your own Jupiter key").
-  const ownRoutes = body.ownRoutes === true;
   if (body.ownRoutes !== undefined && typeof body.ownRoutes !== 'boolean') return fail(400, 'bad-request', 'ownRoutes, when given, must be true or false.');
-  if (!ownRoutes && (body.routes !== undefined || body.session !== undefined)) {
+  if (body.ownRoutes !== true && (body.routes !== undefined || body.session !== undefined)) {
     return fail(400, 'bad-request', 'routes and session come with ownRoutes: true.');
   }
+  // Where they are off, Orientim builds with its own key, as a deployment from before them did.
+  const ownRoutes = body.ownRoutes === true && deps.ownRoutes === true;
   let routes: ReturnType<typeof providedRoutes> | null = null;
   let sessionNonce: string | null = null;
   if (ownRoutes) {

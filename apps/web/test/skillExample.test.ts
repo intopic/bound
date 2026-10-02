@@ -64,7 +64,7 @@ const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter())
  * `market`: what Orientim's server quotes from, which a compromised server chooses. `treasuryWallet`:
  * the treasury's wallet exists, so a sale into SOL pays its fee in SOL, out of the output.
  */
-async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean; v1?: boolean } = {}) {
+async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean; v1?: boolean; ownRoutes?: boolean } = {}) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
@@ -80,7 +80,7 @@ async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean
     rpc, jupiter: opts.market ?? fakeJupiter(), secrets: [new Uint8Array(32).fill(3)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'skill-test']]),
     feeBps: 20n, treasury: TREASURY, excludeDexes: ['HumidiFi'], maxNetworkFeeLamports: 200_000n,
-    disabled: false, v1: opts.v1 ?? false, perMinute: 1_000,
+    disabled: false, v1: opts.v1 ?? false, perMinute: 1_000, ownRoutes: opts.ownRoutes ?? true,
   };
   // The API as the agent reaches it over HTTP.
   const fetchImpl = (async (url: string, init: RequestInit) => {
@@ -2600,6 +2600,18 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     expect(asked).toHaveLength(0);
     expect(seen.some(r => r.body.includes('"ownRoutes":true'))).toBe(true);
     for (const r of seen) expect(`${r.headers}${r.body}`).not.toContain('agent-jupiter-key-123');
+  });
+
+  it('a deployment with own routes off builds with its own key, and the skill takes that answer', async () => {
+    const asked: unknown[] = [];
+    const b = await orientim({ market: fakeJupiter({ asked: asked as never }), ownRoutes: false });
+    const result = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl: b.fetchImpl, pollMs: 1,
+      jupiterApiKey: 'k',
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(asked.length).toBeGreaterThan(0);
   });
 
   it('ownRoutes false, or no key: Orientim builds with its own key, as before', async () => {

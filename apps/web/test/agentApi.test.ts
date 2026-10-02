@@ -57,6 +57,7 @@ async function world(opts: {
     disabled: opts.disabled ?? false,
     v1: false,
     perMinute: 1_000,
+    ownRoutes: true,
   };
   return { W, deps, sent, accounts, statuses };
 }
@@ -803,6 +804,13 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     const res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, session: asked.session, routes })), w.deps);
     expect(res.status).toBe(422);
     expect((await res.json()).error.code).toBe('bad-quote');
+  });
+
+  it('where own routes are off, ownRoutes is ignored and Orientim builds with its own key', async () => {
+    const w = await world();
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, routes: [] })), { ...w.deps, ownRoutes: false });
+    expect(res.status).toBe(200);
+    expect((await res.json() as Prepared).ticket).toBeTruthy();
   });
 });
 

@@ -403,7 +403,7 @@ async function mainnet(): Promise<World> {
     secrets: [randomBytes(32)], keys: new Map([[createHash('sha256').update(API_KEY).digest('hex'), 'sim']]),
     // As production: 0.25% to Orientim's own treasury, HumidiFi excluded, the default network fee cap.
     feeBps: 25n, treasury: address(ORIENTIM_TREASURY), excludeDexes: ['HumidiFi'], maxNetworkFeeLamports: 500_000n,
-    disabled: false, v1: true, fastRouting: true, perMinute: 1_000_000, minFee: MIN_FEE,
+    disabled: false, v1: true, fastRouting: true, perMinute: 1_000_000, minFee: MIN_FEE, ownRoutes: OWN_ROUTES,
   };
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     if (String(url).startsWith('https://api.jup.ag/')) return jupiterFetch(url, init);
@@ -497,7 +497,7 @@ async function offline(): Promise<World> {
   const jupiter = fakes.fakeJupiter();
   const deps: AgentDeps = {
     rpc, jupiter, secrets: [randomBytes(32)], keys: new Map([[createHash('sha256').update(API_KEY).digest('hex'), 'sim']]),
-    feeBps: 25n, treasury: address(ORIENTIM_TREASURY), excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: true, perMinute: 1_000_000,
+    feeBps: 25n, treasury: address(ORIENTIM_TREASURY), excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: true, perMinute: 1_000_000, ownRoutes: true,
   };
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     if (String(url).startsWith('https://api.jup.ag/')) {
