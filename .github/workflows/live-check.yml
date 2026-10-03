@@ -4,7 +4,9 @@ name: Live check
 # from; when a release tag points at that commit, tools/check-live.ts compares every file under
 # /_next/static with that release's build-digest.txt and fails on any difference, so GitHub tells
 # the owner of this workflow. A commit without a release tag has no digest to compare with: the run
-# says so and passes (monitor.yml checks that the commit is on main and passed CI). On by default;
+# compares nothing, says INCOMPLETE in its summary and as a warning, and stays green, because it is
+# not a release verification (monitor.yml checks that the commit is on main and passed CI). Only a
+# run that compared the files verifies a release. On by default;
 # the repository variable ORIENTIM_LIVE_CHECK set to 0 turns it off, ORIENTIM_SITE_URL names another
 # site than https://orientim.com.
 on:
@@ -40,7 +42,9 @@ jobs:
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           if [ -z "$tag" ]; then
-            echo "Production runs ${build:-an unnamed commit}, which has no release tag: no digest to compare with." >> "$GITHUB_STEP_SUMMARY"
+            msg="INCOMPLETE: production runs ${build:-an unnamed commit}, which has no release tag, so no file was compared. This run is not a release verification."
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::$msg"
           fi
       - name: The release's digest
         if: steps.release.outputs.tag != ''

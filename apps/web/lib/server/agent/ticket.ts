@@ -97,7 +97,14 @@ export type Session = {
    * asked (ms), and what it was asked for besides the swap above (the tolerance and the fee).
    */
   ref?: SessionReference;
+  /**
+   * What the swap's input was worth in SOL, when the fee is paid in SOL from the wallet: priced by
+   * Orientim's own key, for the amount, when (ms) and at the tolerance it was asked for.
+   */
+  sol?: SessionSolValue;
 };
+
+export type SessionSolValue = { amount: string; value: string; at: number; slip: number };
 
 export type SessionReference = { out: string; min: string; at: number; slip: number | null; feeBps: string; treasury: string | null };
 
@@ -109,6 +116,12 @@ const referenceOk = (r: unknown): r is SessionReference => {
   return !!x && typeof x === 'object' && typeof x.out === 'string' && /^\d{1,20}$/.test(x.out) && typeof x.min === 'string' && /^\d{1,20}$/.test(x.min)
     && Number.isSafeInteger(x.at) && (x.slip === null || Number.isInteger(x.slip)) && typeof x.feeBps === 'string' && /^\d{1,5}$/.test(x.feeBps)
     && (x.treasury === null || typeof x.treasury === 'string');
+};
+
+const solValueOk = (r: unknown): r is SessionSolValue => {
+  const x = r as SessionSolValue;
+  return !!x && typeof x === 'object' && typeof x.amount === 'string' && /^\d{1,20}$/.test(x.amount)
+    && typeof x.value === 'string' && /^\d{1,20}$/.test(x.value) && Number.isSafeInteger(x.at) && Number.isInteger(x.slip);
 };
 
 /** How long a session lives: rounds take seconds; a swap built from an older one is not worth it. */
@@ -139,6 +152,7 @@ export async function openSession(secrets: readonly Uint8Array[], token: unknown
     if (fields.some(f => typeof f !== 'string') || !/^\d{1,20}$/.test(s.amountIn)) return null;
     if ((s.version !== 0 && s.version !== 1) || !Number.isInteger(s.exp) || s.exp < now) return null;
     if (s.ref !== undefined && !referenceOk(s.ref)) return null;
+    if (s.sol !== undefined && !solValueOk(s.sol)) return null;
     return { session: s, secret };
   }
   return null;

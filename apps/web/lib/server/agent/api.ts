@@ -9,7 +9,7 @@ import { TOKEN_2022_PROGRAM } from '@orientim/core/constants';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
 import type { TxVersion } from '@orientim/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded, RoutesUntrusted } from '@orientim/jupiter';
-import type { JupiterClient, PriorityFeeLevel, ReferencePrice } from '@orientim/jupiter';
+import type { JupiterClient, PriorityFeeLevel, ReferencePrice, SolValue } from '@orientim/jupiter';
 import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/solana';
 import { hasPermanentDelegate } from '@orientim/verifier';
 import type { SolanaRpc } from '@orientim/solana';
@@ -18,7 +18,7 @@ import { logEvent } from './events';
 import { rateLimited, secondsUntilReset } from '../rateLimit';
 import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openSession, openTicket, REFERENCE_FRESH_MS, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
-import type { SessionReference } from './ticket';
+import type { SessionReference, SessionSolValue } from './ticket';
 
 /**
  * The agent API (AGENT-API.md): the protected swap (packages/jupiter), with E held by the
@@ -344,6 +344,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   let sessionExp: number | null = null;
   // Orientim's own price an earlier round sealed into the session (see `reference` below).
   let sessionRef: SessionReference | null = null;
+  // What the input was worth in SOL, for a fee in SOL from the wallet, as an earlier round sealed it.
+  let sessionSol: SessionSolValue | null = null;
   // How many routes the agent brought this round (for the operator's count).
   let providedCount = 0;
   if (ownRoutes) {
@@ -363,6 +365,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       sessionNonce = s.nonce;
       sessionExp = s.exp;
       sessionRef = s.ref ?? null;
+      sessionSol = s.sol ?? null;
     }
   }
 
@@ -398,10 +401,22 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       const why = !sessionRef ? 'none' : Date.now() - sessionRef.at > freshMs ? 'expired' : 'parameters';
       logEvent('reference_price', { key, why });
     };
+    // The same for a fee in SOL from the wallet: what the input is worth in SOL, asked once of
+    // Orientim's key and kept for the rounds that follow while it is fresh, for the same amount and
+    // tolerance; otherwise asked again.
+    const solSlip = DEFAULT_SETTINGS.slippageBps;
+    const solReuse = sessionSol && Date.now() - sessionSol.at <= freshMs && sessionSol.slip === solSlip ? sessionSol : null;
+    let solValue: { value: SolValue; at: number } | null = solReuse
+      ? { value: { amount: BigInt(solReuse.amount), value: BigInt(solReuse.value) }, at: solReuse.at } : null;
+    const solAsked = (value: SolValue) => {
+      solValue = { value, at: Date.now() };
+      logEvent('sol_fee_price', { key, why: !sessionSol ? 'none' : Date.now() - sessionSol.at > freshMs ? 'expired' : 'parameters' });
+    };
     const session = () => kidOf(secret).then(kid => sealSession(secret, {
       v: 1, kid, nonce, key, owner: owner as string, inputMint: inMint, outputMint: outMint, amountIn: amountIn.toString(), version,
       exp: sessionExp ?? Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
       ...(price ? { ref: { out: price.value.out.toString(), min: price.value.minimum.toString(), at: price.at, slip, feeBps: deps.feeBps.toString(), treasury: treasuryText } } : {}),
+      ...(solValue ? { sol: { amount: solValue.value.amount.toString(), value: solValue.value.value.toString(), at: solValue.at, slip: solSlip } } : {}),
     }));
     // From an agent's own routes, or Orientim's client; Orientim's fee in SOL is always priced by its
     // own, and with an agent's routes a fee on the output is held to its own price (`reference`).
@@ -410,6 +425,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         rpc: deadline.rpc,
         jupiter,
         pricing: deadline.jupiter,
+        ...(solValue ? { solValue: solValue.value } : {}),
+        onSolValue: solAsked,
         ...(reference ? { reference, onReferencePrice: asked, ...(price ? { referencePrice: price.value } : {}) } : {}),
         ...(deps.priorityFee ? { priorityFee: deps.priorityFee } : {}),
         settings: {

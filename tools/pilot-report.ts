@@ -14,12 +14,17 @@
  *   - a confirmed swap whose wallet received less than the minimum it was shown (`amounts.minOut`);
  *   - an order carried out by more than one confirmed transaction;
  *   - a wallet that spent more of a mint than the owner's policy allows, in one swap or in 24 hours;
- *   - an `unknown` outcome that no state directory keeps for recovery.
+ *   - an `unknown` outcome that no state directory keeps for recovery;
+ * and on what it could not check (INCOMPLETE, never a pass): a confirmed swap the RPC has no record
+ * of, a treasury receipt or a received amount it cannot read, and an outcome still unknown, kept for
+ * recovery. Only a report with nothing failed and nothing incomplete passes.
  *
  *   node tools/pilot-report.ts --log bots.jsonl [--log more.jsonl] [--state <dir>]... [--policy policy.json]
  *     [--rpc <url> | SOLANA_RPC_URL] [--treasury <address>]
  */
 import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createSolanaRpc } from '@solana/kit';
 import type { Rpc, SolanaRpcApi } from '@solana/kit';
 
@@ -50,7 +55,7 @@ export type ChainSwap = {
 
 export type Limits = { maxAmountIn?: Record<string, string>; maxAmountInPerDay?: Record<string, string> };
 
-export type Report = { rows: string[][]; failures: string[]; notices: string[] };
+export type Report = { rows: string[][]; failures: string[]; incomplete: string[]; notices: string[] };
 
 /** The entries a log line can be: a protectedSwap result with its id, or a finalize answer beside prepare's checked. */
 export function entryOf(line: unknown): PilotEntry | null {
@@ -74,6 +79,8 @@ export async function pilotReport(
   deps: { chain: (entry: PilotEntry) => Promise<ChainSwap | null>; kept: ReadonlySet<string>; treasury: string; limits?: Limits },
 ): Promise<Report> {
   const failures: string[] = [];
+  /** What could not be checked: not a failure, and not a pass either. */
+  const incomplete: string[] = [];
   const notices: string[] = [];
   const rows: string[][] = [];
   const confirmedByOrder = new Map<string, Set<string>>();
@@ -90,18 +97,18 @@ export async function pilotReport(
     let feeCheck = '-';
     let receivedCheck = '-';
     if (e.outcome === 'confirmed') {
-      if (!tx) notices.push(`${label}: the RPC has no record of a swap the bot says confirmed (an RPC without the history?)`);
+      if (!tx) incomplete.push(`${label}: the RPC has no record of a swap the bot says confirmed (an RPC without the history?)`);
       else if (!tx.ok) failures.push(`${label}: the bot says confirmed, the chain says it failed`);
       else {
         // The fee, where the bot was shown it would go.
         if (fee > 0n) {
-          if (tx.treasuryGained === null || feeMint === null) notices.push(`${label}: the treasury's receipt could not be read`);
+          if (tx.treasuryGained === null || feeMint === null) incomplete.push(`${label}: the treasury's receipt could not be read`);
           else if (tx.treasuryGained !== fee) failures.push(`${label}: the treasury gained ${tx.treasuryGained} of ${feeMint}, the bot was shown a fee of ${fee}`);
           else feeCheck = `${fee} ok`;
         } else feeCheck = 'no fee';
         // What the wallet received, against the least it was shown.
         const least = BigInt(shown.minOut);
-        if (tx.walletReceived === null) notices.push(`${label}: what the wallet received could not be read`);
+        if (tx.walletReceived === null) incomplete.push(`${label}: what the wallet received could not be read`);
         else if (tx.walletReceived < least) failures.push(`${label}: the wallet received ${tx.walletReceived}, below the minimum it was shown, ${least}`);
         else receivedCheck = `${tx.walletReceived} ≥ ${least}`;
         if (e.id) confirmedByOrder.set(e.id, new Set([...(confirmedByOrder.get(e.id) ?? []), e.signature]));
@@ -111,7 +118,7 @@ export async function pilotReport(
     } else if (e.outcome === 'unknown') {
       const now = !tx ? 'no record on the RPC yet' : tx.ok ? 'confirmed on chain' : 'failed on chain';
       if (!deps.kept.has(e.signature)) failures.push(`${label}: outcome unknown, and no state directory keeps it for recovery (${now})`);
-      else notices.push(`${label}: outcome unknown, kept for recovery (${now}): run recover`);
+      else incomplete.push(`${label}: outcome unknown, kept for recovery (${now}): run recover`);
     } else if (tx?.ok && e.outcome !== 'confirmed') {
       failures.push(`${label}: the bot says ${e.outcome}, the chain says it confirmed`);
     }
@@ -140,7 +147,7 @@ export async function pilotReport(
       }
     }
   }
-  return { rows, failures, notices };
+  return { rows, failures, incomplete, notices };
 }
 
 /** What the chain says of one signature: executed, when, the treasury's gain in the fee's mint, the wallet's receipt. */
@@ -201,7 +208,8 @@ export function keptIn(dirs: readonly string[]): Set<string> {
   return kept;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run as a command (not imported by a test): the same URL on Windows, Linux and paths with spaces.
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const all = (name: string) => process.argv.flatMap((a, i) => (a === name && process.argv[i + 1] ? [process.argv[i + 1]] : []));
   const one = (name: string) => all(name)[0];
   const logs = all('--log');
@@ -239,6 +247,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (unreadable) report.notices.push(`${unreadable} log line(s) were not JSON`);
   for (const n of report.notices) console.log(`- note: ${n}`);
   for (const f of report.failures) console.log(`- **FAILED**: ${f}`);
-  console.log(`\n${entries.length} swap(s), ${report.failures.length} failure(s).`);
-  if (report.failures.length) process.exitCode = 1;
+  for (const i of report.incomplete) console.log(`- **INCOMPLETE**: ${i}`);
+  const verdict = report.failures.length ? 'FAILED' : report.incomplete.length ? 'INCOMPLETE' : 'PASSED';
+  console.log(`\n${verdict}: ${entries.length} swap(s), ${report.failures.length} failure(s), ${report.incomplete.length} not checked.`);
+  if (report.failures.length || report.incomplete.length) process.exitCode = 1;
 }

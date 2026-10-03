@@ -185,7 +185,7 @@ describe("the skill's example", () => {
       onTiming: (phase, ms) => { expect(ms).toBeGreaterThanOrEqual(0); phases.push(phase); },
     });
     expect(result.outcome).toBe('confirmed');
-    expect(phases).toEqual(['ownFloor', 'apiPrepare', 'localVerification', 'tokenRisk', 'sign', 'finalize']);
+    expect(phases).toEqual(['ownFloor', 'apiPrepare', 'localVerification', 'tokenRisk', 'readyToSign', 'sign', 'finalize']);
     expect(result.prepared.amounts.fee).toBe('2000');
     expect(b.sent).toHaveLength(1);
   });
@@ -803,6 +803,24 @@ describe('recovery the delivered example must survive', () => {
     const started = Date.now();
     expect(await confirm(stuck, 'sig', 1_000n, { pollMs: 1, maxWaitMs: 80, requestTimeoutMs: 20 })).toBe('unknown');
     expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('a sender of your own that never answers does not hold confirm past its deadline, and the chain is still read', async () => {
+    let reads = 0;
+    let sends = 0;
+    const pending = {
+      getSignatureStatuses: () => ({ send: async () => { reads++; return { value: [null] }; } }),
+      getBlockHeight: () => ({ send: async () => 10n }),
+    } as unknown as Rpc<SolanaRpcApi>;
+    const started = Date.now();
+    const outcome = await confirm(pending, 'sig', 1_000n, {
+      pollMs: 1, maxWaitMs: 120, requestTimeoutMs: 20, signedTransaction: 'AQ==', send: () => { sends++; return new Promise(() => undefined); },
+    });
+    expect(outcome).toBe('unknown');
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(sends).toBeGreaterThanOrEqual(1);
+    // The send was given up on its time, and the signature's status was read after it.
+    expect(reads).toBeGreaterThan(0);
   });
 
   it('a finalize that never answers ends on time, and the outcome is read for its own signature', async () => {

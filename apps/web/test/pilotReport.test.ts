@@ -44,7 +44,7 @@ describe('the pilot report', () => {
     expect(lost.failures.join('\n')).toMatch(/no state directory keeps it for recovery/);
     const kept = await report([entry(1, { outcome: 'unknown' })], () => null, { kept: [sig(1)] });
     expect(kept.failures).toEqual([]);
-    expect(kept.notices.join('\n')).toMatch(/kept for recovery .* run recover/);
+    expect(kept.incomplete.join('\n')).toMatch(/kept for recovery .* run recover/);
   });
 
   it("fails a wallet above the owner's limits, in one swap and within 24 hours", async () => {

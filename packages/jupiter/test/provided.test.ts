@@ -92,6 +92,31 @@ describe('routes an agent brings from Jupiter', () => {
     expect(asked.flat().every(r => r.outputMint === USDC)).toBe(true);
   });
 
+  it("a SOL value an earlier round got is used for the same amount, not asked of Orientim's key again", async () => {
+    const w = await world({ input: BONK, treasuryWallet: true });
+    const asked: BuildParams[] = [];
+    const heard: { amount: bigint; value: bigint }[] = [];
+    const run = (solValue?: { amount: bigint; value: bigint }) => prepareProtectedSwap({
+      rpc: fakeRpc(w.accounts, {}), jupiter: fakeJupiter(), pricing: fakeJupiter({ asked }),
+      ...(solValue ? { solValue } : {}), onSolValue: v => heard.push(v),
+      settings: { ...DEFAULT_SETTINGS, treasury: TREASURY, jupiterProgram: JUPITER_PROGRAM },
+    }, {
+      owner: w.W, ephemeral: w.E, inputMint: BONK, outputMint: USDC, amountIn: 1_000_000n,
+      inputDecimals: DECIMALS[BONK], outputDecimals: DECIMALS[USDC], version: 1,
+    });
+    const first = await run();
+    expect(first.policy.feeSide).toBe('sol');
+    expect(asked.filter(p => p.outputMint === WSOL_MINT)).toHaveLength(1);
+    expect(heard).toHaveLength(1);
+    // The next round brings it: nothing is asked, and the fee is the same.
+    const again = await run(heard[0]);
+    expect(asked.filter(p => p.outputMint === WSOL_MINT)).toHaveLength(1);
+    expect(again.policy.fee).toBe(first.policy.fee);
+    // A value for another amount is not this swap's: asked again.
+    await run({ amount: heard[0].amount + 1n, value: heard[0].value });
+    expect(asked.filter(p => p.outputMint === WSOL_MINT)).toHaveLength(2);
+  });
+
   it('a route that answers another amount is refused as a bad quote', async () => {
     const w = await world();
     await expect(inRounds(w, fakeJupiter({ inAmountFactor: 2n }), fakeJupiter())).rejects.toMatchObject({ code: 'bad-quote' });

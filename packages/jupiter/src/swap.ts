@@ -248,6 +248,9 @@ export type PriceMoved = {
 /** Orientim's own price for a swap: the unrestricted output, and the minimum at its tolerance. */
 export type ReferencePrice = { out: bigint; minimum: bigint };
 
+/** What `amount` of a swap's input is worth in SOL, for a fee paid in SOL from the wallet. */
+export type SolValue = { amount: bigint; value: bigint };
+
 export type CostsMore = { gapBps: bigint; outAmount: bigint; baselineOut: bigint };
 
 export class OrientimError extends Error {
@@ -405,6 +408,15 @@ export async function feeInSol(
   jupiter: JupiterClient,
   args: { inputMint: Address; amount: bigint; taker: Address; slippageBps: number; feeBps: bigint },
 ): Promise<bigint | undefined> {
+  const value = await solValueOf(jupiter, args);
+  return value === undefined ? undefined : (value * args.feeBps) / 10_000n;
+}
+
+/** What `amount` of the input is worth in SOL, as Jupiter prices it for the one-time key (see `feeInSol`). */
+export async function solValueOf(
+  jupiter: JupiterClient,
+  args: { inputMint: Address; amount: bigint; taker: Address; slippageBps: number },
+): Promise<bigint | undefined> {
   try {
     const r = await jupiter.build({
       inputMint: args.inputMint, outputMint: WSOL_MINT, amount: args.amount, taker: args.taker, slippageBps: args.slippageBps, maxAccounts: 64,
@@ -412,7 +424,7 @@ export async function feeInSol(
     if (r.inputMint !== args.inputMint || r.outputMint !== WSOL_MINT || BigInt(r.inAmount) !== args.amount || !/^\d{1,20}$/.test(r.outAmount)) {
       return undefined;
     }
-    return (BigInt(r.outAmount) * args.feeBps) / 10_000n;
+    return BigInt(r.outAmount);
   } catch (e) {
     if (e instanceof JupiterError && e.status === 429) throw new OrientimError('busy', BUSY_MESSAGE);
     // Only Jupiter's refusal of the trade (a 4xx) means the pair cannot be priced. A Jupiter that did
@@ -652,6 +664,13 @@ export async function prepareProtectedSwap(deps: {
    */
   referencePrice?: ReferencePrice;
   onReferencePrice?: (price: ReferencePrice) => void;
+  /**
+   * For a fee in SOL from the wallet: what the swap's input was worth in SOL in an earlier round of
+   * this swap, still fresh (the API decides), used instead of asking `pricing` again when it is for
+   * the same amount. `onSolValue` hears each value `pricing` gave.
+   */
+  solValue?: SolValue;
+  onSolValue?: (value: SolValue) => void;
   settings: SwapSettings;
   /** The RPC provider's own priority estimate (heliusPriorityFee); without one, or when it fails, recent fees. */
   priorityFee?: PriorityFeeLevel;
@@ -776,15 +795,15 @@ export async function prepareProtectedSwap(deps: {
     input: req.inputMint === WSOL_MINT ? treasuryWalletReady : feeAccountExists,
     output: req.outputMint === WSOL_MINT ? treasuryWalletReady : outputFeeAccountExists,
   });
-  const solFee = settings.treasury && treasuryWalletReady && tokenCarries === null
-    ? await feeInSol(deps.pricing ?? jupiter, {
-      inputMint: req.inputMint,
-      amount: req.amountIn - (inputFee ? transferFeeOn(req.amountIn, inputFee) : 0n),
-      taker: E,
-      slippageBps: settings.slippageBps,
-      feeBps: settings.feeBps,
-    })
-    : undefined;
+  // A value an earlier round of the same swap got is used while fresh, for the same amount only.
+  let solFee: bigint | undefined;
+  if (settings.treasury && treasuryWalletReady && tokenCarries === null) {
+    const amount = req.amountIn - (inputFee ? transferFeeOn(req.amountIn, inputFee) : 0n);
+    const known = deps.solValue && deps.solValue.amount === amount ? deps.solValue.value : undefined;
+    const value = known ?? await solValueOf(deps.pricing ?? jupiter, { inputMint: req.inputMint, amount, taker: E, slippageBps: settings.slippageBps });
+    if (value !== undefined && known === undefined) deps.onSolValue?.({ amount, value });
+    solFee = value === undefined ? undefined : (value * settings.feeBps) / 10_000n;
+  }
   const policy = await buildPolicy({
     intent: { owner: req.owner, inputMint: req.inputMint, outputMint: req.outputMint, amountIn: req.amountIn },
     ephemeral: E,
