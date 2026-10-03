@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   check:
-    if: vars.ORIENTIM_LIVE_CHECK != '0' || github.event_name == 'workflow_dispatch'
+    if: (vars.ORIENTIM_LIVE_CHECK || 'on') != '0' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       SITE: ${{ vars.ORIENTIM_SITE_URL || 'https://orientim.com' }}

@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   monitor:
-    if: vars.ORIENTIM_MONITOR != '0' || github.event_name == 'workflow_dispatch'
+    if: (vars.ORIENTIM_MONITOR || 'on') != '0' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
