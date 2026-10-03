@@ -20,6 +20,7 @@ const SUPPORTED: [string, string][] = [
   ['Tokens whose issuer can move balances through a program', 'Refused, with the reason: Orientim cannot isolate them'],
   ['Pump.fun launch curve and PumpSwap routes', 'Supported when the route fits and passes verification; otherwise refused'],
   ['Tokens with an active transfer hook, frozen by default, pausable, non-transferable or interest-bearing', 'Refused, with the reason: Orientim cannot isolate them'],
+  ['A token account of your wallet that its issuer has frozen', 'Refused, with the reason: the swap could not land'],
   ['Routes through a market that would leave an account open', 'Refused: its deposit would be lost'],
   ['Routes too large for one transaction', 'Refused: Orientim never splits a swap'],
 ];

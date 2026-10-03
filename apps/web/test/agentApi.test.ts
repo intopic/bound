@@ -1017,6 +1017,23 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect(JSON.parse(lines[1])).toMatchObject({ event: 'orientim.finalize', http: 200, status: 'unknown' });
   });
 
+  it('a refusal by the check is counted with its rules and reason, with no address or signature in the line', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'info').mockImplementation((line: unknown) => { lines.push(String(line)); });
+    const mint = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    try {
+      await observed('prepare', async () => Response.json({ error: {
+        code: 'verification-failed', message: 'A protected transaction cannot be produced.',
+        violations: [{ rule: 'R7', detail: `mint ${mint}: transfer hook` }, { rule: 'R1', detail: "the wallet's output token account is frozen" }],
+      } }, { status: 422 }));
+    } finally {
+      spy.mockRestore();
+    }
+    const line = JSON.parse(lines[0]);
+    expect(line).toMatchObject({ event: 'orientim.prepare', http: 422, code: 'verification-failed', rules: 'R7,R1', reason: 'mint …: transfer hook' });
+    expect(lines[0]).not.toContain(mint);
+  });
+
   it('without Orientim\'s program labels an excluded DEX cannot be checked: the swap is built with its own key', async () => {
     const asked: unknown[] = [];
     const w = await world({ jupiter: fakeJupiter({ asked: asked as never, labels: 'down' }) });

@@ -14,10 +14,27 @@ export function logEvent(name: string, fields: EventFields): void {
   }
 }
 
+/** Base58 runs as long as an address or a signature: never written to a log line. */
+const ADDRESSES = /[1-9A-HJ-NP-Za-km-z]{32,88}/g;
+
 /**
- * An endpoint's answer, observed: its HTTP status, its error code when it is an error, finalize's
- * `status` (sent, unknown or rejected) when it answered, and the time it took. The answer itself is
- * returned unchanged.
+ * Why a refusal was refused, for the log: the rules the check named (R1–R7), and the first reason
+ * in its own words, with every address and signature in it replaced by "…". Nothing else.
+ */
+export function refusalOf(violations: unknown): EventFields {
+  if (!Array.isArray(violations) || !violations.length) return {};
+  const rules = [...new Set(violations.map(v => (v as { rule?: unknown })?.rule).filter((r): r is string => typeof r === 'string' && /^R\d$/.test(r)))];
+  const detail = (violations[0] as { detail?: unknown })?.detail;
+  return {
+    ...(rules.length ? { rules: rules.join(',') } : {}),
+    ...(typeof detail === 'string' ? { reason: detail.replace(ADDRESSES, '…').slice(0, 160) } : {}),
+  };
+}
+
+/**
+ * An endpoint's answer, observed: its HTTP status, its error code when it is an error (with the
+ * rules and the first reason, when the check refused: `refusalOf`), finalize's `status` (sent,
+ * unknown or rejected) when it answered, and the time it took. The answer itself is returned unchanged.
  */
 export async function observed(name: 'prepare' | 'finalize', run: () => Promise<Response>): Promise<Response> {
   const started = performance.now();
@@ -25,8 +42,9 @@ export async function observed(name: 'prepare' | 'finalize', run: () => Promise<
   const fields: EventFields = { http: res.status, ms: Math.round(performance.now() - started) };
   if (res.status >= 400 || name === 'finalize') {
     try {
-      const body = (await res.clone().json()) as { error?: { code?: unknown }; status?: unknown };
+      const body = (await res.clone().json()) as { error?: { code?: unknown; violations?: unknown }; status?: unknown };
       if (typeof body?.error?.code === 'string') fields.code = body.error.code;
+      Object.assign(fields, refusalOf(body?.error?.violations));
       if (name === 'finalize' && typeof body?.status === 'string') fields.status = body.status;
     } catch {
       // An answer that is not JSON is counted by its status alone.

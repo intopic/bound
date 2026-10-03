@@ -34,7 +34,7 @@ import {
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -2014,6 +2014,26 @@ describe('the skill holds its own limits and its state against what it is handed
     expect(r.output).toMatchObject({ ok: false, signature, outcome: 'unknown' });
     expect(r.output.sent).toBeUndefined();
     expect(b.sent).toHaveLength(0);
+  });
+
+  it('a state directory deleted between prepare and finalize is made again: the swap is kept, sent once, and recorded', async () => {
+    // What it cannot bring back is the record of a swap whose outcome was still unknown when it was
+    // deleted: SKILL.md says never to delete it. Deleted before finalize, nothing is lost.
+    const { b, stateDir, deps, signMessage } = await cliSetup();
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'deleted-state' };
+    const ready = viaJson((await runCli('prepare', { intent }, deps)).output) as { checked: unknown; message: string };
+    rmSync(stateDir, { recursive: true, force: true });
+    const signature = await signMessage(ready.message);
+    const r = await runCli('finalize', { checked: ready.checked, signature }, deps);
+    expect(r.code).toBe(0);
+    expect(r.output).toMatchObject({ ok: true, signature, outcome: 'confirmed' });
+    expect(b.sent).toHaveLength(1);
+    expect(readdirSync(stateDir).filter(f => f.startsWith('spend-'))).toHaveLength(1);
+    expect(readdirSync(stateDir).filter(f => f.startsWith('order-'))).toHaveLength(1);
+    // Asked again, it is the same swap, already settled: nothing is sent twice.
+    const again = await runCli('finalize', { checked: ready.checked, signature }, deps);
+    expect(again.output).toMatchObject({ ok: true, signature, outcome: 'confirmed' });
+    expect(b.sent).toHaveLength(1);
   });
 
   it('two runs of one order: the second finalize is told the order already swapped (exit 5), and its spend is not counted', async () => {
