@@ -1037,6 +1037,8 @@ const PROMISED_MARKETS: [string, string][] = [['Pump.fun curve', 'Pump.fun'], ['
 /** Outcomes that depend on the market of the moment, not on the code that checks it. */
 // The output account's balance moved between the two checks (a borrowed holder's wallet is live):
 // the minimum-output check names the balance it was built on, and the later check reads another.
+// Every problem the check named is the minimum-output check built on another balance of the output account.
+const BALANCE_MOVED = /^R2: instruction \d+: minimum-output check for \d+, expected \d+(; R2: expected 1 × minOutCheck, found 0)?$/;
 const MARKET_DECIDES = /costs-more|price-moved|simulation-failed|price-impact-high|route-failed-in-check|check-refused-honest-answer|problems: .*fails in simulation|problems: .*minimum-output check for \d+, expected \d+/;
 
 // --- the analysis: what the passes and refusals show, beyond each verdict
@@ -1223,7 +1225,10 @@ it('the mainnet simulation matrix', async () => {
     // price, a route that fails in simulation), the case runs once more, and only a second
     // difference counts.
     rs = await Promise.all(rs.map(async (r, i) => {
-      if (r.code !== 'agent-bot-differ' || !MARKET_DECIDES.test(r.detail)) return r;
+      // The agent's own check refusing only the minimum-output check: the borrowed holder's output
+      // balance moved between Orientim's build and the check. Run once more; a second time is a bug.
+      const balanceMoved = r.code === 'check-refused-honest-answer' && BALANCE_MOVED.test(r.detail);
+      if (!balanceMoved && (r.code !== 'agent-bot-differ' || !MARKET_DECIDES.test(r.detail))) return r;
       const again = await caseOf.run(r.n, () => runCase(w, runs[i].c, r.n));
       const detail = `${again.detail} (first try: ${r.detail})`.slice(0, 400);
       // The market's answer on the other side the second time (the agent's route failed once and the
