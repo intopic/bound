@@ -265,6 +265,13 @@ a.ghost { display: inline-flex; align-items: center; }
 .prose th, .prose td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); vertical-align: top; }
 .prose th { color: var(--text); font-weight: 600; }
 .table-wrap { overflow-x: auto; }
+/* On a phone, a table of a name and a long text reads one entry at a time: the name above its text. */
+@media (max-width: 640px) {
+  .prose .table-stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .prose .table-stack tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .prose .table-stack td { display: block; padding: 2px 0; border-bottom: none; }
+  .prose .table-stack td:first-child { color: var(--text); font-weight: 600; }
+}
 .draft-note { margin: 18px 0 0; padding: 10px 14px; border: 1px solid rgba(242, 196, 107, .25); background: var(--warn-bg); color: var(--warn); border-radius: var(--radius); font-size: 14px; }
 
 /* ---- developers: the contents beside the text, marking the section being read */

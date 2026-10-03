@@ -8,6 +8,8 @@ export const metadata = { title: 'Terms of Use — Orientim', description: 'The 
 
 /** The fee this build charges, as the other pages state it. */
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
+/** Disputes go to arbitration or to courts, as the operator's details say (lib/legal.ts); the Terms say the same in both places. */
+const byArbitration = /arbitrat/i.test(LEGAL.disputeForum);
 
 /** The risks that remain, in plain words: what the protection does not change (README, SECURITY.md). */
 const RISKS: [string, string][] = [
@@ -31,7 +33,7 @@ export default async function Page() {
       title="Terms of Use"
       updated={LEGAL.lastUpdated}
       draft={legalDraft}
-      lead="These terms are a binding agreement between you and Orientim's operator. They limit our liability and require most disputes to be resolved individually by arbitration. Please read them carefully."
+      lead={`These terms are a binding agreement between you and Orientim's operator. They limit our liability and require most disputes to be resolved individually, ${byArbitration ? 'by arbitration' : 'before the courts named in section 18'}. Please read them carefully.`}
     >
       <section id="agreement">
         <h2>1. The agreement</h2>
@@ -77,7 +79,8 @@ export default async function Page() {
         <h2>3. What Orientim is, and what it is not</h2>
         <p>
           <strong>Non-custodial software.</strong> Orientim builds a Solana swap transaction, checks it against published rules
-          and, only after your wallet has signed it, adds the signature of a one-time key and sends it to the Solana network.
+          and, only after your wallet has signed it, adds the signature of a one-time key and sends it to the Solana network, or
+          returns it to your agent to send, when it asks.
           Swaps are executed by the Solana network and by third-party programs and markets, including those routed through
           Jupiter, which we do not own, operate or control.
         </p>
@@ -297,8 +300,10 @@ export default async function Page() {
           faith to resolve the dispute for at least 30 days.
         </p>
         <p>
-          A dispute not resolved that way will be finally resolved by {legal('disputeForum')}, seated in {legal('disputeSeat')}, in
-          English, by a sole arbitrator where it is an arbitration. To the extent the law allows, claims may be brought only
+          {byArbitration
+            ? <>A dispute not resolved that way will be finally resolved by {legal('disputeForum')}, seated in {legal('disputeSeat')}, in English, by a sole arbitrator.</>
+            : <>A dispute not resolved that way will be resolved by {legal('disputeForum')}, sitting in {legal('disputeSeat')}.</>}{' '}
+          To the extent the law allows, claims may be brought only
           individually, not in any class or representative proceeding, and any claim must be brought within one year after it
           arose. If you are a consumer, nothing in this section takes away a right the mandatory law of your country of residence
           gives you to bring proceedings in its courts or to rely on its law.

@@ -159,7 +159,7 @@ export default async function Page() {
                 now.&rdquo; It calls Orientim again, for a new swap. DCA, stop-loss or any other strategy runs the same way: in your
                 system, with each swap it triggers going through Orientim.
               </p>
-              <p>The swap program only ever holds a one-time key with the amount you approve, and if less than your minimum would arrive, the whole transaction reverts. Three ways in:</p>
+              <p>The swap route only ever gets the amount you approve, under a one-time key, and if less than your minimum would arrive, the whole transaction reverts. Three ways in:</p>
               <div className="table-wrap">
                 <table>
                   <thead><tr><th>Use</th><th>For</th></tr></thead>
@@ -198,6 +198,12 @@ export default async function Page() {
                   <code>shasum -a 256 -c</code>).
                   <pre tabIndex={0}><code>{`cd orientim-protected-swap
 curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
+                  On Windows, in PowerShell; every line must say OK:
+                  <pre tabIndex={0}><code>{`cd orientim-protected-swap
+(irm https://orientim.com/skill/SHA256SUMS) -split "\`n" | ? { $_.Trim() } | % {
+  $hash, $file = $_.Trim() -split '\\s+', 2
+  if ((Get-FileHash $file -Algorithm SHA256).Hash -eq $hash) { "\${file}: OK" } else { "\${file}: FAILED" }
+}`}</code></pre>
                 </li>
                 <li>
                   <strong>Run it</strong>: <code>npm ci</code>, set the <a href="#env">environment variables</a>, then follow{' '}
@@ -501,12 +507,12 @@ if code == 0:
                 <li>Every round is one prepare request toward the API&apos;s <a href="#limits">rate limit</a>.</li>
               </ul>
               <div className="table-wrap">
-                <table>
+                <table className="table-stack">
                   <thead><tr><th>Who asks</th><th>For what, in one swap</th></tr></thead>
                   <tbody>
                     <tr><td>Your Jupiter key</td><td>Your own price (the floor and the price impact), always: one ask. With <code>ownRoutes</code>, the routes: usually two, at most 24. For a fee in SOL, one ask for your own limit on it.</td></tr>
                     <tr><td>Orientim&apos;s Jupiter key</td><td>Without <code>ownRoutes</code>, the routes. With them: one ask for its own price when the fee is on the output (kept 15 seconds across the rounds), and the price of a fee in SOL.</td></tr>
-                    <tr><td>Orientim&apos;s RPC</td><td>The chain state it builds from, its own simulations, and sending once at finalize.</td></tr>
+                    <tr><td>Orientim&apos;s RPC</td><td>The chain state it builds from, its own simulations, and sending once at finalize (nothing with <code>{'"send": false'}</code>).</td></tr>
                     <tr><td>Your RPC</td><td>The check before signing: a few account reads, one or two simulations and the token-risk read. After finalize: a status read about every second, and a re-send of the same bytes every few seconds, until the swap confirms or its lifetime passes (about 40 seconds), then one read of the transaction for what arrived. Any Solana RPC of yours works.</td></tr>
                   </tbody>
                 </table>
@@ -696,7 +702,7 @@ POST /api/v1/keys
               <h2>Environment variables</h2>
               <p>The skill and the command line read these. Never put a wallet key in a prompt, a message, a log or a command line.</p>
               <div className="table-wrap">
-                <table>
+                <table className="table-stack">
                   <thead><tr><th>Variable</th><th>Value</th></tr></thead>
                   <tbody>{ENV.map(([name, value]) => <tr key={name}><td><code>{name}</code></td><td>{value}</td></tr>)}</tbody>
                 </table>

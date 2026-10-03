@@ -32,7 +32,7 @@ const PROCESSING: [string, string, string][] = [
 const RECIPIENTS: [string, string, string][] = [
   ['Vercel Inc.', 'Hosting; keeps the request logs', 'United States'],
   ['Helius', 'Solana RPC provider: chain reads, simulations and your signed transaction, which include your wallet address', 'United States'],
-  ['Jupiter', 'Building the route, with the tokens, the amount and your receiving token account', 'Outside the EU'],
+  ['Jupiter', 'Building the route, or pricing the swap when your agent brings its own routes: the tokens, the amount and, for a route, your receiving token account', 'Outside the EU'],
   ['The Solana network', 'Executes your signed transaction, which becomes public', 'Global and public'],
 ];
 
