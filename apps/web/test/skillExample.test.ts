@@ -2660,6 +2660,29 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     expect(typeof bodies.at(-1)!.minOut).toBe('string');
   });
 
+  it("the agent's own refusal while the first round is still out is not left unhandled (it would end the agent's process)", async () => {
+    const b = await orientim();
+    const unhandled: unknown[] = [];
+    const listen = (e: unknown) => { unhandled.push(e); };
+    process.on('unhandledRejection', listen);
+    try {
+      const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+        // Orientim's first round is slow; the agent's own floor is refused at once (owner's limit).
+        if (url.endsWith('/api/v1/prepare')) await new Promise(r => setTimeout(r, 200));
+        return b.fetchImpl(url, init);
+      }) as unknown as typeof fetch;
+      await expect(prepareChecked({
+        apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, owner: b.wallet.address, fetchImpl, jupiterApiKey: 'parallel',
+        policy: { maxSlippageBps: 50 },
+        intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY, slippageBps: 100 },
+      })).rejects.toThrow(/above the owner's limit/);
+      await new Promise(r => setTimeout(r, 50));
+    } finally {
+      process.off('unhandledRejection', listen);
+    }
+    expect(unhandled).toEqual([]);
+  });
+
   it('with a sender of its own, the agent sends the swap: Orientim signs it and sends nothing', async () => {
     const b = await orientim();
     const finalizeBodies: Record<string, unknown>[] = [];

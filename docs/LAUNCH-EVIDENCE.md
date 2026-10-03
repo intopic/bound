@@ -12,11 +12,12 @@ it did not prove that run, and whose routes built each swap.
 
 | What | Where | Status |
 | --- | --- | --- |
-| SOL/USDC and the major pairs, sizes from $1 to $5M | matrix: repeat, sizes, pairs, majors, whales, giants, more-tokens | pending: the run on the release commit |
-| The Pump.fun curve and PumpSwap | matrix: pump; the canary, every six hours | pending: the run on the release commit |
-| The agent's routes, and the fall back to Orientim's | matrix: every case (`own_routes=1`), and fallback (routes understated 100 times) | pending: the run on the release commit |
-| The fee on the input, on the output, and in SOL | matrix analysis, "The fee's side in the passes"; `agentApi.test.ts`, "the fee on the output, exactly as documented" | tests proven; matrix pending |
-| A dishonest server | matrix: tamper (8 changes on 14 real transactions) | pending: the run on the release commit |
+| SOL/USDC and the major pairs, sizes from $1 to $5M | matrix: repeat, sizes, pairs, majors, whales, giants, more-tokens | proven: run 37082912774 (skill 1.10.0; 1.10.1 changes only the handling of an early refusal): 736 cases, 606 passed, 119 refused for a stated reason, 11 untested (no holder, Jupiter busy, a route failing in the check twice), 0 to look at; up to $5M (SOL → USDC, impact 0.48%); 606 × 9 rules read apart, 0 broken; time per pass median 5.6 s, 95th 22.6 s |
+| The Pump.fun curve and PumpSwap | matrix: pump; the canary, every six hours | the curve proven (run 37082912774 (skill 1.10.0; 1.10.1 changes only the handling of an early refusal), 2 passes); PumpSwap proven by the canary's review (run 37080045238): in the matrix the graduated tokens it picked were routed through other markets |
+| The agent's routes, and the fall back to Orientim's | matrix: every case (`own_routes=1`), and fallback (routes understated 100 times) | proven: run 37082912774 (skill 1.10.0; 1.10.1 changes only the handling of an early refusal): the agent's routes built 603 passes, Orientim's after the agent's were not used 3, fallback 3 of 4 passed (the fourth: the price moved) |
+| The fee on the input, on the output, and in SOL | matrix analysis, "The fee's side in the passes"; `agentApi.test.ts`, "the fee on the output, exactly as documented" | proven: tests; run 37082912774 (skill 1.10.0; 1.10.1 changes only the handling of an early refusal): input 286, output 252, in SOL 68 passes |
+| A dishonest server | matrix: tamper (8 changes on 14 real transactions) | proven: run 37082912774 (skill 1.10.0; 1.10.1 changes only the handling of an early refusal): 96 changes on 12 real transactions, 96 refused, 0 missed |
+| An early refusal of the agent's own | "the agent's own refusal while the first round is still out is not left unhandled" (the matrix found 17 unhandled rejections in run 37082912774; fixed in 1.10.1) | proven (test) |
 | Timeouts and `429` | `skillExample.test.ts`: "Jupiter that does not answer in time is busy", "Jupiter's rate limit is waited out", "swaps sharing one Jupiter key wait", "still busy after four asks" | proven (tests) |
 | Expiry | "a status node behind the finalized view keeps the outcome unknown; a covering one proves expiry", "right after its lifetime, the same silence does prove it expired", the archive tests | proven (tests) |
 | Interruption and recovery | "what a stopped run kept is settled by its own signature on the next start", "a stopped run leaves the order pending; recovery settles it", "finalize asked again while a stopped run still holds the lock" | proven (tests); pilot pending |
