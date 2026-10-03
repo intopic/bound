@@ -3,7 +3,8 @@
  * (bots in any language) against Orientim's real API handlers and a fake chain. The cases vary:
  * - the tolerance the agent chooses (none, any valid one, or one that is not valid);
  * - the price impact of its own quote, and its limit;
- * - whether the server answers honestly or lies in one of five ways.
+ * - whether the server answers honestly or lies in one of five ways;
+ * - whose routes: the agent's own Jupiter key (rounds of routes-needed), or Orientim's.
  *
  * The outcome must follow from those alone:
  * - honest, valid, within the limit: confirmed, sent once, the route at exactly the tolerance in force;
@@ -42,7 +43,7 @@ const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 type Lie = 'none' | 'widen' | 'fee-claim' | 'treasury' | 'minimum' | 'malformed';
 
 /** Orientim, the chain and Jupiter; `lie` is what a compromised server or relay does to the answer. */
-async function world(lie: Lie, widenTo: number, impact: number) {
+async function world(lie: Lie, widenTo: number, impact: number, ownRoutes: boolean) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
@@ -57,10 +58,11 @@ async function world(lie: Lie, widenTo: number, impact: number) {
     rpc, jupiter: fakeJupiter(), secrets: [new Uint8Array(32).fill(3)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'fuzz']]),
     feeBps: 30n, treasury: TREASURY, excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: false, perMinute: 1_000_000,
+    ownRoutes,
   };
   const fetchImpl = (async (url: string, init: RequestInit) => {
     if (url.startsWith('https://api.jup.ag/')) {
-      // Jupiter as the agent asks it for its own price, with the price impact this case gives it.
+      // Jupiter as the agent asks it, for its own price and for routes, with the price impact this case gives it.
       const q = new URL(url).searchParams;
       const r = await fakeJupiter().build({
         inputMint: address(q.get('inputMint')!), outputMint: address(q.get('outputMint')!), amount: BigInt(q.get('amount')!),
@@ -108,7 +110,8 @@ describe('agents and bots, fuzzed end to end', () => {
         fc.integer({ min: 1, max: 700 }),
         fc.oneof(fc.constant(0), fc.double({ min: 0, max: 0.2, noNaN: true })),
         fc.option(fc.integer({ min: 100, max: 2_000 }), { nil: undefined }),
-        async (channel, slippageBps, lie, widenBy, impact, maxPriceImpactBps) => {
+        fc.boolean(),
+        async (channel, slippageBps, lie, widenBy, impact, maxPriceImpactBps, ownRoutes) => {
           const validTolerance = slippageBps === undefined || (Number.isInteger(slippageBps) && slippageBps >= 10 && slippageBps <= 1_500);
           const tolerance = validTolerance ? (slippageBps ?? 50) : 50;
           // A server that widens the route beyond the tolerance: a lie only when there is room above it.
@@ -116,7 +119,8 @@ describe('agents and bots, fuzzed end to end', () => {
           const lies = lie !== 'none' && !(lie === 'widen' && widenTo <= tolerance);
           const impactBps = impact > 0 ? Math.round(impact * 10_000) : 0;
           const tooThin = impactBps > (maxPriceImpactBps ?? 500);
-          const w = await world(lie, widenTo, impact);
+          const w = await world(lie, widenTo, impact, ownRoutes);
+          const jupiter = ownRoutes ? { jupiterApiKey: 'agent-key' } : {};
           const intent: Omit<Intent, 'owner'> = {
             inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY,
             ...(slippageBps !== undefined ? { slippageBps } : {}), ...(maxPriceImpactBps !== undefined ? { maxPriceImpactBps } : {}),
@@ -124,12 +128,12 @@ describe('agents and bots, fuzzed end to end', () => {
           let swapped: boolean;
           if (channel === 'agent') {
             swapped = await protectedSwap({
-              apiUrl: 'http://orientim.test', apiKey: KEY, rpc: w.agentRpc, wallet: w.wallet, fetchImpl: w.fetchImpl, pollMs: 1, intent,
+              apiUrl: 'http://orientim.test', apiKey: KEY, rpc: w.agentRpc, wallet: w.wallet, fetchImpl: w.fetchImpl, pollMs: 1, intent, ...jupiter,
             }).then(r => r.outcome === 'confirmed', () => false);
           } else {
             const deps = {
               rpc: w.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: w.fetchImpl, pollMs: 1, maxWaitMs: 60,
-              stateDir: mkdtempSync(join(tmpdir(), 'orientim-fuzz-')), treasury: TREASURY,
+              stateDir: mkdtempSync(join(tmpdir(), 'orientim-fuzz-')), treasury: TREASURY, ...jupiter,
             };
             const ready = await runCli('prepare', { intent: { owner: w.wallet.address, ...intent, id: 'fuzz-order' } }, deps);
             const out = JSON.parse(JSON.stringify(ready.output)) as { checked?: unknown; message?: string };

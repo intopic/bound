@@ -446,9 +446,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
           session: await session(), taker: E.address, requests: routes.missing,
         });
       }
-      // Routes Orientim cannot hold to its own price or exclusions: it builds the swap with its own
-      // key, around the same one-time key, within the same deadline.
-      if (!(e instanceof RoutesUntrusted && routes)) throw e;
+      // Routes Orientim cannot hold to its own price or exclusions, or that built a transaction its
+      // own verifier refused (a route delivering elsewhere, say): it builds the swap with its own
+      // key, around the same one-time key, within the same deadline, and verifies that one alike.
+      const unusable = e instanceof RoutesUntrusted || (e instanceof OrientimError && e.code === 'verification-failed' && providedCount > 0);
+      if (!(unusable && routes)) throw e;
       logEvent('routes_not_used', { key, reason: e.message.slice(0, 200) });
       routesFrom = 'orientim-fallback';
       prepared = await build(deadline.jupiter);

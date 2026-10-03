@@ -828,6 +828,22 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect((await res.json()).error.code).toBe('bad-quote');
   });
 
+  it("routes that build a transaction Orientim's verifier refuses (delivering elsewhere) are not used: Orientim builds with its own key", async () => {
+    const own = counting();
+    const w = await world({ jupiter: own.jupiter });
+    // The agent's Jupiter answers for another destination than the one Orientim asked for.
+    const elsewhere = (await generateKeyPairSigner()).address;
+    const honest = fakeJupiter();
+    const misdirected = { ...honest, build: (q: Parameters<typeof honest.build>[0]) => honest.build({ ...q, destinationTokenAccount: elsewhere }) } as ReturnType<typeof fakeJupiter>;
+    const res = await inRounds(w, misdirected);
+    expect(res.status).toBe(200);
+    // Built with Orientim's key: the protected routes were asked of it, and the swap finalizes.
+    expect(own.asked.some(a => (a as { excludeDexes?: string[] }).excludeDexes?.includes('HumidiFi'))).toBe(true);
+    const p = await res.json() as Prepared;
+    const fin = await agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction) }), w.deps);
+    expect(fin.status).toBe(200);
+  });
+
   /** Prepare in rounds, the agent fetching every route asked for from `agentMarket`. */
   async function inRounds(w: Awaited<ReturnType<typeof world>>, agentMarket: ReturnType<typeof fakeJupiter>, onRound?: (round: number) => void) {
     const routes: { params: Record<string, unknown>; response: unknown }[] = [];

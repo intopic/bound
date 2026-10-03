@@ -27,7 +27,8 @@
  *
  *   RPC_URL=<mainnet RPC> JUPITER_API_KEY=<key> npx vitest run --config tools/sim/vitest.config.ts
  *   SIM_GROUPS=sizes,pairs   only those groups (repeat, sizes, pairs, majors, whales, personas, pump, tolerance, rules,
- *                            parity, hard, giants, more-tokens, tamper, approve, burst, v1-compare, modes, fallback)
+ *                            parity, hard, giants, more-tokens, tamper, approve, burst, v1-compare, modes, fallback,
+ *                            routes, grid)
  *   SIM_LIMIT=20             at most this many cases
  *   SIM_JUPITER_INTERVAL_MS  the least time between two Jupiter requests (default 1100: a free key)
  *   SIM_VERSION=1            every case that names no version as a v1 transaction (default v0)
@@ -144,6 +145,10 @@ type Case = {
    * the input, the agent's own minimum still holds.
    */
   understate?: bigint;
+  /** This case without the agent's own routes: Orientim's key builds them, as without a key. */
+  orientimRoutes?: boolean;
+  /** The same swap with the agent's routes and with Orientim's, a moment apart: their minimum and fee compared. */
+  routesCompare?: string;
 };
 
 function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
@@ -368,6 +373,24 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
       { group: 'fallback', input: 'SOL', output: 'USDC', usd: 100, understate: 100n },
     );
   }
+  // The same swap with the agent's own routes and with Orientim's, a moment apart: the fee on every
+  // side and the minimum must be alike (within the market's move and the 1% Orientim allows).
+  if (OWN_ROUTES && JUPITER_API_KEY) {
+    for (const [input, output, usd] of [
+      ['SOL', 'USDC', 1_000], ['USDC', 'SOL', 10_000], ['BONK', 'SOL', 5_000], ['SOL', 'BONK', 5_000], ['JUP', 'USDC', 2_000],
+      ['USDC', 'WIF', 1_000], ['WIF', 'JUP', 800], ['JitoSOL', 'SOL', 50_000], ['USDT', 'USDC', 100_000], ['SOL', 'JUP', 20_000],
+    ] as const) {
+      const key = `${input}-${output}-${usd}`;
+      cases.push({ group: 'routes', input, output, usd, routesCompare: key }, { group: 'routes', input, output, usd, routesCompare: key, orientimRoutes: true });
+    }
+  }
+  // Tolerance against size: a major pair, a memecoin bought and sold, from $10 to $50,000, at each
+  // tolerance an agent may choose, "auto" included.
+  for (const [input, output] of [['SOL', 'USDC'], ['USDC', 'BONK'], ['BONK', 'SOL']] as const) {
+    for (const usd of [10, 1_000, 50_000]) {
+      for (const slippage of [10, 50, 300, 1_000, 'auto'] as const) cases.push({ group: 'grid', input, output, usd, slippage });
+    }
+  }
   return cases.filter(c => !GROUPS.length || GROUPS.includes(c.group)).slice(0, LIMIT);
 }
 
@@ -585,6 +608,8 @@ type Result = {
   approved?: string;
   /** The protected route's quoted output (passed, or refused as costing more), and the v0/v1 pair it belongs to. */
   outAmount?: string; compare?: string; version?: number;
+  /** The own-routes pair it belongs to, which routes it used, and the minimum and fee it was built with. */
+  routesCompare?: string; orientimRoutes?: boolean; minOutRaw?: string; feeRaw?: string;
   /** From the server's own events: whose routes built the swap, the fee's side, and the asks of its key for its own price. */
   routesFrom?: string; feeSide?: string; referenceAsks?: number;
 };
@@ -866,6 +891,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     rule: c.rule?.label ?? '', asked: c.slippage === undefined ? 'default' : String(c.slippage), built: '',
     kind: 'UNTESTED', code: '', detail: '', route: '', impact: '', fee: '', floor: '', ms: 0,
     ...(c.compare ? { compare: c.compare, version: c.version ?? DEFAULT_VERSION } : {}),
+    ...(c.routesCompare ? { routesCompare: c.routesCompare, orientimRoutes: !!c.orientimRoutes } : {}),
   };
   const started = Date.now();
   try {
@@ -910,7 +936,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
       const fetchImpl = c.understate ? understating(w.fetchImpl, owner, c.understate) : w.fetchImpl;
       const prepare = (asked: Omit<Intent, 'owner'>) => prepareChecked({
         apiUrl: API_URL, apiKey: API_KEY, rpc: w.rpc, owner, intent: asked, fetchImpl, jupiterApiKey: JUPITER_API_KEY,
-        requestTimeoutMs: 30_000, ownRoutes: OWN_ROUTES, ...(policy ? { policy } : {}),
+        requestTimeoutMs: 30_000, ownRoutes: OWN_ROUTES && !c.orientimRoutes, ...(policy ? { policy } : {}),
       });
       let approved: string | undefined;
       let checked: Checked;
@@ -942,6 +968,8 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
       };
       outcome.usdValue = c.usd || undefined;
       outcome.outAmount = p.amounts.quotedOut;
+      outcome.minOutRaw = p.amounts.minOut;
+      outcome.feeRaw = p.amounts.fee;
       outcome.impactBps = typeof p.amounts.priceImpactPct === 'number' ? Math.round(p.amounts.priceImpactPct * 10_000) : null;
       outcome.floorBps = floorBps;
       if (approved) outcome.approved = approved;
@@ -1126,6 +1154,23 @@ function analysis(results: Result[]): string[] {
     }
     if (gains.length) lines.push('', `- **v1 against v0**: ${gains.length} pairs compared, median ${bps(median(gains))} more output with v1, best ${bps(Math.max(...gains))}, worst ${bps(Math.min(...gains))}; ${[...pairs.values()].filter(p => p.v0?.code === 'costs-more' && p.v1?.kind === 'PASS').length} swaps refused as costlier with v0 passed with v1.`);
   }
+  // The agent's routes against Orientim's.
+  const byRoutes = new Map<string, { own?: Result; orientim?: Result }>();
+  for (const r of results.filter(x => x.routesCompare)) {
+    const e = byRoutes.get(r.routesCompare!) ?? {};
+    if (r.orientimRoutes) e.orientim = r; else e.own = r;
+    byRoutes.set(r.routesCompare!, e);
+  }
+  if (byRoutes.size) {
+    const gap = (a?: string, b?: string) => (a && b && BigInt(b) > 0n ? Number(((BigInt(a) - BigInt(b)) * 10_000n) / BigInt(b)) : NaN);
+    const pct = (x: number) => (Number.isFinite(x) ? `${x >= 0 ? '+' : ''}${(x / 100).toFixed(2)}%` : '-');
+    const verdict = (r?: Result) => (!r ? '-' : r.kind === 'PASS' ? 'PASS' : r.code);
+    lines.push('', "### The agent's routes against Orientim's, the same swap a moment apart", '', '| pair | amount | own routes | Orientim\'s | minimum, own against Orientim\'s | fee, own against Orientim\'s |', '|---|---|---|---|---|---|');
+    for (const { own, orientim } of byRoutes.values()) {
+      const any = own ?? orientim!;
+      lines.push(`| ${any.pair} | ${any.usd} | ${verdict(own)} | ${verdict(orientim)} | ${pct(gap(own?.minOutRaw, orientim?.minOutRaw))} | ${pct(gap(own?.feeRaw, orientim?.feeRaw))} |`);
+    }
+  }
   // Agents against bots.
   const both = results.filter(r => r.bot !== undefined);
   if (both.length) lines.push(`- **Agent and bot (orientim-verify) on the same swap**: ${both.length} cases, ${both.filter(r => r.code !== 'agent-bot-differ').length} decided alike.`);
@@ -1204,6 +1249,8 @@ it('the mainnet simulation matrix', async () => {
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, wave: 'w' },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 200, wave: 'w' },
       { group: 'offline', input: 'USDC', output: 'SOL', usd: 300, wave: 'w', slippage: 'auto' },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, routesCompare: 'o' },
+      { group: 'offline', input: 'USDC', output: 'SOL', usd: 100, routesCompare: 'o', orientimRoutes: true },
     ] as Case[]
     : buildCases(pump);
   console.log(`${cases.length} cases, as v${DEFAULT_VERSION} unless a case names its own${pump.curve.length || pump.amm.length ? `; Pump.fun curve ${pump.curve.map(nameOf).join(', ')}; PumpSwap ${pump.amm.map(nameOf).join(', ')}` : ''}`);
@@ -1245,6 +1292,14 @@ it('the mainnet simulation matrix', async () => {
       results.push(kept);
       say(kept);
     });
+  }
+  // The agent's routes may not lower the fee: with both passed, a fee more than 1.5% below the one
+  // Orientim's own routes gave a moment later (1% allowed, and the market's move) is a bug.
+  for (const own of results.filter(r => r.routesCompare && !r.orientimRoutes && r.kind === 'PASS')) {
+    const theirs = results.find(r => r.routesCompare === own.routesCompare && r.orientimRoutes && r.kind === 'PASS');
+    if (!theirs?.feeRaw || !own.feeRaw || BigInt(theirs.feeRaw) === 0n) continue;
+    const below = Number(((BigInt(theirs.feeRaw) - BigInt(own.feeRaw)) * 10_000n) / BigInt(theirs.feeRaw));
+    if (below > 150) Object.assign(own, { kind: 'BUG', code: 'own-routes-fee-low', detail: `fee ${own.feeRaw} against ${theirs.feeRaw} with Orientim's routes (${below} bps below)` });
   }
   const md = report(results, started);
   mkdirSync(OUT, { recursive: true });

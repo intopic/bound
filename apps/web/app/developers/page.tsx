@@ -480,7 +480,8 @@ if code == 0:
                 <li>
                   A fee on the output is 0.25% of the guaranteed minimum, the minimum your route sets. That minimum is checked
                   against an independent price of Orientim&apos;s own, with a tolerance of up to 1%. Within it, the fee follows your
-                  route&apos;s minimum; further below, Orientim builds the swap with its own key instead. Your wallet keeps at least
+                  route&apos;s minimum; further below, or with routes Orientim&apos;s verifier refuses, Orientim builds the swap with its
+                  own key instead. Your wallet keeps at least
                   that minimum less the fee, and never less than your <code>minOut</code>.
                 </li>
                 <li>

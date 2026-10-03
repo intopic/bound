@@ -47,7 +47,7 @@ const API = 'http://orientim.test';
 let cases = 0;
 
 /** Orientim with one API key, one chain and Jupiter, and a wallet funded in USDC and BONK for each client. */
-async function server(clients: number, perMinute: number) {
+async function server(clients: number, perMinute: number, own = false) {
   const label = `load-${++cases}`;
   const key = `ori_load_${label}_${'0'.repeat(16)}`;
   const wallets = await Promise.all(Array.from({ length: clients }, () => generateKeyPairSigner()));
@@ -65,6 +65,7 @@ async function server(clients: number, perMinute: number) {
     rpc, jupiter, secrets: [new Uint8Array(32).fill(5)],
     keys: new Map([[createHash('sha256').update(key).digest('hex'), label]]),
     feeBps: 30n, treasury: TREASURY, excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: false, perMinute,
+    ownRoutes: own,
   };
   const fetchImpl = (async (url: string, init: RequestInit) => {
     if (url.startsWith('https://api.jup.ag/')) {
@@ -72,6 +73,8 @@ async function server(clients: number, perMinute: number) {
       const r = await jupiter.build({
         inputMint: address(q.get('inputMint')!), outputMint: address(q.get('outputMint')!), amount: BigInt(q.get('amount')!),
         taker: address(q.get('taker')!), slippageBps: Number(q.get('slippageBps')), maxAccounts: Number(q.get('maxAccounts')),
+        ...(q.get('destinationTokenAccount') ? { destinationTokenAccount: address(q.get('destinationTokenAccount')!) } : {}),
+        ...(q.get('excludeDexes') ? { excludeDexes: q.get('excludeDexes')!.split(',') } : {}),
       });
       return Response.json({ ...r, priceImpactPct: 0 });
     }
@@ -83,7 +86,7 @@ async function server(clients: number, perMinute: number) {
     getBlockHeight: () => ({ send: async () => 850n }),
     getSignatureStatuses: () => ({ send: async () => ({ value: [{ confirmationStatus: 'confirmed', err: null }] }) }),
   } as unknown as Rpc<SolanaRpcApi>;
-  return { key, wallets, sent, fetchImpl, agentRpc };
+  return { key, wallets, sent, fetchImpl, agentRpc, jupiter: own ? { jupiterApiKey: 'agent-key' } : {} };
 }
 
 /** The wallet that signed and paid for a transaction sent. */
@@ -137,7 +140,8 @@ describe('many clients through one API key', () => {
 
     await fc.assert(
       fc.asyncProperty(fc.array(client, { minLength: 1, maxLength: 4 }), async plan => {
-        const s = await server(plan.length, 1_000_000);
+        // Every other plan, the clients bring their own routes (several rounds of prepare each).
+        const s = await server(plan.length, 1_000_000, cases % 2 === 0);
         type Done = { order: string; mint: string; amount: bigint };
         const swapped: Done[][] = plan.map(() => []);
 
@@ -162,7 +166,7 @@ describe('many clients through one API key', () => {
               try {
                 const r = await protectedSwap({
                   apiUrl: API, apiKey: s.key, rpc: s.agentRpc, wallet: wallet as KeyPairSigner, fetchImpl: s.fetchImpl, pollMs: 1,
-                  intent: intentOf(x), orders: store, pending: store, spends: store, ...(policy ? { policy } : {}),
+                  intent: intentOf(x), orders: store, pending: store, spends: store, ...(policy ? { policy } : {}), ...s.jupiter,
                 });
                 if (r.outcome === 'confirmed') swapped[n].push({ order: `order-${x.order}`, mint: x.mint, amount: x.amount });
                 else expect(['failed', 'rejected', 'expired']).toContain(r.outcome);
@@ -179,7 +183,7 @@ describe('many clients through one API key', () => {
           // A bot: several processes of the same wallet at once, sharing one state directory.
           const deps = {
             rpc: s.agentRpc, apiUrl: API, apiKey: s.key, fetchImpl: s.fetchImpl, pollMs: 1, maxWaitMs: 60, stateDir, treasury: TREASURY,
-            ...(policy ? { policy } : {}),
+            ...(policy ? { policy } : {}), ...s.jupiter,
           };
           await Promise.all(c.swaps.map(async x => {
             const ready = await runCli('prepare', { intent: { owner: wallet.address, ...intentOf(x) } }, deps);

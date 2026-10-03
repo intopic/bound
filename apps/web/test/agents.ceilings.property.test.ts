@@ -64,7 +64,11 @@ const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');
 type Market = { out: bigint; curve: boolean; finalCurve?: boolean; estimateBps: number; impactBps: number };
 const curveMarket = (out: bigint, curve: boolean) => fakeJupiter({ out, curveProgram: curve, ...(curve ? { label: 'Pump.fun' } : {}) });
 
+/** Every other world has the agent bring its own routes (routes-needed rounds); the rest, Orientim's. */
+let worlds = 0;
+
 async function world(m: Market) {
+  const own = worlds++ % 2 === 1;
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
@@ -82,17 +86,23 @@ async function world(m: Market) {
     rpc, jupiter, secrets: [new Uint8Array(32).fill(5)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'fuzz']]),
     feeBps: 25n, treasury: TREASURY, excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: false, perMinute: 1_000_000,
+    ownRoutes: own,
   };
   const asked: string[] = [];
   const fetchImpl = (async (url: string, init: RequestInit) => {
     if (url.startsWith('https://api.jup.ag/')) {
       const q = new URL(url).searchParams;
-      asked.push(q.get('slippageBps')!);
+      // A route for the one-time key, which the agent fetches with its own key: Orientim's final market.
+      const forRoute = q.get('taker') !== wallet.address;
+      if (!forRoute) asked.push(q.get('slippageBps')!);
       // On "auto" Jupiter answers with its estimate in the threshold (RTSE).
       const slippage = q.get('slippageBps') === 'rtse' ? m.estimateBps : Number(q.get('slippageBps'));
-      const r = await ownJupiter.build({
+      const r = await (forRoute ? jupiter : ownJupiter).build({
         inputMint: address(q.get('inputMint')!), outputMint: address(q.get('outputMint')!), amount: BigInt(q.get('amount')!),
         taker: address(q.get('taker')!), slippageBps: slippage, maxAccounts: Number(q.get('maxAccounts')),
+        // A route Orientim asks for names where it delivers, and the DEXes it leaves out.
+        ...(q.get('destinationTokenAccount') ? { destinationTokenAccount: address(q.get('destinationTokenAccount')!) } : {}),
+        ...(q.get('excludeDexes') ? { excludeDexes: q.get('excludeDexes')!.split(',') } : {}),
       });
       return Response.json({ ...r, priceImpactPct: m.impactBps / 10_000 });
     }
@@ -104,7 +114,7 @@ async function world(m: Market) {
     getBlockHeight: () => ({ send: async () => 850n }),
     getSignatureStatuses: () => ({ send: async () => ({ value: [{ confirmationStatus: 'confirmed', err: null }] }) }),
   } as unknown as Rpc<SolanaRpcApi>;
-  return { wallet, sent, fetchImpl, agentRpc, asked };
+  return { wallet, sent, fetchImpl, agentRpc, asked, jupiterApiKey: own ? 'agent-key' : undefined };
 }
 type World = Awaited<ReturnType<typeof world>>;
 
@@ -126,6 +136,7 @@ async function asAgent(w: World, intent: Omit<Intent, 'owner'>, policy: OwnerPol
   try {
     const r = await protectedSwap({
       apiUrl: 'http://orientim.test', apiKey: KEY, rpc: w.agentRpc, wallet: w.wallet as KeyPairSigner, fetchImpl: w.fetchImpl, pollMs: 1, intent, policy,
+      ...(w.jupiterApiKey ? { jupiterApiKey: w.jupiterApiKey } : {}),
     });
     return r.outcome === 'confirmed' ? 'sent' : r.outcome;
   } catch (e) {
@@ -141,6 +152,7 @@ async function asBot(w: World, intent: Omit<Intent, 'owner'>, policy: OwnerPolic
   const deps = {
     rpc: w.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: w.fetchImpl, pollMs: 1, maxWaitMs: 60,
     stateDir: mkdtempSync(join(tmpdir(), 'orientim-ceil-')), treasury: TREASURY, policy,
+    ...(w.jupiterApiKey ? { jupiterApiKey: w.jupiterApiKey } : {}),
   };
   const ready = await runCli('prepare', { intent: { owner: w.wallet.address, id: 'order-1', ...intent } }, deps);
   const out = JSON.parse(JSON.stringify(ready.output)) as { checked?: unknown; message?: string; error?: { code?: string } | string; problems?: string[] };
