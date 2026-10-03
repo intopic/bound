@@ -2591,6 +2591,16 @@ describe("Jupiter's answers to the agent's own price, busy or not", () => {
     expect(calls).toBe(1);
   });
 
+  it("a token program Jupiter's own service could not find (inside its 500) is asked again, and the price comes", async () => {
+    let calls = 0;
+    const fetchImpl = (async (url: string) => {
+      if (calls++ === 0) return Response.json({ error: '500: {"error":"Missing token program for HJB4pump"}' }, { status: 400 });
+      return jupiterAnswer(url);
+    }) as unknown as typeof fetch;
+    await expect(ask(fetchImpl)).resolves.toBeDefined();
+    expect(calls).toBe(2);
+  }, 20_000);
+
   it('a real refusal without a code gets one, is asked once, and is never taken for busy', async () => {
     for (const [error, code] of [
       ['No routes found', 'NO_ROUTES_FOUND'],

@@ -160,7 +160,9 @@ export function createJupiterClient(opts: {
       // which Jupiter wraps in a 400 as well; never a refusal of the trade itself.
       const retryable = res.status === 429 || res.status >= 500 || (res.status === 400
         && /quote failed|not been updated|oracle|stale|expired|temporarily unavailable|no matching liquidity|"500: /i.test(body)
-        && !/no routes? found|could not find any route|missing token program|cannot be same as/i.test(body));
+        && (!/no routes? found|could not find any route|missing token program|cannot be same as/i.test(body)
+          // A token program Jupiter's own service could not find, inside its 500: its index lagging.
+          || (/"500: /.test(body) && /missing token program/i.test(body))));
       if (retryable && attempt < 3) {
         // Jittered, so pages refused together do not all retry at the same moment; Jupiter's own
         // wait is honoured up to a few seconds.

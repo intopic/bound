@@ -107,7 +107,9 @@ describe('a Jupiter under load', () => {
         return body === 'ok' ? new Response(JSON.stringify(good)) : new Response(body, { status: 400 });
       }) as unknown as typeof fetch,
     });
-    for (const busy of ['{"error":"Oracle price out of date. Pair temporarily unavailable"}', '{"error":"500: Oracle is stale"}', '{"error":"The price was expired"}']) {
+    // A token program Jupiter's own service could not find, inside its 500: its index lagging behind a
+    // new Pump.fun token, which passes a few seconds later on mainnet.
+    for (const busy of ['{"error":"Oracle price out of date. Pair temporarily unavailable"}', '{"error":"500: Oracle is stale"}', '{"error":"The price was expired"}', '{"error":"500: {\\"error\\":\\"Missing token program for Xpump\\"}"}']) {
       const counter = { calls: 0 };
       expect((await answering([busy, 'ok'], counter).build(params)).outAmount).toBe(good.outAmount);
       expect(counter.calls).toBe(2);
