@@ -46,9 +46,9 @@ it did not prove that run, and whose routes built each swap.
 
 | What | Where | Status |
 | --- | --- | --- |
-| Health, the deployed commit and its CI, the skill served | `monitor.yml`, every ten minutes | pending: first scheduled runs |
+| Health, the deployed commit and its CI, the skill served | `monitor.yml`, every ten minutes | proven: run 37080387875 (health ok in 738 ms, build 4a88976 on main, its CI passed, the skill served is the source's) |
 | Upstream programs and swaps on mainnet state | `canary.yml`, every six hours; `upstream-review.yml` after a redeploy | proven: the first run caught Jupiter, the Pump.fun curve and PumpSwap redeployed; the review (run 37080045238: Jupiter's floor, 7 swaps of 7, PumpSwap and the curve included) passed and the deploys are recorded |
-| The site against its release | `live-check.yml`, every six hours | on; needs a release tag on the deployed commit |
+| The site against its release | `live-check.yml`, every six hours | on (run 37080390469 passed: the deployed commit has no release tag yet, so nothing to compare); a tag on a deployed commit makes it compare |
 | Errors, latency, quotas, falls back to Orientim's routes | the `orientim.*` events (`docs/OPERATORS.md`, "What the logs count") | proven (tests); dashboards are the operator's |
 | Limits across instances | a firewall rate-limit rule on `/api/v1/` | **pending: the operator's approval** |
 | Pause, revoke a key, roll back | `docs/OPERATORS.md`, "Drills" | **pending: the operator's drills** |
