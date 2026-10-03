@@ -108,6 +108,7 @@ const ENV: [string, string][] = [
   ['ORIENTIM_OWN_ROUTES', 'Optional: 0 lets Orientim’s key fetch the routes, as without your key. Your key still prices your own floor.'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
   ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. stateDir, optional, pins the state directory to one absolute path. maxSlippageBps, maxBelowBps and maxPriceImpactBps, optional, are the owner’s ceilings on the tolerance, the floor’s distance below the market and the price impact the agent may choose.'],
+  ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). Orientim then signs it and sends nothing; the skill sends it at once and again until it lands. In code, sendTransaction.'],
   ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system; with a daily limit it must be absolute.'],
   ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
@@ -524,6 +525,7 @@ if code == 0:
                   <tbody>
                     <tr><td><code>sent</code></td><td>Accepted, or already on chain. Confirm it on chain; re-broadcast <code>signedTransaction</code> until it confirms or its lifetime passes. It can land only once.</td></tr>
                     <tr><td><code>unknown</code></td><td>The connection failed after the request left. Check the signature before anything else.</td></tr>
+                    <tr><td><code>signed</code></td><td>Asked with <code>{'"send": false'}</code>: signed, not sent by Orientim. Send it yourself; until it confirms, this says nothing about the swap.</td></tr>
                     <tr><td><code>rejected</code></td><td>This request never sent it, usually because the price moved.</td></tr>
                   </tbody>
                 </table>
@@ -628,6 +630,11 @@ Content-Type: application/json
   "lastValidBlockHeight": "312345678"
 }`}</code></pre>
               <p>What each <code>status</code> means is in <a href="#recovery">Results and recovery</a>.</p>
+              <p>
+                To send it your own way (a staked RPC, a sender service, a bundle), add <code>{'"send": false'}</code>: Orientim signs
+                and sends nothing, and answers <code>status</code> <code>signed</code> with the fully signed transaction. Send it at
+                once and again every few seconds until it confirms or its lifetime passes; the same bytes land only once.
+              </p>
             </section>
 
             <section id="keys">

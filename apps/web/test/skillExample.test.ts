@@ -2632,6 +2632,57 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     expect(asked.length).toBeGreaterThan(0);
   });
 
+  it("the first round goes out while the agent asks Jupiter for its own price, without a minimum; the next carries it", async () => {
+    const b = await orientim();
+    const events: string[] = [];
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.startsWith('https://api.jup.ag/') && new URL(url).searchParams.get('taker') === b.wallet.address) {
+        // The agent's own price, slow: Orientim's first round must not wait for it.
+        events.push('own price asked');
+        await new Promise(r => setTimeout(r, 300));
+        events.push('own price came');
+      }
+      if (url.endsWith('/api/v1/prepare')) {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        bodies.push(body);
+        events.push(`prepare ${bodies.length}`);
+      }
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const result = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1, jupiterApiKey: 'parallel',
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(events.indexOf('prepare 1')).toBeLessThan(events.indexOf('own price came'));
+    expect(bodies[0].minOut).toBeUndefined();
+    expect(typeof bodies.at(-1)!.minOut).toBe('string');
+  });
+
+  it('with a sender of its own, the agent sends the swap: Orientim signs it and sends nothing', async () => {
+    const b = await orientim();
+    const finalizeBodies: Record<string, unknown>[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.endsWith('/api/v1/finalize')) finalizeBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return b.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const mine: string[] = [];
+    const result = await protectedSwap({
+      apiUrl: 'http://orientim.test', apiKey: KEY, rpc: b.agentRpc, wallet: b.wallet, fetchImpl, pollMs: 1,
+      sendTransaction: async wire => { mine.push(wire); },
+      intent: { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', treasury: TREASURY },
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(finalizeBodies[0].send).toBe(false);
+    // Orientim's RPC sent nothing; the agent's sender got the fully signed bytes at once.
+    expect(b.sent).toHaveLength(0);
+    expect(mine.length).toBeGreaterThanOrEqual(1);
+    const tx = getTransactionDecoder().decode(Buffer.from(mine[0], 'base64'));
+    expect(Object.values(tx.signatures).every(Boolean)).toBe(true);
+    expect(getSignatureFromTransaction(tx)).toBe(result.signature);
+  });
+
   it('ownRoutes false, or no key: Orientim builds with its own key, as before', async () => {
     const asked: unknown[] = [];
     const b = await orientim({ market: fakeJupiter({ asked: asked as never }) });
@@ -2739,13 +2790,15 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
   });
 
   it("a route whose price impact is above the limit is refused, even when Orientim built it at the user's approved cost", async () => {
-    const s = await scripted([
-      async (body, forward) => {
-        const res = await forward({ ...body, ownRoutes: undefined, routes: undefined });
-        const p = await res.json() as Prepared;
-        return new Response(JSON.stringify({ ...p, amounts: { ...p.amounts, priceImpactPct: 0.0537 } }), { status: 200, headers: { 'content-type': 'application/json' } });
-      },
-    ]);
+    // Orientim's own build, its route's impact said as 5.37%; a first round without the agent's
+    // minimum is refused as an older deployment refuses it, and asked again with it.
+    const built = async (body: Record<string, unknown>, forward: (b: Record<string, unknown>) => Promise<Response>) => {
+      const res = await forward({ ...body, ownRoutes: undefined, routes: undefined });
+      if (res.status !== 200) return res;
+      const p = await res.json() as Prepared;
+      return new Response(JSON.stringify({ ...p, amounts: { ...p.amounts, priceImpactPct: 0.0537 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const s = await scripted([built, built]);
     await expect(s.swap()).rejects.toThrow(/Price impact is 5.37%, above the limit of 5.00%/);
     expect(s.b.sent).toHaveLength(0);
   });

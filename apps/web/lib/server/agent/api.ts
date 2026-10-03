@@ -301,8 +301,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (amountIn === null) return fail(400, 'bad-request', 'amountIn must be a positive integer in base units, as a string.');
   // Every client, including one calling the API without the skill, must supply its own
   // minimum. This does not prove that the client priced or verified the transaction.
-  const minOut = amount(body.minOut);
-  if (minOut === null) return fail(400, 'bad-request', 'minOut is required and must be a positive integer in base units, as a string. Get a price independently before preparing.');
+  // Every client, including one calling the API without the skill, must supply its own minimum
+  // before a swap is built. The first round of an agent's own routes builds nothing (it only says
+  // which routes to bring), so there it may come later, while the agent asks for its own price.
+  const minOut = body.minOut === undefined ? undefined : amount(body.minOut);
+  if (minOut === null) return fail(400, 'bad-request', 'minOut, when given, must be a positive integer in base units, as a string.');
   // A whole number of bps, as a number (like slippageBps) or as an integer string (like the amounts).
   const cost = body.acceptCostBps;
   const acceptCostBps = cost === undefined ? undefined
@@ -331,6 +334,10 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   }
   // Where they are off, Orientim builds with its own key, as a deployment from before them did.
   const ownRoutes = body.ownRoutes === true && deps.ownRoutes === true;
+  const firstRound = ownRoutes && body.session === undefined && (body.routes === undefined || (Array.isArray(body.routes) && body.routes.length === 0));
+  if (minOut === undefined && !firstRound) {
+    return fail(400, 'bad-request', 'minOut is required and must be a positive integer in base units, as a string. Get a price independently before preparing.');
+  }
   let routes: ReturnType<typeof providedRoutes> | null = null;
   let sessionNonce: string | null = null;
   // A session ends two minutes after the first round, however many rounds follow.
@@ -420,7 +427,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         owner: owner as Address, ephemeral: E, inputMint: inMint, outputMint: outMint, amountIn,
         inputDecimals: mints.get(inMint)!.decimals, outputDecimals: mints.get(outMint)!.decimals,
         // The agent's floor is what its wallet keeps; with a fee on the output, Orientim enforces more.
-        acceptedMinReceived: minOut, acceptedCostBps: acceptCostBps, version,
+        // A first round without a minimum builds nothing: it ends asking for routes (below).
+        acceptedMinReceived: minOut ?? 1n, acceptedCostBps: acceptCostBps, version,
         ...(body.routingMode === 'fast' ? { routingMode: 'fast' as const } : {}),
       },
     ));
@@ -454,6 +462,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       lvbh: prepared.lifetime.lastValidBlockHeight.toString(),
       ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString() } : {}),
     });
+    // Never a swap without the agent's own minimum: a first round can only ask for routes.
+    if (minOut === undefined) return fail(400, 'bad-request', 'minOut is required to build the swap. Prepare again with it.');
     const p = prepared.policy;
     logEvent('prepared', { key, routes: routesFrom, brought: providedCount, feeSide: p.feeSide, version });
     const feeMint = p.feeSide === 'output' ? p.outputMint : p.feeSide === 'sol' ? WSOL_MINT : p.inputMint;
@@ -551,6 +561,10 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
   if (!body || typeof body.ticket !== 'string' || typeof body.signedTransaction !== 'string') {
     return fail(400, 'bad-request', 'Send { "ticket": "...", "signedTransaction": "<base64>" }.');
   }
+  // send: false asks for the fully signed transaction without Orientim sending it: the agent sends
+  // it its own way (its own RPC, a staked connection, a bundle). The same bytes land only once.
+  if (body.send !== undefined && typeof body.send !== 'boolean') return fail(400, 'bad-request', 'send, when given, must be true or false.');
+  const sendIt = body.send !== false;
   const opened = await openTicket(deps.secrets, body.ticket);
   // A ticket issued to another key is refused in the same words as a forged one.
   if (!opened || opened.ticket.key !== key) return fail(400, 'invalid-ticket', 'This ticket was not issued by Orientim to this API key. Nothing was signed or sent.');
@@ -619,6 +633,10 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       }
     }
     const signed = await countersign(false);
+    // Signed, not sent: the agent sends these bytes itself.
+    if (!sendIt) {
+      return json(200, { signature, status: 'signed', signedTransaction: getBase64EncodedWireTransaction(signed), lastValidBlockHeight: ticket.lvbh });
+    }
     const sent = await sendOnce(deps.rpc, signed);
     return json(200, {
       signature: sent.signature,

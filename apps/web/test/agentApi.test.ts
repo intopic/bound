@@ -257,6 +257,27 @@ describe('finalize', () => {
     }
   });
 
+  it('with send: false, signs as E and sends nothing: the agent sends the same bytes its own way', async () => {
+    const w = await world();
+    const p = await prepared(w);
+    const signedByW = await signAsWallet(w.W, p.transaction);
+    const res = await agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: signedByW, send: false }), w.deps);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe('signed');
+    expect(w.sent).toHaveLength(0);
+    const signed = getTransactionDecoder().decode(Buffer.from(body.signedTransaction, 'base64'));
+    expect(getSignatureFromTransaction(signed)).toBe(signatureOf(signedByW));
+    const e = signed.signatures[p.temporaryAuthority as Address];
+    expect(await verifySignature(await getPublicKeyFromAddress(p.temporaryAuthority as Address), e!, signed.messageBytes)).toBe(true);
+    // Asked again, the same bytes; and send must be true or false.
+    const again = await (await agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: signedByW, send: false }), w.deps)).json();
+    expect(again.signedTransaction).toBe(body.signedTransaction);
+    const bad = await agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: signedByW, send: 'no' }), w.deps);
+    expect(bad.status).toBe(400);
+    expect(w.sent).toHaveLength(0);
+  });
+
   it('the same ticket twice gives the same transaction, which can land once', async () => {
     const w = await world();
     const p = await prepared(w);
@@ -991,6 +1012,26 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     const w2 = await world({ jupiter: fakeJupiter({ asked: asked2 as never, labels: { [DEX]: 'Whirlpool' } }) });
     expect((await inRounds(w2, fakeJupiter())).status).toBe(200);
     expect(asked2.some(a => (a as { excludeDexes?: string[] }).excludeDexes?.includes('HumidiFi'))).toBe(true);
+  });
+
+  it('the first round of own routes may come without minOut; no round that could build does', async () => {
+    const w = await world();
+    const { minOut: _m, ...noMin } = swapBody(w.W.address);
+    const first = await agentPrepare(post('prepare', { ...noMin, ownRoutes: true }), w.deps);
+    expect(first.status).toBe(409);
+    const asked = (await first.json() as Asked).error;
+    const agentMarket = fakeJupiter();
+    const routes = await Promise.all(asked.requests.map(async r => ({ params: r, response: await agentMarket.build(paramsOf(r)) })));
+    // With routes, or with a session, or without own routes: minOut is required, as ever.
+    for (const body of [{ ...noMin, ownRoutes: true, session: asked.session, routes }, { ...noMin, ownRoutes: true, session: asked.session }, noMin]) {
+      const res = await agentPrepare(post('prepare', body), w.deps);
+      expect(res.status, JSON.stringify(Object.keys(body))).toBe(400);
+      expect((await res.json()).error.message).toMatch(/minOut is required/);
+    }
+    // Where own routes are off, a first round without minOut is refused too: it would build.
+    expect((await agentPrepare(post('prepare', { ...noMin, ownRoutes: true }), { ...w.deps, ownRoutes: false })).status).toBe(400);
+    const done = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, session: asked.session, routes })), w.deps);
+    expect(done.status).toBe(200);
   });
 
   it('a session ends two minutes after the first round, however many rounds follow', async () => {
