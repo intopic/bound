@@ -1035,7 +1035,9 @@ function understating(fetchImpl: typeof fetch, owner: string, factor: bigint): t
 const PROMISED_MARKETS: [string, string][] = [['Pump.fun curve', 'Pump.fun'], ['PumpSwap', 'Pump.fun Amm']];
 
 /** Outcomes that depend on the market of the moment, not on the code that checks it. */
-const MARKET_DECIDES = /costs-more|price-moved|simulation-failed|price-impact-high|route-failed-in-check|check-refused-honest-answer|problems: .*fails in simulation/;
+// The output account's balance moved between the two checks (a borrowed holder's wallet is live):
+// the minimum-output check names the balance it was built on, and the later check reads another.
+const MARKET_DECIDES = /costs-more|price-moved|simulation-failed|price-impact-high|route-failed-in-check|check-refused-honest-answer|problems: .*fails in simulation|problems: .*minimum-output check for \d+, expected \d+/;
 
 // --- the analysis: what the passes and refusals show, beyond each verdict
 const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)] : NaN);
