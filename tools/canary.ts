@@ -197,7 +197,14 @@ type Listed = { id: string; symbol: string };
 // A list that cannot be read (no key, rate limit, an error body) is a warning with its cause, not a crash.
 const list = async (url: string): Promise<Listed[] | string> => {
   try {
-    const r = await fetch(url, { headers: process.env.JUPITER_API_KEY ? { 'x-api-key': process.env.JUPITER_API_KEY } : {} });
+    let r = await fetch(url, { headers: process.env.JUPITER_API_KEY ? { 'x-api-key': process.env.JUPITER_API_KEY } : {} });
+    // A key shared with other runs (the matrix, say) may be at its limit for a moment: asked again,
+    // as long as Jupiter says, up to three times.
+    for (let attempt = 0; r.status === 429 && attempt < 3; attempt++) {
+      const after = Number(r.headers.get('retry-after'));
+      await new Promise(done => setTimeout(done, Number.isFinite(after) && after > 0 && after <= 30 ? after * 1000 : 5_000 * (attempt + 1)));
+      r = await fetch(url, { headers: process.env.JUPITER_API_KEY ? { 'x-api-key': process.env.JUPITER_API_KEY } : {} });
+    }
     if (!r.ok) return `HTTP ${r.status}${r.status === 401 || r.status === 403 ? ', JUPITER_API_KEY missing or refused' : ''}`;
     const body: unknown = await r.json();
     return Array.isArray(body) ? body.filter((x): x is Listed => typeof x?.id === 'string' && typeof x?.symbol === 'string') : 'the answer is not a list';
