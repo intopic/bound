@@ -79,7 +79,11 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
             <a className="button primary-link" href={skill.href} download>Download the skill</a>
             <span className="hint">v{skill.version}: instructions for your agent, a working example, the command line and the verifier</span>
           </li>
-          <li>Unzip it, run <code>npm ci</code>, add your own RPC as <code>SOLANA_RPC_URL</code>, and follow <code>SKILL.md</code>.</li>
+          <li>
+            Unzip it, run <code>npm ci</code>, and set <code>ORIENTIM_API_URL=https://orientim.com</code>, your own RPC as{' '}
+            <code>SOLANA_RPC_URL</code> and your own Jupiter key as <code>JUPITER_API_KEY</code> (free at developers.jup.ag). Then follow{' '}
+            <code>SKILL.md</code>.
+          </li>
         </ol>
       </div>
     );

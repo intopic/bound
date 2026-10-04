@@ -1,6 +1,6 @@
 /** /api/health for uptime monitors. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkHealth } from '../lib/server/health.ts';
+import { checkHealth, swapState, swapStateOf } from '../lib/server/health.ts';
 
 afterEach(() => {
   delete process.env.RPC_URL;
@@ -110,5 +110,26 @@ describe('health of the agent API, as it runs', () => {
     // The site's own checks still pass in each case: only the API's are down.
     const h = await checkHealth(world(down, built));
     expect(h).toMatchObject({ rpc: { ok: true }, jupiter: { ok: true }, agents: { rpc: { ok: false } } });
+  });
+});
+
+describe('the status page', () => {
+  beforeEach(apiOn);
+
+  it('says paused when the kill switch is on, degraded when a check fails, running otherwise', () => {
+    expect(swapStateOf({ ok: true, paused: true })).toBe('paused');
+    expect(swapStateOf({ ok: false, paused: true })).toBe('paused');
+    expect(swapStateOf({ ok: false, paused: false })).toBe('degraded');
+    expect(swapStateOf({ ok: true, paused: false })).toBe('running');
+  });
+
+  it('asks the RPC and Jupiter at most once a minute, then again', async () => {
+    const f = hosts(height, height, tokens);
+    const t = 10_000_000;
+    expect(await swapState(t, f)).toBe('running');
+    const asked = vi.mocked(f).mock.calls.length;
+    expect(await swapState(t + 59_000, f)).toBe('running');
+    expect(vi.mocked(f).mock.calls.length).toBe(asked);
+    expect(await swapState(t + 61_000, hosts(down, down, tokens))).toBe('degraded');
   });
 });

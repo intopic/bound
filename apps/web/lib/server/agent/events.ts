@@ -17,6 +17,11 @@ export function logEvent(name: string, fields: EventFields): void {
 /** Base58 runs as long as an address or a signature: never written to a log line. */
 const ADDRESSES = /[1-9A-HJ-NP-Za-km-z]{32,88}/g;
 
+/** A reason in its own words, for a log line: every address and signature replaced by "…", at most `max` characters. */
+export function maskedReason(text: string, max = 160): string {
+  return text.replace(ADDRESSES, '…').slice(0, max);
+}
+
 /**
  * Why a refusal was refused, for the log: the rules the check named (R1–R7), and the first reason
  * in its own words, with every address and signature in it replaced by "…". Nothing else.
@@ -27,7 +32,7 @@ export function refusalOf(violations: unknown): EventFields {
   const detail = (violations[0] as { detail?: unknown })?.detail;
   return {
     ...(rules.length ? { rules: rules.join(',') } : {}),
-    ...(typeof detail === 'string' ? { reason: detail.replace(ADDRESSES, '…').slice(0, 160) } : {}),
+    ...(typeof detail === 'string' ? { reason: maskedReason(detail) } : {}),
   };
 }
 

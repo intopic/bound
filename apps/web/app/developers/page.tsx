@@ -55,7 +55,7 @@ const ERRORS: [string, string, string][] = [
   ['409', 'routes-needed', 'With ownRoutes: fetch requests from Jupiter with your own key and prepare again with session and every route you have (Your own Jupiter key). The skill does this itself.'],
   ['409', 'output-balance-changed', 'Your balance of the output token moved since prepare. Check the signature, then prepare again.'],
   ['410', 'expired', 'The transaction’s lifetime passed before finalize. Check the signature, then prepare again.'],
-  ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about 0.004 SOL, or $1 of USDC or USDT (for a swap between two other tokens, its value in SOL). Selling the whole balance of a token is allowed at any size.'],
+  ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about 0.004 SOL, or $1 of USDC or USDT (for a swap between two other tokens, its value in SOL). Selling the whole balance of a token (not SOL) is allowed at any size.'],
   ['422', 'unsupported-token, no-route, insufficient-sol, insufficient-balance, simulation-failed, …', 'This swap cannot be built safely right now; message says why.'],
   ['426', 'skill-outdated', 'This copy of the skill is older than Orientim serves. Download the current one; a swap already signed still finalizes.'],
   ['429', 'rate-limited', 'Too many requests for this key (per wallet for a self-serve key). Wait Retry-After seconds.'],
@@ -72,9 +72,9 @@ const PREPARE_FIELDS: [string, string, string][] = [
   ['amountIn', 'required', 'Base units, as a string ("5000000" is 5 USDC). It includes the fee when the fee is taken in the input token.'],
   ['minOut', 'required', 'Your own positive floor, as an integer string in output base units: what your wallet must keep. Get a price independently. This field alone does not replace checking the transaction before signing.'],
   ['slippageBps', 'optional', 'How far below the quote the swap may fill: 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun launch curve. The skill’s "auto" asks Jupiter for the trade’s own tolerance (0.5% to 3%) and sends that number; the owner’s policy may cap it (maxSlippageBps).'],
-  ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the open market (see costs-more): a whole number, as a number or a string.'],
-  ['routingMode', 'optional', 'standard (default) or fast: Jupiter’s beta fast route search, only where the deployment enables it. Every check still applies.'],
-  ['version', 'optional', '0 (default). 1 only where the deployment enables v1 transactions.'],
+  ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the open market (see costs-more): a whole number, as a number or a string. A route up to 50 bps past it is also taken, so that a market drifting by a few bps does not ask again; minOut still holds.'],
+  ['routingMode', 'optional', 'standard (default). fast is not enabled on orientim.com: a request with it is answered 400 bad-request.'],
+  ['version', 'optional', '0 (default). Version 1 transactions are not enabled on orientim.com: a request with 1 is answered 400 bad-request.'],
   ['ownRoutes, session, routes', 'optional', 'Routes your agent brings from Jupiter with its own key, in rounds: see Your own Jupiter key. The skill and the command line do it whenever JUPITER_API_KEY is set.'],
 ];
 
@@ -179,6 +179,7 @@ export default async function Page() {
               <ul>
                 <li>An <a href="#access">API key</a> for the wallet that swaps.</li>
                 <li>An RPC of your own.</li>
+                <li>A Jupiter API key of your own (free at developers.jup.ag), for the agent&apos;s own price. It never leaves your machine.</li>
                 <li>A wallet that signs first and hands the transaction back: a local key or a signing service.</li>
                 <li>Node 22.18 or later, for the skill and the command line.</li>
               </ul>
@@ -215,7 +216,7 @@ curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                     <li>Give every trading decision one order id, and use the same id on every retry of it.</li>
                     <li>
                       On every start, settle what a stopped run left before anything new: <code>recoverPending</code> in code,{' '}
-                      <code>orientim-verify recover</code> from a bot. Exit 3, or an <code>unknown</code> it cannot settle, means an
+                      <code>node bin/orientim-verify.mjs recover</code> from a bot. Exit 3, or an <code>unknown</code> it cannot settle, means an
                       earlier swap may still land: start nothing new for that wallet.
                     </li>
                     <li>
@@ -249,7 +250,9 @@ curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                           own key; the key file never leaves the machine. In the unzipped{' '}
                           <a href={SKILL_ARCHIVE} download>skill</a> folder:
                         </p>
-                        <pre tabIndex={0}><code>{`echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
+                        <pre tabIndex={0}><code>{`npm ci
+export ORIENTIM_API_URL=https://orientim.com
+echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
 # sign the bytes of "message" (the same bytes as "messageBase64", decoded) with the agent's key, then
 # send "message" as it came, in plain text, not base64:
 echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bin/orientim-verify.mjs key`}</code></pre>
@@ -284,7 +287,7 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
               <h3>1. Install it</h3>
               <ul>
                 <li>
-                  <strong>Claude Code</strong>: unzip it into <code>.claude/skills/orientim-protected-swap/</code> in your project, or into{' '}
+                  <strong>Claude Code</strong>: unzip it into <code>.claude/skills/</code> in your project (it makes <code>orientim-protected-swap/</code>), or into{' '}
                   <code>~/.claude/skills/</code> for every project. The agent picks it up when a task needs a swap.
                 </li>
                 <li><strong>Any other agent</strong>: put the folder in your project and point the agent to <code>SKILL.md</code>.</li>
@@ -456,7 +459,7 @@ if code == 0:
               </p>
               <p>
                 Calling the API yourself, in any language? Pipe prepare&apos;s answer to the command line before you sign:{' '}
-                <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>orientim-verify check</code> exits 0 only when it is safe
+                <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>node bin/orientim-verify.mjs check</code> exits 0 only when it is safe
                 to sign.
               </p>
               <p>
@@ -562,7 +565,7 @@ if code == 0:
                 </li>
                 <li>
                   Run one swap per wallet at a time. The skill does all of this for you (<code>protectedSwap</code>,{' '}
-                  <code>recoverPending</code>), and <code>orientim-verify resolve</code> settles a swap by hand.
+                  <code>recoverPending</code>), and <code>node bin/orientim-verify.mjs resolve</code> settles a swap by hand.
                 </li>
               </ul>
               <h3>On every start, for a direct API client</h3>
@@ -616,6 +619,11 @@ Content-Type: application/json
                   <tbody>{PREPARE_ANSWER.map(([f, text]) => <tr key={f}><td><code>{f}</code></td><td>{text}</td></tr>)}</tbody>
                 </table>
               </div>
+              <p>
+                A prepare answers within 45 seconds. One that takes longer, because Jupiter or the Solana RPC is slow, ends in{' '}
+                <code>503 unavailable</code> with nothing built; prepare again in a moment. The skill waits up to 60 seconds for it. A
+                request body may be up to 1 MiB, enough for the routes an agent brings.
+              </p>
             </section>
 
             <section id="finalize">
@@ -665,7 +673,7 @@ POST /api/v1/keys
                   <code>400 bad-signature</code>: the signature does not match, or the challenge expired, was not Orientim&apos;s, or
                   names another site. <code>403 wallet-empty</code>: the wallet holds less than 0.01 SOL.
                 </li>
-                <li>From one address, 30 challenges and 10 keys an hour; a <code>429</code> carries <code>Retry-After</code>.</li>
+                <li>From one IP address, 30 challenges and 10 keys an hour; a <code>429</code> carries <code>Retry-After</code>.</li>
               </ul>
             </section>
 
@@ -696,7 +704,7 @@ POST /api/v1/keys
                   At the edge, before Orientim: 120 prepare and finalize requests a minute from one IP address, answered{' '}
                   <code>429</code> above it.
                 </li>
-                <li>API keys: 30 challenges and 10 keys an hour from one address.</li>
+                <li>API keys: 30 challenges and 10 keys an hour from one IP address.</li>
                 <li>One swap per output token at a time, and one per wallet in the skill.</li>
                 <li>A key used to overload or attack the service is revoked.</li>
               </ul>

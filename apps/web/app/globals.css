@@ -301,6 +301,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .status-row span:first-child { color: var(--text); font-weight: 600; }
 .status-ok { color: var(--accent); font-weight: 600; }
 .status-bad { color: var(--bad); font-weight: 600; }
+.status-warn { color: var(--warn); font-weight: 600; }
 
 .key-access { margin-top: 16px; }
 .key-tabs { display: flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }

@@ -1,4 +1,4 @@
-# Orientim — Protected Swap (v0.1)
+# Orientim — Protected Swap
 
 Protected swaps on Solana for AI agents and bots: swap SOL and SPL or Token-2022 tokens without giving
 the swap program authority over the rest of the wallet. A token and route must fit one protected
@@ -32,8 +32,9 @@ the network fee may still be charged. An agent with direct access to its key can
 flow, so unattended funds need a separate signer that enforces the owner's limits.
 
 Signers: any key file or signing service that signs a transaction and hands it back unsent, with a
-second signer left empty. Orientim builds v0 transactions; with v1 enabled, only a route too big for
-v0 is built as v1, because not every signer reads v1 yet (Ledger's Solana app does not). Signers that
+second signer left empty. Orientim builds v0 transactions; a v1 transaction is built only when a request asks for
+`version: 1` and the deployment enables it (off on orientim.com), because not every signer reads v1
+yet (Ledger's Solana app does not). Signers that
 can only sign and send at once, and multisig or smart-wallet vaults (Squads, Swig), cannot sign first,
 so they cannot use Orientim. The API key itself is signed for with any wallet that signs a message
 (`/developers#access`) or with the skill's command line.
@@ -115,7 +116,7 @@ Fixed at build time (compiled into the build, so they cannot change without a ne
 | --- | --- | --- |
 | `NEXT_PUBLIC_ORIENTIM_TREASURY` | — | Fee wallet. Empty = test mode, no fee. The fee is taken like Jupiter's: in SOL first, then USDC, then USDT, on whichever side of the swap they are; otherwise in the input token. Fund the wallet with a little SOL and open its USDC and USDT accounts: then every swap pays, memecoin sales included; a pair neither token of which the treasury can receive pays in SOL from the wallet, at the swap's value. With a treasury set, a swap whose fee cannot be collected (the wallet not funded yet, a pair that cannot be priced in SOL, an amount too small to carry it) is refused, never built free |
 | `NEXT_PUBLIC_ORIENTIM_FEE_BPS` | 25 | 0.25%. Production configuration and the shipped agent skill refuse more than 30 bps. The agent API also refuses an `ORIENTIM_API_FEE_BPS` above 30 bps. |
-| `NEXT_PUBLIC_ORIENTIM_ENABLE_V1` | — | `1` builds v1 transactions for wallets that advertise them. Off until a Orientim v1 swap has landed on mainnet |
+| `NEXT_PUBLIC_ORIENTIM_ENABLE_V1` | — | `1` lets the agent API build a v1 transaction when a request asks for `version: 1`. Off until an Orientim v1 swap has landed on mainnet |
 | `ORIENTIM_ENABLE_FAST_ROUTING` | — | `1` allows agent requests with `routingMode: "fast"`. Off by default. Jupiter fast routing is beta and can worsen price or priority fee; the bot must still opt in, and the standard baseline, simulation, and verifier remain mandatory. |
 | `ORIENTIM_OWN_ROUTES` | on | `0` turns off routes agents bring with their own Jupiter key (`ownRoutes`): prepare then builds every swap with Orientim's key and ignores `ownRoutes`, `routes` and `session`. A fee on the output is held to Orientim's own price either way. |
 
@@ -146,7 +147,7 @@ when they are set (Jupiter counts rate limits per organisation, so a second key 
 its limit). Set usage alerts at the RPC provider (Helius: credit usage) and on the hosting bill, so
 abnormal consumption is seen the day it starts.
 
-## Scope of v0.1
+## Scope
 
 Protected: authority over the wallet and everything in it except the approved amount, and the
 positive `minOut` the caller supplied, which the transaction enforces on chain. The skill obtains

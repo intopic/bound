@@ -9,7 +9,7 @@ const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFrac
 
 export const metadata = {
   title: 'Security — Orientim',
-  description: 'What a protected swap guarantees, what it does not, what it costs, and what it supports.',
+  description: 'What a protected swap enforces, what it does not, what it costs, and what it supports.',
 };
 
 const SUPPORTED: [string, string][] = [
@@ -20,6 +20,8 @@ const SUPPORTED: [string, string][] = [
   ['Tokens whose issuer can move balances through a program', 'Refused, with the reason: Orientim cannot isolate them'],
   ['Pump.fun launch curve and PumpSwap routes', 'Supported when the route fits and passes verification; otherwise refused'],
   ['Tokens with an active transfer hook, frozen by default, pausable, non-transferable or interest-bearing', 'Refused, with the reason: Orientim cannot isolate them'],
+  ['Tokens requiring a memo on transfer, with a scaled UI amount, or with a Token-2022 extension Orientim has not reviewed', 'Refused, with the reason'],
+  ['Tokens whose issuer can freeze accounts or mint more (USDC and USDT among them)', 'Supported; shown to your agent before it signs'],
   ['A token account of your wallet that its issuer has frozen', 'Refused, with the reason: the swap could not land'],
   ['Routes through a market that would leave an account open', 'Refused: its deposit would be lost'],
   ['Routes too large for one transaction', 'Refused: Orientim never splits a swap'],
@@ -47,7 +49,7 @@ export default async function Page() {
             With the skill or command line, the exact transaction is checked again on your own connection to Solana before signing.
             A direct API client must run the same independent check before handing bytes to its signer.
           </li>
-          <li>Your agent&apos;s wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature, with the one-time key.</li>
+          <li>Your agent&apos;s wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature, with the one-time key, and sends it. Asked with <code>send: false</code>, it hands the signed transaction back for your agent to send and sends nothing.</li>
           <li>The swap runs. If less than your agent&apos;s minimum would arrive, the whole transaction is cancelled.</li>
         </ol>
       </section>

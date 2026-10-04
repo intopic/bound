@@ -1,24 +1,35 @@
 import { connection } from 'next/server';
 import { InfoPage } from '@/components/site/InfoPage';
-import { publicStatus } from '@/lib/server/config';
+import { swapState, type SwapState } from '@/lib/server/health';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 
 export const metadata = { title: 'Status — Orientim', description: 'Whether protected swaps are running right now.' };
 
+const SHOWN: Record<SwapState, { title: string; row: string; className: string }> = {
+  running: { title: 'Protected swaps are running', row: 'Running', className: 'status-ok' },
+  degraded: {
+    title: 'Protected swaps may fail right now',
+    row: 'Degraded: a service swaps depend on (the Solana RPC, Jupiter or the swap API) is not answering, so new swaps may be refused. Your funds are not affected.',
+    className: 'status-warn',
+  },
+  paused: { title: 'Protected swaps are paused', row: 'Paused: no new swaps start. Your funds are not affected.', className: 'status-bad' },
+};
+
 export default async function Page() {
   signPageChunks('status/page');
   await connection();
-  const { enabled } = publicStatus();
+  const shown = SHOWN[await swapState()];
   return (
-    <InfoPage eyebrow="Status" title={enabled ? 'Protected swaps are running' : 'Protected swaps are paused'} lead="Whether new protected swaps can start right now.">
+    <InfoPage eyebrow="Status" title={shown.title} lead="Whether new protected swaps can start right now, checked at most a minute ago.">
       <section>
         <div className="status-row">
           <span>Protected swaps</span>
-          <span className={enabled ? 'status-ok' : 'status-bad'}>{enabled ? 'Running' : 'Paused: no new swaps start. Your funds are not affected.'}</span>
+          <span className={shown.className}>{shown.row}</span>
         </div>
         <p>
           When something is wrong, Orientim stops new swaps first: the agent API prepares and signs nothing while paused. A swap already
-          sent is settled by the Solana network.
+          sent is settled by the Solana network. Uptime monitors can ask <code>/api/health</code>: 200 when a swap could go through now, 503
+          when it could not.
         </p>
       </section>
     </InfoPage>

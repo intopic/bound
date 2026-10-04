@@ -20,7 +20,7 @@ import { agentFinalize, agentPrepare, olderThan, PREPARE_DEADLINE_MS, withinDead
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { issueKey } from '../lib/server/agent/keys.ts';
-import { observed } from '../lib/server/agent/events.ts';
+import { maskedReason, observed } from '../lib/server/agent/events.ts';
 
 const KEY = 'ori_test_key_for_the_agent_api_0001';
 const OTHER_KEY = 'ori_test_key_for_another_agent_0002';
@@ -1032,6 +1032,12 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     const line = JSON.parse(lines[0]);
     expect(line).toMatchObject({ event: 'orientim.prepare', http: 422, code: 'verification-failed', rules: 'R7,R1', reason: 'mint …: transfer hook' });
     expect(lines[0]).not.toContain(mint);
+  });
+
+  it('a reason written to a log line names no address or signature, and is cut to its length', () => {
+    const mint = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    expect(maskedReason(`route delivers to ${mint}, not the wallet`, 200)).toBe('route delivers to …, not the wallet');
+    expect(maskedReason('no route. '.repeat(30), 200)).toHaveLength(200);
   });
 
   it('without Orientim\'s program labels an excluded DEX cannot be checked: the swap is built with its own key', async () => {

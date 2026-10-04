@@ -53,7 +53,8 @@ daily-budget reservations. Never create a new order id to bypass an unknown outc
 
 ## Fees and availability
 
-The public deployment, agent API and shipped skill cap Orientim's fee at 30 bps (0.3%). The
+Orientim's fee is 25 bps (0.25%). The public deployment, agent API and shipped skill cap it at 30 bps
+(0.3%). The
 network fee, market account rent and token transfer tax are separate costs stated in the
 prepare response. The core verifier has a broader 100 bps safety ceiling for generic uses;
 it is not the public product's fee setting. The API fails closed if its fee configuration
@@ -66,3 +67,12 @@ The API can refuse a route or be unavailable; no token or route is guaranteed to
 The previous browser-swap threat model is retained only as a historical record in
 [docs/LEGACY_BROWSER_SECURITY.md](docs/LEGACY_BROWSER_SECURITY.md). Its browser swap flow is
 not the current product.
+
+## Reporting a vulnerability
+
+Please report privately, never in a public issue or pull request: through GitHub, **Security**, then
+**Report a vulnerability**, on [orientimhq/orientim-protected-swap](https://github.com/orientimhq/orientim-protected-swap),
+or by email, to the address in [orientim.com/.well-known/security.txt](https://orientim.com/.well-known/security.txt)
+(also on [orientim.com/security](https://orientim.com/security#report)). Include what you found, the version, and a way to
+reproduce it. Please give us reasonable time to fix it before you publish.
+

@@ -18,7 +18,7 @@ const RISKS: [string, string][] = [
   ['Software, including Orientim’s', 'Programs, markets, the Solana network, RPC providers, wallets and the Services themselves may contain errors or vulnerabilities, may be attacked, or may behave unexpectedly. This may cause the loss of some or all of the assets involved.'],
   ['The network', 'A transaction can be delayed, fail, expire, or land later than expected. One that does not execute moves nothing but may still cost its network fee.'],
   ['An outcome not yet known', 'While the network has not confirmed a transaction, it may still land. The skill starts no new swap from the same wallet until it knows the outcome, as long as it keeps its state directory; another copy without it does not know about it.'],
-  ['Your wallet and device', 'A compromised wallet, device, key or seed phrase, or a malicious browser extension, can lead to loss. Orientim will never ask for your seed phrase. Keep large amounts on a hardware wallet.'],
+  ['Your wallet and device', 'A compromised wallet, machine, key or seed phrase, or malicious software where your agent runs, can lead to loss. Orientim will never ask for your seed phrase. Give your agent a wallet holding only what it may swap, and keep its signing key where the agent cannot read it.'],
   ['Impostor sites', 'Open Orientim only at orientim.com. A copy elsewhere is not Orientim and may steal your funds.'],
   ['Law and taxes', 'Laws on digital assets differ by country and change, and may affect your use of the Services or the value of your assets. You are responsible for those that apply to you, and for your taxes.'],
 ];
@@ -97,7 +97,7 @@ export default async function Page() {
         </p>
         <p>
           <strong>Your decision.</strong> You alone decide whether to swap, which assets, how much, and on what terms, including
-          the minimum you accept and your slippage tolerance, and you review every transaction in your wallet before you sign it.
+          the minimum you accept and your slippage tolerance, and you, or the check your agent runs, review every transaction before it is signed.
         </p>
       </section>
 
@@ -105,7 +105,7 @@ export default async function Page() {
         <h2>4. The protection, and its limits</h2>
         <p>
           The Services are designed so that, in a transaction they prepare, the swap programs can reach only the amount you
-          approve, through a one-time key, and the transaction reverts if less than the minimum you accepted would arrive. How
+          approve (and a market&apos;s one-time account deposit when one is stated first), through a one-time key, and the transaction reverts if less than the minimum you accepted would arrive. How
           this works, and what it does not cover, is described on <a href="/security">Security</a>.
         </p>
         <p>
@@ -127,7 +127,7 @@ export default async function Page() {
         <h2>5. Your responsibilities</h2>
         <ul>
           <li>You are responsible for the security of your wallet, keys, seed phrase, devices, API keys, and any agent, bot or signing service you use.</li>
-          <li>You open Orientim only at orientim.com, and read what your wallet shows before you sign.</li>
+          <li>You use Orientim only at orientim.com, and you or the check your agent runs read every transaction before it is signed.</li>
           <li>
             Where you use the API or the Software, you run the check the Software provides, on your own RPC, before you sign. If you
             skip or change it, you rely on the transaction as our servers prepared it, at your own risk.

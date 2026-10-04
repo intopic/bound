@@ -185,7 +185,7 @@ export function CapsuleFlow() {
 const TERMINAL: [string, string][] = [
   ['dim', '# example run'],
   ['dim', '$ swap 0.01 SOL → USDC   # protected'],
-  ['ok', '✓ checked on the agent’s own RPC · only 0.01 SOL can move'],
+  ['ok', '✓ checked on the agent’s own RPC · only 0.01 SOL and the fees shown can move'],
   ['ok', '✓ signed by the agent · finished with a one-time key'],
   ['cy', '✓ confirmed on mainnet · received 1.222039 USDC'],
   ['', ''],
@@ -363,7 +363,7 @@ export function CheckedTwice() {
         <div className={`ct-st ${view.st[2]}`}>
           <div className="ct-head"><span className="ct-who">Solana</span><StationBadge /></div>
           <h4>Enforces the minimum</h4>
-          <p>If less than the minimum would arrive, the whole swap cancels and nothing moves.</p>
+          <p>If less than the minimum would arrive, the whole swap cancels: nothing is traded, and only the network fee is paid.</p>
           <p className="ct-floor"><span>minimum</span><span>≥ 1.215929 USDC</span></p>
         </div>
       </div>

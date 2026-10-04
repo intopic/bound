@@ -21,8 +21,8 @@ const PROCESSING: [string, string, string][] = [
   ['The swap: tokens, amounts, your minimum, and the transaction you signed', 'The same.', 'Providing the service you request'],
   ['Your IP address', 'To limit how often requests can be made, by our servers in memory and by our hosting provider\'s firewall, and to protect the service from abuse.', 'Our legitimate interest in security'],
   [
-    'Request logs kept by our hosting provider: time, the address requested (which can name a wallet or a token account), IP address, browser type',
-    'Running, securing and troubleshooting the service.',
+    'Logs kept by our hosting provider: for each request, its time, the address requested (which can name a wallet or a token account), IP address and browser type; for each swap request, one line naming the wallet the API key belongs to, the outcome (its error code, why a check refused it, with every address removed), which routes built it, the side of the fee and how long it took; and, when our servers fail, the error',
+    'Running, securing and troubleshooting the service, and counting errors and delays.',
     'Our legitimate interest in security',
   ],
   ['For an API key: the message your wallet signed, and its SOL balance', 'To check that you control the wallet and that it meets the minimum balance. Neither is kept.', 'Providing the service you request'],
@@ -64,9 +64,10 @@ export default async function Page() {
           </table>
         </div>
         <p>
-          We do not collect your name, email address (unless you write to us), identity documents, private keys or seed phrase. Our
-          servers keep no record of your swaps and no list of the API keys we issue: a key itself carries its wallet address and
-          expiry, sealed so that only Orientim can verify it. We do not sell your data, use it for advertising, or profile you.
+          We do not collect your name, email address (unless you write to us), identity documents, private keys or seed phrase. We keep
+          no database of your swaps and no list of the API keys we issue: a key itself carries its wallet address and expiry,
+          sealed so that only Orientim can verify it. The log lines above are the only record of a swap request, and they are
+          deleted after the retention period below. They never contain your private key or your API key. We do not sell your data, use it for advertising, or profile you.
           When Orientim refuses a swap, for example an unsafe token, that is a technical rule about the transaction, not a decision
           about you.
         </p>
@@ -108,7 +109,7 @@ export default async function Page() {
         <h2>6. How long</h2>
         <ul>
           <li>Rate-limit counts: in memory, and at our hosting provider&apos;s firewall, for at most an hour.</li>
-          <li>Request logs at our hosting provider: up to {legal('logRetentionDays')} days, then deleted.</li>
+          <li>Request logs and swap log lines at our hosting provider: up to {legal('logRetentionDays')} days, then deleted.</li>
           <li>What you write to us: as long as needed to answer you, and up to 12 months after.</li>
         </ul>
       </section>

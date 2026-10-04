@@ -12,11 +12,11 @@ it did not prove that run, and whose routes built each swap.
 
 | What | Where | Status |
 | --- | --- | --- |
-| SOL/USDC and the major pairs, sizes from $1 to $5M | matrix: repeat, sizes, pairs, majors, whales, giants, more-tokens, grid | proven: run 37133503478 (skill 1.10.4, 801 cases): 669 passed, 119 refused for a stated reason, 12 untested; 1 to look at, explained and fixed in 1.10.5 (#541: Jupiter's own service lagging behind a new Pump.fun token, refused for the agent and quoted for the bot seconds later; such an answer is now asked again); up to $5M (SOL → USDC, impact 0.47%); 669 × 9 rules read apart, 0 broken; grid 44 of 45 (the other: costs more, put to the user); time per pass median 5.3 s, 95th 20.2 s |
-| The Pump.fun curve and PumpSwap | matrix: pump; the canary, every six hours | the curve proven (run 37133503478 (skill 1.10.4, 801 cases), 13 passes); PumpSwap proven by the canary (run 37080045238, and the scheduled run of f378e16): in the matrix the graduated tokens it picked were routed through other markets |
-| The agent's routes, and the fall back to Orientim's | matrix: every case (`own_routes=1`), routes (the same swap both ways), fallback (routes understated 100 times) | proven: run 37133503478 (skill 1.10.4, 801 cases): the agent's routes built 655 passes, Orientim's after the agent's were not used 4; routes 20 of 20, the minimum and the fee within ±0.10% of Orientim's own routes; fallback 3 of 4 (the fourth: the price moved) |
-| The fee on the input, on the output, and in SOL | matrix analysis, "The fee's side in the passes"; `agentApi.test.ts`, "the fee on the output, exactly as documented"; `agents.routes.property` | proven: tests and fuzz; run 37133503478 (skill 1.10.4, 801 cases): input 332, output 268, in SOL 69 passes |
-| A dishonest server | matrix: tamper (8 changes on 14 real transactions) | proven: run 37133503478 (skill 1.10.4, 801 cases): 112 changes on 14 real transactions, 112 refused, 0 missed |
+| SOL/USDC and the major pairs, sizes from $1 to $5M | matrix: repeat, sizes, pairs, majors, whales, giants, more-tokens, grid | proven: run 37157677746 (skill 1.10.6, 801 cases): 661 passed, 127 refused for a stated reason, 13 untested, 0 to look at; up to $5M (SOL → USDC, impact 0.47%); 661 × 9 rules read apart, 0 broken; grid 40 of 45 (5 refused for a stated reason); agent and bot decided alike 25 of 25; time per pass median 5.2 s, 95th 19.4 s, with the test key's Jupiter pacing (1100 ms). The run before it, 37133503478 on 1.10.4, flagged one case, fixed in 1.10.5 (#541: Jupiter's own service lagging behind a new Pump.fun token, now asked again) |
+| The Pump.fun curve and PumpSwap | matrix: pump; the canary, every six hours | the curve proven (run 37157677746 (skill 1.10.6, 801 cases), 15 passes); PumpSwap proven by the canary (runs 37080045238, 37137068121 on f378e16 and 37153409141 on 081c4c6); in the matrix the graduated tokens it picked were routed through other markets. The canary on d34cd1e (37155099875) passed 6 of 7: SOL to a PumpSwap token was refused because the price moved during the check |
+| The agent's routes, and the fall back to Orientim's | matrix: every case (`own_routes=1`), routes (the same swap both ways), fallback (routes understated 100 times) | proven: run 37157677746 (skill 1.10.6, 801 cases): the agent's routes built 647 passes, Orientim's 10, Orientim's after the agent's were not used 4; routes 20 of 20, the minimum and the fee within ±0.05% of Orientim's own routes; fallback 3 of 4 (the fourth refused for a stated reason) |
+| The fee on the input, on the output, and in SOL | matrix analysis, "The fee's side in the passes"; `agentApi.test.ts`, "the fee on the output, exactly as documented"; `agents.routes.property` | proven: tests and fuzz; run 37157677746 (skill 1.10.6, 801 cases): input 327, output 267, in SOL 67 passes |
+| A dishonest server | matrix: tamper (8 changes on 14 real transactions) | proven: run 37157677746 (skill 1.10.6, 801 cases): 112 changes on 14 real transactions, 112 refused, 0 missed |
 | An early refusal of the agent's own | "the agent's own refusal while the first round is still out is not left unhandled" (the matrix found 17 unhandled rejections in run 37082912774; fixed in 1.10.1) | proven (test) |
 | Timeouts and `429` | `skillExample.test.ts`: "Jupiter that does not answer in time is busy", "Jupiter's rate limit is waited out", "swaps sharing one Jupiter key wait", "still busy after four asks" | proven (tests) |
 | Expiry | "a status node behind the finalized view keeps the outcome unknown; a covering one proves expiry", "right after its lifetime, the same silence does prove it expired", the archive tests | proven (tests) |
@@ -47,11 +47,11 @@ it did not prove that run, and whose routes built each swap.
 
 | What | Where | Status |
 | --- | --- | --- |
-| Health, the deployed commit and its CI, the skill served | `monitor.yml`, every ten minutes | proven: run 37080387875 (health ok in 738 ms, build 4a88976 on main, its CI passed, the skill served is the source's) |
+| Health, the deployed commit and its CI, the skill served | `monitor.yml`, every ten minutes | proven: run 37162663787 (build d34cd1e on main, its CI passed, the skill served is the source's) |
 | Upstream programs and swaps on mainnet state | `canary.yml`, every six hours; `upstream-review.yml` after a redeploy | proven: the first run caught Jupiter, the Pump.fun curve and PumpSwap redeployed; the review (run 37080045238: Jupiter's floor, 7 swaps of 7, PumpSwap and the curve included) passed and the deploys are recorded |
 | The site against its release | `live-check.yml`, every six hours | on (run 37080390469 passed: the deployed commit has no release tag yet, so nothing to compare); a tag on a deployed commit makes it compare |
 | Errors, latency, quotas, falls back to Orientim's routes | the `orientim.*` events (`docs/OPERATORS.md`, "What the logs count") | proven (tests); dashboards are the operator's |
-| Limits across instances | a firewall rate-limit rule on `/api/v1/` | **pending: the operator's approval** |
+| Limits across instances | a firewall rate-limit rule on `/api/v1/prepare` and `/api/v1/finalize`: 120 requests a minute from one IP address | on since 2026-09-29 (Vercel Firewall, set by the operator); rules for the key and status endpoints pending |
 | Pause, revoke a key, roll back | `docs/OPERATORS.md`, "Drills" | **pending: the operator's drills** |
 
 ## 5. The pilot
@@ -61,3 +61,4 @@ it did not prove that run, and whose routes built each swap.
 | The plan | `docs/PILOT.md` | ready |
 | The check | `tools/pilot-report.ts` (tested in `pilotReport.test.ts`) | ready |
 | 100 confirmed swaps over three days, every exercise done, no failure | the operator's pilot | **pending** |
+| A first pilot with real money | `docs/PILOT.md`, "First pilot" | done on skill 1.7.5 (2026-09-29): 42 confirmed swaps, 1 expired at no cost, every one checked on chain; not the criterion above, and no swap yet on 1.8 or later at the 0.25% fee |

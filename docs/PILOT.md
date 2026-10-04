@@ -66,3 +66,24 @@ node tools/pilot-report.ts --log bot-a.jsonl --log bot-b.jsonl ... \
 At least 100 confirmed swaps over at least three days, every exercise above done at least once with
 the expected result, `tools/pilot-report.ts` with no failure, every `unknown` settled, and the
 treasury reconciled. Keep the report, the logs and the dates with the release.
+
+## First pilot (2026-09-29)
+
+A first, shorter run with real money, on skill 1.7.5 downloaded from orientim.com (its hashes
+matched), one wallet, an agent (`examples/swap.ts`) and a bot (`orientim-verify`), with the fee then
+at 0.30%.
+
+- 42 swaps confirmed over two rounds, 1 expired before it landed, at no cost. Each confirmed swap was
+  read on chain: the wallet received at least `minOut`, the fee went to the treasury at exactly the
+  rate shown, and there was no other transfer and no approval.
+- The refusals asked for were refused before anything was prepared or signed: an order already
+  swapped (exit 5), a tolerance above 15% (exit 2), half a balance below the smallest swap
+  (`amount-too-small`); a route 1.11% below the open market was put to the owner (`costs-more`).
+- From the order to confirmation: the agent 3.2 / 3.7 / 9.6 s (min / mean / max, 18 swaps), the bot
+  5.0 / 5.4 / 6.7 s (10 swaps; each command starts a new Node process). The agent's mean: its own
+  quote 0.44 s, prepare 0.91 s (0.47 s of it Orientim's work), its own check 0.37 s, sending and
+  confirmation 1.77 s. The slowest swap waited 6.4 s on Jupiter.
+
+It does not meet "When it is done" above: it was one day, under 100 swaps, and not every exercise was
+run. No swap has yet run on skill 1.8 or later, or at the 0.25% fee.
+

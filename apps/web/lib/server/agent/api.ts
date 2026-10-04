@@ -14,7 +14,7 @@ import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/sol
 import { hasPermanentDelegate } from '@orientim/verifier';
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
-import { logEvent } from './events';
+import { logEvent, maskedReason } from './events';
 import { rateLimited, secondsUntilReset } from '../rateLimit';
 import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openSession, openTicket, REFERENCE_FRESH_MS, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
@@ -468,7 +468,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       // key, around the same one-time key, within the same deadline, and verifies that one alike.
       const unusable = e instanceof RoutesUntrusted || (e instanceof OrientimError && e.code === 'verification-failed' && providedCount > 0);
       if (!(unusable && routes)) throw e;
-      logEvent('routes_not_used', { key, reason: e.message.slice(0, 200) });
+      logEvent('routes_not_used', { key, reason: maskedReason(e.message, 200) });
       routesFrom = 'orientim-fallback';
       prepared = await build(deadline.jupiter);
     }

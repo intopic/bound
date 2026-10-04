@@ -19,7 +19,8 @@ the API fails closed otherwise. The public fee setting also has a 30 bps maximum
 ## Self-serve keys
 
 `ORIENTIM_KEY_SECRET` turns them on. The key message always names `ORIENTIM_PUBLIC_ORIGIN`,
-whatever host a request claims. A key is revoked by its wallet: `ORIENTIM_API_REVOKED` lists
+whatever host a request claims. A key lasts 90 days. From one IP address Orientim answers 30 key
+challenges and issues 10 keys an hour, and the wallet must hold 0.01 SOL (`ORIENTIM_KEY_MIN_LAMPORTS`). A key is revoked by its wallet: `ORIENTIM_API_REVOKED` lists
 `<wallet>` (all its keys) or `<wallet>@<unix seconds>` (its keys issued until then, so that the
 wallet's owner can sign again for a new one).
 
@@ -96,14 +97,18 @@ mail and in the notifications: make sure that account receives them.
 
 **What the logs count.** Every prepare and finalize writes one line of JSON, and so do the moments
 the operator counts (`apps/web/lib/server/agent/events.ts`). On Vercel: Logs, search `orientim.`.
+`key` names the agent by its key's id: `w:<wallet>` for a self-serve key, so these lines tie swaps to
+a wallet address and are personal data under the privacy notice; keep them no longer than it says.
+A reason in a line has every address and signature replaced by `…`.
 
 | Event | Fields | Read it as |
 | --- | --- | --- |
-| `orientim.prepare`, `orientim.finalize` | `http`, `code` (the error's), `ms`; finalize's `status` | Errors and latency by endpoint: `busy` and `unavailable` are Jupiter's or the RPC's quota or outage; `rate-limited` is an agent at its limit; `internal` is ours. |
+| `orientim.prepare`, `orientim.finalize` | `http`, `code` (the error's), `ms`; finalize's `status`; for a refusal by the check, `rules` (R1–R7) and `reason` (the first, masked) | Errors and latency by endpoint, and why the check refused: `busy` and `unavailable` are Jupiter's or the RPC's quota or outage; `rate-limited` is an agent at its limit; `internal` is ours. |
 | `orientim.prepared` | `key`, `routes` (`agent`, `orientim`, `orientim-fallback`), `brought`, `feeSide`, `version` | Each swap built: whose routes, and the fee's side. |
 | `orientim.routes_needed` | `key`, `asked`, `brought` | A round of an agent's own routes. |
 | `orientim.routes_not_used` | `key`, `reason` | An agent's routes Orientim could not hold to its price or exclusions: built with its key. Many from one key is worth a look. |
 | `orientim.reference_price` | `key`, `why` (`none`, `expired`, `parameters`) | An ask of Orientim's Jupiter key for its own price. |
+| `orientim.sol_fee_price` | `key`, `why` (`none`, `expired`, `parameters`) | An ask of Orientim's Jupiter key for a swap's value in SOL, when the fee is paid in SOL from the wallet. |
 
 What to watch: a share of `prepare` answering `busy` or `unavailable` above a few percent (a quota
 or a provider), `internal` at all, `ms` far above its usual (Jupiter or the RPC slowing), and

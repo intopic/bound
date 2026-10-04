@@ -98,3 +98,24 @@ async function agentsCheck(fetchImpl: typeof fetch, siteRpcUrl: string, siteRpc:
   ]);
   return { rpc, build };
 }
+
+export type SwapState = 'running' | 'degraded' | 'paused';
+
+/** What the status page shows: paused by the kill switch, running, or degraded when a check fails. */
+export function swapStateOf(health: Pick<Health, 'ok' | 'paused'>): SwapState {
+  return health.paused ? 'paused' : health.ok ? 'running' : 'degraded';
+}
+
+const STATE_FRESH_MS = 60_000;
+let lastState: { at: number; state: Promise<SwapState> } | null = null;
+
+/**
+ * The status page's state, from the same checks as /api/health, asked at most once a minute by each
+ * server instance, so that visits to the page do not each ask the RPC and Jupiter.
+ */
+export function swapState(now = Date.now(), fetchImpl?: typeof fetch): Promise<SwapState> {
+  if (lastState && now - lastState.at < STATE_FRESH_MS) return lastState.state;
+  const state = checkHealth(fetchImpl).then(swapStateOf, () => 'degraded' as const);
+  lastState = { at: now, state };
+  return state;
+}

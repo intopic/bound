@@ -412,69 +412,7 @@ templates, the fee caps, and the bytes the wallet signs.
 A v1 transaction carries no lookup tables at all, so the assumption disappears as wallets adopt
 it. Orientim does not cross-check the snapshot against a second provider.
 
-## Operational controls
+## Operations and reporting
 
-- Kill switch `ORIENTIM_DISABLED=1`: enforced by the server (both agent endpoints, prepare and
-  finalize, are refused). **On Vercel an
-  environment change reaches only new deployments**, so flipping it in the dashboard
-  does nothing until a redeploy. The runbook:
-  1. Keep a paused deployment ready: deploy the current release once more with `ORIENTIM_DISABLED=1`
-     and leave it unpromoted. Rebuild it with every release.
-  2. To pause: promote that deployment (dashboard, "Promote to Production", or `vercel promote <url>`),
-     which takes seconds. To resume: promote the normal deployment back ("Instant Rollback").
-  3. Revoking an API key or rotating `ORIENTIM_API_SECRET` is a redeploy; for an urgent revocation,
-     pause first (step 2), then redeploy with the key removed. A self-serve key is revoked by its
-     wallet in `ORIENTIM_API_REVOKED`: `<wallet>@<unix seconds>` ends the keys issued until then and
-     lets the owner sign again. Rotating `ORIENTIM_KEY_SECRET` ends every self-serve key at once: every
-     agent must sign again (the plugin does it by itself, a key stored by hand stops working). Moving
-     the old secret to `ORIENTIM_KEY_SECRET_PREVIOUS` keeps them working while agents move over.
-  4. Rehearse it once on a preview: promote, check `/api/status` says paused and a
-     prepare is refused, promote back, and write down how long each step took.
-- The treasury only receives fees. Its key never touches the server; keep it on a hardware wallet
-  or a multisig (e.g. Squads). It is a hot wallet today.
-- If the treasury is compromised (it has happened once): its key can take the fees it holds and
-  nothing else, since it never signs a swap. Then:
-  1. Stop sending fees there: pause (runbook above, step 2).
-  2. Move what is left to a safe wallet, if the key is still yours.
-  3. Make a new treasury, with its USDC and USDT accounts. Put it in `NEXT_PUBLIC_ORIENTIM_TREASURY`
-     and in the skill (`ORIENTIM_TREASURY` in `skills/orientim-protected-swap/src/verify.ts`), then
-     rebuild the skill. Agents refuse a fee to any treasury but the one pinned in their copy of the skill.
-  4. Release, redeploy and promote. Agents on an older copy of the skill refuse every swap until they
-     update, so raise `ORIENTIM_MIN_SKILL_VERSION` with the new skill's version and tell them.
-  5. Record the old and the new address, with the date of the change.
-- Cost: Orientim's RPC and Jupiter quota are spent only through the agent API, and the app's rate
-  limit is per instance. What bounds the cost: a firewall rule per path at the
-  host, spend alerts on the RPC account, and, if wanted, separate keys for the agent API
-  (`RPC_URL_AGENTS`, `JUPITER_API_KEY_AGENTS`). Jupiter counts its limits per organisation, not per
-  key: the API's Jupiter key has a quota of its own only if it comes from a separate Jupiter account.
-- Upstream changes: Jupiter, Pump.fun and Token-2022 are upgraded while Orientim runs (on 24 September
-  2026 the Pump curve program was half a day old and Jupiter's two days; the canary prints the dates
-  each run), and a Jupiter instruction the verifier cannot read stops every swap with `route-format`
-  ("waiting for an update"). `node tools/canary.ts` builds and simulates seven swaps on mainnet state,
-  each with its fee where it belongs (SOL on either side, USDC from the output), one as a v1
-  transaction, and Pump.fun buys on the curve and on PumpSwap; it fails on such a change, on a fee
-  that is no longer taken where it should be, and exits 2 when nothing could be checked at all.
-  `.github/workflows/canary.yml` runs it every twelve hours once the repository variable
-  `ORIENTIM_CANARY` is `1` (off by default). Until it is set, and until `ORIENTIM_SITE_URL` is set for
-  the live check, nothing watches production: the operator must switch both on. The API
-  also logs Jupiter refusing Orientim's key (401, 403) or an endpoint that is gone (404, 410).
-- Releases: deploy only tagged commits, and only after CI is green. The release workflow runs the
-  typecheck, the tests and the skill bundle's check itself before it publishes a digest. Actions are pinned by commit, and
-  a second job builds on another runner image and must match the digest. A tag `v*` publishes the build's digest as a GitHub
-  release, built with the public settings in the repository variables, which must match
-  production's; the live check compares the site with it every six hours and needs
-  `ORIENTIM_SITE_URL`. The build is deterministic: CI builds every release tag twice and fails if the two
-  digests differ, and a Vercel build takes its build id from the commit.
-- No limit per swap: the guarantee is the same for any amount, and nothing in Orientim holds funds.
-  An agent's limits are its owner's (`ORIENTIM_POLICY`). A large swap is
-  limited by the route, not by us: if no route fits inside one transaction, Orientim refuses to build
-  it rather than splitting the swap (section "What Orientim does not protect").
-- API routes are stateless: request bodies counted in bytes and capped at
-  64 KiB, 15 s timeouts upstream, and no request bodies are stored.
-- Rate limits are keyed on the one header the ingress overwrites (`ORIENTIM_CLIENT_IP_HEADER`, default
-  `x-vercel-forwarded-for`); no other header is read. They are per instance: set a rate-limit rule in
-  the hosting firewall for a limit across instances.
-
-## Reporting
-
-Please report vulnerabilities privately to the maintainers before disclosing them publicly.
+How production is run, paused and watched today is in `docs/OPERATORS.md`; how to report a
+vulnerability is in `SECURITY.md` and on orientim.com/security.
