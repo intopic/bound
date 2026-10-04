@@ -46,7 +46,7 @@ const ERRORS: [string, string, string][] = [
   ['400', 'bad-signature', 'Key endpoints: the signature does not match, or the challenge expired or was not Orientim’s. Ask for a new challenge.'],
   ['400', 'wallet-changed-transaction', 'Your wallet’s signature is missing or does not match.'],
   ['400', 'bad-session', 'With ownRoutes: the session expired (two minutes after its first round) or was opened for another swap or key. Prepare again without it.'],
-  ['401', 'unauthorized', 'Missing or unknown API key.'],
+  ['401', 'unauthorized', 'Missing, unknown, expired or revoked API key. Get a new one with the wallet.'],
   ['403', 'wrong-wallet', 'The key belongs to another wallet; a self-serve key prepares swaps for its own wallet only.'],
   ['403', 'wallet-empty', 'Key endpoints: the wallet holds less than 0.01 SOL. Fund it, then ask again.'],
   ['404', 'not-enabled', 'The agent API is not available.'],
@@ -691,6 +691,10 @@ POST /api/v1/keys
                   60 requests a minute for each endpoint, counted per wallet for a self-serve key; each round of{' '}
                   <a href="#own-routes">your own routes</a> is one prepare request. A <code>429</code> carries{' '}
                   <code>Retry-After</code>: the seconds until the count starts again.
+                </li>
+                <li>
+                  At the edge, before Orientim: 120 prepare and finalize requests a minute from one IP address, answered{' '}
+                  <code>429</code> above it.
                 </li>
                 <li>API keys: 30 challenges and 10 keys an hour from one address.</li>
                 <li>One swap per output token at a time, and one per wallet in the skill.</li>

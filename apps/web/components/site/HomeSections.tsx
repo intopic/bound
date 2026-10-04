@@ -160,7 +160,7 @@ export function HomeSections() {
               </ul>
             </div>
             <div className="terminal policy">
-              <div className="terminal-bar"><span /><span /><span /><em>orientim-policy.json</em></div>
+              <div className="terminal-bar"><span /><span /><span /><em>orientim-policy.json, annotated</em></div>
               <pre tabIndex={0}>{`{
   "maxAmountIn": {
     "EPjF…Dt1v": "50000000"`}<span className="dim">{`      // 50 USDC a swap`}</span>{`

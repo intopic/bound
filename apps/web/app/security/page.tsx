@@ -91,7 +91,7 @@ export default async function Page() {
             <thead><tr><th>Cost</th><th>Amount</th><th>Who receives it</th></tr></thead>
             <tbody>
               <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText} of the swap: of the amount in, when taken from the input; of the guaranteed minimum, when taken from the output; of the swap’s value in SOL, when paid in SOL from your wallet` : 'None'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
-              <tr><td>Network fee</td><td>Usually ~0.00002 SOL, never more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is stated before your agent signs.</td></tr>
+              <tr><td>Network fee</td><td>Usually under 0.0001 SOL, never more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is stated before your agent signs.</td></tr>
               <tr><td>Market account fee</td><td>Only on some markets, such as a Pump.fun launch curve</td><td>The market. Stated before your agent signs, with what comes back.</td></tr>
               <tr><td>Token transfer tax</td><td>Only on tokens that tax transfers</td><td>The token&apos;s issuer. Stated before your agent signs.</td></tr>
             </tbody>
@@ -100,7 +100,7 @@ export default async function Page() {
         <ul>
           <li>No fee for an API key, or for a swap your agent does not sign.</li>
           <li>A swap that does not run, because less than the minimum would arrive or its time ran out, costs at most the network fee.</li>
-          <li>Swaps smaller than $1 are refused: the costs would be larger than the swap.</li>
+          <li>Swaps smaller than about 0.004 SOL, or $1 of USDC or USDT, are refused: the costs would be larger than the swap. Selling the whole balance of a token is allowed at any size.</li>
         </ul>
       </section>
 
@@ -117,7 +117,7 @@ export default async function Page() {
           </table>
         </div>
         <ul>
-          <li><strong>A key file or a signing service your agent controls</strong>: supported. The skill never reads a key; your code signs.</li>
+          <li><strong>A key file or a signing service your agent controls</strong>: supported. The command line never reads a key: your bot signs. The example reads a key file only when you give it one; a signing service keeps the key away from the agent.</li>
           <li><strong>For the API key</strong>: a browser wallet that can sign a message, such as Phantom, Solflare or Backpack, or the skill&apos;s command line.</li>
           <li><strong>Signers that can only sign and send at once, and multisig vaults</strong>: not supported, because the agent&apos;s wallet must sign first and Orientim last.</li>
         </ul>

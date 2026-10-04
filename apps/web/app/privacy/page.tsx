@@ -19,7 +19,7 @@ const PROCESSING: [string, string, string][] = [
     'Providing the service you request',
   ],
   ['The swap: tokens, amounts, your minimum, and the transaction you signed', 'The same.', 'Providing the service you request'],
-  ['Your IP address', 'To limit how often requests can be made, held in memory only, and to protect the service from abuse.', 'Our legitimate interest in security'],
+  ['Your IP address', 'To limit how often requests can be made, by our servers in memory and by our hosting provider\'s firewall, and to protect the service from abuse.', 'Our legitimate interest in security'],
   [
     'Request logs kept by our hosting provider: time, the address requested (which can name a wallet or a token account), IP address, browser type',
     'Running, securing and troubleshooting the service.',
@@ -107,7 +107,7 @@ export default async function Page() {
       <section id="retention">
         <h2>6. How long</h2>
         <ul>
-          <li>Rate-limit counts: in memory only, for at most an hour.</li>
+          <li>Rate-limit counts: in memory, and at our hosting provider&apos;s firewall, for at most an hour.</li>
           <li>Request logs at our hosting provider: up to {legal('logRetentionDays')} days, then deleted.</li>
           <li>What you write to us: as long as needed to answer you, and up to 12 months after.</li>
         </ul>
@@ -140,7 +140,7 @@ export default async function Page() {
         <h2>9. Security</h2>
         <p>
           Connections are encrypted, the pages run under a strict content security policy, there is no database of users, and
-          rate-limit data is held in memory only. No system is fully secure; see the <a href="/terms#risks">risks</a>.
+          rate-limit counts are kept only for as long as they limit anything. No system is fully secure; see the <a href="/terms#risks">risks</a>.
         </p>
       </section>
 
